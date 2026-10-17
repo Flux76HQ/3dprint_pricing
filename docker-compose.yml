@@ -1,10 +1,13 @@
 # 3D Print Pricing: app + PostgreSQL.
 # Everything that differs per deployment comes from .env (copy .env.example, or run
 # `python scripts/init_env.py`). The port is set once, in WEB_PORT.
+#
+# This file only pulls the published image, so a server needs nothing but this file
+# and .env. To build from a checkout instead:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 services:
   app:
     image: ${APP_IMAGE:-ghcr.io/flux76hq/3dprint_pricing:latest}
-    build: .
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}

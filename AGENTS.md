@@ -53,7 +53,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - Version source of truth is the `VERSION` file (`MAJOR.MINOR.PATCH`).
 - Changes touching runtime/build/deploy/CI surfaces **must** bump it.
 - Protected paths: `backend/`, `frontend/`, `deploy/`, `scripts/`, `.github/workflows/`,
-  `.github/copilot-instructions.md`, `Dockerfile`, `docker-compose.yml`, `.env.example`.
+  `.github/copilot-instructions.md`, `Dockerfile`, `docker-compose.yml`, `docker-compose.build.yml`, `.env.example`.
 - Documentation-only edits (`*.md`, `*.txt`) are exempt.
 - Bump with `python scripts/bump_version.py` (patch by default).
 
@@ -70,7 +70,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   | `agent-instructions-lint` | that this file stays canonical and unduplicated |
   | `backend-tests` | calculator, WebAuthn, migrations, API; fails if any test was skipped |
   | `frontend-syntax` | every frontend module parses; the manifest is valid JSON |
-  | `docker-build` | the image builds and `docker-compose.yml` is valid for `.env.example` |
+  | `docker-build` | the image builds and both compose files are valid for `.env.example` |
 
 - A control has to be findable on the pull request under the name a document cites it by.
 - Migrations are forward-only: never edit an applied `NNNN_*.sql`; add a new one. The runner

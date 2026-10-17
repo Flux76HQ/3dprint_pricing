@@ -14,7 +14,7 @@ PROTECTED_PATTERNS = (
     re.compile(r"^\.github/workflows/"),
     re.compile(r"^\.github/copilot-instructions\.md$"),
     re.compile(r"^Dockerfile$"),
-    re.compile(r"^docker-compose\.yml$"),
+    re.compile(r"^docker-compose(\.build)?\.yml$"),
     re.compile(r"^\.env\.example$"),
 )
 
