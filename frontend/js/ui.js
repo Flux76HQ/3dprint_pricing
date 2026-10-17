@@ -25,6 +25,7 @@ const ICONS = {
   expand: '<path d="m9 6 6 6-6 6"/>',
   box: '<path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/>',
   more: '<circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l3 3"/>',
 };
 
@@ -80,4 +81,29 @@ export function confirmDialog(message, confirmLabel = 'Verwijderen') {
     document.body.append(dialog);
     dialog.showModal();
   });
+}
+
+// A real <button role="switch">: the accessibility tree is right by construction, and
+// space/enter/focus order come for free. The label points at the title instead of repeating it.
+export function switchRow(title, description, checked, onChange) {
+  const titleId = `sw${Math.random().toString(36).slice(2, 9)}`;
+  const button = h('button', { type: 'button', class: 'switch', role: 'switch', 'aria-checked': String(checked),
+    'aria-labelledby': titleId, onclick: () => {
+      const next = button.getAttribute('aria-checked') !== 'true';
+      button.setAttribute('aria-checked', String(next));
+      onChange(next);
+    } }, h('span', { class: 'thumb' }));
+  return h('div', { class: 'toggle-row' },
+    h('div', {}, h('strong', { id: titleId }, title), h('p', { class: 'muted' }, description)), button);
+}
+
+// Small eye button that flips the "hide costs" display preference from the page itself.
+export function blurToggle(ctx) {
+  const button = h('button', { type: 'button', class: 'btn small', 'aria-pressed': String(!!ctx.prefs.blur_costs),
+    onclick: async () => {
+      await ctx.setPrefs({ blur_costs: !ctx.prefs.blur_costs });
+      button.setAttribute('aria-pressed', String(!!ctx.prefs.blur_costs));
+      button.querySelector('span').textContent = ctx.prefs.blur_costs ? 'Kosten tonen' : 'Kosten verbergen';
+    } }, icon('eye'), h('span', {}, ctx.prefs.blur_costs ? 'Kosten tonen' : 'Kosten verbergen'));
+  return button;
 }

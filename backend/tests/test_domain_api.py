@@ -142,3 +142,53 @@ def test_a_saved_calculation_keeps_the_packaging_price_after_the_item_changes(ow
     again = owner.get(f"/api/projects/{p['id']}").get_json()
     assert again["totals"]["subtotals"]["packaging"] == "1.70"
     assert again["data"]["parts"][0]["packaging_id"] == box["id"]      # the link survives; the price is a snapshot
+
+
+def test_project_stores_the_vat_rate_and_totals(owner):
+    p = make(owner, "/api/projects", {**sheet_payload(), "margin_pct": "50", "vat_pct": "21"})
+    assert p["vat_pct"] == "21.00"
+    assert p["totals"]["vat_amount"] == "0.86" and p["totals"]["sell_price_incl_vat"] == "4.97"
+    assert owner.get("/api/projects").get_json()[0]["vat_pct"] == "21.00"
+    again = owner.put(f"/api/projects/{p['id']}", json={**sheet_payload(), "margin_pct": "50", "vat_pct": "9"}, headers=H)
+    assert again.get_json()["totals"]["sell_price_incl_vat"] == "4.48"       # 4.11 + 0.37
+    assert make(owner, "/api/projects", sheet_payload())["vat_pct"] == "0.00"  # omitted = no VAT
+
+
+@pytest.mark.parametrize("vat", ["-1", "101", "abc"])
+def test_project_rejects_a_bad_vat_rate(owner, vat):
+    assert owner.post("/api/projects", json={**sheet_payload(), "vat_pct": vat}, headers=H).status_code == 400
+
+
+def test_calculate_endpoint_returns_vat(owner):
+    res = post(owner, "/api/calculate", {**sheet_payload(), "margin_pct": 50, "vat_pct": 21}).get_json()
+    assert res["sell_price_incl_vat"] == "4.97"
+
+
+def test_default_vat_preference(owner):
+    assert owner.put("/api/preferences", json={"vat_pct": "21"}, headers=H).get_json()["vat_pct"] == "21"
+    assert owner.put("/api/preferences", json={"vat_pct": "150"}, headers=H).status_code == 400
+    assert owner.put("/api/preferences", json={"vat_pct": "x"}, headers=H).status_code == 400
+
+
+def test_project_stores_the_price_rounding_and_reports_the_effective_margin(owner):
+    body = {**sheet_payload(), "margin_pct": "50", "vat_pct": "21", "price_rounding": "0.50"}
+    p = make(owner, "/api/projects", body)
+    assert p["price_rounding"] == "0.50" and p["margin_pct"] == "50.00"
+    t = p["totals"]
+    assert t["sell_price_incl_vat"] == "5.00" and t["margin_pct_effective"] == "50.73"
+    assert owner.get("/api/projects").get_json()[0]["price_rounding"] == "0.50"
+    assert make(owner, "/api/projects", sheet_payload())["price_rounding"] == "none"
+
+
+def test_bad_rounding_is_refused_and_a_default_can_be_saved(owner):
+    assert owner.post("/api/projects", json={**sheet_payload(), "price_rounding": "0.07"}, headers=H).status_code == 400
+    assert post(owner, "/api/calculate", {**sheet_payload(), "price_rounding": "x"}).status_code == 400
+    assert owner.put("/api/preferences", json={"price_rounding": "x.95"}, headers=H).get_json()["price_rounding"] == "x.95"
+    assert owner.put("/api/preferences", json={"price_rounding": "7"}, headers=H).status_code == 400
+
+
+def test_display_preferences_are_validated_booleans(owner):
+    res = owner.put("/api/preferences", json={"blur_costs": True, "auto_adopt_file": False}, headers=H).get_json()
+    assert res["blur_costs"] is True and res["auto_adopt_file"] is False
+    assert owner.put("/api/preferences", json={"blur_costs": "yes"}, headers=H).status_code == 400
+    assert owner.put("/api/preferences", json={"auto_adopt_file": 1}, headers=H).status_code == 400

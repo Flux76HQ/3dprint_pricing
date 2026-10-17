@@ -1,12 +1,14 @@
 import { api, upload } from './api.js';
-import { confirmDialog, eur, field, fmt, h, icon, numberInput, parseNum, toast } from './ui.js';
+import { blurToggle, confirmDialog, eur, field, fmt, h, icon, numberInput, parseNum, toast } from './ui.js';
 
+const ROUNDINGS = [['none', 'Niet afronden'], ['0.05', 'Op 5 cent'], ['0.10', 'Op 10 cent'], ['0.50', 'Op 50 cent'],
+  ['1.00', 'Op hele euro'], ['5.00', 'Op 5 euro'], ['x.95', 'Eindigend op ,95'], ['x.99', 'Eindigend op ,99']];
 const UNITS = [['stuks', 'stuks'], ['m', 'meter'], ['g', 'gram (prijs per kg)']];
 const dateFmt = new Intl.DateTimeFormat('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' });
 
 // --- list -----------------------------------------------------------------------
 
-export function projectListView() {
+export function projectListView(ctx) {
   const list = h('div', { class: 'cards' }, h('p', { class: 'muted' }, 'Laden…'));
   api('GET', '/api/projects').then((items) => {
     if (!items.length) {
@@ -19,15 +21,17 @@ export function projectListView() {
           p.stock_booked_at ? h('span', { class: 'badge' }, 'Verbruik afgeboekt') : null),
         h('p', { class: 'muted' }, dateFmt.format(new Date(p.updated_at))))),
       h('dl', { class: 'stats' },
-        h('div', {}, h('dt', {}, 'Kostprijs'), h('dd', {}, eur(p.totals.cost_price))),
-        Number(p.margin_pct) > 0
-          ? h('div', {}, h('dt', {}, `Verkoop (+${fmt(p.margin_pct)}%)`), h('dd', {}, eur(p.totals.sell_price)))
-          : null))));
+        h('div', {}, h('dt', {}, 'Kostprijs'), h('dd', { class: 'private' }, eur(p.totals.cost_price))),
+        Number(p.vat_pct) > 0
+          ? h('div', {}, h('dt', {}, `Verkoop incl. ${fmt(p.vat_pct)}% btw`), h('dd', {}, eur(p.totals.sell_price_incl_vat)))
+          : (Number(p.margin_pct) > 0 || p.price_rounding !== 'none'
+            ? h('div', {}, h('dt', {}, 'Verkoop'), h('dd', {}, eur(p.totals.sell_price))) : null)))));
   }).catch((e) => toast(e.message, 'error'));
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' },
       h('div', {}, h('h1', {}, 'Berekeningen'), h('p', { class: 'muted' }, 'Kostprijs per print: filament, onderdelen, energie en afschrijving.')),
-      h('a', { class: 'btn primary', href: '#/berekeningen/nieuw' }, icon('plus'), h('span', {}, 'Nieuwe berekening'))),
+      h('div', { class: 'row' }, blurToggle(ctx),
+        h('a', { class: 'btn primary', href: '#/berekeningen/nieuw' }, icon('plus'), h('span', {}, 'Nieuwe berekening')))),
     list);
 }
 
@@ -42,6 +46,7 @@ function fromSaved(project) {
   return {
     id: project.id, name: project.name, notes: project.notes, margin_pct: str(project.margin_pct),
     file_id: project.file_id || null, source_url: project.source_url || '',
+    vat_pct: str(project.vat_pct), price_rounding: project.price_rounding || 'none',
     stock_booked_at: project.stock_booked_at,
     filament: (d.filament || []).map((r) => ({ spool_id: r.spool_id || '', label: str(r.label), grams: str(r.grams), price_per_kg: str(r.price_per_kg) })),
     parts: (d.parts || []).map((r) => ({ group: r.group || 'onderdeel', packaging_id: r.packaging_id || '', label: str(r.label), quantity: str(r.quantity), unit: r.unit || 'stuks', unit_price: str(r.unit_price) })),
@@ -50,7 +55,7 @@ function fromSaved(project) {
   };
 }
 
-export function projectEditorView(id, navigate) {
+export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: async () => {} }) {
   const root = h('section', { class: 'page' }, h('p', { class: 'muted' }, 'Laden…'));
   Promise.all([
     api('GET', '/api/spools'), api('GET', '/api/printers'), api('GET', '/api/tariffs'), api('GET', '/api/packaging'),
@@ -58,15 +63,16 @@ export function projectEditorView(id, navigate) {
   ]).then(([spools, printers, tariffs, packaging, project]) => {
     root.replaceChildren(buildEditor({
       spools: spools.filter((s) => !s.archived), printers: printers.filter((p) => !p.archived), tariffs,
-      packaging: packaging.filter((p) => !p.archived), project, navigate,
+      packaging: packaging.filter((p) => !p.archived), project, navigate, ctx,
     }));
   }).catch((e) => root.replaceChildren(h('p', { class: 'error', role: 'alert' }, e.message)));
   return root;
 }
 
-function buildEditor({ spools, printers, tariffs, packaging, project, navigate }) {
+function buildEditor({ spools, printers, tariffs, packaging, project, navigate, ctx }) {
   const state = project ? fromSaved(project) : {
     id: null, name: '', notes: '', margin_pct: '0', stock_booked_at: null, file_id: null, source_url: '',
+    vat_pct: ctx.prefs.vat_pct ?? '21', price_rounding: ctx.prefs.price_rounding || 'none',
     filament: [blankFilament()], parts: [], depreciation: [], energy: [],
   };
   let printHours = '1';
@@ -78,11 +84,13 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate }
 
   const costEls = { filament: [], parts: [], depreciation: [], energy: [] };
   const totals = h('dl', { class: 'totals' });
+  const roundNote = h('p', { class: 'hint', role: 'status', hidden: true });
   const calcError = h('p', { class: 'error', role: 'alert', hidden: true });
   const sections = h('div', { class: 'stack' });
 
   const payload = () => ({
     name: state.name, notes: state.notes, margin_pct: parseNum(state.margin_pct),
+    vat_pct: parseNum(state.vat_pct), price_rounding: state.price_rounding,
     file_id: state.file_id, source_url: state.source_url.trim(),
     data: {
       filament: state.filament.map((r) => ({ spool_id: r.spool_id || null, label: r.label, grams: parseNum(r.grams), price_per_kg: parseNum(r.price_per_kg) })),
@@ -96,21 +104,31 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate }
 
   function renderTotals() {
     if (!result) return;
-    const row = (label, value, cls = '') => [h('dt', { class: cls }, label), h('dd', { class: cls }, eur(value))];
+    // Cost-side rows are marked private so the "hide costs" setting can blur them; selling price, VAT stay visible.
+    const row = (label, value, cls = '', priv = false) => [h('dt', { class: `${cls}${priv ? ' private' : ''}` }, label), h('dd', { class: `${cls}${priv ? ' private' : ''}` }, eur(value))];
+    const cost = (label, value, cls = '') => row(label, value, cls, true);
     const s = result.subtotals;
+    const hasMargin = Number(result.margin_amount) > 0 || result.rounding !== 'none';
+    const hasVat = Number(result.vat_pct) > 0;
     totals.replaceChildren(
-      ...row('Filament', s.filament), ...row('Onderdelen', s.parts), ...row('Oplader / accessoires', s.charger),
-      ...row('Subtotaal onderdelen + lader', s.parts_and_charger, 'sub'),
-      ...row('Verpakking', s.packaging),
-      ...row('Afschrijving printer', s.depreciation), ...row('Energie', s.energy),
-      ...row('Subtotaal energie + afschrijving', s.energy_and_depreciation, 'sub'),
-      ...row('Totale kostprijs', result.cost_price, 'grand'),
-      ...(Number(result.margin_pct) > 0
-        ? [...row(`Marge (${fmt(result.margin_pct)}%)`, result.margin_amount), ...row('Verkoopprijs', result.sell_price, 'grand')]
-        : []));
+      ...cost('Filament', s.filament), ...cost('Onderdelen', s.parts), ...cost('Oplader / accessoires', s.charger),
+      ...cost('Subtotaal onderdelen + lader', s.parts_and_charger, 'sub'),
+      ...cost('Verpakking', s.packaging),
+      ...cost('Afschrijving printer', s.depreciation), ...cost('Energie', s.energy),
+      ...cost('Subtotaal energie + afschrijving', s.energy_and_depreciation, 'sub'),
+      ...cost('Totale kostprijs', result.cost_price, 'grand'),
+      ...(hasMargin ? cost(`Marge (${fmt(result.margin_pct_effective)}%)`, result.margin_amount) : []),
+      ...(hasMargin || hasVat ? row('Verkoopprijs excl. btw', result.sell_price, 'sub') : []),
+      ...(hasVat ? [...row(`BTW (${fmt(result.vat_pct)}%)`, result.vat_amount), ...row('Verkoopprijs incl. btw', result.sell_price_incl_vat, 'grand')] : []));
+    const lifted = result.rounding !== 'none' && Number(result.margin_pct_effective) > Number(result.margin_pct) + 0.004;
+    roundNote.textContent = lifted ? `Marge opgehoogd van ${fmt(result.margin_pct)}% naar ${fmt(result.margin_pct_effective)}% voor een ronde prijs.` : '';
+    roundNote.hidden = !lifted;
     for (const key of Object.keys(costEls)) {
       costEls[key].forEach((el, i) => {
-        if (el && result[key][i]) el.textContent = eur(result[key][i].cost);
+        if (el && result[key][i]) {
+          el.textContent = eur(result[key][i].cost);
+          if (result[key][i].hours_billed) el.title = `Gerekend als ${fmt(result[key][i].hours_billed, 0)} uur`;
+        }
       });
     }
   }
@@ -118,7 +136,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate }
   async function recalc() {
     try {
       const body = payload();
-      result = await api('POST', '/api/calculate', { data: body.data, margin_pct: body.margin_pct });
+      result = await api('POST', '/api/calculate', { data: body.data, margin_pct: body.margin_pct, vat_pct: body.vat_pct, price_rounding: body.price_rounding });
       calcError.hidden = true;
       renderTotals();
     } catch (e) {
@@ -135,7 +153,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate }
   const bind = (obj, key, extra) => (v) => { obj[key] = v; if (extra) extra(); touch(); };
   const textInput = (obj, key, attrs = {}) => h('input', { type: 'text', value: obj[key], ...attrs, oninput: (e) => bind(obj, key)(e.target.value) });
   const costCell = (bucket, index) => {
-    const el = h('output', { class: 'cost' }, '—');
+    const el = h('output', { class: 'cost private' }, '—');
     costEls[bucket][index] = el;
     return h('div', { class: 'field cost-field' }, h('span', { class: 'lbl' }, 'Kosten'), el);
   };
@@ -236,7 +254,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate }
       h('h2', {}, 'Printtijd, energie en afschrijving'),
       !printers.length ? h('p', { class: 'muted' }, 'Tip: voeg je printer toe onder Printers; afschrijving en vermogen worden dan automatisch ingevuld.') : null,
       h('div', { class: 'line add-printer' },
-        field('Printtijd (uren)', hoursInput, 'Geldt voor alle regels hieronder; je kunt ze apart aanpassen.'),
+        field('Printtijd (uren)', hoursInput, 'Geldt voor alle regels hieronder. Machinetijd (afschrijving en stroom) wordt altijd naar boven afgerond op hele uren.'),
         printers.length ? field('Printer', printerSelect) : null,
         printers.length ? h('button', { class: 'btn', type: 'button', onclick: addPrinter }, icon('plus'), h('span', {}, 'Printer toevoegen')) : null),
       h('div', { class: 'lines' }, depRows, energyRows),
@@ -298,15 +316,31 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate }
     return { spool_id: sp ? sp.id : '', label: sp ? [sp.brand, sp.colour].filter(Boolean).join(' ') : label, grams: String(grams), price_per_kg: sp ? perKg(sp) : '' };
   };
 
-  function adoptSliced(plate) {
+  // Takes grams and hours from the slicer into the calculation: filament lines (priced from the
+  // matching roll), whole print hours, and a printer line with depreciation and energy.
+  function adoptSliced(plate, auto = false) {
     state.filament = plate.filaments.map((f) => filamentRow(`${f.type} ${f.color}`.trim() || 'Filament', f.grams, f.type));
+    const notes = [];
+    let whole = null;
     if (plate.hours) {
-      setHours(String(plate.hours));
-      if (!state.depreciation.length && printers.length) addPrinterRows(printers[0]);
+      whole = Math.ceil(plate.hours);                 // machine time is charged in whole hours, rounded up
+      setHours(String(whole));
+      if (!state.depreciation.length) {
+        if (printers.length) addPrinterRows(printers[0]);
+        else notes.push('voeg een printer toe voor afschrijving en stroom');
+      }
+      if (!defaultTariff) notes.push('voeg een energietarief toe');
     }
+    if (state.filament.some((r) => !r.price_per_kg)) notes.push('kies per filamentregel een rol voor de prijs');
     touch(); redraw();
-    toast(plate.hours ? 'Gram en uren overgenomen. Controleer de gekozen rol en printer.' : 'Gram overgenomen.');
+    const what = `${fmt(plate.grams || 0, 1)} g${whole ? `, ${fmt(plate.hours, 2)} u → ${whole} u` : ''}`;
+    toast(`${auto ? 'Automatisch overgenomen' : 'Overgenomen'}: ${what}.${notes.length ? ` Let op: ${notes.join('; ')}.` : ''}`, notes.length ? 'error' : 'info');
   }
+
+  const autoToggle = () => h('label', { class: 'check' },
+    h('input', { type: 'checkbox', checked: ctx.prefs.auto_adopt_file !== false,
+      onchange: (e) => ctx.setPrefs({ auto_adopt_file: e.target.checked }) }),
+    'Gram en uren automatisch overnemen bij het inlezen van een gesliced bestand');
 
   async function adoptEstimate() {
     try {
@@ -335,11 +369,13 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate }
           if (!Object.keys(densities).length) densities = await api('GET', '/api/print-files/materials');
         } catch (err) { toast(err.message, 'error'); }
         drawFile();
+        const first = fileMeta && fileMeta.analysis.plates[0];
+        if (first && ctx.prefs.auto_adopt_file !== false) adoptSliced(first, true);
       } });
       const status = h('p', { class: 'muted', role: 'status' });
       parts.push(field('3D-printbestand (STL of 3MF)', input,
         'Een gesliced 3MF uit Bambu Studio of Orca (“Export plate sliced file”) geeft de echte gram en printtijd. ' +
-        'Een STL of ongesliced 3MF geeft alleen een schatting van het gewicht.'), status);
+        'Een STL of ongesliced 3MF geeft alleen een schatting van het gewicht.'), autoToggle(), status);
     } else {
       const a = fileMeta.analysis;
       parts.push(h('div', { class: 'list-row' },
@@ -362,7 +398,8 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate }
           if (/^#[0-9a-f]{6}$/i.test(f.color)) dot.style.background = f.color;
           return h('li', { class: 'row' }, dot, `${f.type || 'Filament'} ${f.color}`.trim(), h('span', { class: 'muted' }, `· ${fmt(f.grams, 1)} g`));
         })),
-        h('button', { class: 'btn primary', type: 'button', onclick: () => adoptSliced(plate) }, 'Gram en uren overnemen'));
+        h('button', { class: 'btn primary', type: 'button', onclick: () => adoptSliced(plate) }, 'Gram en uren overnemen'),
+        autoToggle());
       } else {
         const estimate = h('output', { class: 'cost' }, '…');
         const refresh = () => {
@@ -401,7 +438,10 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate }
   drawFile();
 
   const nameInput = textInput(state, 'name', { required: true, maxlength: 120, placeholder: 'bijv. USW-Ultra 10-inch rack-mount' });
-  const marginInput = numberInput(state.margin_pct, bind(state, 'margin_pct'));
+  const marginInput = numberInput(state.margin_pct, bind(state, 'margin_pct'), { class: 'private' });
+  const vatInput = numberInput(state.vat_pct, bind(state, 'vat_pct'), { list: 'vat-presets' });
+  const vatPresets = h('datalist', { id: 'vat-presets' }, ['0', '9', '21'].map((v) => h('option', { value: v })));
+  const roundingSelect = select(ROUNDINGS, state.price_rounding, (v) => { state.price_rounding = v; touch(); });
   const notes = h('textarea', { rows: 2, oninput: (e) => bind(state, 'notes')(e.target.value) }, state.notes || '');
   const canBook = state.id && !state.stock_booked_at && state.filament.some((r) => r.spool_id);
 
@@ -415,12 +455,17 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate }
     h('div', { class: 'editor-grid' },
       h('div', { class: 'stack' },
         h('div', { class: 'glass card stack' },
-          h('div', { class: 'two' }, field('Project', nameInput), field('Marge (%)', marginInput, 'Optioneel: geeft een adviesverkoopprijs.')),
+          field('Project', nameInput),
+          h('div', { class: 'three' },
+            field('Marge (%)', marginInput, 'Optioneel. Met afronding is dit het minimum.'),
+            field('BTW (%)', vatInput, 'Over de verkoopprijs. 0 = geen btw. Je inkoopprijzen hierboven zijn excl. btw.'),
+            field('Prijs incl. btw afronden', roundingSelect, 'De marge wordt zo nodig iets verhoogd.')),
+          vatPresets,
           field('Notities', notes)),
         fileBox,
         sections),
       h('aside', { class: 'glass card summary', 'aria-label': 'Kostprijs' },
-        h('h2', {}, 'Kostprijs'), totals, calcError,
+        h('div', { class: 'row between' }, h('h2', {}, 'Kostprijs'), blurToggle(ctx)), totals, roundNote, calcError,
         h('div', { class: 'stack' },
           h('button', { class: 'btn primary', type: 'button', onclick: () => save(false) }, 'Opslaan'),
           state.id ? h('button', { class: 'btn', type: 'button', onclick: () => save(true) }, 'Opslaan als kopie') : null,

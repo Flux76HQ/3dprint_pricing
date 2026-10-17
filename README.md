@@ -8,7 +8,9 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
   bewaren de prijzen van het moment van opslaan.
 - **Printbestand koppelen** — upload een `.3mf` of `.stl` bij een berekening; het bestand blijft bewaard en is later
   te downloaden. Uit een **gesliced 3MF** (Bambu Studio / Orca, “Export plate sliced file”) leest de app de
-  echte **gram per filament** en **printtijd**, die je met één klik overneemt. Uit een **STL** (of een 3MF zonder
+  echte **gram per filament** en **printtijd**. Die worden standaard **automatisch** verwerkt in de berekening (uit te
+  zetten): filamentregels met de prijs van de passende rol, printtijd naar boven op hele uren, en een printerregel
+  met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik. Uit een **STL** (of een 3MF zonder
   slicer-data) leest de app het volume en **schat** het gewicht (volume × dichtheid × effectieve vulling);
   de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast kun je een **link** naar het model
   bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
@@ -20,8 +22,16 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
 - **Energie** — tarieven per kWh, met een standaardtarief.
 - Licht/donker/systeem, eigen accentkleur, installeerbaar op je beginscherm.
 
-De kostprijs volgt de spreadsheet: `filament + onderdelen + lader + afschrijving + energie`, elke
-regel op hele centen afgerond vóór het optellen.
+De kostprijs volgt de spreadsheet: `filament + onderdelen + lader + verpakking + afschrijving + energie`, elke
+regel op hele centen afgerond vóór het optellen. **Machinetijd (afschrijving en stroom) wordt altijd naar boven
+afgerond op hele uren**: 3,06 uur rekent als 4 uur.
+
+**Zakelijk verkopen:** over de verkoopprijs (kostprijs + marge) komt **btw** (standaard 21%, per berekening aan te
+passen; 0 = geen btw). Inkoopprijzen voer je excl. btw in. Met **“Prijs incl. btw afronden”** (op 5/10/50 cent, hele
+euro's of eindigend op ,95/,99) wordt de prijs incl. btw naar boven afgerond en geldt je marge als *minimum*: de app
+verhoogt de marge net genoeg en toont de effectieve marge; de btw wordt uit de ronde prijs gehaald. Standaard btw en
+afronding stel je in onder *Instellingen → Zakelijk*. Onder *Instellingen → Weergave* kun je kostprijs, subtotalen en
+marge **blurren** op de berekeningenpagina (ook met de knop “Kosten verbergen” daar), handig als een klant meekijkt.
 
 ## Starten (Docker)
 

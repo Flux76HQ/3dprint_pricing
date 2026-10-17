@@ -41,6 +41,7 @@ function applyPrefs() {
   el.style.setProperty('--on-accent', luminance(accent) > 0.4 ? '#14131f' : '#ffffff');
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', accent);
   el.classList.toggle('sidebar-collapsed', !!prefs.sidebar_collapsed);
+  el.classList.toggle('blur-costs', !!prefs.blur_costs);
   try { localStorage.setItem('pp-prefs', JSON.stringify(prefs)); } catch { /* private mode */ }
 }
 
@@ -65,8 +66,8 @@ function currentRoute() {
 function pageContent({ page, id }) {
   switch (page) {
     case 'berekeningen':
-      if (id) return projectEditorView(id === 'nieuw' ? null : id, navigate);
-      return projectListView();
+      if (id) return projectEditorView(id === 'nieuw' ? null : id, navigate, { get prefs() { return prefs; }, setPrefs });
+      return projectListView({ get prefs() { return prefs; }, setPrefs });
     case 'filament': case 'verpakking': case 'printers': case 'energie': return resourceView(page);
     case 'meer':
       return h('section', { class: 'page' },

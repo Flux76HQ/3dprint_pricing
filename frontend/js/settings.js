@@ -1,13 +1,16 @@
 import { api, confirmWithPasskey, createPasskey } from './api.js';
-import { confirmDialog, h, icon, toast } from './ui.js';
+import { confirmDialog, field, h, icon, numberInput, switchRow, toast } from './ui.js';
 
 export const ACCENTS = [
   ['#6c5ce7', 'Violet'], ['#0a84ff', 'Blauw'], ['#5e5ce6', 'Indigo'], ['#bf5af2', 'Paars'],
   ['#e0457b', 'Roze'], ['#e5484d', 'Rood'], ['#d9730d', 'Oranje'], ['#2f9e44', 'Groen'], ['#0c9aa6', 'Teal'],
 ];
+const ROUNDINGS = [['none', 'Niet afronden'], ['0.05', 'Op 5 cent'], ['0.10', 'Op 10 cent'], ['0.50', 'Op 50 cent'],
+  ['1.00', 'Op hele euro'], ['5.00', 'Op 5 euro'], ['x.95', 'Eindigend op ,95'], ['x.99', 'Eindigend op ,99']];
 const THEMES = [['system', 'Systeem'], ['light', 'Licht'], ['dark', 'Donker']];
 
 export function settingsView({ prefs, setPrefs, user, onLogout, highlightPasskey }) {
+  let vatTimer = null;
   const security = h('div', { class: 'stack' });
   const codesBox = h('div');
 
@@ -91,7 +94,20 @@ export function settingsView({ prefs, setPrefs, user, onLogout, highlightPasskey
     highlightPasskey ? h('p', { class: 'notice', role: 'status' }, 'Je bent ingelogd met een herstelcode. Voeg nu een nieuwe passkey toe aan dit apparaat.') : null,
     h('div', { class: 'glass card stack' }, h('h2', {}, 'Weergave'),
       h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, 'Thema'), h('p', { class: 'muted' }, 'Systeem volgt de instelling van je apparaat.')), themeButtons),
-      h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, 'Accentkleur'), h('p', { class: 'muted' }, 'Voor knoppen, links en selecties.')), accentButtons)),
+      h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, 'Accentkleur'), h('p', { class: 'muted' }, 'Voor knoppen, links en selecties.')), accentButtons),
+      switchRow('Kostprijs en marge blurren',
+        'Maakt kostprijs, subtotalen, kosten per regel en marge onscherp op de pagina Berekeningen, handig als een klant meekijkt. Verkoopprijs en btw blijven leesbaar.',
+        !!prefs.blur_costs, (on) => setPrefs({ blur_costs: on }))),
+    h('div', { class: 'glass card stack' }, h('h2', {}, 'Zakelijk'),
+      h('p', { class: 'muted' }, 'Standaardwaarden voor nieuwe berekeningen; per berekening aan te passen.'),
+      h('div', { class: 'two' },
+        field('Standaard btw-tarief (%)', numberInput(prefs.vat_pct ?? '21', (v) => {
+          clearTimeout(vatTimer);
+          vatTimer = setTimeout(() => setPrefs({ vat_pct: v.replace(',', '.') }), 600);
+        }, { list: 'vat-presets-settings' }), '21 hoog tarief, 9 laag tarief, 0 = geen btw (bijv. kleineondernemersregeling).'),
+        field('Standaard afronding prijs incl. btw', h('select', { onchange: (e) => setPrefs({ price_rounding: e.target.value }) },
+          ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (prefs.price_rounding || 'none') === v }, l))))),
+      h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
     h('div', { class: 'glass card stack' }, h('h2', {}, 'Beveiliging'),
       h('p', { class: 'muted' }, 'Je logt in met passkeys; er is geen wachtwoord. Verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.'),
       security),
