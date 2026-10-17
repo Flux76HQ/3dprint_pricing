@@ -22,6 +22,18 @@ python scripts/init_env.py --port 6090 --domain print.voorbeeld.nl   # maakt .en
 docker compose up -d
 ```
 
+Op een server heb je alleen `docker-compose.yml` en `.env` nodig: de app-image wordt van GHCR gepulld
+(`ghcr.io/flux76hq/3dprint_pricing`). Is dat package **privaat**, log dan eerst in met een token met
+`read:packages` (`echo $TOKEN | docker login ghcr.io -u <gebruiker> --password-stdin`), of maak het package
+publiek onder *GitHub → Packages → Package settings → Change visibility*. Zonder toegang faalt de pull met
+`denied`/`unauthorized`.
+
+Bouwen uit een checkout (met de `Dockerfile`) kan ook:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
 Zonder `--domain` wordt `http://localhost:<poort>` ingesteld, genoeg om het uit te proberen.
 Handmatig kan ook: `cp .env.example .env` en de waarden invullen.
 
