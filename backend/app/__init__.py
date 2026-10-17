@@ -5,7 +5,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import api, auth, files
+from . import api, auth, files, push, push_api
 from .config import Config, load_config
 from .db import make_pool
 from .http import ApiError, error_response
@@ -63,7 +63,11 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     app.register_blueprint(auth.bp)
     app.register_blueprint(api.bp)
     app.register_blueprint(files.bp)
+    app.register_blueprint(push_api.bp)
     app.register_error_handler(ApiError, error_response)
+
+    if cfg.push_configured and not app.testing and os.environ.get("PUSH_WORKER", "on") != "off":
+        push.start_outbox_worker(app)          # delivers notifications held back by quiet hours
 
     @app.errorhandler(404)
     def _not_found(_):
@@ -106,6 +110,16 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
 
     def _spa():
         return send_from_directory(cfg.static_dir, "index.html", max_age=0)
+
+    @app.get("/sw.js")
+    def service_worker():
+        """The worker file carries the release, so every release changes its bytes and browsers see an update."""
+        source = (Path(cfg.static_dir) / "sw.js").read_text(encoding="utf-8")
+        source = source.replace("const APP_VERSION = 'dev';", f"const APP_VERSION = '{VERSION} ({_commit()})';")
+        response = app.response_class(source, mimetype="text/javascript")
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Service-Worker-Allowed"] = "/"
+        return response
 
     @app.get("/", defaults={"path": ""})
     @app.get("/<path:path>")

@@ -1,3 +1,7 @@
+// The server replaces the value below with the running release, so every release changes this file's
+// bytes and browsers notice an update.
+const APP_VERSION = 'dev';
+
 // Offline shell: static files are cached, the API never is (prices must be live).
 // Network first, cache only as the offline fallback: a new release must show up on the very next
 // load, not the one after (stale-while-revalidate served the old interface once more).
@@ -33,4 +37,40 @@ self.addEventListener('fetch', (event) => {
     }
     return res;
   }).catch(() => caches.match(req)));
+});
+
+// --- Web push -------------------------------------------------------------------------------------
+// Deliberately plain: no requireInteraction and no vibration pattern. The app does not try to break
+// through a Focus / Do Not Disturb mode; interruptions are the user's setting to make on their device.
+// (backend/tests/test_push.py fails if either option appears here.)
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { body: event.data ? event.data.text() : '' };
+  }
+  // Every push must show something (userVisibleOnly), so fall back to a generic text.
+  const options = {
+    body: data.body || '',
+    icon: '/icons/icon-192.png',
+    tag: data.tag || undefined,
+    silent: data.silent !== false,
+    data: { url: typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/' },
+  };
+  event.waitUntil(self.registration.showNotification(data.title || '3D Print Pricing', options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL((event.notification.data && event.notification.data.url) || '/', self.location.origin).href;
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+    for (const client of windows) {
+      if ('focus' in client) {
+        client.navigate(target).catch(() => {});
+        return client.focus();
+      }
+    }
+    return self.clients.openWindow(target);
+  }));
 });

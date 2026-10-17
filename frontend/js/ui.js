@@ -111,3 +111,13 @@ export function blurToggle(ctx) {
 
 // "v0.3.1 (abc1234)": the running release and the commit it was built from.
 export const versionLabel = (v) => (v ? `v${v.version} (${v.commit || 'dev'})` : '');
+
+// Banners (install hint, "new version available") stack at the top; one per id.
+export function showBanner(id, { text, actions = [] }) {
+  const host = document.getElementById('banners');
+  host.querySelector(`[data-banner="${id}"]`)?.remove();
+  const el = h('div', { class: 'banner glass', role: 'status', 'data-banner': id },
+    h('p', {}, text), h('div', { class: 'row' }, actions.filter(Boolean)));
+  host.append(el);
+  return { close: () => el.remove() };
+}

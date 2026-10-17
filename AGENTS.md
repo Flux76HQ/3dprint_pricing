@@ -67,6 +67,15 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   whose size does not match its media query, an orphaned PNG, or an icon with transparency.
   Installed (standalone) navigation must use `goTo()` from `js/pwa.js`, never `location.hash =`, so
   no history entries are added.
+- Web push goes through one function, `push.send_one`, and every kind (the test button included) goes
+  through `push.notify`. TTL, `Urgency` and `Topic` are stated there, with the human reason next to the
+  number; `high` urgency, a zero TTL, `requireInteraction` and vibration are forbidden and each is
+  asserted by `test_push.py` (see project baseline section 11). Quiet hours are wall-clock plus IANA
+  timezone, wrap midnight, defer rather than discard, and fail open.
+- `frontend/sw.js` contains the line `const APP_VERSION = 'dev';` exactly: the server replaces it with
+  the running release so every release changes the worker's bytes. Do not rename or reformat it.
+- Never copy `ctx.prefs` (or any setting) into a local variable that outlives a save; read it when needed.
+  `setPrefs` rolls back and returns false when the server refuses a change.
 - UI text is Dutch. Build DOM with the `h()` helper and `textContent`; never `innerHTML` with data
   (the CSP also forbids inline script and style).
 

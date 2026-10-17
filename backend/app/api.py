@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, g, jsonify, request
 
+from . import push
 from .calc import ROUNDINGS, calculate
 from .http import ApiError, json_body, login_required, pool
 
@@ -221,6 +222,14 @@ def put_preferences():
         prefs["accent"] = body["accent"].lower()
     if "vat_pct" in body:
         prefs["vat_pct"] = str(number("Standaard btw-tarief", maximum=100)(body["vat_pct"]))
+    if "notify_release" in body:
+        prefs["notify_release"] = boolean("Melding bij nieuwe versie")(body["notify_release"])
+    if "quiet_hours" in body:
+        window = body["quiet_hours"]
+        if not isinstance(window, dict) or not isinstance(window.get("enabled"), bool) \
+                or not push.valid_window({"tz": window.get("tz"), "start": window.get("start"), "end": window.get("end")}):
+            raise ApiError(400, "Stille uren: geef begin en einde als UU:MM en een geldige tijdzone, bijv. Europe/Amsterdam.")
+        prefs["quiet_hours"] = {"enabled": window["enabled"], "start": window["start"], "end": window["end"], "tz": window["tz"]}
     if "blur_costs" in body:
         prefs["blur_costs"] = boolean("Kosten blurren")(body["blur_costs"])
     if "auto_adopt_file" in body:

@@ -15,6 +15,9 @@ fi
 
 python migrate.py
 
+# Tell opted-in devices about a new release. Best effort: a failed push never blocks the start.
+python announce_release.py || true
+
 # Reading a large 3MF can take a while, hence the longer timeout.
 exec gunicorn \
   --bind "0.0.0.0:${WEB_PORT}" \

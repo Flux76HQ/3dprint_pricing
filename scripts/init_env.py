@@ -12,6 +12,9 @@ import secrets
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from generate_vapid import generate as generate_vapid  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -40,6 +43,7 @@ def main() -> int:
         "RP_ORIGINS": origin,
         "SETUP_CODE": secrets.token_hex(4),
         "SESSION_SECRET": secrets.token_hex(32),
+        **generate_vapid(),                      # web push keys
     }
     text = (ROOT / ".env.example").read_text(encoding="utf-8")
     for key, value in values.items():
