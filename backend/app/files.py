@@ -51,11 +51,11 @@ def _purge_orphans(conn) -> None:
 def upload():
     upload_file = request.files.get("file")
     if upload_file is None or not upload_file.filename:
-        raise ApiError(400, "Kies een .stl- of .3mf-bestand.")
+        raise ApiError(400, "files.pick")
     filename = re.sub(r"[\\/\x00-\x1f]", "_", os.path.basename(upload_file.filename.replace("\\", "/")))[:200]
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED:
-        raise ApiError(400, "Alleen .stl en .3mf worden ondersteund.")
+        raise ApiError(400, "pf.unsupported")
 
     stored = f"{uuid.uuid4().hex}{ext}"
     target = _dir() / stored
@@ -68,11 +68,11 @@ def upload():
                 size += len(chunk)
                 out.write(chunk)
         if size == 0:
-            raise ApiError(400, "Het bestand is leeg.")
+            raise ApiError(400, "files.empty")
         try:
             analysis = printfile.analyze(tmp, ext)
         except printfile.PrintFileError as exc:
-            raise ApiError(400, str(exc)) from None
+            raise ApiError(400, exc) from None
         tmp.rename(target)
     finally:
         tmp.unlink(missing_ok=True)
@@ -90,7 +90,7 @@ def _get(file_id):
     with pool().connection() as conn:
         row = conn.execute("SELECT * FROM print_files WHERE id = %s", (file_id,)).fetchone()
     if row is None:
-        raise ApiError(404, "Bestand niet gevonden.")
+        raise ApiError(404, "files.not_found")
     return row
 
 
@@ -104,7 +104,7 @@ def download(file_id):
     row = _get(file_id)
     path = _dir() / row["stored_name"]
     if not path.is_file():
-        raise ApiError(404, "Het bestand staat niet meer op de server.")
+        raise ApiError(404, "files.gone")
     return send_file(path, as_attachment=True, download_name=row["filename"],
                      mimetype="application/octet-stream")
 
@@ -114,14 +114,14 @@ def estimate(file_id):
     row = _get(file_id)
     volume = row["analysis"].get("volume_cm3")
     if not volume:
-        raise ApiError(400, "Dit bestand bevat geen volume om een schatting op te baseren.")
+        raise ApiError(400, "files.no_volume")
     try:
         density = float(request.args.get("density", "1.24"))
         fill = float(request.args.get("fill", "40"))
     except ValueError:
-        raise ApiError(400, "Dichtheid en vulling moeten getallen zijn.") from None
+        raise ApiError(400, "files.numbers") from None
     if not 0.5 <= density <= 3 or not 1 <= fill <= 100:
-        raise ApiError(400, "Dichtheid moet tussen 0,5 en 3 g/cm³ liggen en vulling tussen 1 en 100%.")
+        raise ApiError(400, "files.range")
     return jsonify({"grams": printfile.estimate_grams(volume, density, fill), "density": density, "fill_pct": fill})
 
 

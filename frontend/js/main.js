@@ -7,16 +7,19 @@ import { initUpdates, setDirty } from './updates.js';
 import { maybeShowInstallBanner } from './install.js';
 import { goTo, installNativeBehaviour } from './pwa.js';
 import { BUILD } from './build.js';
+import { getLanguage, initLanguage, setLanguage, t } from './i18n.js';
+import { langSwitch } from './langswitch.js';
 import { h, icon, toast, versionLabel } from './ui.js';
 
 const root = document.getElementById('root');
+// [route, label key, icon]: the route is the URL part and stays as it is in every language.
 const NAV = [
-  ['berekeningen', 'Berekeningen', 'calculator'],
-  ['filament', 'Filament', 'spool'],
-  ['verpakking', 'Verpakking', 'box'],
-  ['printers', 'Printers', 'printer'],
-  ['energie', 'Energie', 'bolt'],
-  ['instellingen', 'Instellingen', 'settings'],
+  ['berekeningen', 'nav.calculations', 'calculator'],
+  ['filament', 'nav.filament', 'spool'],
+  ['verpakking', 'nav.packaging', 'box'],
+  ['printers', 'nav.printers', 'printer'],
+  ['energie', 'nav.energy', 'bolt'],
+  ['instellingen', 'nav.settings', 'settings'],
 ];
 // On compact widths the bottom bar holds five destinations: the first four, then "Meer",
 // which lists the rest. The sidebar shows all of them in the same order.
@@ -89,19 +92,27 @@ function pageContent({ page, id }) {
     case 'filament': case 'verpakking': case 'printers': case 'energie': return resourceView(page);
     case 'meer':
       return h('section', { class: 'page' },
-        h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Meer'))),
+        h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.more'))), langSwitch(chooseLanguage)),
         h('div', { class: 'cards' }, OVERFLOW.map(([key, label, ic]) => h('a', { class: 'glass card item link-card', href: `#/${key}` },
-          h('h3', {}, icon(ic), label)))));
+          h('h3', {}, icon(ic), t(label))))));
     case 'instellingen':
-      return settingsView({ get prefs() { return prefs; }, setPrefs, user: session.user, highlightPasskey: flags.recovered,
+      return settingsView({ get prefs() { return prefs; }, setPrefs, setLanguage: chooseLanguage, user: session.user, highlightPasskey: flags.recovered,
         onLogout: async () => { await api('POST', '/api/auth/logout'); start(); } });
-    default: return h('p', {}, 'Pagina niet gevonden.');
+    default: return h('p', {}, t('nav.not_found'));
   }
 }
 
-function navLink([page, label, ic], active) {
+function navLink([page, labelKey, ic], active) {
+  const label = t(labelKey);
   return h('a', { href: `#/${page}`, 'aria-current': active ? 'page' : null, title: label },
     icon(ic), h('span', { class: 'nav-label' }, label));
+}
+
+// A language was picked with a flag: show it now, and keep it with the account so every device agrees.
+async function chooseLanguage(code) {
+  if (code === getLanguage()) return;
+  setLanguage(code);
+  if (session.user) { await setPrefs({ language: code }); route(); } else start();
 }
 
 function route() {
@@ -109,18 +120,19 @@ function route() {
   setDirty(false);                       // a new screen starts clean; the editor raises it again on edits
   const r = currentRoute();
   const main = h('main', { id: 'main', tabindex: '-1' }, pageContent(r));
-  const sidebar = h('nav', { class: 'sidebar glass', 'aria-label': 'Hoofdnavigatie' },
+  const sidebar = h('nav', { class: 'sidebar glass', 'aria-label': t('nav.main') },
     h('div', { class: 'sidebar-brand' }, h('img', { src: '/icons/icon.svg', alt: '', width: 32, height: 32 }),
       h('span', { class: 'nav-label brand-text' }, '3D Print Pricing',
         appVersion ? h('small', { class: 'version', id: 'sidebar-version' }, versionLabel(appVersion)) : null)),
     ...NAV.map((n) => navLink(n, n[0] === r.page)),
-    h('button', { class: 'collapse', type: 'button', 'aria-label': prefs.sidebar_collapsed ? 'Zijbalk uitklappen' : 'Zijbalk inklappen',
+    langSwitch(chooseLanguage),
+    h('button', { class: 'collapse', type: 'button', 'aria-label': prefs.sidebar_collapsed ? t('nav.expand') : t('nav.collapse'),
       onclick: () => { setPrefs({ sidebar_collapsed: !prefs.sidebar_collapsed }).then(route); } },
-    icon(prefs.sidebar_collapsed ? 'expand' : 'collapse'), h('span', { class: 'nav-label' }, 'Inklappen')));
+    icon(prefs.sidebar_collapsed ? 'expand' : 'collapse'), h('span', { class: 'nav-label' }, t('nav.collapse_short'))));
   // One primary navigator at a time: CSS shows the tab bar on compact widths, the sidebar otherwise.
   const inOverflow = r.page === 'meer' || OVERFLOW.some((n) => n[0] === r.page);
-  const tabbar = h('nav', { class: 'tabbar glass', 'aria-label': 'Hoofdnavigatie (mobiel)' },
-    ...COMPACT.map((n) => navLink(n, n[0] === r.page)), navLink(['meer', 'Meer', 'more'], inOverflow));
+  const tabbar = h('nav', { class: 'tabbar glass', 'aria-label': t('nav.main_mobile') },
+    ...COMPACT.map((n) => navLink(n, n[0] === r.page)), navLink(['meer', 'nav.more', 'more'], inOverflow));
   root.replaceChildren(h('div', { class: 'app' }, sidebar, main, tabbar));
   window.scrollTo(0, 0);
 }
@@ -133,29 +145,33 @@ async function start() {
     status = await api('GET', '/api/auth/status');
   } catch (e) {
     root.replaceChildren(h('main', { id: 'main', class: 'auth-wrap' }, h('div', { class: 'glass card' },
-      h('h1', {}, 'Server niet bereikbaar'), h('p', { class: 'error' }, e.message),
-      h('button', { class: 'btn primary', type: 'button', onclick: start }, 'Opnieuw proberen'))));
+      h('h1', {}, t('app.unreachable')), h('p', { class: 'error' }, e.message),
+      h('button', { class: 'btn primary', type: 'button', onclick: start }, t('app.retry')))));
     return;
   }
-  if (!status.onboarded) { session = { user: null }; root.replaceChildren(onboardingView(start)); return; }
+  if (!status.onboarded) { session = { user: null }; root.replaceChildren(onboardingView(start, chooseLanguage)); return; }
   if (!status.authenticated) {
     session = { user: null };
-    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen'); start(); }, { passwordLogin: status.password_login }));
+    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen'); start(); }, { passwordLogin: status.password_login, onLanguage: chooseLanguage }));
     return;
   }
   session = { user: status.user };
   appVersion = BUILD;
   if (!updatesStarted) { updatesStarted = true; initUpdates(BUILD); }
   try { prefs = await api('GET', '/api/preferences'); applyPrefs(); } catch { /* defaults */ }
+  // The account's language wins on every device; with none saved yet the browser's is kept, and saved
+  // once so the server (notifications, messages) speaks the same language.
+  if (prefs.language) setLanguage(prefs.language);
+  else setPrefs({ language: getLanguage() });
   route();
   maybeShowInstallBanner();
 }
 
 installNativeBehaviour();
 window.addEventListener('hashchange', route);
-window.addEventListener('auth:expired', () => { if (session.user) { toast('Je sessie is verlopen. Log opnieuw in.', 'error'); start(); } });
+window.addEventListener('auth:expired', () => { if (session.user) { toast(t('app.session_expired'), 'error'); start(); } });
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => { /* offline shell is optional */ });
 }
-start();
+initLanguage().then(start);

@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { getLanguage, t } from './i18n.js';
 import { scanBarcode } from './scanner.js';
 import { confirmDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
 
@@ -6,92 +7,90 @@ import { confirmDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.
 // sent as typed; the server validates and is the only place that decides what is valid.
 const num = (v) => (v === '' || v == null ? '' : String(v).replace(',', '.'));
 
-export const RESOURCES = {
+// Built on every call, so the labels follow the language of the screen.
+function resources() {
+  return {
   filament: {
-    title: 'Filament', path: '/api/spools', noun: 'rol', empty: 'Nog geen filamentrollen.', archivable: true,
-    intro: 'Je filamentrollen met aanschafprijs en wat er nog op zit. Kies ze in een berekening; ' +
-      'de prijs per kg volgt uit prijs ÷ gewicht.',
+    id: 'filament', title: t('filament.title'), path: '/api/spools', empty: t('filament.empty'), archivable: true,
+    intro: t('filament.intro'),
     defaults: { brand: '', product_type: '', material: '', colour: '', roll_weight_g: '1000', price: '', remaining_g: '1000',
       barcode: '', diameter_mm: '1.75', print_temp_c: '', bed_temp_c: '', notes: '' },
     fields: [
-      { key: 'barcode', label: 'Barcode', type: 'barcode',
-        hint: 'Scan de barcode met je camera of een scanner. Is de barcode bekend, dan worden de gegevens ingevuld en zie je wat je er nog van hebt.' },
-      { key: 'brand', label: 'Merk', type: 'text', required: true, placeholder: 'Bambu Lab' },
-      { key: 'product_type', label: 'Type', type: 'text', placeholder: 'Matte, Basic, Silk', hint: 'De uitvoering van het filament, los van het merk.' },
-      { key: 'material', label: 'Materiaal', type: 'text', placeholder: 'ABS' },
-      { key: 'colour', label: 'Kleur', type: 'text', placeholder: 'Black' },
-      { key: 'roll_weight_g', label: 'Gewicht rol (gram)', type: 'number', required: true },
-      { key: 'price', label: 'Prijs rol (€)', type: 'number', required: true },
-      { key: 'remaining_g', label: 'Nog over (gram)', type: 'number', required: true },
-      { key: 'diameter_mm', label: 'Diameter (mm)', type: 'number', required: true, list: ['1.75', '2.85'] },
-      { key: 'print_temp_c', label: 'Printtemperatuur (°C)', type: 'number', placeholder: 'bijv. 250', hint: 'Optioneel; de aanbevolen nozzle-temperatuur.' },
-      { key: 'bed_temp_c', label: 'Bedtemperatuur (°C)', type: 'number', placeholder: 'bijv. 90', hint: 'Optioneel.' },
-      { key: 'notes', label: 'Notities', type: 'textarea' },
+      { key: 'barcode', label: t('filament.barcode'), type: 'barcode', hint: t('filament.barcode_hint') },
+      { key: 'brand', label: t('filament.brand'), type: 'text', required: true, placeholder: t('filament.brand_ph') },
+      { key: 'product_type', label: t('filament.type'), type: 'text', placeholder: t('filament.type_ph'), hint: t('filament.type_hint') },
+      { key: 'material', label: t('filament.material'), type: 'text', placeholder: t('filament.material_ph') },
+      { key: 'colour', label: t('filament.colour'), type: 'text', placeholder: t('filament.colour_ph') },
+      { key: 'roll_weight_g', label: t('filament.roll_weight'), type: 'number', required: true },
+      { key: 'price', label: t('filament.roll_price'), type: 'number', required: true },
+      { key: 'remaining_g', label: t('filament.remaining'), type: 'number', required: true },
+      { key: 'diameter_mm', label: t('filament.diameter'), type: 'number', required: true, list: ['1.75', '2.85'] },
+      { key: 'print_temp_c', label: t('filament.print_temp'), type: 'number', placeholder: t('filament.print_temp_ph'), hint: t('filament.print_temp_hint') },
+      { key: 'bed_temp_c', label: t('filament.bed_temp'), type: 'number', placeholder: t('filament.bed_temp_ph'), hint: t('filament.optional') },
+      { key: 'notes', label: t('common.notes'), type: 'textarea' },
     ],
     card(item) {
       const perKg = Number(item.price) / Number(item.roll_weight_g) * 1000;
       const pct = Math.max(0, Math.min(100, Number(item.remaining_g) / Number(item.roll_weight_g) * 100));
       const bar = h('div', { class: 'meter', role: 'img',
-        'aria-label': `${fmt(item.remaining_g, 0)} van ${fmt(item.roll_weight_g, 0)} gram over` }, h('span'));
+        'aria-label': t('filament.meter', { left: fmt(item.remaining_g, 0), total: fmt(item.roll_weight_g, 0) }) }, h('span'));
       bar.firstChild.style.width = `${pct}%`;
       return {
         title: spoolName(item, ' · '),
-        subtitle: [item.material, `${eur(item.price)} per rol`].filter(Boolean).join(' · '),
-        stats: [['Per kg', eur(perKg)], ['Over', `${fmt(item.remaining_g, 0)} g`], ['Diameter', `${fmt(item.diameter_mm)} mm`],
-          ...(item.print_temp_c != null ? [['Printtemp.', `${item.print_temp_c} °C`]] : []),
-          ...(item.bed_temp_c != null ? [['Bedtemp.', `${item.bed_temp_c} °C`]] : [])],
+        subtitle: [item.material, t('filament.per_roll_price', { price: eur(item.price) })].filter(Boolean).join(' · '),
+        stats: [[t('filament.per_kg'), eur(perKg)], [t('filament.left'), `${fmt(item.remaining_g, 0)} g`], [t('filament.diameter_short'), `${fmt(item.diameter_mm)} mm`],
+          ...(item.print_temp_c != null ? [[t('filament.print_temp_short'), `${item.print_temp_c} °C`]] : []),
+          ...(item.bed_temp_c != null ? [[t('filament.bed_temp_short'), `${item.bed_temp_c} °C`]] : [])],
         extra: bar,
-        footnote: item.barcode ? `Barcode ${item.barcode}` : null,
+        footnote: item.barcode ? t('filament.barcode_note', { code: item.barcode }) : null,
       };
     },
   },
   verpakking: {
-    title: 'Verpakking', path: '/api/packaging', noun: 'verpakking', empty: 'Nog geen verpakkingen.', archivable: true,
-    intro: 'Dozen en ander verpakkingsmateriaal met de prijs per stuk. Kies ze per product in een berekening.',
+    id: 'packaging', title: t('packaging.title'), path: '/api/packaging', empty: t('packaging.empty'), archivable: true,
+    intro: t('packaging.intro'),
     defaults: { name: '', price: '', notes: '' },
     fields: [
-      { key: 'name', label: 'Naam', type: 'text', required: true, placeholder: 'Doos 20 × 15 × 10 cm' },
-      { key: 'price', label: 'Prijs per stuk (€)', type: 'number', required: true,
-        hint: 'Reken vulmateriaal en tape mee, of maak daar een eigen regel voor.' },
-      { key: 'notes', label: 'Notities', type: 'textarea' },
+      { key: 'name', label: t('common.name'), type: 'text', required: true, placeholder: t('packaging.name_ph') },
+      { key: 'price', label: t('packaging.price'), type: 'number', required: true, hint: t('packaging.price_hint') },
+      { key: 'notes', label: t('common.notes'), type: 'textarea' },
     ],
     card(item) {
-      return { title: item.name, subtitle: item.notes || null, stats: [['Per stuk', eur(item.price)]] };
+      return { title: item.name, subtitle: item.notes || null, stats: [[t('packaging.per_piece'), eur(item.price)]] };
     },
   },
   printers: {
-    title: 'Printers', path: '/api/printers', noun: 'printer', empty: 'Nog geen printers.', archivable: true,
-    intro: 'De afschrijving per uur is aanschafwaarde ÷ verwachte levensduur in uren.',
+    id: 'printer', title: t('printers.title'), path: '/api/printers', empty: t('printers.empty'), archivable: true,
+    intro: t('printers.intro'),
     defaults: { name: '', purchase_price: '', lifetime_hours: '3000', power_kw: '0.15', notes: '' },
     fields: [
-      { key: 'name', label: 'Naam', type: 'text', required: true, placeholder: 'Bambu Lab X1C' },
-      { key: 'purchase_price', label: 'Aanschafwaarde (€)', type: 'number', required: true },
-      { key: 'lifetime_hours', label: 'Levensduur (uren)', type: 'number', required: true },
-      { key: 'power_kw', label: 'Gemiddeld vermogen (kW)', type: 'number',
-        hint: 'kWh per printuur, bijv. 0,15 voor 150 W gemiddeld.' },
-      { key: 'notes', label: 'Notities', type: 'textarea' },
+      { key: 'name', label: t('common.name'), type: 'text', required: true, placeholder: t('printers.name_ph') },
+      { key: 'purchase_price', label: t('printers.purchase_price'), type: 'number', required: true },
+      { key: 'lifetime_hours', label: t('printers.lifetime'), type: 'number', required: true },
+      { key: 'power_kw', label: t('printers.power'), type: 'number', hint: t('printers.power_hint') },
+      { key: 'notes', label: t('common.notes'), type: 'textarea' },
     ],
     card(item) {
       const perHour = Number(item.purchase_price) / Number(item.lifetime_hours);
       return {
         title: item.name,
-        subtitle: `${eur(item.purchase_price)} · ${fmt(item.lifetime_hours, 0)} uur levensduur`,
-        stats: [['Afschrijving', `${eur(perHour)} /uur`], ['Vermogen', `${fmt(item.power_kw, 3)} kW`]],
+        subtitle: t('printers.subtitle', { price: eur(item.purchase_price), hours: fmt(item.lifetime_hours, 0) }),
+        stats: [[t('printers.depreciation'), t('printers.per_hour', { price: eur(perHour) })], [t('printers.power_short'), `${fmt(item.power_kw, 3)} kW`]],
       };
     },
   },
   energie: {
-    title: 'Energie', path: '/api/tariffs', noun: 'tarief', empty: 'Nog geen stroomtarieven.', archivable: false,
-    intro: 'Je stroomprijzen per kWh. Het standaardtarief wordt voorgesteld in nieuwe berekeningen.',
+    id: 'tariff', title: t('energy.title'), path: '/api/tariffs', empty: t('energy.empty'), archivable: false,
+    intro: t('energy.intro'),
     defaults: { name: '', price_per_kwh: '' },
     fields: [
-      { key: 'name', label: 'Naam', type: 'text', required: true, placeholder: 'Thuis, dynamisch' },
-      { key: 'price_per_kwh', label: 'Prijs per kWh (€)', type: 'number', required: true },
+      { key: 'name', label: t('common.name'), type: 'text', required: true, placeholder: t('energy.name_ph') },
+      { key: 'price_per_kwh', label: t('energy.price'), type: 'number', required: true },
     ],
     card(item) {
       return {
-        title: item.name, badge: item.is_default ? 'Standaard' : null,
-        stats: [['Prijs', `${eur(item.price_per_kwh)} /kWh`]],
+        title: item.name, badge: item.is_default ? t('energy.default') : null,
+        stats: [[t('energy.price_short'), t('energy.per_kwh', { price: eur(item.price_per_kwh) })]],
       };
     },
     actions(item, reload) {
@@ -99,29 +98,30 @@ export const RESOURCES = {
       return [h('button', { class: 'btn small', type: 'button', onclick: async () => {
         await api('PATCH', `${this.path}/${item.id}`, { is_default: true });
         reload();
-      } }, 'Maak standaard')];
+      } }, t('energy.make_default'))];
     },
   },
-};
+  };
+}
 
 // What is left per kind of filament: the rolls you still have (with what is on each) and the total,
 // plus a total per material.
 function stockPanel() {
   const body = h('div', { class: 'stack' });
   const panel = h('section', { class: 'glass card stack', 'aria-labelledby': 'stock-title', hidden: true },
-    h('h2', { id: 'stock-title' }, 'Voorraad per soort'), body);
+    h('h2', { id: 'stock-title' }, t('stock.title')), body);
   let data = null;
   let match = () => true;
-  const plural = (n) => `${n} ${n === 1 ? 'rol' : 'rollen'}`;
+  const plural = (n) => t('stock.rolls', { n });
 
   function draw() {
     panel.hidden = !data || !data.groups.length;
     if (panel.hidden) return;
     const groups = data.groups.filter(match);
-    if (!groups.length) { body.replaceChildren(h('p', { class: 'muted' }, 'Geen voorraad met deze filters.')); return; }
+    if (!groups.length) { body.replaceChildren(h('p', { class: 'muted' }, t('stock.none_match'))); return; }
     const materials = new Map();                     // totals follow the filter, so they always match what is listed
     for (const g of groups) {
-      const name = String(g.material || 'Onbekend materiaal').trim();
+      const name = String(g.material || t('stock.unknown_material')).trim();
       const k = name.toLowerCase();                  // "PLA" and "pla" are one material
       const m = materials.get(k) || { name, rolls: 0, grams: 0 };
       m.rolls += g.roll_count;
@@ -130,13 +130,13 @@ function stockPanel() {
     }
     body.replaceChildren(
       h('p', { class: 'muted stock-materials' }, [...materials.values()].map((m) => `${m.name}: ${plural(m.rolls)}, ${fmt(m.grams, 0)} g`).join(' · ')),
-      h('ul', { class: 'stock', 'aria-label': 'Voorraad per soort' }, groups.map((g) => h('li', { class: g.roll_count ? '' : 'out' },
+      h('ul', { class: 'stock', 'aria-label': t('stock.title') }, groups.map((g) => h('li', { class: g.roll_count ? '' : 'out' },
         h('div', {},
           h('strong', {}, spoolName(g, ' · ')),
-          h('p', { class: 'muted' }, [g.material, g.barcode ? `Barcode ${g.barcode}` : null].filter(Boolean).join(' · ') || ' '),
+          h('p', { class: 'muted' }, [g.material, g.barcode ? t('filament.barcode_note', { code: g.barcode }) : null].filter(Boolean).join(' · ') || ' '),
           g.roll_count
-            ? h('p', { class: 'muted' }, `Per rol: ${g.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ')}`)
-            : h('p', { class: 'muted' }, 'Op: geen rol meer over.')),
+            ? h('p', { class: 'muted' }, t('stock.per_roll', { weights: g.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ') }))
+            : h('p', { class: 'muted' }, t('stock.sold_out'))),
         h('div', { class: 'stock-total' },
           h('strong', {}, `${fmt(g.remaining_g, 0)} g`), h('span', { class: 'muted' }, plural(g.roll_count)))))));
   }
@@ -151,21 +151,21 @@ function stockPanel() {
 // Filters for the filament list: by material ("soort"), brand and type. Options come from what you have,
 // each one narrows to what the earlier choices leave, and both the list and the stock overview follow.
 const norm = (v) => String(v || '').trim().toLowerCase();
-const FILTERS = [['material', 'Soort', 'Alle soorten'], ['brand', 'Merk', 'Alle merken'], ['product_type', 'Type', 'Alle typen']];
+const FILTERS = [['material', 'filter.material', 'filter.all_materials'], ['brand', 'filter.brand', 'filter.all_brands'], ['product_type', 'filter.type', 'filter.all_types']];
 
 function filterBar(onChange) {
   const state = Object.fromEntries(FILTERS.map(([key]) => [key, '']));
-  const selects = Object.fromEntries(FILTERS.map(([key, label]) => [key, h('select', { id: `filter-${key}`, 'aria-label': `Filter op ${label.toLowerCase()}` })]));
+  const selects = Object.fromEntries(FILTERS.map(([key, label]) => [key, h('select', { id: `filter-${key}`, 'aria-label': t('filter.by', { name: t(label).toLowerCase() }) })]));
   let lastItems = [];
   const clear = h('button', { class: 'btn small', type: 'button', hidden: true, onclick: () => {
     for (const [key] of FILTERS) state[key] = '';
     update(lastItems); onChange();
-  } }, 'Wis filters');
+  } }, t('filter.clear'));
 
   const distinct = (rows, key) => {
     const seen = new Map();
     for (const r of rows) if (norm(r[key]) && !seen.has(norm(r[key]))) seen.set(norm(r[key]), String(r[key]).trim());
-    return [...seen].sort((a, b) => a[1].localeCompare(b[1], 'nl'));
+    return [...seen].sort((a, b) => a[1].localeCompare(b[1], getLanguage()));
   };
   const matches = (row, upTo = FILTERS.length) => FILTERS.slice(0, upTo).every(([key]) => !state[key] || norm(row[key]) === state[key]);
 
@@ -174,7 +174,7 @@ function filterBar(onChange) {
     FILTERS.forEach(([key, , all], i) => {
       const options = distinct(items.filter((row) => matches(row, i)), key);   // narrowed by the filters before this one
       const select = selects[key];
-      select.replaceChildren(h('option', { value: '' }, all), ...options.map(([value, label]) => h('option', { value }, label)));
+      select.replaceChildren(h('option', { value: '' }, t(all)), ...options.map(([value, label]) => h('option', { value }, label)));
       select.value = options.some(([value]) => value === state[key]) ? state[key] : '';
       state[key] = select.value;
     });
@@ -182,8 +182,8 @@ function filterBar(onChange) {
   }
   for (const [key] of FILTERS) selects[key].addEventListener('change', () => { state[key] = selects[key].value; update(lastItems); onChange(); });
 
-  const bar = h('div', { class: 'filters', role: 'group', 'aria-label': 'Filteren' },
-    ...FILTERS.flatMap(([key, label]) => [h('label', { for: `filter-${key}` }, label), selects[key]]), clear);
+  const bar = h('div', { class: 'filters', role: 'group', 'aria-label': t('filter.group') },
+    ...FILTERS.flatMap(([key, label]) => [h('label', { for: `filter-${key}` }, t(label)), selects[key]]), clear);
   return { bar, update, matches: (row) => matches(row), active: () => FILTERS.some(([key]) => state[key]) };
 }
 
@@ -207,9 +207,9 @@ function openForm(config, item, reload) {
   const CARRIED = ['brand', 'product_type', 'material', 'colour', 'roll_weight_g', 'price', 'diameter_mm', 'print_temp_c', 'bed_temp_c', 'notes'];
   const dirty = new Set();          // fields the user typed in themselves
   function stockLine(stock) {
-    if (!stock || !stock.roll_count) return 'Je hebt hier nu geen rol meer van.';
+    if (!stock || !stock.roll_count) return t('barcode.none_left');
     const weights = stock.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ');
-    return `Je hebt er nog ${stock.roll_count} ${stock.roll_count === 1 ? 'rol' : 'rollen'} van (${weights}): samen ${fmt(stock.remaining_g, 0)} g.`;
+    return t('barcode.in_stock', { n: stock.roll_count, weights, total: fmt(stock.remaining_g, 0) });
   }
   function barcodeField(f) {
     const id = 'f-barcode';
@@ -223,7 +223,7 @@ function openForm(config, item, reload) {
       try {
         const { spool, stock } = await api('GET', `/api/spools/lookup?barcode=${encodeURIComponent(code)}`);
         if (!spool) {
-          notice.replaceChildren(h('span', {}, 'Nieuwe barcode: deze heb je nog niet in je voorraad. Vul de gegevens in.'));
+          notice.replaceChildren(h('span', {}, t('barcode.new')));
           notice.hidden = false;
           return;
         }
@@ -237,14 +237,14 @@ function openForm(config, item, reload) {
           if (els.remaining_g) els.remaining_g.value = values.remaining_g;
         }
         notice.replaceChildren(
-          h('strong', {}, `Bekende barcode: ${spoolName(spool, ' · ')}`),
-          h('span', {}, 'De gegevens zijn ingevuld. Controleer ze en kies Opslaan om deze rol toe te voegen.'),
+          h('strong', {}, t('barcode.known', { name: spoolName(spool, ' · ') })),
+          h('span', {}, t('barcode.filled')),
           h('span', {}, stockLine(stock)));
         notice.hidden = false;
       } catch { /* the lookup is a convenience */ }
     };
     const input = h('input', { type: 'text', id, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
-      placeholder: 'Scan of typ de barcode', value: values[f.key] ?? '',
+      placeholder: t('barcode.placeholder'), value: values[f.key] ?? '',
       oninput: (e) => { values[f.key] = e.target.value; },
       onchange: lookup,
       // Hardware scanners end with Enter: look it up instead of submitting the form half-filled.
@@ -281,22 +281,22 @@ function openForm(config, item, reload) {
         if (item) await api('PATCH', `${config.path}/${item.id}`, payload);
         else await api('POST', config.path, payload);
         dialog.close();
-        toast('Opgeslagen');
+        toast(t('common.saved'));
         reload();
       } catch (err) { error.textContent = err.message; error.hidden = false; }
     } },
-    h('h2', {}, item ? `${config.noun[0].toUpperCase()}${config.noun.slice(1)} wijzigen` : `Nieuwe ${config.noun}`),
+    h('h2', {}, item ? t(`${config.id}.edit`) : t(`${config.id}.new`)),
     ...inputs, ...datalists, error,
     h('div', { class: 'row end' },
-      h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Annuleren'),
-      h('button', { class: 'btn primary', type: 'submit' }, 'Opslaan'))));
+      h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, t('common.cancel')),
+      h('button', { class: 'btn primary', type: 'submit' }, t('common.save')))));
   dialog.addEventListener('close', () => dialog.remove());
   document.body.append(dialog);
   dialog.showModal();
 }
 
 export function resourceView(key) {
-  const config = RESOURCES[key];
+  const config = resources()[key];
   const list = h('div', { class: 'cards' });
   let showArchived = false;
   let items = [];
@@ -305,7 +305,7 @@ export function resourceView(key) {
     const visible = items.filter((i) => (showArchived || !i.archived) && (!filters || filters.matches(i)));
     if (!visible.length) {
       list.replaceChildren(h('p', { class: 'empty glass card' },
-        filters?.active() && items.length ? 'Geen rollen met deze filters.' : `${config.empty} Voeg de eerste toe.`));
+        filters?.active() && items.length ? t('filament.no_match') : `${config.empty} ${t('common.add_first')}`));
       return;
     }
     list.replaceChildren(...visible.map((item) => {
@@ -314,21 +314,21 @@ export function resourceView(key) {
       return h('article', { class: `glass card item${item.archived ? ' archived' : ''}` },
         h('div', { class: 'item-head' },
           h('div', {}, h('h3', {}, c.title, c.badge ? h('span', { class: 'badge' }, c.badge) : null,
-            item.archived ? h('span', { class: 'badge muted' }, 'Gearchiveerd') : null),
+            item.archived ? h('span', { class: 'badge muted' }, t('common.archived')) : null),
           c.subtitle ? h('p', { class: 'muted' }, c.subtitle) : null)),
         h('dl', { class: 'stats' }, c.stats.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v)))),
         c.extra || null,
         c.footnote ? h('p', { class: 'muted footnote' }, c.footnote) : null,
         h('div', { class: 'row' },
-          h('button', { class: 'btn small', type: 'button', onclick: () => openForm(config, item, load) }, 'Wijzigen'),
+          h('button', { class: 'btn small', type: 'button', onclick: () => openForm(config, item, load) }, t('common.edit')),
           ...extraActions,
           config.archivable ? h('button', { class: 'btn small', type: 'button', onclick: async () => {
             await api('PATCH', `${config.path}/${item.id}`, { archived: !item.archived });
             load();
-          } }, item.archived ? 'Terugzetten' : 'Archiveren') : null,
-          h('button', { class: 'btn small danger', type: 'button', 'aria-label': `Verwijder ${c.title}`,
+          } }, item.archived ? t('common.restore') : t('common.archive')) : null,
+          h('button', { class: 'btn small danger', type: 'button', 'aria-label': t('common.delete_named', { name: c.title }),
             onclick: async () => {
-              if (await confirmDialog(`“${c.title}” verwijderen? Opgeslagen berekeningen blijven ongewijzigd.`)) {
+              if (await confirmDialog(t('common.delete_confirm', { name: c.title }))) {
                 await api('DELETE', `${config.path}/${item.id}`);
                 load();
               }
@@ -354,7 +354,7 @@ export function resourceView(key) {
   const archiveToggle = config.archivable
     ? h('label', { class: 'check' },
       h('input', { type: 'checkbox', onchange: (e) => { showArchived = e.target.checked; filters?.update(items.filter((i) => showArchived || !i.archived)); render(); } }),
-      'Toon gearchiveerd')
+      t('common.show_archived'))
     : null;
 
   load();
@@ -362,6 +362,6 @@ export function resourceView(key) {
     h('header', { class: 'page-head' },
       h('div', {}, h('h1', {}, config.title), h('p', { class: 'muted' }, config.intro)),
       h('button', { class: 'btn primary', type: 'button', onclick: () => openForm(config, null, load) },
-        icon('plus'), h('span', {}, `Nieuwe ${config.noun}`))),
+        icon('plus'), h('span', {}, t(`${config.id}.new`)))),
     stock?.panel || null, filters?.bar || null, archiveToggle, list);
 }

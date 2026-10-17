@@ -1,3 +1,8 @@
+import { getLanguage, t } from './i18n.js';
+
+// The server words its messages in the language the screen is in.
+const langHeader = () => ({ 'X-Lang': getLanguage() });
+
 export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
@@ -8,16 +13,16 @@ export async function api(method, path, body) {
     res = await fetch(path, {
       method,
       credentials: 'same-origin',
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      headers: body === undefined ? langHeader() : { ...langHeader(), 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError(0, 'Geen verbinding met de server.');
+    throw new ApiError(0, t('api.no_connection'));
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/api/auth/')) window.dispatchEvent(new Event('auth:expired'));
-    throw new ApiError(res.status, data.error || `Fout ${res.status}`);
+    throw new ApiError(res.status, data.error || t('api.error_status', { status: res.status }));
   }
   return data;
 }
@@ -25,12 +30,12 @@ export async function api(method, path, body) {
 export async function upload(path, formData) {
   let res;
   try {
-    res = await fetch(path, { method: 'POST', credentials: 'same-origin', body: formData });
+    res = await fetch(path, { method: 'POST', credentials: 'same-origin', headers: langHeader(), body: formData });
   } catch {
-    throw new ApiError(0, 'Geen verbinding met de server.');
+    throw new ApiError(0, t('api.no_connection'));
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error || `Fout ${res.status}`);
+  if (!res.ok) throw new ApiError(res.status, data.error || t('api.error_status', { status: res.status }));
   return data;
 }
 
@@ -49,9 +54,9 @@ const toB64u = (buf) => {
 
 export function passkeySupport() {
   if (!window.isSecureContext) {
-    return 'Passkeys werken alleen via https (of http://localhost). Open de app via je https-adres.';
+    return t('passkey.https_only');
   }
-  if (!window.PublicKeyCredential) return 'Deze browser ondersteunt geen passkeys.';
+  if (!window.PublicKeyCredential) return t('passkey.unsupported');
   return null;
 }
 
@@ -62,9 +67,9 @@ async function ceremony(run) {
     return await run();
   } catch (e) {
     if (e instanceof ApiError) throw e;
-    if (e?.name === 'NotAllowedError') throw new ApiError(0, 'De passkey-prompt is geannuleerd of verlopen.');
-    if (e?.name === 'InvalidStateError') throw new ApiError(0, 'Deze passkey staat al op dit apparaat.');
-    throw new ApiError(0, `Passkey mislukt: ${e?.message || e}`);
+    if (e?.name === 'NotAllowedError') throw new ApiError(0, t('passkey.cancelled'));
+    if (e?.name === 'InvalidStateError') throw new ApiError(0, t('passkey.already_here'));
+    throw new ApiError(0, t('passkey.failed', { message: e?.message || e }));
   }
 }
 

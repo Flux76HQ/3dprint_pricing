@@ -11,17 +11,18 @@ from flask import Blueprint, g, jsonify, make_response
 from . import passwords
 from .auth import _hash_code, _purpose, _verify_assertion, generate_code, issue_session, normalise_code
 from .http import ApiError, RateLimiter, config, json_body, login_required, pool
+from .i18n import L
 
 bp = Blueprint("password_api", __name__, url_prefix="/api/auth/password")
 
 BACKUP_CODE_COUNT = 8
 MAX_FAILURES = 5                       # in a row, passwords and codes together, before a lock
 ip_limiter = RateLimiter(limit=20, window_seconds=900)
-FAILED = "Inloggen mislukt."           # one message for every refusal: unknown, wrong, locked-out-of-reason...
+FAILED = "pwapi.failed"           # one message for every refusal: unknown, wrong, locked-out-of-reason...
 
 
 def _locked_message(minutes: int) -> str:
-    return f"Te veel mislukte pogingen. Probeer het over {minutes} minuten opnieuw, of log in met een passkey."
+    return L("pwapi.locked", minutes=minutes)
 
 
 def _register_failure(conn, user_id) -> None:
@@ -149,13 +150,13 @@ def _reauthenticate(body: dict) -> None:
     ip_limiter.check(_client_ip())
     password = str(body.get("current_password", ""))[:passwords.MAX_LENGTH + 1]
     code = str(body.get("code", ""))
-    refusal = ApiError(401, "Bevestigen mislukt: het wachtwoord of de code klopt niet.")
+    refusal = ApiError(401, "pwapi.confirm_failed")
     with pool().connection() as conn:
         row = conn.execute("SELECT user_id, password_hash, totp_secret, last_totp_step, locked_until FROM password_credentials "
                            "WHERE user_id = %s AND enabled", (g.user_id,)).fetchone()
         if row is None:
             passwords.burn_time(password)
-            refusal = ApiError(409, "Wachtwoord-login staat niet aan.")
+            refusal = ApiError(409, "pwapi.not_on")
         elif _lock_minutes(row):
             refusal = ApiError(429, _locked_message(_lock_minutes(row)))
         elif not passwords.verify_password(row["password_hash"], password):
@@ -179,7 +180,7 @@ def _confirm(body: dict, action: str) -> None:
     elif "current_password" in body:
         _reauthenticate(body)
     else:
-        raise ApiError(400, "Bevestig dit met je passkey, of met je wachtwoord en een code.")
+        raise ApiError(400, "pwapi.need_confirmation")
 
 
 @bp.get("/status")
@@ -201,12 +202,12 @@ def setup_start():
     with pool().connection() as conn:
         existing = conn.execute("SELECT enabled FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
         if existing and existing["enabled"]:
-            raise ApiError(409, "Wachtwoord-login staat al aan. Schakel het eerst uit of wijzig het wachtwoord.")
+            raise ApiError(409, "pwapi.already_on")
         user = conn.execute("SELECT display_name FROM users WHERE id = %s", (g.user_id,)).fetchone()
         try:
             passwords.check_policy(password, user["display_name"])
         except ValueError as exc:
-            raise ApiError(400, str(exc)) from None
+            raise ApiError(400, exc) from None
         secret = passwords.new_secret()
         conn.execute(
             "INSERT INTO password_credentials (user_id, password_hash, totp_secret, enabled) VALUES (%s, %s, %s, false) "
@@ -225,11 +226,11 @@ def setup_confirm():
         row = conn.execute("SELECT totp_secret, enabled FROM password_credentials WHERE user_id = %s FOR UPDATE",
                            (g.user_id,)).fetchone()
         if row is None or row["enabled"]:
-            raise ApiError(409, "Er is geen installatie bezig. Begin opnieuw.")
+            raise ApiError(409, "pwapi.no_setup")
         secret = passwords.unseal(config().session_secret, row["totp_secret"])
         step = passwords.verify_totp(secret, code) if secret else None
         if step is None:
-            raise ApiError(400, "Die code klopt niet. Controleer de tijd op je toestel en probeer de volgende code.")
+            raise ApiError(400, "pwapi.bad_code")
         conn.execute("UPDATE password_credentials SET enabled = true, last_totp_step = %s, failed_count = 0, "
                      "locked_until = NULL, updated_at = now() WHERE user_id = %s", (step, g.user_id))
         codes = _new_backup_codes(conn, g.user_id)
@@ -263,12 +264,12 @@ def change():
         try:
             passwords.check_policy(str(body.get("password", "")), user["display_name"])
         except ValueError as exc:
-            raise ApiError(400, str(exc)) from None
+            raise ApiError(400, exc) from None
     _confirm(body, "password-change")
     with pool().connection() as conn:
         row = conn.execute("SELECT enabled FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
         if not row or not row["enabled"]:
-            raise ApiError(409, "Wachtwoord-login staat niet aan.")
+            raise ApiError(409, "pwapi.not_on")
         conn.execute("UPDATE password_credentials SET password_hash = %s, failed_count = 0, locked_until = NULL, "
                      "updated_at = now() WHERE user_id = %s", (passwords.hash_password(str(body["password"])), g.user_id))
     return jsonify({"ok": True})
@@ -281,6 +282,6 @@ def regenerate_backup_codes():
     with pool().connection() as conn:
         row = conn.execute("SELECT enabled FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
         if not row or not row["enabled"]:
-            raise ApiError(409, "Wachtwoord-login staat niet aan.")
+            raise ApiError(409, "pwapi.not_on")
         codes = _new_backup_codes(conn, g.user_id)
     return jsonify({"backup_codes": codes})

@@ -17,6 +17,8 @@ from zoneinfo import ZoneInfo
 
 from pywebpush import WebPushException, webpush
 
+from .i18n import L
+
 log = logging.getLogger(__name__)
 
 # One day: a phone that was off overnight still gets the message in the morning, while a message
@@ -133,36 +135,53 @@ def fingerprint(endpoint: str) -> str:
     return hashlib.sha256(endpoint.encode("utf-8")).hexdigest()[:16]
 
 
-def describe_agent(user_agent: str) -> str:
+def describe_agent(user_agent: str):
     """"Android · Chrome" from a User-Agent string: enough to tell the owner's devices apart."""
     ua = user_agent or ""
     system = next((name for key, name in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
                                           ("Windows", "Windows"), ("Macintosh", "Mac"), ("CrOS", "Chromebook"),
-                                          ("Linux", "Linux")) if key in ua), "Onbekend apparaat")
+                                          ("Linux", "Linux")) if key in ua), None)
+    if system is None:
+        return L("push.unknown_device")
     browser = next((name for key, name in (("Edg/", "Edge"), ("OPR/", "Opera"), ("SamsungBrowser", "Samsung Internet"),
                                            ("Firefox", "Firefox"), ("CriOS", "Chrome"), ("Chrome", "Chrome"),
                                            ("Safari", "Safari")) if key in ua), "")
     return f"{system} · {browser}" if browser else system
 
 
-def failure_reason(exc: Exception, endpoint: str) -> str:
-    """A sentence the owner can act on, without the push service's raw answer (that goes to the log)."""
-    host = urlsplit(endpoint).hostname or "de pushdienst"
+def failure_reason(exc: Exception, endpoint: str) -> L:
+    """What the owner can do about it, without the push service's raw answer (that goes to the log).
+    A message key, not words: it is stored as such and shown in whatever language the owner reads at the time."""
+    host = urlsplit(endpoint).hostname or "?"
     status = getattr(getattr(exc, "response", None), "status_code", None)
     if status in (404, 410):
-        return "Het toestel heeft zich afgemeld of het adres is verlopen. Zet meldingen op dat toestel uit en weer aan."
+        return L("push.r_gone")
     if status in (401, 403):
-        return (f"{host} weigert de VAPID-gegevens van deze server ({status}). Controleer VAPID_SUBJECT (een echt "
-                "mailadres of https-adres) en of de sleutels niet zijn gewijzigd sinds dit toestel zich aanmeldde.")
+        return L("push.r_vapid", host=host, status=status)
     if status == 413:
-        return "De pushdienst vond het bericht te groot."
+        return L("push.r_too_large")
     if status == 429:
-        return "De pushdienst zegt: te veel berichten. Probeer het later opnieuw."
+        return L("push.r_rate")
     if status and status >= 500:
-        return f"{host} is tijdelijk niet beschikbaar ({status}). Probeer het later opnieuw."
+        return L("push.r_unavailable", host=host, status=status)
     if status:
-        return f"{host} wees het bericht af ({status})."
-    return f"De server bereikt {host} niet (uitgaand https of DNS in de container geblokkeerd?)."
+        return L("push.r_rejected", host=host, status=status)
+    return L("push.r_unreachable", host=host)
+
+
+def dump_reason(reason: L) -> str:
+    return json.dumps({"key": reason.key, "params": reason.params})
+
+
+def load_reason(stored):
+    """The stored failure as something to show: an `L` for what we wrote, or the text as it is for older rows."""
+    if not stored:
+        return None
+    try:
+        data = json.loads(stored)
+        return L(data["key"], **data["params"])
+    except (ValueError, KeyError, TypeError):
+        return stored
 
 
 def deliver_now(pool, cfg, user_id, payload: dict) -> dict:
@@ -195,7 +214,7 @@ def deliver_now(pool, cfg, user_id, payload: dict) -> dict:
         if getattr(getattr(error, "response", None), "status_code", None) not in (404, 410):
             with pool.connection() as conn:
                 conn.execute("UPDATE push_subscriptions SET last_error = %s, last_error_at = now() WHERE id = %s",
-                             (reason, sub["id"]))
+                             (dump_reason(reason), sub["id"]))
         results.append({"id": str(sub["id"]), "device": device, "ok": False, "reason": reason})
     return {"sent": sent, "failed": failed, "devices": len(subs), "results": results}
 
@@ -209,7 +228,7 @@ def user_window(pool, user_id):
 def notify(pool, cfg, user_id, kind: str, title: str, body: str, url: str = "/", now: "datetime | None" = None) -> dict:
     """Send now, or hold until the user's quiet window ends. Deferred, not discarded."""
     if not cfg.push_configured:
-        raise PushNotConfigured("Notificaties zijn niet ingesteld op de server.")
+        raise PushNotConfigured(str(L("push.not_configured")))
     payload = build_payload(kind, title, body, url)
     until = quiet_until(now or datetime.now(timezone.utc), user_window(pool, user_id))
     if until:

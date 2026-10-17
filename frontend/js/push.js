@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { t } from './i18n.js';
 import { isStandalone } from './pwa.js';
 import { isIOS } from './install.js';
 
@@ -29,7 +30,7 @@ export async function currentSubscription() {
 
 export async function enablePush(publicKey) {
   const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('Toestemming voor meldingen is niet gegeven.');
+  if (permission !== 'granted') throw new Error(t('push.permission_denied'));
   const reg = await navigator.serviceWorker.ready;
   const sub = (await reg.pushManager.getSubscription())
     || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: toKey(publicKey) }));

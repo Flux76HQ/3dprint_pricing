@@ -1,3 +1,5 @@
+import { getLocale, t } from './i18n.js';
+
 // Tiny DOM helpers. Everything goes through textContent/attributes, never innerHTML with data.
 export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -39,11 +41,10 @@ export function icon(name) {
   return svg;
 }
 
-const eurFormat = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' });
-export const eur = (value) => eurFormat.format(Number(value) || 0);
+export const eur = (value) => new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'EUR' }).format(Number(value) || 0);
 
 export function fmt(value, digits = 2) {
-  return new Intl.NumberFormat('nl-NL', { maximumFractionDigits: digits }).format(Number(value) || 0);
+  return new Intl.NumberFormat(getLocale(), { maximumFractionDigits: digits }).format(Number(value) || 0);
 }
 
 // Accept both "26,99" and "26.99": people type what their keyboard has.
@@ -71,12 +72,12 @@ export function numberInput(value, onInput, attrs = {}) {
     oninput: (e) => onInput(e.target.value) });
 }
 
-export function confirmDialog(message, confirmLabel = 'Verwijderen') {
+export function confirmDialog(message, confirmLabel = t('common.delete')) {
   return new Promise((resolve) => {
     const dialog = h('dialog', { class: 'glass sheet' },
       h('p', {}, message),
       h('div', { class: 'row end' },
-        h('button', { class: 'btn', type: 'button', onclick: () => dialog.close('no') }, 'Annuleren'),
+        h('button', { class: 'btn', type: 'button', onclick: () => dialog.close('no') }, t('common.cancel')),
         h('button', { class: 'btn danger', type: 'button', onclick: () => dialog.close('yes') }, confirmLabel)));
     dialog.addEventListener('close', () => { resolve(dialog.returnValue === 'yes'); dialog.remove(); });
     document.body.append(dialog);
@@ -104,8 +105,8 @@ export function blurToggle(ctx) {
     onclick: async () => {
       await ctx.setPrefs({ blur_costs: !ctx.prefs.blur_costs });
       button.setAttribute('aria-pressed', String(!!ctx.prefs.blur_costs));
-      button.querySelector('span').textContent = ctx.prefs.blur_costs ? 'Kosten tonen' : 'Kosten verbergen';
-    } }, icon('eye'), h('span', {}, ctx.prefs.blur_costs ? 'Kosten tonen' : 'Kosten verbergen'));
+      button.querySelector('span').textContent = ctx.prefs.blur_costs ? t('blur.show') : t('blur.hide');
+    } }, icon('eye'), h('span', {}, ctx.prefs.blur_costs ? t('blur.show') : t('blur.hide')));
   return button;
 }
 

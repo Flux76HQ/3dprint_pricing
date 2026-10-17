@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { t } from './i18n.js';
 import { confirmDialog, h, showBanner, toast, versionLabel } from './ui.js';
 
 // "A new version is available". The server reports its running release at /api/version; the page
@@ -24,7 +25,7 @@ async function fetchVersion() {
 }
 
 async function apply() {
-  if (dirty && !(await confirmDialog('Je hebt niet-opgeslagen wijzigingen. Toch bijwerken en deze kwijtraken?', 'Bijwerken'))) return;
+  if (dirty && !(await confirmDialog(t('updates.unsaved'), t('updates.update')))) return;
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
     await reg?.update();
@@ -35,10 +36,10 @@ async function apply() {
 
 function show(running) {
   const banner = showBanner('update', {
-    text: `Nieuwe versie beschikbaar: ${versionLabel(running)}.`,
+    text: t('updates.available', { version: versionLabel(running) }),
     actions: [
-      h('button', { class: 'btn small primary', type: 'button', onclick: apply }, 'Nu bijwerken'),
-      h('button', { class: 'btn small', type: 'button', onclick: () => { snoozedUntil = Date.now() + LATER_MS; banner.close(); } }, 'Later'),
+      h('button', { class: 'btn small primary', type: 'button', onclick: apply }, t('updates.update_now')),
+      h('button', { class: 'btn small', type: 'button', onclick: () => { snoozedUntil = Date.now() + LATER_MS; banner.close(); } }, t('updates.later')),
     ],
   });
 }
@@ -51,11 +52,11 @@ export async function checkForUpdate({ manual = false } = {}) {
     if (isNewer(loaded, running)) {
       if (manual || Date.now() >= snoozedUntil) show(running);
     } else if (manual) {
-      toast(`Je draait de nieuwste versie (${versionLabel(running)}).`);
+      toast(t('updates.latest', { version: versionLabel(running) }));
     }
     return running;
   } catch {
-    if (manual) toast('Kon niet controleren op updates.', 'error');
+    if (manual) toast(t('updates.check_failed'), 'error');
     return null;
   }
 }

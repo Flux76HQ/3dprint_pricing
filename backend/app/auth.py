@@ -76,7 +76,7 @@ def _consume_challenge(conn, client_data_json: bytes, kind, *, purpose=None, use
     try:
         challenge = wa.b64u_decode(json.loads(client_data_json)["challenge"])
     except Exception:
-        raise ApiError(400, "Ongeldige aanvraag.") from None
+        raise ApiError(400, "auth.bad_request") from None
     row = conn.execute(
         "DELETE FROM webauthn_challenges WHERE challenge = %s AND kind = %s "
         "AND purpose IS NOT DISTINCT FROM %s AND user_id IS NOT DISTINCT FROM %s "
@@ -84,14 +84,14 @@ def _consume_challenge(conn, client_data_json: bytes, kind, *, purpose=None, use
         (challenge, kind, purpose, user_id),
     ).fetchone()
     if row is None:
-        raise ApiError(400, "De aanvraag is verlopen of al gebruikt. Probeer het opnieuw.")
+        raise ApiError(400, "auth.challenge_expired")
     return row
 
 
 def _credential_payload(body: dict) -> dict:
     cred = body.get("credential")
     if not isinstance(cred, dict) or not isinstance(cred.get("response"), dict):
-        raise ApiError(400, "Ongeldige passkey-gegevens.")
+        raise ApiError(400, "auth.bad_passkey_data")
     return cred
 
 
@@ -117,22 +117,22 @@ def _verify_registration(conn, cred: dict, challenge_row_kind, *, purpose=None, 
         attestation = wa.b64u_decode(cred["response"]["attestationObject"])
         raw_id = wa.b64u_decode(cred["rawId"])
     except (KeyError, wa.WebAuthnError, ValueError):
-        raise ApiError(400, "Ongeldige passkey-gegevens.") from None
+        raise ApiError(400, "auth.bad_passkey_data") from None
     row = _consume_challenge(conn, client_data, challenge_row_kind, purpose=purpose, user_id=user_id)
     cfg = config()
     try:
         result = wa.verify_registration(client_data, attestation, bytes(row["challenge"]),
                                         cfg.rp_id, cfg.rp_origins)
     except wa.WebAuthnError as exc:
-        raise ApiError(400, f"Passkey geweigerd: {exc}") from None
+        raise ApiError(400, "auth.passkey_refused", reason=exc) from None
     if result["credential_id"] != raw_id:
-        raise ApiError(400, "Passkey geweigerd: credential-id komt niet overeen.")
+        raise ApiError(400, "auth.cred_id_mismatch")
     return result, row
 
 
 def _verify_assertion(conn, cred: dict, kind, *, purpose=None, user_id=None):
     """Return (credential row, new counter). One message for every refusal."""
-    fail = ApiError(401 if kind == "login" else 403, "Verificatie mislukt.")
+    fail = ApiError(401 if kind == "login" else 403, "auth.verification_failed")
     try:
         r = cred["response"]
         raw_id = wa.b64u_decode(cred["rawId"])
@@ -228,13 +228,13 @@ def onboarding_options():
     supplied = hashlib.sha256(str(body.get("setup_code", "")).encode()).digest()
     expected = hashlib.sha256(config().setup_code.encode()).digest()
     if not hmac.compare_digest(supplied, expected):
-        raise ApiError(403, "De setupcode klopt niet.")
+        raise ApiError(403, "auth.bad_setup_code")
     display_name = str(body.get("display_name", "")).strip()
     if not 1 <= len(display_name) <= 60:
-        raise ApiError(400, "Vul een naam in (maximaal 60 tekens).")
+        raise ApiError(400, "auth.name_required")
     with pool().connection() as conn:
         if conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]:
-            raise ApiError(409, "De onboarding is al afgerond.")
+            raise ApiError(409, "auth.onboarded")
         user_id = uuid.uuid4()
         challenge = _store_challenge(conn, "onboarding",
                                      data={"user_id": str(user_id), "display_name": display_name})
@@ -249,7 +249,7 @@ def onboarding_verify():
         result, row = _verify_registration(conn, cred, "onboarding")
         conn.execute("SELECT pg_advisory_xact_lock(7603002)")  # two onboardings at once: one wins
         if conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]:
-            raise ApiError(409, "De onboarding is al afgerond.")
+            raise ApiError(409, "auth.onboarded")
         data = row["data"]
         user_id = uuid.UUID(data["user_id"])
         conn.execute("INSERT INTO users (id, display_name) VALUES (%s, %s)", (user_id, data["display_name"]))
@@ -290,7 +290,7 @@ def logout():
 @bp.post("/recovery/redeem")
 def recovery_redeem():
     code = json_body().get("code", "")
-    refusal = ApiError(401, "Deze herstelcode is niet geldig.")  # same text for every rejection
+    refusal = ApiError(401, "auth.bad_recovery")  # same text for every rejection
     if not normalise_code(code):
         raise refusal
     with pool().connection() as conn:
@@ -364,7 +364,7 @@ def _purpose(action: str, target: str | None) -> str:
         return "recovery:regenerate"
     if action in ("password-disable", "password-change", "password-backup-codes"):
         return f"password:{action.split('-', 1)[1]}"
-    raise ApiError(400, "Onbekende actie.")
+    raise ApiError(400, "auth.unknown_action")
 
 
 @bp.post("/stepup/options")
@@ -389,7 +389,7 @@ def delete_credential(credential_id):
     try:
         target = str(uuid.UUID(credential_id))
     except ValueError:
-        raise ApiError(404, "Passkey niet gevonden.") from None
+        raise ApiError(404, "auth.passkey_not_found") from None
     cred = _credential_payload(json_body())
     with pool().connection() as conn:
         _verify_assertion(conn, cred, "confirm", purpose=_purpose("delete-credential", target),
@@ -397,11 +397,11 @@ def delete_credential(credential_id):
         count = conn.execute("SELECT count(*) AS n FROM webauthn_credentials WHERE user_id = %s",
                              (g.user_id,)).fetchone()["n"]
         if count <= 1:
-            raise ApiError(409, "Je laatste passkey kun je niet verwijderen.")
+            raise ApiError(409, "auth.last_passkey")
         deleted = conn.execute("DELETE FROM webauthn_credentials WHERE id = %s AND user_id = %s",
                                (target, g.user_id)).rowcount
         if not deleted:
-            raise ApiError(404, "Passkey niet gevonden.")
+            raise ApiError(404, "auth.passkey_not_found")
     return jsonify({"ok": True})
 
 

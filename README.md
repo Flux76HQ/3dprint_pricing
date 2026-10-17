@@ -243,3 +243,17 @@ wachtwoord-login zonder die tweede stap en er komt pas een sessie nadat wachtwoo
 blijft werken. Aanzetten vraagt alleen dat je ingelogd bent (het moet ook werken op een toestel zonder passkey); wijzigen, uitschakelen en nieuwe back-upcodes vragen een verse passkey-bevestiging, of, op een toestel waar de passkey niet werkt, je wachtwoord plus een code (authenticator of back-upcode); dat telt voor de blokkade net als inloggen. Wachtwoorden zijn
 met argon2id gehasht; het TOTP-geheim staat versleuteld met een sleutel afgeleid van `SESSION_SECRET`. Wijzig je
 `SESSION_SECRET`, dan werkt de tweestapscode niet meer en stel je wachtwoord-login opnieuw in (met je passkey).
+
+## Talen (Nederlands en Engels)
+
+De app spreekt Nederlands en Engels. De taal van de browser is de standaard (een onbekende taal wordt Engels); met de vlaggen
+in de zijbalk (op een telefoon: *Meer*) en onder *Instellingen → Weergave* kies je zelf. Die keuze wordt bij je account in de
+database bewaard, dus ze geldt op al je apparaten; op de inlogschermen onthoudt de browser ze. Alle teksten staan in
+taalbestanden en niet in de code: `frontend/lang/nl.json` en `en.json` voor de schermen, `backend/app/lang/nl.json` en
+`en.json` voor wat de server meldt (foutmeldingen, de testmelding en "nieuwe versie"-melding). De server kiest de taal uit de
+`X-Lang`-kop van de app, anders uit je bewaarde keuze, anders uit `Accept-Language`, anders Nederlands. Een taal toevoegen
+is: een bestand per map toevoegen, de taal in `LANGUAGES` (`frontend/js/i18n.js`) en `LANGUAGES` (`backend/app/i18n.py`) zetten
+en een vlag in `frontend/js/langswitch.js` tekenen. `backend/tests/test_i18n.py` bewaakt dat beide bestanden dezelfde sleutels
+en `{plaatshouders}` hebben, dat elke gebruikte sleutel bestaat en dat er geen Nederlandse zin in de schermcode is blijven staan.
+Bewaarde gegevens (een passkeynaam, een regelomschrijving in een berekening) blijven in de taal waarin je ze maakte, en het
+bestand `manifest.webmanifest` (naam van de snelkoppelingen) is niet vertaald.
