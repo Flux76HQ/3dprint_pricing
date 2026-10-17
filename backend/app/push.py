@@ -4,6 +4,7 @@ The terms below are decisions, not library defaults (project baseline §11). `py
 which RFC 8030 §5.2 reads as "drop it if the device is not reachable right now": a phone that is off
 or asleep would lose the message and nothing would report it.
 """
+import hashlib
 import ipaddress
 import json
 import logging
@@ -127,27 +128,76 @@ def send_one(cfg, subscription: dict, payload: dict) -> None:
     )
 
 
+def fingerprint(endpoint: str) -> str:
+    """Stable, short and not reversible: how a device finds itself in the list. The browser computes the same."""
+    return hashlib.sha256(endpoint.encode("utf-8")).hexdigest()[:16]
+
+
+def describe_agent(user_agent: str) -> str:
+    """"Android · Chrome" from a User-Agent string: enough to tell the owner's devices apart."""
+    ua = user_agent or ""
+    system = next((name for key, name in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
+                                          ("Windows", "Windows"), ("Macintosh", "Mac"), ("CrOS", "Chromebook"),
+                                          ("Linux", "Linux")) if key in ua), "Onbekend apparaat")
+    browser = next((name for key, name in (("Edg/", "Edge"), ("OPR/", "Opera"), ("SamsungBrowser", "Samsung Internet"),
+                                           ("Firefox", "Firefox"), ("CriOS", "Chrome"), ("Chrome", "Chrome"),
+                                           ("Safari", "Safari")) if key in ua), "")
+    return f"{system} · {browser}" if browser else system
+
+
+def failure_reason(exc: Exception, endpoint: str) -> str:
+    """A sentence the owner can act on, without the push service's raw answer (that goes to the log)."""
+    host = urlsplit(endpoint).hostname or "de pushdienst"
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status in (404, 410):
+        return "Het toestel heeft zich afgemeld of het adres is verlopen. Zet meldingen op dat toestel uit en weer aan."
+    if status in (401, 403):
+        return (f"{host} weigert de VAPID-gegevens van deze server ({status}). Controleer VAPID_SUBJECT (een echt "
+                "mailadres of https-adres) en of de sleutels niet zijn gewijzigd sinds dit toestel zich aanmeldde.")
+    if status == 413:
+        return "De pushdienst vond het bericht te groot."
+    if status == 429:
+        return "De pushdienst zegt: te veel berichten. Probeer het later opnieuw."
+    if status and status >= 500:
+        return f"{host} is tijdelijk niet beschikbaar ({status}). Probeer het later opnieuw."
+    if status:
+        return f"{host} wees het bericht af ({status})."
+    return f"De server bereikt {host} niet (uitgaand https of DNS in de container geblokkeerd?)."
+
+
 def deliver_now(pool, cfg, user_id, payload: dict) -> dict:
     with pool.connection() as conn:
-        subs = conn.execute("SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = %s",
-                            (user_id,)).fetchall()
+        subs = conn.execute("SELECT id, endpoint, p256dh, auth, user_agent FROM push_subscriptions WHERE user_id = %s "
+                            "ORDER BY created_at", (user_id,)).fetchall()
     sent = failed = 0
+    results = []
     for sub in subs:
+        device = describe_agent(sub["user_agent"])
         try:
             send_one(cfg, sub, payload)
             sent += 1
+            with pool.connection() as conn:
+                conn.execute("UPDATE push_subscriptions SET last_ok_at = now(), last_error = NULL, last_error_at = NULL "
+                             "WHERE id = %s", (sub["id"],))
+            results.append({"id": str(sub["id"]), "device": device, "ok": True})
+            continue
         except WebPushException as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
             if status in (404, 410):                    # the device unsubscribed or the browser dropped it
                 with pool.connection() as conn:
                     conn.execute("DELETE FROM push_subscriptions WHERE id = %s", (sub["id"],))
-            else:
-                log.warning("push to %s failed: %s", urlsplit(sub["endpoint"]).hostname, exc)
-            failed += 1
+            log.warning("push to %s failed: %s", urlsplit(sub["endpoint"]).hostname, exc)
+            reason, error = failure_reason(exc, sub["endpoint"]), exc
         except Exception as exc:                        # network errors, bad keys: never take the caller down
             log.warning("push to %s failed: %s", urlsplit(sub["endpoint"]).hostname, exc)
-            failed += 1
-    return {"sent": sent, "failed": failed, "devices": len(subs)}
+            reason, error = failure_reason(exc, sub["endpoint"]), exc
+        failed += 1
+        if getattr(getattr(error, "response", None), "status_code", None) not in (404, 410):
+            with pool.connection() as conn:
+                conn.execute("UPDATE push_subscriptions SET last_error = %s, last_error_at = now() WHERE id = %s",
+                             (reason, sub["id"]))
+        results.append({"id": str(sub["id"]), "device": device, "ok": False, "reason": reason})
+    return {"sent": sent, "failed": failed, "devices": len(subs), "results": results}
 
 
 def user_window(pool, user_id):

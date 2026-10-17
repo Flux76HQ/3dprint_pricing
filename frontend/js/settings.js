@@ -1,7 +1,7 @@
 import { api, confirmWithPasskey, createPasskey } from './api.js';
 import { IOS_STEPS, installState, onInstallChange, promptInstall } from './install.js';
 import { passwordCard } from './password.js';
-import { currentSubscription, disablePush, enablePush, pushSupport } from './push.js';
+import { currentSubscription, disablePush, enablePush, pushSupport, thisDeviceFingerprint } from './push.js';
 import { confirmDialog, field, h, icon, numberInput, switchRow, toast, versionLabel } from './ui.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
 
@@ -50,6 +50,7 @@ const DEFAULT_QUIET = () => ({ enabled: false, start: '22:00', end: '07:00', tz:
 function notificationsCard(ctx) {
   const { setPrefs } = ctx;
   const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, 'Laden…'));
+  let lastResult = '';                                    // survives the redraw that refreshes the device list
 
   async function draw() {
     let cfg;
@@ -77,7 +78,7 @@ function notificationsCard(ctx) {
         if (saved) Object.assign(quiet, change);       // later edits build on what was really saved
         else draw();                                    // refused (e.g. unknown timezone): show the saved values again
       };
-      const result = h('p', { class: 'status-line', role: 'status' });
+      const result = h('p', { class: 'status-line', role: 'status' }, lastResult);
       rows.push(
         switchRow('Melding bij nieuwe versie', 'Een melding zodra de server is bijgewerkt.', ctx.prefs.notify_release !== false,
           (on) => setPrefs({ notify_release: on })),
@@ -93,18 +94,48 @@ function notificationsCard(ctx) {
         h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
           try {
             const r = await api('POST', '/api/push/test');
-            if (r.deferred_until) result.textContent = `Stille uren actief: de testmelding komt om ${new Date(r.deferred_until).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.`;
-            else if (r.sent > 0) result.textContent = `Testmelding verstuurd naar ${r.sent} apparaat${r.sent === 1 ? '' : 'en'}.`;
-            else result.textContent = 'Versturen mislukt: het pushadres van dit apparaat reageerde niet of is verlopen. Zet meldingen uit en weer aan.';
-          } catch (e) { result.textContent = e.message; }
+            if (r.deferred_until) lastResult = `Stille uren actief: de testmelding komt om ${new Date(r.deferred_until).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.`;
+            else {
+              const failures = (r.results || []).filter((x) => !x.ok).map((x) => `${x.device}: ${x.reason}`);
+              lastResult = [r.sent > 0 ? `Testmelding verstuurd naar ${r.sent} apparaat${r.sent === 1 ? '' : 'en'}.` : 'Versturen mislukt.', ...failures].join('\n');
+            }
+            draw();
+          } catch (e) { lastResult = e.message; draw(); }
         } }, 'Stuur testmelding')),
         result,
-        h('p', { class: 'muted' }, `${cfg.devices} apparaat${cfg.devices === 1 ? '' : 'en'} aangemeld. Een melding blijft maximaal ${cfg.ttl_hours} uur wachten als je toestel uit staat.`));
+        h('p', { class: 'muted' }, `Een melding blijft maximaal ${cfg.ttl_hours} uur wachten als je toestel uit staat.`));
     }
+    rows.push(await devicesList(draw));
     body.replaceChildren(...rows);
   }
   draw();
   return h('div', { class: 'glass card stack' }, h('h2', {}, 'Meldingen'), body);
+}
+
+const when = (iso) => new Date(iso).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' });
+
+/** Every device that receives notifications, with how the last one went. */
+async function devicesList(redraw) {
+  let devices;
+  try { devices = (await api('GET', '/api/push/devices')).devices; } catch { return h('p', { class: 'muted' }, 'De lijst met apparaten kon niet worden geladen.'); }
+  const mine = await thisDeviceFingerprint().catch(() => null);
+  if (!devices.length) return h('p', { class: 'muted' }, 'Nog geen apparaten aangemeld voor meldingen.');
+  return h('div', { class: 'stack' }, h('h3', {}, `Apparaten met meldingen (${devices.length})`),
+    h('ul', { class: 'devices', 'aria-label': 'Apparaten met meldingen' }, devices.map((d) => h('li', {},
+      h('div', {},
+        h('strong', {}, d.name), d.fingerprint === mine ? h('span', { class: 'tag' }, 'Dit apparaat') : null,
+        h('p', { class: 'muted' }, `Aangemeld ${when(d.created_at)}`),
+        d.last_error ? h('p', { class: 'error' }, `Laatste melding mislukt (${when(d.last_error_at)}): ${d.last_error}`)
+          : d.last_ok_at ? h('p', { class: 'muted' }, `Laatste melding gelukt ${when(d.last_ok_at)}`)
+            : h('p', { class: 'muted' }, 'Nog geen melding verstuurd')),
+      h('button', { class: 'btn small danger', type: 'button', onclick: async () => {
+        if (!(await confirmDialog(`${d.name} geen meldingen meer laten krijgen?`, 'Verwijderen'))) return;
+        try {
+          await api('DELETE', `/api/push/devices/${d.id}`);
+          if (d.fingerprint === mine) await disablePush().catch(() => {});
+        } catch (e) { toast(e.message, 'error'); }
+        redraw();
+      } }, 'Verwijderen')))));
 }
 
 export function settingsView(ctx) {

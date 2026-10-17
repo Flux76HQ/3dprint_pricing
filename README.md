@@ -16,8 +16,10 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
   bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
 - **Filament** — je rollen met prijs per rol, gewicht, diameter, print- en bedtemperatuur en wat er nog over is;
   de **barcode** bewaar je als identifier: scan hem met de camera van je telefoon (of een barcodescanner, die typt
-  gewoon in het veld) en bij een bekende barcode neem je met één klik de gegevens van de vorige rol over; verbruik van een
-  berekening kun je met één klik van de voorraad afboeken.
+  gewoon in het veld). Een bekende barcode wordt gemeld en de gegevens van de vorige rol worden meteen ingevuld (wat je zelf al
+  typte blijft staan), zodat je alleen nog opslaat, met erbij hoeveel rollen je er nog van hebt. Bovenaan staat de
+  **voorraad per soort**: de rollen die je nog hebt met hun gewicht, het totaal per soort en per materiaal (een soort is
+  één barcode, of merk + materiaal + kleur). Verbruik van een berekening kun je met één klik van de voorraad afboeken.
 - **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. In een berekening kies je er
   per product een uit de lijst (of vul je een regel zelf in); de prijs wordt in de berekening bewaard.
 - **Printers** — aanschafwaarde, levensduur in uren (afschrijving per uur) en vermogen.
@@ -117,7 +119,7 @@ met een eigen icoon en opstartscherm en reageert als een native app:
 
 ### Meldingen en updates
 
-**Nieuwe versie.** De app vraagt de server bij het openen, na terugkeren naar de voorgrond en elk kwartier welke versie draait.
+**Nieuwe versie.** De versie in de zijbalk is die van de code die de pagina echt geladen heeft (de server vult hem in `js/build.js` in), niet het antwoord van de server van dit moment; elke script- en stijl-URL draagt de release (`?v=0.7.3-abc1234`), zodat een oude cache of proxy geen oude scripts met een nieuwe server kan mengen. De app vraagt de server bij het openen, na terugkeren naar de voorgrond en elk kwartier welke versie draait.
 Is die nieuwer dan wat de app geladen heeft, dan verschijnt bovenaan “Nieuwe versie beschikbaar: vX.Y.Z (commit)” met
 *Nu bijwerken* en *Later* (een uur rust). Heb je een berekening met niet-opgeslagen wijzigingen open, dan vraagt de app
 eerst of je die wilt kwijtraken. *Instellingen → Updates* toont de draaiende versie en controleert op verzoek.
@@ -238,6 +240,6 @@ Aanzetten kan onder *Instellingen → Wachtwoord en tweestapsverificatie*, ook a
 een wachtwoord (minstens 12 tekens) en een authenticator-app (TOTP, 6 cijfers). Er is geen
 wachtwoord-login zonder die tweede stap en er komt pas een sessie nadat wachtwoord én code kloppen. Je krijgt 8 back-upcodes
 (elk één keer bruikbaar). Na 5 mislukte pogingen blokkeert wachtwoord-login 15 minuten (daarna steeds langer); je passkey
-blijft werken. Aanzetten vraagt alleen dat je ingelogd bent (het moet ook werken op een toestel zonder passkey); wijzigen, uitschakelen en nieuwe back-upcodes vragen een verse passkey-bevestiging. Wachtwoorden zijn
+blijft werken. Aanzetten vraagt alleen dat je ingelogd bent (het moet ook werken op een toestel zonder passkey); wijzigen, uitschakelen en nieuwe back-upcodes vragen een verse passkey-bevestiging, of, op een toestel waar de passkey niet werkt, je wachtwoord plus een code (authenticator of back-upcode); dat telt voor de blokkade net als inloggen. Wachtwoorden zijn
 met argon2id gehasht; het TOTP-geheim staat versleuteld met een sleutel afgeleid van `SESSION_SECRET`. Wijzig je
 `SESSION_SECRET`, dan werkt de tweestapscode niet meer en stel je wachtwoord-login opnieuw in (met je passkey).

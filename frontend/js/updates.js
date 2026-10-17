@@ -25,7 +25,11 @@ async function fetchVersion() {
 
 async function apply() {
   if (dirty && !(await confirmDialog('Je hebt niet-opgeslagen wijzigingen. Toch bijwerken en deze kwijtraken?', 'Bijwerken'))) return;
-  try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch { /* reload anyway */ }
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await reg?.update();
+    await Promise.all((await caches.keys()).map((key) => caches.delete(key)));    // never fall back to an old shell
+  } catch { /* reload anyway */ }
   window.location.reload();
 }
 

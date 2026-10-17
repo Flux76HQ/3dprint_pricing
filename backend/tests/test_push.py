@@ -348,3 +348,47 @@ def test_what_pywebpush_really_sends_carries_the_terms_and_decrypts(tmp_path):
     plain = http_ece.decrypt(seen["body"], private_key=device_key, auth_secret=auth_secret, version="aes128gcm")
     body = json.loads(plain)
     assert body["title"] == "Titel" and body["silent"] is True and not {"requireInteraction", "vibrate"} & set(body)
+
+
+# --- which devices, and why one fails ---------------------------------------------------------------------
+
+def test_the_test_result_says_per_device_why_a_push_failed(owner):
+    subscribe(owner)
+    subscribe(owner, "https://push.example.test/send/second")
+    subscribe(owner, "https://push.example.test/send/third")
+    outcomes = [WebPushException("no", response=mock.Mock(status_code=403)), RuntimeError("down"), None]
+    with mock.patch("app.push.webpush", side_effect=outcomes):
+        result = post(owner, "/api/push/test").get_json()
+    assert result["sent"] == 1 and result["failed"] == 2
+    forbidden, unreachable, ok = result["results"]
+    assert "VAPID_SUBJECT" in forbidden["reason"] and "403" in forbidden["reason"]
+    assert "bereikt" in unreachable["reason"] and "push.example.test" in unreachable["reason"]
+    assert ok["ok"] is True and "reason" not in ok
+    assert "no" not in json.dumps(result).replace("none", "")                  # the service's raw answer is not echoed
+
+
+def test_the_device_list_shows_name_status_and_never_the_endpoint(owner):
+    ua = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
+    assert post(owner, "/api/push/subscribe", {"endpoint": ENDPOINT, "keys": {"p256dh": "k", "auth": "a"}}).status_code == 200
+    owner.post("/api/push/subscribe", json={"endpoint": "https://push.example.test/send/two", "keys": {"p256dh": "k", "auth": "a"}},
+               headers={**H, "User-Agent": ua})
+    with mock.patch("app.push.webpush", side_effect=[None, RuntimeError("down")]):
+        post(owner, "/api/push/test")
+    body = owner.get("/api/push/devices").get_json()
+    first, second = body["devices"]
+    assert second["name"] == "Android · Chrome" and first["fingerprint"] == push.fingerprint(ENDPOINT)
+    assert first["last_ok_at"] and first["last_error"] is None
+    assert second["last_error"] and second["last_ok_at"] is None
+    assert "push.example.test/send" not in json.dumps(body)
+
+
+def test_a_device_can_be_removed_from_the_list_but_only_your_own(owner, pushapp):
+    subscribe(owner)
+    (device,) = owner.get("/api/push/devices").get_json()["devices"]
+    assert owner.delete(f"/api/push/devices/{device['id']}", headers=H).status_code == 200
+    assert owner.get("/api/push/devices").get_json()["devices"] == []
+    assert owner.delete(f"/api/push/devices/{device['id']}", headers=H).status_code == 404
+
+
+def test_the_device_list_needs_a_session(client):
+    assert client.get("/api/push/devices").status_code == 401

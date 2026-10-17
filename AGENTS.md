@@ -136,7 +136,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 
 Optional, off by default, always with TOTP (`backend/app/passwords.py`, `password_api.py`). Never create a session before
 both factors pass, never weaken the lockout or the TOTP replay guard (`last_totp_step`), keep refusals generic
-("Inloggen mislukt."), and keep changing/disabling/regenerating backup codes behind a fresh passkey confirmation (enabling needs only the session, by design: it must work without a passkey on that device). The login view shows the
+("Inloggen mislukt."), and keep changing/disabling/regenerating backup codes behind a fresh passkey confirmation or the full password-plus-code check (`_reauthenticate`: same lock, counter and replay guard as logging in) (enabling needs only the session, by design: it must work without a passkey on that device). The login view shows the
 option only when `/api/auth/status` reports `password_login`.
 
 ## 7. Work done in one client leaves the other clients correct

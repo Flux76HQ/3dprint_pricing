@@ -44,3 +44,11 @@ export async function disablePush() {
   await sub.unsubscribe();
   await api('POST', '/api/push/unsubscribe', { endpoint });
 }
+
+/** Matches `fingerprint` from /api/push/devices: how this device finds itself in the list. */
+export async function thisDeviceFingerprint() {
+  const sub = await currentSubscription().catch(() => null);
+  if (!sub) return null;
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sub.endpoint));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+}
