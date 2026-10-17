@@ -41,6 +41,7 @@ jobs:
         with:
           context: .
           push: true
+          build-args: GIT_COMMIT=${{ github.sha }}
           tags: |
             ${{ steps.image.outputs.name }}:latest
             ${{ steps.version.outputs.new == 'true' && format('{0}:{1}', steps.image.outputs.name, steps.version.outputs.version) || '' }}

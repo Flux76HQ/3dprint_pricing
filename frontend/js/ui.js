@@ -107,3 +107,6 @@ export function blurToggle(ctx) {
     } }, icon('eye'), h('span', {}, ctx.prefs.blur_costs ? 'Kosten tonen' : 'Kosten verbergen'));
   return button;
 }
+
+// "v0.3.1 (abc1234)": the running release and the commit it was built from.
+export const versionLabel = (v) => (v ? `v${v.version} (${v.commit || 'dev'})` : '');

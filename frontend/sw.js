@@ -1,5 +1,7 @@
 // Offline shell: static files are cached, the API never is (prices must be live).
-const CACHE = 'pp-shell-v1';
+// Network first, cache only as the offline fallback: a new release must show up on the very next
+// load, not the one after (stale-while-revalidate served the old interface once more).
+const CACHE = 'pp-shell-v2';
 const SHELL = ['/', '/css/app.css', '/js/main.js', '/js/api.js', '/js/ui.js', '/js/auth-views.js',
   '/js/resources.js', '/js/projects.js', '/js/settings.js', '/js/theme-boot.js', '/icons/icon.svg'];
 
@@ -24,13 +26,11 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(fetch(req).catch(() => caches.match('/')));
     return;
   }
-  // Stale-while-revalidate for static files.
-  event.respondWith(caches.open(CACHE).then(async (cache) => {
-    const cached = await cache.match(req);
-    const network = fetch(req).then((res) => {
-      if (res.ok) cache.put(req, res.clone());
-      return res;
-    }).catch(() => cached);
-    return cached || network;
-  }));
+  event.respondWith(fetch(req).then((res) => {
+    if (res.ok) {
+      const copy = res.clone();
+      caches.open(CACHE).then((c) => c.put(req, copy));
+    }
+    return res;
+  }).catch(() => caches.match(req)));
 });

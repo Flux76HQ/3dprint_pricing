@@ -49,8 +49,10 @@ publiek onder *GitHub → Packages → Package settings → Change visibility*. 
 Bouwen uit een checkout (met de `Dockerfile`) kan ook:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+GIT_COMMIT=$(git rev-parse --short HEAD) docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
+
+(`GIT_COMMIT` verschijnt naast het versienummer; zonder staat er `dev`. CI zet hem automatisch.)
 
 Zonder `--domain` wordt `http://localhost:<poort>` ingesteld, genoeg om het uit te proberen.
 Handmatig kan ook: `cp .env.example .env` en de waarden invullen.
@@ -116,6 +118,14 @@ CI publiceert bij elke merge naar `main` `:latest`, en `:X.Y.Z` plus een GitHub 
 `VERSION` een nieuwe versie heeft. Een versie-image wordt nooit overschreven. Migraties draaien bij het opstarten
 vóór de server verkeer krijgt; de container stopt als een migratie faalt of een toegepaste migratie is gewijzigd.
 Hosten op de gedeelde Flux76-server: zie `shared/infrastructure/adding-an-app.md` in App-Guidance.
+
+**Zie je na een update nog de oude app?** Controleer de draaiende versie in de zijbalk (onder de naam, als `vx.x.x (commit)`), onder *Instellingen* (onderaan) of met
+`curl http://<host>:<poort>/api/version`, en vergelijk met de laatste release op GitHub. Staat daar een oudere versie:
+- `docker compose up -d` pullt een image die al lokaal bestaat **niet** opnieuw; gebruik `docker compose pull && docker compose up -d`.
+  Een eerder lokaal gebouwde `…:latest` heeft voorrang tot je pullt.
+- Controleer of `APP_IMAGE` in `.env` niet op een oude tag staat; zet hem desnoods op de nieuwste (bijv. `…:0.3.0`).
+- Draait alles goed maar toont je browser oude schermen, ververs dan één keer hard (de service worker haalt bestanden
+  vanaf versie 0.3.1 eerst van het netwerk).
 
 ### Back-up en herstel
 ```bash

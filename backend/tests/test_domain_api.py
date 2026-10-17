@@ -192,3 +192,21 @@ def test_display_preferences_are_validated_booleans(owner):
     assert res["blur_costs"] is True and res["auto_adopt_file"] is False
     assert owner.put("/api/preferences", json={"blur_costs": "yes"}, headers=H).status_code == 400
     assert owner.put("/api/preferences", json={"auto_adopt_file": 1}, headers=H).status_code == 400
+
+
+def test_version_endpoint_reports_the_short_commit(client, monkeypatch):
+    monkeypatch.setenv("APP_COMMIT", "0123456789abcdef")
+    body = client.get("/api/version").get_json()
+    assert body["commit"] == "0123456" and body["version"]
+    assert client.get("/healthz").get_json()["commit"] == "0123456"
+    monkeypatch.delenv("APP_COMMIT")
+    assert client.get("/api/version").get_json()["commit"] == "dev"      # local runs say so
+
+
+def test_static_files_are_always_revalidated_so_updates_show_at_once(client):
+    for path in ("/app.js", "/", "/instellingen"):
+        res = client.get(path)
+        assert res.status_code == 200
+        assert "no-cache" in res.headers["Cache-Control"] and "max-age=3600" not in res.headers["Cache-Control"]
+    first = client.get("/app.js")
+    assert client.get("/app.js", headers={"If-None-Match": first.headers["ETag"]}).status_code == 304

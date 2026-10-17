@@ -1,5 +1,5 @@
 import { api, confirmWithPasskey, createPasskey } from './api.js';
-import { confirmDialog, field, h, icon, numberInput, switchRow, toast } from './ui.js';
+import { confirmDialog, field, h, icon, numberInput, switchRow, toast, versionLabel } from './ui.js';
 
 export const ACCENTS = [
   ['#6c5ce7', 'Violet'], ['#0a84ff', 'Blauw'], ['#5e5ce6', 'Indigo'], ['#bf5af2', 'Paars'],
@@ -11,6 +11,8 @@ const THEMES = [['system', 'Systeem'], ['light', 'Licht'], ['dark', 'Donker']];
 
 export function settingsView({ prefs, setPrefs, user, onLogout, highlightPasskey }) {
   let vatTimer = null;
+  const versionEl = h('span', { id: 'app-version' }, '…');
+  api('GET', '/api/version').then((v) => { versionEl.textContent = versionLabel(v); }).catch(() => { versionEl.textContent = 'onbekend'; });
   const security = h('div', { class: 'stack' });
   const codesBox = h('div');
 
@@ -112,5 +114,6 @@ export function settingsView({ prefs, setPrefs, user, onLogout, highlightPasskey
       h('p', { class: 'muted' }, 'Je logt in met passkeys; er is geen wachtwoord. Verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.'),
       security),
     h('div', { class: 'glass card stack' }, h('h2', {}, 'Sessie'),
-      h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: onLogout }, 'Uitloggen'))));
+      h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: onLogout }, 'Uitloggen'))),
+    h('p', { class: 'muted' }, 'Draaiende versie: ', versionEl));
 }

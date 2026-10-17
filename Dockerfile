@@ -10,6 +10,10 @@ WORKDIR /app
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# The commit is passed at build time (CI: github.sha) and shown next to the version in the sidebar.
+ARG GIT_COMMIT=dev
+ENV APP_COMMIT=$GIT_COMMIT
+
 COPY backend/app ./app
 COPY backend/wsgi.py backend/migrate.py ./
 COPY frontend ./static
