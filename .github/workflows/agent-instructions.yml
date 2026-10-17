@@ -1,0 +1,17 @@
+name: agent-instructions
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  # Own job so the name is findable on the pull request under the name AGENTS.md cites.
+  agent-instructions-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test the agent-instructions validator
+        run: python -m unittest discover -s scripts -p "test_check_agent_instructions.py" -v
+      - name: Validate the agent instruction surfaces
+        run: python scripts/check_agent_instructions.py

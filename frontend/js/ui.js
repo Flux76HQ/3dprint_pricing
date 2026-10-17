@@ -1,0 +1,81 @@
+// Tiny DOM helpers. Everything goes through textContent/attributes, never innerHTML with data.
+export function h(tag, attrs = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs || {})) {
+    if (value == null || value === false) continue;
+    if (key === 'class') el.className = value;
+    else if (key.startsWith('on')) el.addEventListener(key.slice(2), value);
+    else if (key === 'value' || key === 'checked' || key === 'disabled' || key === 'hidden') el[key] = value;
+    else if (value === true) el.setAttribute(key, '');
+    else el.setAttribute(key, value);
+  }
+  el.append(...children.flat(Infinity).filter((c) => c != null && c !== false));
+  return el;
+}
+
+const ICONS = {
+  calculator: '<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M8.5 7.5h7M9 12h.01M12 12h.01M15 12h.01M9 16h.01M12 16h.01M15 16h.01"/>',
+  spool: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3"/><path d="M12 3.5v5.5M12 15v5.5"/>',
+  printer: '<path d="M7 9V4h10v5M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="6" rx="1"/>',
+  bolt: '<path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 14a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  collapse: '<path d="m15 6-6 6 6 6"/>',
+  expand: '<path d="m9 6 6 6-6 6"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l3 3"/>',
+};
+
+export function icon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'icon');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML = ICONS[name] || ''; // static strings above, never user data
+  return svg;
+}
+
+const eurFormat = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' });
+export const eur = (value) => eurFormat.format(Number(value) || 0);
+
+export function fmt(value, digits = 2) {
+  return new Intl.NumberFormat('nl-NL', { maximumFractionDigits: digits }).format(Number(value) || 0);
+}
+
+// Accept both "26,99" and "26.99": people type what their keyboard has.
+export function parseNum(value) {
+  if (typeof value === 'number') return value;
+  const n = parseFloat(String(value ?? '').trim().replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function toast(message, kind = 'info') {
+  const el = h('div', { class: `toast ${kind}` }, message);
+  document.getElementById('toasts').append(el);
+  setTimeout(() => el.remove(), kind === 'error' ? 7000 : 3500);
+}
+
+export function field(label, input, hint) {
+  const id = `f${Math.random().toString(36).slice(2, 9)}`;
+  input.id = id;
+  return h('div', { class: 'field' },
+    h('label', { for: id }, label), input, hint ? h('p', { class: 'hint' }, hint) : null);
+}
+
+export function numberInput(value, onInput, attrs = {}) {
+  return h('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', value: value ?? '', ...attrs,
+    oninput: (e) => onInput(e.target.value) });
+}
+
+export function confirmDialog(message, confirmLabel = 'Verwijderen') {
+  return new Promise((resolve) => {
+    const dialog = h('dialog', { class: 'glass sheet' },
+      h('p', {}, message),
+      h('div', { class: 'row end' },
+        h('button', { class: 'btn', type: 'button', onclick: () => dialog.close('no') }, 'Annuleren'),
+        h('button', { class: 'btn danger', type: 'button', onclick: () => dialog.close('yes') }, confirmLabel)));
+    dialog.addEventListener('close', () => { resolve(dialog.returnValue === 'yes'); dialog.remove(); });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
