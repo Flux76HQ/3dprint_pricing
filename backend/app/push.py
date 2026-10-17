@@ -311,6 +311,17 @@ def user_window(pool, user_id):
     return (row["preferences"] or {}).get("quiet_hours") if row else None
 
 
+def enqueue(pool, user_id, payload: dict, deliver_after: datetime) -> None:
+    """Put a notification in the outbox for the background worker. Only the newest one of a kind waits, as with a topic.
+    For what should not hold up the request that caused it; quiet hours are applied when the worker delivers."""
+    with pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO push_outbox (user_id, kind, payload, deliver_after) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (user_id, kind) DO UPDATE SET payload = EXCLUDED.payload, "
+            "deliver_after = EXCLUDED.deliver_after, created_at = now()",
+            (user_id, payload["kind"], json.dumps(payload), deliver_after))
+
+
 def notify(pool, cfg, user_id, kind: str, title: str, body: str, url: str = "/", now: "datetime | None" = None) -> dict:
     """Send now, or hold until the user's quiet window ends. Deferred, not discarded."""
     if not cfg.push_configured:
@@ -318,12 +329,7 @@ def notify(pool, cfg, user_id, kind: str, title: str, body: str, url: str = "/",
     payload = build_payload(kind, title, body, url)
     until = quiet_until(now or datetime.now(timezone.utc), user_window(pool, user_id))
     if until:
-        with pool.connection() as conn:
-            conn.execute(
-                "INSERT INTO push_outbox (user_id, kind, payload, deliver_after) VALUES (%s, %s, %s, %s) "
-                "ON CONFLICT (user_id, kind) DO UPDATE SET payload = EXCLUDED.payload, "
-                "deliver_after = EXCLUDED.deliver_after, created_at = now()",
-                (user_id, kind, json.dumps(payload), until))
+        enqueue(pool, user_id, payload, until)
         return {"deferred_until": until.isoformat(), "sent": 0, "failed": 0}
     return deliver_now(pool, cfg, user_id, payload)
 

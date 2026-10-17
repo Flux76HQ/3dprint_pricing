@@ -6,9 +6,9 @@ from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, g, jsonify, request
 
-from . import push
+from . import lowstock, push, stock
 from .calc import ROUNDINGS, calculate
-from .http import ApiError, json_body, login_required, pool
+from .http import ApiError, config, json_body, login_required, pool
 from .i18n import LANGUAGES, L, tr
 
 bp = Blueprint("api", __name__, url_prefix="/api")
@@ -101,11 +101,12 @@ RESOURCES = {
         "print_temp_c": optional_int("f.print_temp", minimum=0, maximum=500),
         "bed_temp_c": optional_int("f.bed_temp", minimum=0, maximum=200),
         "notes": text("f.notes", required=False, max_len=1000),
+        "notify_low": boolean("f.notify_low"),
         "archived": boolean("f.archived"),
     }, "brand, colour"),
 }
 OPTIONAL = {"notes", "archived", "is_default", "material", "colour", "product_type", "power_kw", "barcode", "diameter_mm",
-            "print_temp_c", "bed_temp_c"}
+            "print_temp_c", "bed_temp_c", "notify_low"}
 
 
 def _serialise(row: dict) -> dict:
@@ -132,6 +133,22 @@ def _validated(fields, body, *, partial):
     return values
 
 
+def _share_notify(conn, row: dict, *, explicit: bool, creating: bool) -> dict:
+    """`notify_low` belongs to the kind of filament, not to the roll: every roll with the same barcode (or, without one, the same
+    brand, type, material and colour) gets the same value. Saving it on a roll sets it on all of them; a new roll that does not say
+    anything takes over what its kind already has."""
+    key = stock.key_of(row)
+    siblings = [r for r in conn.execute("SELECT id, brand, product_type, material, colour, barcode, notify_low FROM filament_spools "
+                                        "WHERE id <> %s", (row["id"],)).fetchall() if stock.key_of(r) == key]
+    if explicit:
+        differing = [r["id"] for r in siblings if r["notify_low"] != row["notify_low"]]
+        if differing:
+            conn.execute("UPDATE filament_spools SET notify_low = %s WHERE id = ANY(%s)", (row["notify_low"], differing))
+    elif creating and not row["notify_low"] and any(r["notify_low"] for r in siblings):
+        row = conn.execute("UPDATE filament_spools SET notify_low = true WHERE id = %s RETURNING *", (row["id"],)).fetchone()
+    return row
+
+
 def _register(path, table, fields, order):
     def list_all():
         with pool().connection() as conn:
@@ -151,6 +168,10 @@ def _register(path, table, fields, order):
                 cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
             row = conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks}) RETURNING *",
                                tuple(values.values())).fetchone()
+            if table == "filament_spools":
+                row = _share_notify(conn, row, explicit="notify_low" in values, creating=True)
+        if table == "filament_spools":
+            stock_changed()
         return jsonify(_serialise(row)), 201
 
     def update(item_id):
@@ -163,8 +184,12 @@ def _register(path, table, fields, order):
                 conn.execute(f"UPDATE {table} SET is_default = false")
             row = conn.execute(f"UPDATE {table} SET {sets} WHERE id = %s RETURNING *",
                                (*values.values(), item_id)).fetchone()
+            if row is not None and table == "filament_spools":
+                row = _share_notify(conn, row, explicit="notify_low" in values, creating=False)
         if row is None:
             raise ApiError(404, "err.not_found")
+        if table == "filament_spools":
+            stock_changed()
         return jsonify(_serialise(row))
 
     def delete(item_id):
@@ -172,6 +197,8 @@ def _register(path, table, fields, order):
             row = conn.execute(f"DELETE FROM {table} WHERE id = %s RETURNING id", (item_id,)).fetchone()
         if row is None:
             raise ApiError(404, "err.not_found")
+        if table == "filament_spools":
+            stock_changed()
         return jsonify({"ok": True})
 
     bp.add_url_rule(f"/{path}", f"{path}_list", list_all, methods=["GET"])
@@ -180,58 +207,31 @@ def _register(path, table, fields, order):
     bp.add_url_rule(f"/{path}/<uuid:item_id>", f"{path}_delete", delete, methods=["DELETE"])
 
 
+def stock_changed() -> None:
+    """Something that changes what is on the shelf was saved: see whether a kind of filament has just run low."""
+    lowstock.check(pool(), config())
+
+
 for _path, (_table, _fields, _order) in RESOURCES.items():
     _register(_path, _table, _fields, _order)
 
 
-def _stock_key(row: dict) -> str:
-    """One kind of filament: the barcode when there is one, otherwise brand + type + material + colour."""
-    barcode = (row["barcode"] or "").strip()
-    if barcode:
-        return f"barcode:{barcode}"
-    return "name:" + "|".join((row[k] or "").strip().lower() for k in ("brand", "product_type", "material", "colour"))
-
-
-def _stock(rows) -> list[dict]:
-    """Per kind of filament: the rolls that still have filament on them (with their weights) and the total.
-
-    Archived rolls are not stock. A roll that is empty is not a roll you still have, but its kind stays in
-    the list with 0 g so a sold-out colour does not just vanish."""
-    groups: dict[str, dict] = {}
-    for row in rows:
-        group = groups.setdefault(_stock_key(row), {
-            "key": _stock_key(row), "brand": row["brand"], "product_type": row["product_type"] or "", "material": row["material"] or "", "colour": row["colour"] or "",
-            "barcode": (row["barcode"] or "").strip(), "rolls": [], "remaining_g": Decimal(0)})
-        if row["remaining_g"] > 0:
-            group["rolls"].append({"id": str(row["id"]), "remaining_g": str(row["remaining_g"]),
-                                   "roll_weight_g": str(row["roll_weight_g"])})
-            group["remaining_g"] += row["remaining_g"]
-    out = []
-    for group in groups.values():
-        group["roll_count"] = len(group["rolls"])
-        group["remaining_g"] = str(group["remaining_g"])
-        out.append(group)
-    return sorted(out, key=lambda g: ((g["material"] or "~").lower(), g["brand"].lower(), g["product_type"].lower(), g["colour"].lower()))
-
-
-def _stock_rows(conn, barcode: str | None = None):
-    sql = ("SELECT id, brand, product_type, material, colour, barcode, roll_weight_g, remaining_g FROM filament_spools "
-           "WHERE NOT archived")
-    params: tuple = ()
-    if barcode is not None:
-        sql, params = sql + " AND barcode = %s", (barcode,)
-    return conn.execute(sql + " ORDER BY created_at", params).fetchall()
-
-
 @bp.get("/spools/stock")
 def spool_stock():
-    """What is left, per kind of filament and per material."""
+    """What is left, per kind of filament and per material. A kind with the notification on says at what weight it is
+    announced and whether it is under that now."""
     with pool().connection() as conn:
-        groups = _stock(_stock_rows(conn))
+        groups = stock.groups(stock.fetch(conn))
+        row = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()
+    limits = lowstock.settings(row["preferences"] if row else None)
     materials: dict[str, dict] = {}
     for g_ in groups:
+        limit = lowstock.threshold_for(limits, lowstock.material_key(g_["material"])) if g_["notify_low"] else None
+        g_["threshold_g"] = int(limit) if limit is not None else None
+        g_["low"] = limit is not None and Decimal(g_["remaining_g"]) <= limit
+        key = lowstock.material_key(g_["material"])           # "" = no material filled in
         name = (g_["material"] or tr("stock.unknown_material")).strip()
-        m = materials.setdefault(name.lower(), {"material": name, "roll_count": 0, "remaining_g": Decimal(0)})   # "PLA" = "pla"
+        m = materials.setdefault(key or name.lower(), {"material": name, "key": key, "roll_count": 0, "remaining_g": Decimal(0)})   # "PLA" = "pla"
         m["roll_count"] += g_["roll_count"]
         m["remaining_g"] += Decimal(g_["remaining_g"])
     return jsonify({"groups": groups, "materials": [{**m, "remaining_g": str(m["remaining_g"])}
@@ -247,8 +247,8 @@ def lookup_spool():
     with pool().connection() as conn:
         row = conn.execute("SELECT * FROM filament_spools WHERE barcode = %s ORDER BY created_at DESC LIMIT 1",
                            (barcode,)).fetchone()
-        stock = _stock(_stock_rows(conn, barcode)) if row else []
-    return jsonify({"spool": _serialise(row) if row else None, "stock": stock[0] if stock else None})
+        found = stock.groups(stock.fetch(conn, barcode)) if row else []
+    return jsonify({"spool": _serialise(row) if row else None, "stock": found[0] if found else None})
 
 
 # Details of the product, not of one roll: the same barcode means the same brand, type, material, colour,
@@ -288,6 +288,8 @@ def propagate_spool(spool_id):
         sets = ", ".join(f"{name} = %s" for name in fields)
         done = conn.execute(f"UPDATE filament_spools SET {sets} WHERE barcode = %s AND id <> %s RETURNING id",
                             (*[row[name] for name in fields], barcode, spool_id)).fetchall()
+    if "material" in fields:                                        # the rolls moved to another material's total
+        stock_changed()
     return jsonify({"updated": len(done)})
 
 
@@ -340,7 +342,34 @@ def validated_preferences(body: dict) -> dict:
         prefs["language"] = body["language"]
     if "sidebar_collapsed" in body:
         prefs["sidebar_collapsed"] = boolean("f.sidebar")(body["sidebar_collapsed"])
+    if "low_stock" in body:
+        prefs["low_stock"] = _validated_low_stock(body["low_stock"])
     return prefs
+
+
+def _validated_low_stock(value) -> dict:
+    """The threshold for every kind of filament and the ones that differ per material, all in whole grams. Which kinds are
+    watched is chosen on the rolls themselves."""
+    if not isinstance(value, dict):
+        raise ApiError(400, "err.low_stock")
+    grams = optional_int("f.low_stock_g", minimum=0, maximum=1_000_000)
+
+    def whole(raw):
+        n = grams(raw)
+        if n is None:
+            raise ApiError(400, "err.required", label=L("f.low_stock_g"))
+        return n
+
+    own = value.get("materials", {})
+    if not isinstance(own, dict) or len(own) > 100:
+        raise ApiError(400, "err.low_stock")
+    materials = {}
+    for name, raw in own.items():
+        key = lowstock.material_key(name)
+        if not key or len(key) > 40:
+            raise ApiError(400, "err.low_stock")
+        materials[key] = whole(raw)
+    return {"threshold_g": whole(value.get("threshold_g", lowstock.DEFAULT_THRESHOLD_G)), "materials": materials}
 
 
 @bp.put("/preferences")
@@ -349,6 +378,8 @@ def put_preferences():
     with pool().connection() as conn:
         row = conn.execute("UPDATE users SET preferences = preferences || %s::jsonb WHERE id = %s "
                            "RETURNING preferences", (json.dumps(prefs), g.user_id)).fetchone()
+    if "low_stock" in prefs:
+        stock_changed()                                              # a raised threshold: what is under it now is announced now
     return jsonify(row["preferences"])
 
 
@@ -481,4 +512,5 @@ def book_stock(project_id):
             conn.execute("UPDATE filament_spools SET remaining_g = GREATEST(remaining_g - %s, 0) WHERE id = %s",
                          (grams, spool_id))
         conn.execute("UPDATE projects SET stock_booked_at = now() WHERE id = %s", (project_id,))
+    stock_changed()
     return jsonify({"ok": True, "spools_updated": len(used), "short": short})
