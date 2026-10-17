@@ -114,15 +114,16 @@ function notificationsCard(ctx) {
   function connectionCheck() {
     const list = h('ul', { class: 'plain-list', 'aria-live': 'polite' });
     const hint = h('p', { class: 'muted', hidden: true }, t('notify.check_hint'));
-    const show = (hosts) => {
-      list.replaceChildren(...hosts.map((x) => h('li', { class: x.ok ? 'muted' : 'error' }, `${x.ok ? '✓' : '✗'} ${x.message}`)));
-      hint.hidden = hosts.every((x) => x.ok);
+    const show = ({ vapid, hosts }) => {                    // the keys first: a bad key fails before the network is even tried
+      const rows = [vapid, ...hosts];
+      list.replaceChildren(...rows.map((x) => h('li', { class: x.ok ? 'muted' : 'error' }, `${x.ok ? '✓' : '✗'} ${x.message}`)));
+      hint.hidden = rows.every((x) => x.ok);
     };
     if (lastCheck) show(lastCheck);
     const button = h('button', { class: 'btn', type: 'button', onclick: async () => {
       button.disabled = true;
       list.replaceChildren(h('li', { class: 'muted' }, t('common.loading')));
-      try { lastCheck = (await api('POST', '/api/push/check')).hosts; show(lastCheck); } catch (e) { list.replaceChildren(h('li', { class: 'error' }, e.message)); }
+      try { lastCheck = await api('POST', '/api/push/check'); show(lastCheck); } catch (e) { list.replaceChildren(h('li', { class: 'error' }, e.message)); }
       button.disabled = false;
     } }, t('notify.check'));
     return h('div', { class: 'stack' }, h('div', { class: 'row' }, button), list, hint);

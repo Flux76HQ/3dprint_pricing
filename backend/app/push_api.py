@@ -67,7 +67,9 @@ def check():
     for item in push.check_connectivity():
         key = "push.c_ok" if item["ok"] else f"push.c_{item['stage']}"
         results.append({**item, "message": translate(lang, key, host=item["host"], error=item["error"])})
-    return jsonify({"hosts": results})
+    vapid = push.check_vapid(config())
+    key = "push.v_ok" if vapid["ok"] else f"push.v_{vapid['stage']}"
+    return jsonify({"hosts": results, "vapid": {**vapid, "message": translate(lang, key, error=vapid["error"])}})
 
 
 @bp.post("/subscribe")
