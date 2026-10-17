@@ -300,3 +300,10 @@ input[type=time] { font: inherit; color: var(--text); background: var(--surface-
 .qr img { width: 200px; height: 200px; }
 .secret { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.05rem; letter-spacing: .06em; word-break: break-all;
   background: var(--surface-field); border: 1px solid var(--rand); border-radius: var(--radius-sm); padding: 10px 12px; margin: 0; user-select: all; }
+
+.devices { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.devices li { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 10px 12px;
+  border: 1px solid var(--lijn); border-radius: 12px; }
+.devices p { margin: 2px 0 0; }
+.tag { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; background: var(--accent, #6c5ce7); color: #fff; }
+.status-line { white-space: pre-line; }

@@ -28,6 +28,31 @@ def get_config():
                     "devices": devices, "ttl_hours": push.TTL_SECONDS // 3600})
 
 
+@bp.get("/devices")
+def devices():
+    """The owner's devices that receive notifications. `fingerprint` lets a device recognise itself
+    (it hashes its own endpoint) without the endpoint, which is a secret, ever coming back."""
+    with pool().connection() as conn:
+        rows = conn.execute("SELECT id, endpoint, user_agent, created_at, last_ok_at, last_error, last_error_at "
+                            "FROM push_subscriptions WHERE user_id = %s ORDER BY created_at", (g.user_id,)).fetchall()
+    return jsonify({"devices": [{
+        "id": str(r["id"]), "name": push.describe_agent(r["user_agent"]), "fingerprint": push.fingerprint(r["endpoint"]),
+        "created_at": r["created_at"].isoformat(),
+        "last_ok_at": r["last_ok_at"].isoformat() if r["last_ok_at"] else None,
+        "last_error": r["last_error"], "last_error_at": r["last_error_at"].isoformat() if r["last_error_at"] else None,
+    } for r in rows]})
+
+
+@bp.delete("/devices/<uuid:device_id>")
+def remove_device(device_id):
+    with pool().connection() as conn:
+        gone = conn.execute("DELETE FROM push_subscriptions WHERE id = %s AND user_id = %s RETURNING id",
+                            (device_id, g.user_id)).fetchone()
+    if gone is None:
+        raise ApiError(404, "Dit apparaat is niet gevonden.")
+    return jsonify({"ok": True})
+
+
 @bp.post("/subscribe")
 def subscribe():
     _require_configured()
