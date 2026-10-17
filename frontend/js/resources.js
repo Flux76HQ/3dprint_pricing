@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import { scanBarcode } from './scanner.js';
-import { confirmDialog, eur, field, fmt, h, icon, toast } from './ui.js';
+import { confirmDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
 
 // Declarative config for the three inventory/rate screens. Money and quantities are
 // sent as typed; the server validates and is the only place that decides what is valid.
@@ -11,12 +11,13 @@ export const RESOURCES = {
     title: 'Filament', path: '/api/spools', noun: 'rol', empty: 'Nog geen filamentrollen.', archivable: true,
     intro: 'Je filamentrollen met aanschafprijs en wat er nog op zit. Kies ze in een berekening; ' +
       'de prijs per kg volgt uit prijs ÷ gewicht.',
-    defaults: { brand: '', material: '', colour: '', roll_weight_g: '1000', price: '', remaining_g: '1000',
+    defaults: { brand: '', product_type: '', material: '', colour: '', roll_weight_g: '1000', price: '', remaining_g: '1000',
       barcode: '', diameter_mm: '1.75', print_temp_c: '', bed_temp_c: '', notes: '' },
     fields: [
       { key: 'barcode', label: 'Barcode', type: 'barcode',
         hint: 'Scan de barcode met je camera of een scanner. Is de barcode bekend, dan worden de gegevens ingevuld en zie je wat je er nog van hebt.' },
-      { key: 'brand', label: 'Merk / type', type: 'text', required: true, placeholder: 'Bambu ABS Basis' },
+      { key: 'brand', label: 'Merk', type: 'text', required: true, placeholder: 'Bambu Lab' },
+      { key: 'product_type', label: 'Type', type: 'text', placeholder: 'Matte, Basic, Silk', hint: 'De uitvoering van het filament, los van het merk.' },
       { key: 'material', label: 'Materiaal', type: 'text', placeholder: 'ABS' },
       { key: 'colour', label: 'Kleur', type: 'text', placeholder: 'Black' },
       { key: 'roll_weight_g', label: 'Gewicht rol (gram)', type: 'number', required: true },
@@ -34,7 +35,7 @@ export const RESOURCES = {
         'aria-label': `${fmt(item.remaining_g, 0)} van ${fmt(item.roll_weight_g, 0)} gram over` }, h('span'));
       bar.firstChild.style.width = `${pct}%`;
       return {
-        title: [item.brand, item.colour].filter(Boolean).join(' · '),
+        title: spoolName(item, ' · '),
         subtitle: [item.material, `${eur(item.price)} per rol`].filter(Boolean).join(' · '),
         stats: [['Per kg', eur(perKg)], ['Over', `${fmt(item.remaining_g, 0)} g`], ['Diameter', `${fmt(item.diameter_mm)} mm`],
           ...(item.print_temp_c != null ? [['Printtemp.', `${item.print_temp_c} °C`]] : []),
@@ -131,7 +132,7 @@ function stockPanel() {
       h('p', { class: 'muted stock-materials' }, [...materials.values()].map((m) => `${m.name}: ${plural(m.rolls)}, ${fmt(m.grams, 0)} g`).join(' · ')),
       h('ul', { class: 'stock', 'aria-label': 'Voorraad per soort' }, groups.map((g) => h('li', { class: g.roll_count ? '' : 'out' },
         h('div', {},
-          h('strong', {}, [g.brand, g.colour].filter(Boolean).join(' · ')),
+          h('strong', {}, spoolName(g, ' · ')),
           h('p', { class: 'muted' }, [g.material, g.barcode ? `Barcode ${g.barcode}` : null].filter(Boolean).join(' · ') || ' '),
           g.roll_count
             ? h('p', { class: 'muted' }, `Per rol: ${g.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ')}`)
@@ -147,43 +148,43 @@ function stockPanel() {
   return { panel, refresh, setFilter(fn) { match = fn; draw(); } };
 }
 
-// Filters for the filament list: by material ("soort") and by brand. Options come from what you have,
-// the brand options narrow to the chosen material, and both the list and the stock overview follow.
+// Filters for the filament list: by material ("soort"), brand and type. Options come from what you have,
+// each one narrows to what the earlier choices leave, and both the list and the stock overview follow.
 const norm = (v) => String(v || '').trim().toLowerCase();
+const FILTERS = [['material', 'Soort', 'Alle soorten'], ['brand', 'Merk', 'Alle merken'], ['product_type', 'Type', 'Alle typen']];
 
 function filterBar(onChange) {
-  const state = { material: '', brand: '' };
-  const material = h('select', { id: 'filter-material', 'aria-label': 'Filter op soort' });
-  const brand = h('select', { id: 'filter-brand', 'aria-label': 'Filter op merk' });
-  const clear = h('button', { class: 'btn small', type: 'button', hidden: true, onclick: () => {
-    state.material = ''; state.brand = ''; onChange(); update(lastItems);
-  } }, 'Wis filters');
+  const state = Object.fromEntries(FILTERS.map(([key]) => [key, '']));
+  const selects = Object.fromEntries(FILTERS.map(([key, label]) => [key, h('select', { id: `filter-${key}`, 'aria-label': `Filter op ${label.toLowerCase()}` })]));
   let lastItems = [];
+  const clear = h('button', { class: 'btn small', type: 'button', hidden: true, onclick: () => {
+    for (const [key] of FILTERS) state[key] = '';
+    update(lastItems); onChange();
+  } }, 'Wis filters');
 
   const distinct = (rows, key) => {
     const seen = new Map();
     for (const r of rows) if (norm(r[key]) && !seen.has(norm(r[key]))) seen.set(norm(r[key]), String(r[key]).trim());
     return [...seen].sort((a, b) => a[1].localeCompare(b[1], 'nl'));
   };
-  const fill = (select, all, options, current) => {
-    select.replaceChildren(h('option', { value: '' }, all), ...options.map(([value, label]) => h('option', { value }, label)));
-    select.value = options.some(([value]) => value === current) ? current : '';
-  };
+  const matches = (row, upTo = FILTERS.length) => FILTERS.slice(0, upTo).every(([key]) => !state[key] || norm(row[key]) === state[key]);
+
   function update(items) {
     lastItems = items;
-    fill(material, 'Alle soorten', distinct(items, 'material'), state.material);
-    state.material = material.value;
-    fill(brand, 'Alle merken', distinct(items.filter((i) => !state.material || norm(i.material) === state.material), 'brand'), state.brand);
-    state.brand = brand.value;
-    clear.hidden = !state.material && !state.brand;
+    FILTERS.forEach(([key, , all], i) => {
+      const options = distinct(items.filter((row) => matches(row, i)), key);   // narrowed by the filters before this one
+      const select = selects[key];
+      select.replaceChildren(h('option', { value: '' }, all), ...options.map(([value, label]) => h('option', { value }, label)));
+      select.value = options.some(([value]) => value === state[key]) ? state[key] : '';
+      state[key] = select.value;
+    });
+    clear.hidden = !FILTERS.some(([key]) => state[key]);
   }
-  material.addEventListener('change', () => { state.material = material.value; update(lastItems); onChange(); });
-  brand.addEventListener('change', () => { state.brand = brand.value; update(lastItems); onChange(); });
+  for (const [key] of FILTERS) selects[key].addEventListener('change', () => { state[key] = selects[key].value; update(lastItems); onChange(); });
 
-  const matches = (row) => (!state.material || norm(row.material) === state.material) && (!state.brand || norm(row.brand) === state.brand);
   const bar = h('div', { class: 'filters', role: 'group', 'aria-label': 'Filteren' },
-    h('label', { for: 'filter-material' }, 'Soort'), material, h('label', { for: 'filter-brand' }, 'Merk'), brand, clear);
-  return { bar, update, matches, active: () => !!(state.material || state.brand) };
+    ...FILTERS.flatMap(([key, label]) => [h('label', { for: `filter-${key}` }, label), selects[key]]), clear);
+  return { bar, update, matches: (row) => matches(row), active: () => FILTERS.some(([key]) => state[key]) };
 }
 
 function toPayload(config, values) {
@@ -203,7 +204,7 @@ function openForm(config, item, reload) {
   // A barcode field: type it, use a hardware scanner (it types and presses Enter), or scan with the
   // camera. A known barcode says so, fills in what is known about that filament (never over what was
   // already typed, and only for a new roll) and shows what is in stock of it: confirming is all that is left.
-  const CARRIED = ['brand', 'material', 'colour', 'roll_weight_g', 'price', 'diameter_mm', 'print_temp_c', 'bed_temp_c', 'notes'];
+  const CARRIED = ['brand', 'product_type', 'material', 'colour', 'roll_weight_g', 'price', 'diameter_mm', 'print_temp_c', 'bed_temp_c', 'notes'];
   const dirty = new Set();          // fields the user typed in themselves
   function stockLine(stock) {
     if (!stock || !stock.roll_count) return 'Je hebt hier nu geen rol meer van.';
@@ -236,7 +237,7 @@ function openForm(config, item, reload) {
           if (els.remaining_g) els.remaining_g.value = values.remaining_g;
         }
         notice.replaceChildren(
-          h('strong', {}, `Bekende barcode: ${[spool.brand, spool.colour].filter(Boolean).join(' · ')}`),
+          h('strong', {}, `Bekende barcode: ${spoolName(spool, ' · ')}`),
           h('span', {}, 'De gegevens zijn ingevuld. Controleer ze en kies Opslaan om deze rol toe te voegen.'),
           h('span', {}, stockLine(stock)));
         notice.hidden = false;

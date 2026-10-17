@@ -89,7 +89,8 @@ RESOURCES = {
         "archived": boolean("Gearchiveerd"),
     }, "name"),
     "spools": ("filament_spools", {
-        "brand": text("Merk/type"),
+        "brand": text("Merk"),
+        "product_type": text("Type", required=False, max_len=60),
         "material": text("Materiaal", required=False, max_len=40),
         "colour": text("Kleur", required=False, max_len=40),
         "roll_weight_g": number("Gewicht rol (g)", strict=True),
@@ -103,7 +104,7 @@ RESOURCES = {
         "archived": boolean("Gearchiveerd"),
     }, "brand, colour"),
 }
-OPTIONAL = {"notes", "archived", "is_default", "material", "colour", "power_kw", "barcode", "diameter_mm",
+OPTIONAL = {"notes", "archived", "is_default", "material", "colour", "product_type", "power_kw", "barcode", "diameter_mm",
             "print_temp_c", "bed_temp_c"}
 
 
@@ -184,11 +185,11 @@ for _path, (_table, _fields, _order) in RESOURCES.items():
 
 
 def _stock_key(row: dict) -> str:
-    """One kind of filament: the barcode when there is one, otherwise brand + material + colour."""
+    """One kind of filament: the barcode when there is one, otherwise brand + type + material + colour."""
     barcode = (row["barcode"] or "").strip()
     if barcode:
         return f"barcode:{barcode}"
-    return "name:" + "|".join((row[k] or "").strip().lower() for k in ("brand", "material", "colour"))
+    return "name:" + "|".join((row[k] or "").strip().lower() for k in ("brand", "product_type", "material", "colour"))
 
 
 def _stock(rows) -> list[dict]:
@@ -199,7 +200,7 @@ def _stock(rows) -> list[dict]:
     groups: dict[str, dict] = {}
     for row in rows:
         group = groups.setdefault(_stock_key(row), {
-            "key": _stock_key(row), "brand": row["brand"], "material": row["material"] or "", "colour": row["colour"] or "",
+            "key": _stock_key(row), "brand": row["brand"], "product_type": row["product_type"] or "", "material": row["material"] or "", "colour": row["colour"] or "",
             "barcode": (row["barcode"] or "").strip(), "rolls": [], "remaining_g": Decimal(0)})
         if row["remaining_g"] > 0:
             group["rolls"].append({"id": str(row["id"]), "remaining_g": str(row["remaining_g"]),
@@ -210,11 +211,11 @@ def _stock(rows) -> list[dict]:
         group["roll_count"] = len(group["rolls"])
         group["remaining_g"] = str(group["remaining_g"])
         out.append(group)
-    return sorted(out, key=lambda g: ((g["material"] or "~").lower(), g["brand"].lower(), g["colour"].lower()))
+    return sorted(out, key=lambda g: ((g["material"] or "~").lower(), g["brand"].lower(), g["product_type"].lower(), g["colour"].lower()))
 
 
 def _stock_rows(conn, barcode: str | None = None):
-    sql = ("SELECT id, brand, material, colour, barcode, roll_weight_g, remaining_g FROM filament_spools "
+    sql = ("SELECT id, brand, product_type, material, colour, barcode, roll_weight_g, remaining_g FROM filament_spools "
            "WHERE NOT archived")
     params: tuple = ()
     if barcode is not None:
@@ -421,12 +422,12 @@ def book_stock(project_id):
                 used[spool_id] = used.get(spool_id, Decimal(0)) + Decimal(str(line.get("grams") or 0))
         short = []
         for spool_id, grams in used.items():
-            row = conn.execute("SELECT brand, remaining_g FROM filament_spools WHERE id = %s FOR UPDATE",
+            row = conn.execute("SELECT brand, product_type, remaining_g FROM filament_spools WHERE id = %s FOR UPDATE",
                                (spool_id,)).fetchone()
             if row is None:
                 continue  # spool was deleted since; nothing to subtract from
             if row["remaining_g"] < grams:
-                short.append(f"{row['brand']} (nog {row['remaining_g']} g, nodig {grams} g)")
+                short.append(f"{' '.join(x for x in (row['brand'], row['product_type']) if x)} (nog {row['remaining_g']} g, nodig {grams} g)")
             conn.execute("UPDATE filament_spools SET remaining_g = GREATEST(remaining_g - %s, 0) WHERE id = %s",
                          (grams, spool_id))
         conn.execute("UPDATE projects SET stock_booked_at = now() WHERE id = %s", (project_id,))
