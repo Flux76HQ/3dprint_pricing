@@ -261,3 +261,19 @@ bestand `manifest.webmanifest` (naam van de snelkoppelingen) is niet vertaald.
 **Pop-ups.** Elke pop-up past op het scherm (de inhoud scrolt, het kruisje rechtsboven blijft staan) en sluit met het kruisje,
 Escape of Annuleren. Zou je daarmee iets kwijtraken (een half ingevuld formulier, een niet afgemaakte wachtwoord-installatie,
 back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestiging.
+
+## Back-up in de app
+
+*Instellingen → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`):
+je instellingen (thema, taal, btw, afronding, stille uren…), printers, energietarieven, verpakkingen, filamentrollen en
+berekeningen, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
+met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
+mailen of bewaren mag de app niet kunnen openen. Na herstellen op een lege installatie log je dus gewoon in met je passkey.
+
+*Herstellen uit back-up…* kiest zo'n bestand, controleert het eerst helemaal (met dezelfde regels als handmatig invoeren; de
+berekeningen worden opnieuw uitgerekend, een aangepast totaal in het bestand telt dus niet, en printbestanden worden opnieuw
+gelezen en tegen hun controlesom gehouden) en laat zien wat er terugkomt. Pas na jouw bevestiging **vervangt** het alles wat er
+nu staat, in één keer: lukt iets niet, dan verandert er niets. Een bestand uit een nieuwere versie van de app wordt geweigerd.
+Zo'n back-up past binnen `MAX_UPLOAD_MB` (standaard 50 MB); met printbestanden kan dat te klein zijn, verhoog het dan in `.env`.
+Een volledige kopie van de database (`pg_dump`) en de map met uploads blijft de manier voor een back-up van de hele server, zie
+*Back-up en herstel* (onder Beheer) hierboven.

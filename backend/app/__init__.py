@@ -7,7 +7,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import api, auth, files, password_api, push, push_api
+from . import api, auth, backup, files, password_api, push, push_api
 from .config import Config, load_config
 from .db import make_pool
 from .http import ApiError, error_response
@@ -69,6 +69,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
 
     app.register_blueprint(auth.bp)
     app.register_blueprint(api.bp)
+    app.register_blueprint(backup.bp)
     app.register_blueprint(files.bp)
     app.register_blueprint(push_api.bp)
     app.register_blueprint(password_api.bp)

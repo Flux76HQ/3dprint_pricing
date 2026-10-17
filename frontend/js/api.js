@@ -39,6 +39,18 @@ export async function upload(path, formData) {
   return data;
 }
 
+/** Fetches a file the server sends as an attachment. Resolves { blob, name }. */
+export async function downloadFile(path) {
+  let res;
+  try { res = await fetch(path, { credentials: 'same-origin', headers: langHeader() }); } catch { throw new ApiError(0, t('api.no_connection')); }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, data.error || t('api.error_status', { status: res.status }));
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1] || 'download';
+  return { blob: await res.blob(), name };
+}
+
 // --- passkeys ------------------------------------------------------------------
 
 const toBuf = (b64u) => {

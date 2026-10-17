@@ -304,9 +304,9 @@ def get_preferences():
     return jsonify(row["preferences"] if row else {})
 
 
-@bp.put("/preferences")
-def put_preferences():
-    body = json_body()
+def validated_preferences(body: dict) -> dict:
+    """The preferences in `body` that are valid, as they will be stored; raises ApiError for a bad value.
+    Used by the settings screen and by restoring a backup, so both accept exactly the same things."""
     prefs = {}
     if "theme" in body:
         if body["theme"] not in THEMES:
@@ -340,6 +340,12 @@ def put_preferences():
         prefs["language"] = body["language"]
     if "sidebar_collapsed" in body:
         prefs["sidebar_collapsed"] = boolean("f.sidebar")(body["sidebar_collapsed"])
+    return prefs
+
+
+@bp.put("/preferences")
+def put_preferences():
+    prefs = validated_preferences(json_body())
     with pool().connection() as conn:
         row = conn.execute("UPDATE users SET preferences = preferences || %s::jsonb WHERE id = %s "
                            "RETURNING preferences", (json.dumps(prefs), g.user_id)).fetchone()

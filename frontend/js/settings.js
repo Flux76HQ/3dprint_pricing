@@ -1,4 +1,4 @@
-import { api, confirmWithPasskey, createPasskey } from './api.js';
+import { api, confirmWithPasskey, createPasskey, downloadFile } from './api.js';
 import { iosSteps, installState, onInstallChange, promptInstall } from './install.js';
 import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
@@ -139,6 +139,52 @@ async function devicesList(redraw) {
       } }, t('common.delete'))))));
 }
 
+/** Backup and restore of everything entered (settings, printers, tariffs, packaging, rolls, calculations). */
+function backupCard() {
+  let withFiles = false;
+  const status = h('p', { class: 'status-line', role: 'status' });
+  const picker = h('input', { type: 'file', accept: '.json,application/json', hidden: true, 'aria-label': t('backup.restore') });
+
+  async function download() {
+    try {
+      const { blob, name } = await downloadFile(`/api/backup${withFiles ? '?files=1' : ''}`);
+      const url = URL.createObjectURL(blob);
+      const link = h('a', { href: url, download: name });
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      status.textContent = t('backup.downloaded', { name });
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function restore(file) {
+    let doc;
+    try { doc = JSON.parse(await file.text()); } catch { toast(t('backup.not_json'), 'error'); return; }
+    try {
+      const { summary: s } = await api('POST', '/api/backup/restore?dry_run=1', doc);       // checked first, nothing changes yet
+      const when = s.created_at ? formatDateTime(s.created_at, { dateStyle: 'medium', timeStyle: 'short' }) : '?';
+      const files = s.files ? t('backup.with_files', { n: s.files }) : '';
+      if (!(await confirmDialog(t('backup.confirm', { when, printers: s.printers, tariffs: s.tariffs, packaging: s.packaging,
+        spools: s.spools, projects: s.projects, files }), t('backup.restore_now')))) return;
+      await api('POST', '/api/backup/restore', doc);
+      toast(t('backup.restored'));
+      setTimeout(() => window.location.reload(), 600);                                      // settings and language may have changed
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  picker.addEventListener('change', () => { const file = picker.files[0]; picker.value = ''; if (file) restore(file); });
+  return h('div', { class: 'glass card stack' }, h('h2', {}, t('backup.title')),
+    h('p', { class: 'muted' }, t('backup.intro')),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: (e) => { withFiles = e.target.checked; } }), t('backup.files')),
+    h('p', { class: 'hint' }, t('backup.files_hint')),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn primary', type: 'button', onclick: download }, t('backup.download')),
+      h('button', { class: 'btn', type: 'button', onclick: () => picker.click() }, t('backup.restore')), picker),
+    status,
+    h('p', { class: 'muted' }, t('backup.not_included')));
+}
+
 export function settingsView(ctx) {
   const { setPrefs, user, onLogout, highlightPasskey } = ctx;
   let vatTimer = null;
@@ -245,6 +291,7 @@ export function settingsView(ctx) {
       h('p', { class: 'muted' }, t('security.hint')),
       security),
     passwordCard(),
+    backupCard(),
     h('div', { class: 'glass card stack' }, h('h2', {}, t('session.title')),
       h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: onLogout }, t('session.logout')))));
 }

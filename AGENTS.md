@@ -145,6 +145,13 @@ No user-visible sentence is written in the code. Screens use `t('key')` with the
 raises `ApiError(status, "key", name=value)` with the text in `backend/app/lang/*.json`. Add a key to every language file
 in the same commit (`backend/tests/test_i18n.py` fails otherwise) and give `{placeholders}` the same names in each.
 
+## 6c. Backup and restore
+
+`backend/app/backup.py`. A backup never contains credentials (passkeys, recovery codes, the password and its TOTP secret,
+push subscriptions): `tests/test_backup.py` greps the file for them. Restore validates the whole file with the same
+validators as the normal endpoints, recalculates calculations, re-reads print files, and swaps everything in one
+transaction. A new table or column that holds user data belongs in the backup and in its round-trip test.
+
 ## 7. Work done in one client leaves the other clients correct
 
 A change to a working convention goes in this file, never in a client's entry file. If a client
