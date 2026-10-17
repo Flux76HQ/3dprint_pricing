@@ -32,6 +32,13 @@ class Config:
     static_dir: str
     upload_dir: str = "/data/uploads"
     max_upload_mb: int = 50
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = ""
+
+    @property
+    def push_configured(self) -> bool:
+        return bool(self.vapid_public_key and self.vapid_private_key)
 
 
 def load_config() -> Config:
@@ -51,4 +58,7 @@ def load_config() -> Config:
         static_dir=os.environ.get("STATIC_DIR", os.path.join(os.path.dirname(__file__), "..", "static")),
         upload_dir=os.environ.get("UPLOAD_DIR", "/data/uploads"),
         max_upload_mb=int(os.environ.get("MAX_UPLOAD_MB", "50")),
+        vapid_public_key=os.environ.get("VAPID_PUBLIC_KEY", "").strip(),
+        vapid_private_key=os.environ.get("VAPID_PRIVATE_KEY", "").strip(),
+        vapid_subject=os.environ.get("VAPID_SUBJECT", "").strip() or f"mailto:admin@{_required('RP_ID')}",
     )

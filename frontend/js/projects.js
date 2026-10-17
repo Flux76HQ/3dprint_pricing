@@ -1,4 +1,5 @@
 import { api, upload } from './api.js';
+import { setDirty } from './updates.js';
 import { blurToggle, confirmDialog, eur, field, fmt, h, icon, numberInput, parseNum, toast } from './ui.js';
 
 const ROUNDINGS = [['none', 'Niet afronden'], ['0.05', 'Op 5 cent'], ['0.10', 'Op 10 cent'], ['0.50', 'Op 50 cent'],
@@ -148,6 +149,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
   }
   function touch() {
     dirty = true;
+    setDirty(true);
     clearTimeout(timer);
     timer = setTimeout(recalc, 200);
   }
@@ -284,6 +286,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
       if (asCopy) body.name = `${body.name} (kopie)`;
       const saved = state.id && !asCopy ? await api('PUT', `/api/projects/${state.id}`, body) : await api('POST', '/api/projects', body);
       dirty = false;
+      setDirty(false);
       toast('Opgeslagen');
       if (!state.id || asCopy) navigate(`#/berekeningen/${saved.id}`);
       else { state.stock_booked_at = saved.stock_booked_at; }

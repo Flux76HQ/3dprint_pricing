@@ -3,6 +3,8 @@ import { loginView, onboardingView } from './auth-views.js';
 import { projectEditorView, projectListView } from './projects.js';
 import { resourceView } from './resources.js';
 import { ACCENTS, settingsView } from './settings.js';
+import { initUpdates, setDirty } from './updates.js';
+import { maybeShowInstallBanner } from './install.js';
 import { goTo, installNativeBehaviour } from './pwa.js';
 import { h, icon, toast, versionLabel } from './ui.js';
 
@@ -24,6 +26,7 @@ let session = { user: null };
 let prefs = {};
 let flags = { recovered: false };
 let appVersion = null;
+let updatesStarted = false;
 
 // --- theme & preferences ------------------------------------------------------
 
@@ -47,10 +50,22 @@ function applyPrefs() {
   try { localStorage.setItem('pp-prefs', JSON.stringify(prefs)); } catch { /* private mode */ }
 }
 
+// Optimistic: shown at once, kept if the server accepts it, rolled back (with its message) if not.
+// Returns whether the change was saved.
 async function setPrefs(change) {
+  const before = prefs;
   prefs = { ...prefs, ...change };
   applyPrefs();
-  try { prefs = await api('PUT', '/api/preferences', change); applyPrefs(); } catch (e) { toast(e.message, 'error'); }
+  try {
+    prefs = await api('PUT', '/api/preferences', change);
+    applyPrefs();
+    return true;
+  } catch (e) {
+    prefs = before;
+    applyPrefs();
+    toast(e.message, 'error');
+    return false;
+  }
 }
 
 // --- routing -------------------------------------------------------------------
@@ -77,7 +92,7 @@ function pageContent({ page, id }) {
         h('div', { class: 'cards' }, OVERFLOW.map(([key, label, ic]) => h('a', { class: 'glass card item link-card', href: `#/${key}` },
           h('h3', {}, icon(ic), label)))));
     case 'instellingen':
-      return settingsView({ prefs, setPrefs, user: session.user, highlightPasskey: flags.recovered,
+      return settingsView({ get prefs() { return prefs; }, setPrefs, user: session.user, highlightPasskey: flags.recovered,
         onLogout: async () => { await api('POST', '/api/auth/logout'); start(); } });
     default: return h('p', {}, 'Pagina niet gevonden.');
   }
@@ -90,6 +105,7 @@ function navLink([page, label, ic], active) {
 
 function route() {
   if (!session.user) return;
+  setDirty(false);                       // a new screen starts clean; the editor raises it again on edits
   const r = currentRoute();
   const main = h('main', { id: 'main', tabindex: '-1' }, pageContent(r));
   const sidebar = h('nav', { class: 'sidebar glass', 'aria-label': 'Hoofdnavigatie' },
@@ -128,8 +144,10 @@ async function start() {
   }
   session = { user: status.user };
   try { appVersion = await api('GET', '/api/version'); } catch { /* the label is optional */ }
+  if (appVersion && !updatesStarted) { updatesStarted = true; initUpdates(appVersion); }
   try { prefs = await api('GET', '/api/preferences'); applyPrefs(); } catch { /* defaults */ }
   route();
+  maybeShowInstallBanner();
 }
 
 installNativeBehaviour();

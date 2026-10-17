@@ -82,6 +82,8 @@ verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.
 | `SETUP_CODE` | Eenmalige code voor de onboarding, zodat niet de eerste bezoeker de app overneemt |
 | `SESSION_SECRET` | Ondertekent sessiecookies, minimaal 32 tekens |
 | `SESSION_HOURS` | Levensduur van een sessie (standaard 24) |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Sleutelpaar voor push-meldingen (`python scripts/generate_vapid.py`); leeg = meldingen uit. De private sleutel is geheim; een ander paar maakt bestaande aanmeldingen onbruikbaar |
+| `VAPID_SUBJECT` | Contactadres voor de pushdiensten (`mailto:…` of https-url); leeg = `mailto:admin@<RP_ID>` |
 | `PROXY_HOPS` | Aantal reverse proxies ervoor (vertrouwt `X-Forwarded-*`) |
 | `WEB_CONCURRENCY` | Aantal Gunicorn-workers (standaard 2) |
 | `APP_IMAGE` | Te draaien image (standaard `ghcr.io/flux76hq/3dprint_pricing:latest`) |
@@ -94,9 +96,14 @@ Eén barcode hoort bij een *product*: meerdere rollen van hetzelfde filament mog
 werkt niet. Zet er een reverse proxy met TLS voor en stel `RP_ID`/`RP_ORIGINS` in op dat domein. Wijzig
 je `RP_ID` later, dan werken bestaande passkeys niet meer; log dan in met een herstelcode.
 
-## Installeren als app (iPhone/iPad)
+## Installeren als app (iPhone, iPad en Android)
 
-Open het https-adres in **Safari → Deel → Zet op beginscherm**. De app start dan schermvullend zonder Safari-balk,
+**Android (Chrome, Edge, Samsung Internet) en computer:** open het https-adres; er verschijnt een melding “Installeer de app”,
+of kies *Instellingen → App installeren*. Lang drukken op het icoon geeft snelkoppelingen (nieuwe berekening, filament).
+Eenmaal geïnstalleerd verdwijnt de melding; kies je “Niet nu”, dan komt ze pas na twee weken terug.
+
+**iPhone/iPad:** iOS biedt geen installatieknop aan, dus de app legt het uit. Open het https-adres in
+**Safari → Deel → Zet op beginscherm**. De app start dan schermvullend zonder Safari-balk,
 met een eigen icoon en opstartscherm en reageert als een native app:
 - **Geen pinch-zoom en geen dubbeltik-zoom**, en **geen zijwaarts vegen**: de pagina schuift alleen verticaal en de
   rand-veeg van iOS (terug/vooruit) heeft niets om naartoe te gaan, want de geïnstalleerde app voegt bij het navigeren
@@ -107,6 +114,35 @@ met een eigen icoon en opstartscherm en reageert als een native app:
   toestaan; het gedrag hierboven geldt voor de geïnstalleerde app.
 - iOS bewaart icoon en opstartscherm bij het toevoegen: na een wijziging daarvan verwijder je de app en zet je hem opnieuw
   op het beginscherm. Android/Chrome gebruikt `manifest.webmanifest`.
+
+### Meldingen en updates
+
+**Nieuwe versie.** De app vraagt de server bij het openen, na terugkeren naar de voorgrond en elk kwartier welke versie draait.
+Is die nieuwer dan wat de app geladen heeft, dan verschijnt bovenaan “Nieuwe versie beschikbaar: vX.Y.Z (commit)” met
+*Nu bijwerken* en *Later* (een uur rust). Heb je een berekening met niet-opgeslagen wijzigingen open, dan vraagt de app
+eerst of je die wilt kwijtraken. *Instellingen → Updates* toont de draaiende versie en controleert op verzoek.
+
+**Push-meldingen (voorbereid).** Zet ze aan met VAPID-sleutels: `python scripts/generate_vapid.py` (of `init_env.py` voor een
+nieuwe `.env`) en plak de drie `VAPID_*`-regels in `.env`. Zonder sleutels staat het uit en zegt *Instellingen → Meldingen* dat.
+Per apparaat zet je meldingen aan onder *Instellingen → Meldingen*; op **iPhone/iPad werkt het alleen voor een geïnstalleerde app
+(iOS 16.4 of nieuwer)** en pas na een tik. Er is nu één echte melding: “Versie X is beschikbaar” zodra de server na een update
+opstart (uit te zetten), plus een testknop. Dit zijn de afleveringsvoorwaarden, vastgelegd in `backend/app/push.py` en
+afgedwongen door `backend/tests/test_push.py` (project-baseline §11):
+
+| Voorwaarde | Waarde | Waarom |
+|---|---|---|
+| TTL | 24 uur | een toestel dat een nacht uit stond krijgt het ’s ochtends nog; een week oud bericht is ruis (`pywebpush` zou standaard 0 sturen: weggegooid als het toestel niet bereikbaar is) |
+| Urgency | `low` | niets hier is tijdkritisch; `high` zou een schriftelijke reden en een aangepaste test vragen |
+| Topic | per soort (`release`, `test`) | een toestel dat lang onbereikbaar was krijgt alleen het nieuwste bericht per soort |
+| Geluid | stil (`silent`) | niet tijdkritisch; Safari op iOS negeert `silent`, vandaar de stille uren |
+| Focus / Niet storen | nooit doorbreken | geen `requireInteraction`, geen trilpatroon; dat is jouw instelling op je toestel |
+| Stille uren | instelbaar rooster | de app ziet de Focus-stand niet; zet hier hetzelfde rooster als je slaap-Focus. Wandkloktijd + tijdzonenaam (volgt zomer/wintertijd), werkt over middernacht heen, **houdt vast en levert daarna alsnog af**, en bij een onleesbare instelling wordt er juist wél verstuurd |
+| Testknop | dezelfde functie en voorwaarden | een test die luider of korter leeft dan het echte werk wordt geloofd |
+
+Een pushadres dat de pushdienst afwijst (404/410) wordt automatisch verwijderd. De server moet uitgaand **https** naar de
+pushdiensten kunnen (o.a. `fcm.googleapis.com`, `web.push.apple.com`, `updates.push.services.mozilla.com`, `*.notify.windows.com`).
+
+### Iconen en opstartschermen
 
 De iconen (`apple-touch-icon-*.png`, volledig gevuld en zonder transparantie; iOS rondt de hoeken zelf af) en de
 19 opstartschermen (`frontend/splash/`, donker, per apparaatformaat) komen uit `frontend/icons/icon-mark.svg`:
@@ -189,6 +225,7 @@ Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de ap
 | Request-timeout (proxy/CDN) | ≥ 120 s | Gunicorn `--timeout 120` in `deploy/entrypoint.sh` (een groot 3MF uitlezen duurt even) |
 | `Origin`-header op schrijvende verzoeken doorgeven | verplicht ongewijzigd | origin-check tegen `RP_ORIGINS` |
 | `X-Forwarded-For/-Proto/-Host` doorgeven | aantal proxies = `PROXY_HOPS` | rate-limit op de setupcode per client-IP |
-| TLS | verplicht (behalve `localhost`) | WebAuthn werkt alleen in een secure context |
+| TLS | verplicht (behalve `localhost`) | WebAuthn, installeren, camera en push werken alleen in een secure context |
+| Uitgaand https vanaf de app-container | naar de pushdiensten (zie hierboven) | het versturen van push-meldingen; zonder dit falen ze zonder dat de app het merkt, behalve in de testknop |
 
 Er zit geen CDN of proxy in deze repository; wat ervoor staat bepaalt de werkelijke ceilings.

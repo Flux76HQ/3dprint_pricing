@@ -15,7 +15,7 @@ ARG GIT_COMMIT=dev
 ENV APP_COMMIT=$GIT_COMMIT
 
 COPY backend/app ./app
-COPY backend/wsgi.py backend/migrate.py ./
+COPY backend/wsgi.py backend/migrate.py backend/announce_release.py ./
 COPY frontend ./static
 COPY VERSION ./VERSION
 COPY deploy/entrypoint.sh /entrypoint.sh

@@ -13,6 +13,7 @@ import tempfile
 import psycopg
 import pytest
 
+os.environ.setdefault("PUSH_WORKER", "off")      # no background threads in tests; the outbox is run explicitly
 SECRET = "x" * 40
 RP_ID = "localhost"
 ORIGIN = "https://localhost:6080"
