@@ -1,5 +1,7 @@
 """3D Print Pricing: Flask application factory."""
+import hashlib
 import os
+import re
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -24,6 +26,10 @@ VERSION = _read_version()
 def _commit() -> str:
     """Short commit this image was built from (build arg GIT_COMMIT); "dev" for local runs."""
     return (os.environ.get("APP_COMMIT") or "dev")[:7]
+
+
+_IMPORT = re.compile(r"""((?:\bfrom|\bimport)\s*\(?\s*)(["'])(\.{1,2}/[^"']+?\.js)\2""")
+_ASSET = re.compile(r"""\b(src|href)="(/(?:js|css)/[^"?]+\.(?:js|css))\"""")
 
 
 def create_app(config: Config | None = None, pool=None) -> Flask:
@@ -109,8 +115,32 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     def version():
         return jsonify({"version": VERSION, "commit": _commit()})
 
+    def _build() -> str:
+        return f"{VERSION}-{_commit()}"
+
+    def _stamped(relative: str):
+        """index.html, scripts and styles with this release in every URL they load.
+
+        A browser or proxy that keeps an old copy of a file (or an installed app that has been open for days)
+        can only ever hold URLs of its own release, so a new release cannot be mixed with old scripts. The
+        running build is also baked into js/build.js, so the page knows what it really loaded.
+        """
+        path = Path(cfg.static_dir) / relative
+        text = path.read_text(encoding="utf-8")
+        token = _build()
+        if relative == "index.html":
+            text = _ASSET.sub(lambda m: f'{m.group(1)}="{m.group(2)}?v={token}"', text)
+        else:
+            text = _IMPORT.sub(lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}?v={token}{m.group(2)}", text)
+            text = text.replace("export const BUILD = { version: 'dev', commit: 'dev' };",
+                                f"export const BUILD = {{ version: '{VERSION}', commit: '{_commit()}' }};")
+        response = app.response_class(text, mimetype="text/html" if relative.endswith(".html") else "text/javascript")
+        response.headers["Cache-Control"] = "no-cache"
+        response.set_etag(hashlib.sha1(text.encode("utf-8")).hexdigest())
+        return response.make_conditional(request)
+
     def _spa():
-        return send_from_directory(cfg.static_dir, "index.html", max_age=0)
+        return _stamped("index.html")
 
     @app.get("/sw.js")
     def service_worker():
@@ -128,6 +158,8 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
         if path.startswith("api/"):
             return jsonify({"error": "Niet gevonden."}), 404
         target = Path(cfg.static_dir) / path
+        if path.startswith("js/") and path.endswith(".js") and target.is_file():
+            return _stamped(path)
         if path and target.is_file():
             # Always revalidate (ETag -> cheap 304s): a max-age here left the previous release's
             # JS and CSS in the browser for up to that long after an update.

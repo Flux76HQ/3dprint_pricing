@@ -6,6 +6,7 @@ import { ACCENTS, settingsView } from './settings.js';
 import { initUpdates, setDirty } from './updates.js';
 import { maybeShowInstallBanner } from './install.js';
 import { goTo, installNativeBehaviour } from './pwa.js';
+import { BUILD } from './build.js';
 import { h, icon, toast, versionLabel } from './ui.js';
 
 const root = document.getElementById('root');
@@ -143,8 +144,8 @@ async function start() {
     return;
   }
   session = { user: status.user };
-  try { appVersion = await api('GET', '/api/version'); } catch { /* the label is optional */ }
-  if (appVersion && !updatesStarted) { updatesStarted = true; initUpdates(appVersion); }
+  appVersion = BUILD;
+  if (!updatesStarted) { updatesStarted = true; initUpdates(BUILD); }
   try { prefs = await api('GET', '/api/preferences'); applyPrefs(); } catch { /* defaults */ }
   route();
   maybeShowInstallBanner();

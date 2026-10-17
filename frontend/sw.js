@@ -27,7 +27,7 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/') || url.pathname === '/healthz' || url.pathname === '/readyz') return;
 
   if (req.mode === 'navigate') {
-    event.respondWith(fetch(req).catch(() => caches.match('/')));
+    event.respondWith(fetch(req).catch(() => caches.match('/', { ignoreSearch: true })));
     return;
   }
   event.respondWith(fetch(req).then((res) => {
@@ -36,7 +36,7 @@ self.addEventListener('fetch', (event) => {
       caches.open(CACHE).then((c) => c.put(req, copy));
     }
     return res;
-  }).catch(() => caches.match(req)));
+  }).catch(() => caches.match(req, { ignoreSearch: true })));
 });
 
 // --- Web push -------------------------------------------------------------------------------------
