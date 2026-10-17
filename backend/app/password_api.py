@@ -170,7 +170,6 @@ def setup_start():
     body = json_body()
     password = str(body.get("password", ""))
     with pool().connection() as conn:
-        _confirm(conn, body, "password-enable")
         existing = conn.execute("SELECT enabled FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
         if existing and existing["enabled"]:
             raise ApiError(409, "Wachtwoord-login staat al aan. Schakel het eerst uit of wijzig het wachtwoord.")
