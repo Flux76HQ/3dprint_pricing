@@ -21,7 +21,7 @@ from pathlib import Path
 from flask import Blueprint, Response, g, jsonify, request
 
 from . import printfile
-from .api import RESOURCES, _project_fields, _serialise, _validated, validated_preferences
+from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized
 
@@ -264,4 +264,5 @@ def restore():
         raise
     for name in old_files:                                            # swapped in: the replaced files can go
         (upload_dir / name).unlink(missing_ok=True)
+    stock_changed()                                                   # the restored shelf and thresholds may already be low
     return jsonify({"ok": True, "dry_run": False, "summary": summary})

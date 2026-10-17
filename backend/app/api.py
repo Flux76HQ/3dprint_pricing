@@ -6,9 +6,9 @@ from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, g, jsonify, request
 
-from . import push
+from . import lowstock, push
 from .calc import ROUNDINGS, calculate
-from .http import ApiError, json_body, login_required, pool
+from .http import ApiError, config, json_body, login_required, pool
 from .i18n import LANGUAGES, L, tr
 
 bp = Blueprint("api", __name__, url_prefix="/api")
@@ -151,6 +151,8 @@ def _register(path, table, fields, order):
                 cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
             row = conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks}) RETURNING *",
                                tuple(values.values())).fetchone()
+        if table == "filament_spools":
+            stock_changed()
         return jsonify(_serialise(row)), 201
 
     def update(item_id):
@@ -165,6 +167,8 @@ def _register(path, table, fields, order):
                                (*values.values(), item_id)).fetchone()
         if row is None:
             raise ApiError(404, "err.not_found")
+        if table == "filament_spools":
+            stock_changed()
         return jsonify(_serialise(row))
 
     def delete(item_id):
@@ -172,12 +176,19 @@ def _register(path, table, fields, order):
             row = conn.execute(f"DELETE FROM {table} WHERE id = %s RETURNING id", (item_id,)).fetchone()
         if row is None:
             raise ApiError(404, "err.not_found")
+        if table == "filament_spools":
+            stock_changed()
         return jsonify({"ok": True})
 
     bp.add_url_rule(f"/{path}", f"{path}_list", list_all, methods=["GET"])
     bp.add_url_rule(f"/{path}", f"{path}_create", create, methods=["POST"])
     bp.add_url_rule(f"/{path}/<uuid:item_id>", f"{path}_update", update, methods=["PATCH"])
     bp.add_url_rule(f"/{path}/<uuid:item_id>", f"{path}_delete", delete, methods=["DELETE"])
+
+
+def stock_changed() -> None:
+    """Something that changes what is on the shelf was saved: see whether a material has just run low."""
+    lowstock.check(pool(), config())
 
 
 for _path, (_table, _fields, _order) in RESOURCES.items():
@@ -228,14 +239,22 @@ def spool_stock():
     """What is left, per kind of filament and per material."""
     with pool().connection() as conn:
         groups = _stock(_stock_rows(conn))
+        row = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()
+    alert = lowstock.settings(row["preferences"] if row else None)
     materials: dict[str, dict] = {}
     for g_ in groups:
+        key = lowstock.material_key(g_["material"])           # "" = no material filled in; those are not followed
         name = (g_["material"] or tr("stock.unknown_material")).strip()
-        m = materials.setdefault(name.lower(), {"material": name, "roll_count": 0, "remaining_g": Decimal(0)})   # "PLA" = "pla"
+        m = materials.setdefault(key or name.lower(), {"material": name, "key": key, "roll_count": 0, "remaining_g": Decimal(0)})   # "PLA" = "pla"
         m["roll_count"] += g_["roll_count"]
         m["remaining_g"] += Decimal(g_["remaining_g"])
-    return jsonify({"groups": groups, "materials": [{**m, "remaining_g": str(m["remaining_g"])}
-                                                    for m in sorted(materials.values(), key=lambda m: m["material"].lower())]})
+    out = []
+    for m in sorted(materials.values(), key=lambda m: m["material"].lower()):
+        followed = alert is not None and m["key"] != ""
+        limit = lowstock.threshold_for(alert, m["key"]) if followed else None
+        out.append({**m, "remaining_g": str(m["remaining_g"]), "threshold_g": int(limit) if limit is not None else None,
+                    "low": limit is not None and m["remaining_g"] <= limit})
+    return jsonify({"groups": groups, "materials": out})
 
 
 @bp.get("/spools/lookup")
@@ -288,6 +307,8 @@ def propagate_spool(spool_id):
         sets = ", ".join(f"{name} = %s" for name in fields)
         done = conn.execute(f"UPDATE filament_spools SET {sets} WHERE barcode = %s AND id <> %s RETURNING id",
                             (*[row[name] for name in fields], barcode, spool_id)).fetchall()
+    if "material" in fields:                                        # the rolls moved to another material's total
+        stock_changed()
     return jsonify({"updated": len(done)})
 
 
@@ -340,7 +361,34 @@ def validated_preferences(body: dict) -> dict:
         prefs["language"] = body["language"]
     if "sidebar_collapsed" in body:
         prefs["sidebar_collapsed"] = boolean("f.sidebar")(body["sidebar_collapsed"])
+    if "low_stock" in body:
+        prefs["low_stock"] = _validated_low_stock(body["low_stock"])
     return prefs
+
+
+def _validated_low_stock(value) -> dict:
+    """On or off, the threshold for every material and the ones that differ per material, all in whole grams."""
+    if not isinstance(value, dict) or not isinstance(value.get("enabled"), bool):
+        raise ApiError(400, "err.low_stock")
+    grams = optional_int("f.low_stock_g", minimum=0, maximum=1_000_000)
+
+    def whole(raw):
+        n = grams(raw)
+        if n is None:
+            raise ApiError(400, "err.required", label=L("f.low_stock_g"))
+        return n
+
+    own = value.get("materials", {})
+    if not isinstance(own, dict) or len(own) > 100:
+        raise ApiError(400, "err.low_stock")
+    materials = {}
+    for name, raw in own.items():
+        key = lowstock.material_key(name)
+        if not key or len(key) > 40:
+            raise ApiError(400, "err.low_stock")
+        materials[key] = whole(raw)
+    return {"enabled": value["enabled"], "threshold_g": whole(value.get("threshold_g", lowstock.DEFAULT_THRESHOLD_G)),
+            "materials": materials}
 
 
 @bp.put("/preferences")
@@ -349,6 +397,8 @@ def put_preferences():
     with pool().connection() as conn:
         row = conn.execute("UPDATE users SET preferences = preferences || %s::jsonb WHERE id = %s "
                            "RETURNING preferences", (json.dumps(prefs), g.user_id)).fetchone()
+    if "low_stock" in prefs:
+        stock_changed()                                              # switched on or tightened: what is low now is announced now
     return jsonify(row["preferences"])
 
 
@@ -481,4 +531,5 @@ def book_stock(project_id):
             conn.execute("UPDATE filament_spools SET remaining_g = GREATEST(remaining_g - %s, 0) WHERE id = %s",
                          (grams, spool_id))
         conn.execute("UPDATE projects SET stock_booked_at = now() WHERE id = %s", (project_id,))
+    stock_changed()
     return jsonify({"ok": True, "spools_updated": len(used), "short": short})

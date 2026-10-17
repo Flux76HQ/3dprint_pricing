@@ -128,8 +128,13 @@ function stockPanel() {
       m.grams += Number(g.remaining_g);
       materials.set(k, m);
     }
+    const low = new Set((data.materials || []).filter((m) => m.low).map((m) => m.key));     // below the threshold set under Settings
+    const totals = [...materials.entries()].map(([k, m], i) => {
+      const text = `${m.name}: ${plural(m.rolls)}, ${fmt(m.grams, 0)} g`;
+      return [i ? ' · ' : null, low.has(k) ? h('span', { class: 'stock-low' }, `${text} · ${t('stock.low_badge')}`) : text];
+    }).flat();
     body.replaceChildren(
-      h('p', { class: 'muted stock-materials' }, [...materials.values()].map((m) => `${m.name}: ${plural(m.rolls)}, ${fmt(m.grams, 0)} g`).join(' · ')),
+      h('p', { class: 'muted stock-materials' }, totals),
       h('ul', { class: 'stock', 'aria-label': t('stock.title') }, groups.map((g) => h('li', { class: g.roll_count ? '' : 'out' },
         h('div', {},
           h('strong', {}, spoolName(g, ' · ')),

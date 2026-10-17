@@ -330,6 +330,7 @@ input[type=time] { font: inherit; color: var(--text); background: var(--surface-
 .stock p { margin: 2px 0 0; }
 .stock-total { display: grid; justify-items: end; text-align: right; white-space: nowrap; }
 .stock-materials { margin: 0; }
+.stock-low { color: var(--danger); font-weight: 600; }
 
 [hidden] { display: none !important; }       /* a component's own `display` must not win over the hidden attribute */
 

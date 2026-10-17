@@ -128,8 +128,8 @@ eerst of je die wilt kwijtraken. *Instellingen → Updates* toont de draaiende v
 `docker compose run --rm --no-deps app python generate_vapid.py` (of `python scripts/generate_vapid.py` met Python op de host,
 of `init_env.py` voor een nieuwe `.env`). Plak de `VAPID_*`-regels in `.env` en start opnieuw: `docker compose up -d`. Zonder sleutels staat het uit en zegt *Instellingen → Meldingen* dat.
 **Zodra de app als PWA op het beginscherm staat (iOS en Android) bied de app meldingen meteen aan:** een balk met één knop *Meldingen aanzetten* (de tik is nodig, want iOS en Chrome stellen de toestemmingsvraag alleen na een handeling). Alleen als de server VAPID-sleutels heeft, de browser push kan en dit toestel nog niet is aangemeld; *Niet nu* zet het twee weken uit, en een toestel dat je bewust uitzet onder *Instellingen → Meldingen* wordt nooit uit zichzelf weer aangezet. Is de toestemming al gegeven maar het toestel niet aangemeld (bijvoorbeeld na opnieuw installeren), dan meldt de app het stilletjes aan. Per apparaat zet je meldingen aan onder *Instellingen → Meldingen*; op **iPhone/iPad werkt het alleen voor een geïnstalleerde app
-(iOS 16.4 of nieuwer)** en pas na een tik. Er is nu één echte melding: “Versie X is beschikbaar” zodra de server na een update
-opstart (uit te zetten), plus een testknop. Dit zijn de afleveringsvoorwaarden, vastgelegd in `backend/app/push.py` en
+(iOS 16.4 of nieuwer)** en pas na een tik. Er zijn twee echte meldingen: “Versie X is beschikbaar” zodra de server na een update
+opstart, en *Filament bijna op* (beide uit te zetten), plus een testknop. Dit zijn de afleveringsvoorwaarden, vastgelegd in `backend/app/push.py` en
 afgedwongen door `backend/tests/test_push.py` (project-baseline §11):
 
 | Voorwaarde | Waarde | Waarom |
@@ -141,6 +141,8 @@ afgedwongen door `backend/tests/test_push.py` (project-baseline §11):
 | Focus / Niet storen | nooit doorbreken | geen `requireInteraction`, geen trilpatroon; dat is jouw instelling op je toestel |
 | Stille uren | instelbaar rooster | de app ziet de Focus-stand niet; zet hier hetzelfde rooster als je slaap-Focus. Wandkloktijd + tijdzonenaam (volgt zomer/wintertijd), werkt over middernacht heen, **houdt vast en levert daarna alsnog af**, en bij een onleesbare instelling wordt er juist wél verstuurd |
 | Testknop | dezelfde functie en voorwaarden | een test die luider of korter leeft dan het echte werk wordt geloofd |
+
+**Filament bijna op.** Onder *Instellingen → Meldingen → Melding als een soort bijna op is* zet je een drempel in gram: één voor alle soorten (materialen als PLA en PETG, alle rollen van die soort samen) en, als je wilt, een eigen drempel per soort (leeg = de standaarddrempel). Zakt een soort tot of onder zijn drempel, na het opslaan of verwijderen van een rol, het boeken van een print, het doorgeven van een materiaal aan rollen met dezelfde barcode of het terugzetten van een back-up, dan volgt één melding met de soorten die laag zijn (de laagste eerst). Een nieuwe melding komt pas als die soort er tussendoor weer boven de drempel kwam, dus een rol die al bijna leeg is die je nog aanpast, meldt niet opnieuw. Bij het aanzetten hoor je meteen wat nu al laag is. Rollen zonder ingevuld materiaal en gearchiveerde rollen tellen niet mee. De melding gaat via de uitgaande wachtrij (`push_outbox`) en komt binnen een minuut aan, met dezelfde voorwaarden als de rest (stille uren, stil, TTL); het opslaan van een rol wacht dus nooit op een pushdienst. In *Voorraad per soort* staat een soort onder zijn drempel rood met *bijna op*. De toestand (welke soort al gemeld is) staat in de tabel `low_stock_alerts`.
 
 Een pushadres dat de pushdienst afwijst (404/410) wordt automatisch verwijderd. De server moet uitgaand **https** naar de
 pushdiensten kunnen (o.a. `fcm.googleapis.com`, `web.push.apple.com`, `updates.push.services.mozilla.com`, `*.notify.windows.com`).
