@@ -1,0 +1,33 @@
+name: version-guardrails
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  enforce-version-bump:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate version bump for protected paths
+        run: python scripts/check_version_bump.py --base-ref "origin/${{ github.base_ref }}"
+
+  # Two correct pull requests can each bump to the same number and both go green; the
+  # second to merge then lands a version that increases nothing. Compare against the
+  # commit main actually had before this push, not against main itself.
+  enforce-version-bump-on-merge:
+    if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate version bump against the previous tip of main
+        run: python scripts/check_version_bump.py --base-ref "${{ github.event.before }}"
