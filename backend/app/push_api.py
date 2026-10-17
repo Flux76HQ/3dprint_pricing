@@ -59,6 +59,17 @@ def remove_device(device_id):
     return jsonify({"ok": True})
 
 
+@bp.post("/check")
+def check():
+    """Can the server reach the push services? Fixed list of hosts; shows which step fails (DNS, connect, TLS)."""
+    lang = request_language()
+    results = []
+    for item in push.check_connectivity():
+        key = "push.c_ok" if item["ok"] else f"push.c_{item['stage']}"
+        results.append({**item, "message": translate(lang, key, host=item["host"], error=item["error"])})
+    return jsonify({"hosts": results})
+
+
 @bp.post("/subscribe")
 def subscribe():
     _require_configured()

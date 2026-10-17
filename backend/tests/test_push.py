@@ -392,3 +392,91 @@ def test_a_device_can_be_removed_from_the_list_but_only_your_own(owner, pushapp)
 
 def test_the_device_list_needs_a_session(client):
     assert client.get("/api/push/devices").status_code == 401
+
+
+# --- say which kind of "cannot reach" it is ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("error, fragment", [
+    (ConnectionError("HTTPSConnectionPool(host='x'): NameResolutionError(\"Failed to resolve 'wns2.notify.windows.com' "
+                     "([Errno -2] Name or service not known)\")"), "niet opzoeken (DNS)"),
+    (ConnectionError("Temporary failure in name resolution"), "niet opzoeken (DNS)"),
+    (TimeoutError("Read timed out. (read timeout=8)"), "reageert niet (time-out)"),
+    (ConnectionError("SSLError: certificate verify failed: self-signed certificate in certificate chain"), "certificaat"),
+    (RuntimeError("connection refused"), "bereikt push.example.test niet"),
+])
+def test_an_unreachable_push_service_is_named_by_its_kind_of_failure(owner, error, fragment):
+    subscribe(owner)
+    with mock.patch("app.push.webpush", side_effect=[error]):
+        result = post(owner, "/api/push/test").get_json()
+    assert fragment in result["results"][0]["reason"] and "push.example.test" in result["results"][0]["reason"]
+
+
+def test_a_wrapped_cause_is_found_too(owner):
+    subscribe(owner)
+    try:
+        try:
+            raise OSError("[Errno -2] Name or service not known")
+        except OSError as inner:
+            raise ConnectionError("Max retries exceeded") from inner
+    except ConnectionError as outer:
+        error = outer
+    with mock.patch("app.push.webpush", side_effect=[error]):
+        result = post(owner, "/api/push/test").get_json()
+    assert "DNS" in result["results"][0]["reason"]
+
+
+# --- is the push service reachable at all? ----------------------------------------------------------------------------
+
+def fake_net(monkeypatch, dns=None, connect=None, tls=None):
+    import socket
+    import ssl
+    def getaddrinfo(host, port, **kw):
+        if dns:
+            raise dns
+        return [(2, 1, 6, "", ("203.0.113.9", 443))]
+    class Raw:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    class Ctx:
+        def wrap_socket(self, raw, server_hostname=None):
+            if tls:
+                raise tls
+            return Raw()
+    def create_connection(address, timeout=None):
+        if connect:
+            raise connect
+        return Raw()
+    monkeypatch.setattr("app.push.socket.getaddrinfo", getaddrinfo)
+    monkeypatch.setattr("app.push.socket.create_connection", create_connection)
+    monkeypatch.setattr("app.push.ssl.create_default_context", lambda: Ctx())
+
+
+def test_the_connection_check_says_at_which_step_each_service_fails(owner, monkeypatch):
+    import socket
+    import ssl
+    fake_net(monkeypatch, dns=socket.gaierror(-2, "Name or service not known"))
+    body = post(owner, "/api/push/check").get_json()
+    assert [h["host"] for h in body["hosts"]] == list(push.CHECK_HOSTS)
+    assert all(h["stage"] == "dns" and not h["ok"] for h in body["hosts"])
+    assert "DNS-opzoeking mislukt" in body["hosts"][1]["message"] and "Name or service not known" in body["hosts"][1]["message"]
+    fake_net(monkeypatch, connect=TimeoutError("timed out"))
+    assert {h["stage"] for h in post(owner, "/api/push/check").get_json()["hosts"]} == {"connect"}
+    fake_net(monkeypatch, tls=ssl.SSLError("certificate verify failed"))
+    tls = post(owner, "/api/push/check", headers={**H, "X-Lang": "en"}).get_json()["hosts"][0]
+    assert tls["stage"] == "tls" and "https handshake failed" in tls["message"]
+    fake_net(monkeypatch)
+    ok = post(owner, "/api/push/check").get_json()["hosts"]
+    assert all(h["ok"] and h["stage"] == "ok" and h["message"].endswith("bereikbaar") for h in ok)
+
+
+def test_the_connection_check_only_ever_contacts_the_fixed_hosts_and_needs_a_session(owner, client, monkeypatch):
+    seen = []
+    import socket
+    def getaddrinfo(host, *a, **k):
+        seen.append(host)
+        raise socket.gaierror(-2, "no")
+    monkeypatch.setattr("app.push.socket.getaddrinfo", getaddrinfo)
+    owner.post("/api/push/check", json={"host": "internal.example"}, headers=H)
+    assert sorted(seen) == sorted(push.CHECK_HOSTS)
+    owner.post("/api/auth/logout", headers=H)
+    assert owner.post("/api/push/check", headers=H).status_code == 401

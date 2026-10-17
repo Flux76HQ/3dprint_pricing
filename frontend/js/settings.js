@@ -54,6 +54,7 @@ function notificationsCard(ctx) {
   const { setPrefs } = ctx;
   const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
   let lastResult = '';                                    // survives the redraw that refreshes the device list
+  let lastCheck = null;                                   // ... and so does the answer of the connection check
 
   async function draw() {
     let cfg;
@@ -106,9 +107,27 @@ function notificationsCard(ctx) {
         result,
         h('p', { class: 'muted' }, t('notify.ttl', { hours: cfg.ttl_hours })));
     }
-    rows.push(await devicesList(draw));
+    rows.push(connectionCheck(), await devicesList(draw));
     body.replaceChildren(...rows);
   }
+  // Can the server reach the push services at all? Shows which step fails, so "notifications do not arrive" has an answer.
+  function connectionCheck() {
+    const list = h('ul', { class: 'plain-list', 'aria-live': 'polite' });
+    const hint = h('p', { class: 'muted', hidden: true }, t('notify.check_hint'));
+    const show = (hosts) => {
+      list.replaceChildren(...hosts.map((x) => h('li', { class: x.ok ? 'muted' : 'error' }, `${x.ok ? '✓' : '✗'} ${x.message}`)));
+      hint.hidden = hosts.every((x) => x.ok);
+    };
+    if (lastCheck) show(lastCheck);
+    const button = h('button', { class: 'btn', type: 'button', onclick: async () => {
+      button.disabled = true;
+      list.replaceChildren(h('li', { class: 'muted' }, t('common.loading')));
+      try { lastCheck = (await api('POST', '/api/push/check')).hosts; show(lastCheck); } catch (e) { list.replaceChildren(h('li', { class: 'error' }, e.message)); }
+      button.disabled = false;
+    } }, t('notify.check'));
+    return h('div', { class: 'stack' }, h('div', { class: 'row' }, button), list, hint);
+  }
+
   draw();
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('notify.title')), body);
 }

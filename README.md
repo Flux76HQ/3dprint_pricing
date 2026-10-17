@@ -127,7 +127,7 @@ eerst of je die wilt kwijtraken. *Instellingen → Updates* toont de draaiende v
 **Push-meldingen (voorbereid).** Zet ze aan met VAPID-sleutels. Draai je alleen Docker, dan maak je ze in de image zelf:
 `docker compose run --rm --no-deps app python generate_vapid.py` (of `python scripts/generate_vapid.py` met Python op de host,
 of `init_env.py` voor een nieuwe `.env`). Plak de `VAPID_*`-regels in `.env` en start opnieuw: `docker compose up -d`. Zonder sleutels staat het uit en zegt *Instellingen → Meldingen* dat.
-Per apparaat zet je meldingen aan onder *Instellingen → Meldingen*; op **iPhone/iPad werkt het alleen voor een geïnstalleerde app
+**Zodra de app als PWA op het beginscherm staat (iOS en Android) bied de app meldingen meteen aan:** een balk met één knop *Meldingen aanzetten* (de tik is nodig, want iOS en Chrome stellen de toestemmingsvraag alleen na een handeling). Alleen als de server VAPID-sleutels heeft, de browser push kan en dit toestel nog niet is aangemeld; *Niet nu* zet het twee weken uit, en een toestel dat je bewust uitzet onder *Instellingen → Meldingen* wordt nooit uit zichzelf weer aangezet. Is de toestemming al gegeven maar het toestel niet aangemeld (bijvoorbeeld na opnieuw installeren), dan meldt de app het stilletjes aan. Per apparaat zet je meldingen aan onder *Instellingen → Meldingen*; op **iPhone/iPad werkt het alleen voor een geïnstalleerde app
 (iOS 16.4 of nieuwer)** en pas na een tik. Er is nu één echte melding: “Versie X is beschikbaar” zodra de server na een update
 opstart (uit te zetten), plus een testknop. Dit zijn de afleveringsvoorwaarden, vastgelegd in `backend/app/push.py` en
 afgedwongen door `backend/tests/test_push.py` (project-baseline §11):
@@ -144,12 +144,20 @@ afgedwongen door `backend/tests/test_push.py` (project-baseline §11):
 
 Een pushadres dat de pushdienst afwijst (404/410) wordt automatisch verwijderd. De server moet uitgaand **https** naar de
 pushdiensten kunnen (o.a. `fcm.googleapis.com`, `web.push.apple.com`, `updates.push.services.mozilla.com`, `*.notify.windows.com`).
+*Instellingen → Meldingen → Verbinding met pushdiensten controleren* probeert vanaf de server de vier pushdiensten (DNS, verbinding op poort 443, https-handshake) en zegt per dienst welke stap faalt. Zegt de testknop *“De server kan … niet opzoeken (DNS)”* (of *time-out*), dan bereikt de container de pushdienst niet. Vaak staat
+het adres op een blocklist van Pi-hole, AdGuard Home of de router: `*.notify.windows.com` (Edge/Windows) staat op veel
+privacylijsten, en dan werkt het voor Chrome-op-Android (`fcm.googleapis.com`) wel. Probeer vanaf de server:
+`docker compose exec app python -c "import socket; print(socket.gethostbyname('wns2-am3p.notify.windows.com'))"`
+en `docker compose exec app python -c "import urllib.request as u; print(u.urlopen('https://fcm.googleapis.com').status)"`
+(een 404 is hier goed: de dienst antwoordt). Zet de adressen op de allowlist van je DNS-filter of geef de container een
+andere DNS-server (`dns:` bij de service in `docker-compose.yml`). Een melding op een toestel waarvan de pushdienst
+geblokkeerd is, komt niet aan; de andere toestellen worden gewoon bediend.
 
 ### Iconen en opstartschermen
 
 Het beginschermicoon (`icons/apple-touch-icon.png`, 180 px, volledig gevuld en zonder transparantie; iOS rondt de hoeken zelf af; één `<link>` zonder `sizes`, zoals bij een bewezen werkende PWA, en ook bereikbaar op `/apple-touch-icon.png`), het favicon en de
 19 opstartschermen (`frontend/splash/`, donker, per apparaatformaat) komen uit `frontend/icons/icon-mark.svg`:
-`pip install playwright pillow && python scripts/generate_pwa_assets.py` (zet desnoods `CHROMIUM_PATH`). Zie je op iOS nog een leeg of oud icoon: verwijder de app van het beginscherm, sluit Safari helemaal en voeg hem opnieuw toe; iOS bewaart het icoon van het moment waarop je hem toevoegde. Het script schrijft
+`pip install playwright pillow && python scripts/generate_pwa_assets.py` (zet desnoods `CHROMIUM_PATH`). De server zet de release achter de icoon-URL (`apple-touch-icon.png?v=…`), want iOS onthoudt het icoon (of het mislukken ervan) per URL en per website: zo haalt een iPhone na een update een nieuwe op, ook als er eerder iets misging (bij een iPad kan het wel lukken en bij een iPhone niet). Zie je op iOS nog een leeg of oud icoon: verwijder de app van het beginscherm, sluit Safari helemaal en voeg hem opnieuw toe; iOS bewaart het icoon van het moment waarop je hem toevoegde. Het script schrijft
 ook de `<link>`-regels voor de opstartschermen in `index.html`; het manifest bevat alleen PNG-iconen (een SVG-regel kan iOS kiezen en geeft dan een leeg icoon); `backend/tests/test_pwa_assets.py` bewaakt dat bestanden, formaten en links kloppen.
 
 ## Lokaal ontwikkelen
