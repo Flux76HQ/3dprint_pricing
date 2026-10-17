@@ -132,6 +132,13 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - `backend/tests/fake_authenticator.py` is a software passkey; use it for any auth test.
 - Test a guard by breaking what it guards before trusting it.
 
+## 6a. Password login
+
+Optional, off by default, always with TOTP (`backend/app/passwords.py`, `password_api.py`). Never create a session before
+both factors pass, never weaken the lockout or the TOTP replay guard (`last_totp_step`), keep refusals generic
+("Inloggen mislukt."), and keep enabling/changing/disabling behind a fresh passkey confirmation. The login view shows the
+option only when `/api/auth/status` reports `password_login`.
+
 ## 7. Work done in one client leaves the other clients correct
 
 A change to a working convention goes in this file, never in a client's entry file. If a client

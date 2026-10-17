@@ -93,7 +93,7 @@ function recoveryStep(codes, onDone) {
 
 // --- login ---------------------------------------------------------------------
 
-export function loginView(onDone) {
+export function loginView(onDone, { passwordLogin = false } = {}) {
   const error = errorBox();
   const problem = passkeySupport();
   const button = h('button', { class: 'btn primary big', type: 'button' }, h('span', {}, 'Inloggen met passkey'));
@@ -130,5 +130,60 @@ export function loginView(onDone) {
   return shell(h('div', { class: 'stack' },
     h('h2', {}, 'Welkom terug'),
     problem ? h('p', { class: 'error', role: 'alert' }, problem) : null,
-    error, button, toggle, panel));
+    error, button, passwordLogin ? passwordSection(onDone) : null, toggle, panel));
+}
+
+// Password + authenticator code. Only offered when the owner has switched it on in Settings; a session
+// exists only after both steps, so the first step shows the code field and nothing is signed in yet.
+function passwordSection(onDone) {
+  const error = errorBox();
+  const body = h('div', { class: 'stack' });
+  const panel = h('div', { id: 'password-panel', class: 'stack', hidden: true }, body);
+  const toggle = h('button', { class: 'link', type: 'button', 'aria-expanded': 'false', 'aria-controls': 'password-panel',
+    onclick: () => {
+      panel.hidden = !panel.hidden;
+      toggle.setAttribute('aria-expanded', String(!panel.hidden));
+      if (!panel.hidden) body.querySelector('input')?.focus();
+    } }, 'Inloggen met wachtwoord');
+
+  function stepPassword() {
+    const pw = h('input', { type: 'password', id: 'login-password', autocomplete: 'current-password', required: true });
+    const submit = h('button', { class: 'btn', type: 'submit' }, 'Verder');
+    body.replaceChildren(h('form', { class: 'stack', onsubmit: (e) => {
+      e.preventDefault();
+      guarded(error, submit, async () => {
+        const res = await api('POST', '/api/auth/password/login', { password: pw.value });
+        stepCode(res.mfa_token);
+      });
+    } }, h('div', { class: 'field' }, h('label', { for: 'login-password' }, 'Wachtwoord'), pw), error, submit));
+  }
+
+  function stepCode(token) {
+    let backup = false;
+    const code = h('input', { type: 'text', id: 'login-code', inputmode: 'numeric', autocomplete: 'one-time-code', required: true, maxlength: 14 });
+    const label = h('label', { for: 'login-code' }, 'Code uit je authenticator-app');
+    const swap = h('button', { class: 'link', type: 'button', onclick: () => {
+      backup = !backup;
+      label.textContent = backup ? 'Back-upcode' : 'Code uit je authenticator-app';
+      code.setAttribute('inputmode', backup ? 'text' : 'numeric');
+      code.setAttribute('autocomplete', backup ? 'off' : 'one-time-code');
+      code.placeholder = backup ? 'XXXX-XXXX-XXXX' : '';
+      swap.textContent = backup ? 'Gebruik de authenticator-app' : 'Gebruik een back-upcode';
+      code.value = '';
+      code.focus();
+    } }, 'Gebruik een back-upcode');
+    const submit = h('button', { class: 'btn primary', type: 'submit' }, 'Inloggen');
+    body.replaceChildren(h('form', { class: 'stack', onsubmit: (e) => {
+      e.preventDefault();
+      guarded(error, submit, async () => {
+        await api('POST', '/api/auth/password/mfa', { mfa_token: token, code: code.value });
+        onDone({ recovered: false });
+      });
+    } }, h('p', { class: 'muted' }, 'Bijna binnen: voer nu de tweede stap in.'),
+    h('div', { class: 'field' }, label, code), error, submit, swap));
+    code.focus();
+  }
+
+  stepPassword();
+  return h('div', { class: 'stack' }, toggle, panel);
 }

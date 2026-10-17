@@ -122,8 +122,9 @@ Is die nieuwer dan wat de app geladen heeft, dan verschijnt bovenaan “Nieuwe v
 *Nu bijwerken* en *Later* (een uur rust). Heb je een berekening met niet-opgeslagen wijzigingen open, dan vraagt de app
 eerst of je die wilt kwijtraken. *Instellingen → Updates* toont de draaiende versie en controleert op verzoek.
 
-**Push-meldingen (voorbereid).** Zet ze aan met VAPID-sleutels: `python scripts/generate_vapid.py` (of `init_env.py` voor een
-nieuwe `.env`) en plak de drie `VAPID_*`-regels in `.env`. Zonder sleutels staat het uit en zegt *Instellingen → Meldingen* dat.
+**Push-meldingen (voorbereid).** Zet ze aan met VAPID-sleutels. Draai je alleen Docker, dan maak je ze in de image zelf:
+`docker compose run --rm --no-deps app python generate_vapid.py` (of `python scripts/generate_vapid.py` met Python op de host,
+of `init_env.py` voor een nieuwe `.env`). Plak de `VAPID_*`-regels in `.env` en start opnieuw: `docker compose up -d`. Zonder sleutels staat het uit en zegt *Instellingen → Meldingen* dat.
 Per apparaat zet je meldingen aan onder *Instellingen → Meldingen*; op **iPhone/iPad werkt het alleen voor een geïnstalleerde app
 (iOS 16.4 of nieuwer)** en pas na een tik. Er is nu één echte melding: “Versie X is beschikbaar” zodra de server na een update
 opstart (uit te zetten), plus een testknop. Dit zijn de afleveringsvoorwaarden, vastgelegd in `backend/app/push.py` en
@@ -229,3 +230,14 @@ Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de ap
 | Uitgaand https vanaf de app-container | naar de pushdiensten (zie hierboven) | het versturen van push-meldingen; zonder dit falen ze zonder dat de app het merkt, behalve in de testknop |
 
 Er zit geen CDN of proxy in deze repository; wat ervoor staat bepaalt de werkelijke ceilings.
+
+## Wachtwoord en tweestapsverificatie (optioneel)
+
+Standaard **uit**; passkeys blijven de aanbevolen manier van inloggen en werken altijd, ook als je het wachtwoord inschakelt.
+Aanzetten kan onder *Instellingen → Wachtwoord en tweestapsverificatie*, ook als er al passkeys actief zijn, en vraagt:
+een bevestiging met je passkey, een wachtwoord (minstens 12 tekens) en een authenticator-app (TOTP, 6 cijfers). Er is geen
+wachtwoord-login zonder die tweede stap en er komt pas een sessie nadat wachtwoord én code kloppen. Je krijgt 8 back-upcodes
+(elk één keer bruikbaar). Na 5 mislukte pogingen blokkeert wachtwoord-login 15 minuten (daarna steeds langer); je passkey
+blijft werken. Wijzigen, uitschakelen en nieuwe back-upcodes vragen opnieuw een passkey-bevestiging. Wachtwoorden zijn
+met argon2id gehasht; het TOTP-geheim staat versleuteld met een sleutel afgeleid van `SESSION_SECRET`. Wijzig je
+`SESSION_SECRET`, dan werkt de tweestapscode niet meer en stel je wachtwoord-login opnieuw in (met je passkey).

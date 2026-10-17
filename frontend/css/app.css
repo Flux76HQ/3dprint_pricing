@@ -294,3 +294,9 @@ html.standalone .sidebar { top: calc(12px + env(safe-area-inset-top)); height: c
 .time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 input[type=time] { font: inherit; color: var(--text); background: var(--surface-field); border: 1px solid var(--rand);
   border-radius: var(--radius-sm); padding: 8px 12px; min-height: 44px; width: 100%; }
+
+/* Two-step verification setup */
+.qr { align-self: center; background: #fff; padding: 12px; border-radius: var(--radius-sm); line-height: 0; }
+.qr img { width: 200px; height: 200px; }
+.secret { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.05rem; letter-spacing: .06em; word-break: break-all;
+  background: var(--surface-field); border: 1px solid var(--rand); border-radius: var(--radius-sm); padding: 10px 12px; margin: 0; user-select: all; }
