@@ -27,10 +27,10 @@ def test_a_failing_migration_leaves_nothing_half_applied(fresh_db, tmp_path):
     work = tmp_path / "migrations"
     shutil.copytree(MIGRATIONS_DIR, work, ignore=shutil.ignore_patterns("__pycache__"))
     run_migrations(fresh_db, work)
-    (work / "0002_broken.sql").write_text("CREATE TABLE half (id int); SELECT 1/0;")
+    (work / "9999_broken.sql").write_text("CREATE TABLE half (id int); SELECT 1/0;")
     with pytest.raises(psycopg.Error):
         run_migrations(fresh_db, work)
     with psycopg.connect(fresh_db) as conn:
         assert conn.execute("SELECT to_regclass('half')").fetchone()[0] is None
         applied = [r[0] for r in conn.execute("SELECT filename FROM schema_migrations")]
-    assert applied == ["0001_init.sql"]
+    assert applied == sorted(p.name for p in MIGRATIONS_DIR.glob("*.sql"))   # everything real, nothing broken

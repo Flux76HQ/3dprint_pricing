@@ -16,8 +16,8 @@ COPY frontend ./static
 COPY VERSION ./VERSION
 COPY deploy/entrypoint.sh /entrypoint.sh
 
-RUN useradd --system --uid 10001 app && chmod +x /entrypoint.sh
-USER app
+# The entrypoint starts as root only to fix ownership of the mounted /data, then drops to `app`.
+RUN useradd --system --uid 10001 app && chmod +x /entrypoint.sh && mkdir -p /data/uploads && chown -R app:app /data
 
 EXPOSE 6080
 

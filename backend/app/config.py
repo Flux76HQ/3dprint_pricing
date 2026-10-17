@@ -30,6 +30,8 @@ class Config:
     session_hours: int
     cookie_secure: bool
     static_dir: str
+    upload_dir: str = "/data/uploads"
+    max_upload_mb: int = 50
 
 
 def load_config() -> Config:
@@ -47,4 +49,6 @@ def load_config() -> Config:
         session_hours=int(os.environ.get("SESSION_HOURS", "24")),
         cookie_secure=all(o.startswith("https://") for o in origins),
         static_dir=os.environ.get("STATIC_DIR", os.path.join(os.path.dirname(__file__), "..", "static")),
+        upload_dir=os.environ.get("UPLOAD_DIR", "/data/uploads"),
+        max_upload_mb=int(os.environ.get("MAX_UPLOAD_MB", "50")),
     )

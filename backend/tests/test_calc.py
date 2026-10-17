@@ -71,3 +71,17 @@ def test_rejects_bad_input_with_a_readable_message(data, message):
 def test_negative_margin_rejected():
     with pytest.raises(ValueError, match="Marge"):
         calculate({}, margin_pct=-5)
+
+
+def test_packaging_is_its_own_subtotal_and_counts_towards_the_cost_price():
+    data = spreadsheet_example()
+    data["parts"] = [
+        {"label": "Doos", "group": "verpakking", "quantity": 1, "unit": "stuks", "unit_price": "0.85"},
+        {"label": "Bubbeltjesplastic", "group": "verpakking", "quantity": 0.5, "unit": "m", "unit_price": "1.20"},
+        {"label": "Magneten", "group": "onderdeel", "quantity": 2, "unit": "stuks", "unit_price": "0.40"},
+    ]
+    out = calculate(data)
+    assert out["subtotals"]["packaging"] == "1.45"
+    assert out["subtotals"]["parts"] == "0.80"          # packaging is not mixed into parts
+    assert out["subtotals"]["parts_and_charger"] == "0.80"
+    assert out["cost_price"] == "4.99"                  # 2.74 + 0.80 + 1.45

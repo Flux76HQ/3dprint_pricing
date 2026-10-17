@@ -68,14 +68,14 @@ def fresh_db(database_url):
 
 
 @pytest.fixture
-def app(fresh_db):
+def app(fresh_db, tmp_path):
     from app import create_app
     from app.config import Config
     from app.db import run_migrations
 
     run_migrations(fresh_db)
     cfg = Config(database_url=fresh_db, session_secret=SECRET, setup_code=SETUP_CODE, rp_id=RP_ID,
-                 rp_name="Test", rp_origins=(ORIGIN,), session_hours=24, cookie_secure=True,
+                 rp_name="Test", rp_origins=(ORIGIN,), session_hours=24, cookie_secure=True, upload_dir=str(tmp_path / 'uploads'), max_upload_mb=2,
                  static_dir=os.path.join(os.path.dirname(__file__), "static"))
     app = create_app(cfg)
     yield app

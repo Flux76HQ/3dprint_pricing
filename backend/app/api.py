@@ -228,32 +228,49 @@ def get_project(project_id):
     return jsonify(_project_row(row))
 
 
+URL = re.compile(r"^https?://[^\s]+$", re.I)
+
+
 def _project_fields(body):
     name = text("Naam")(body.get("name"))
+    source_url = text("Bronlink", required=False, max_len=500)(body.get("source_url"))
+    if source_url and not URL.match(source_url):
+        raise ApiError(400, "Bronlink moet beginnen met http:// of https://.")
+    file_id = body.get("file_id") or None
+    if file_id is not None:
+        try:
+            file_id = uuid.UUID(str(file_id))
+        except ValueError:
+            raise ApiError(400, "Ongeldig bestand.") from None
+        with pool().connection() as conn:
+            if conn.execute("SELECT 1 FROM print_files WHERE id = %s", (file_id,)).fetchone() is None:
+                raise ApiError(400, "Dat printbestand bestaat niet (meer). Upload het opnieuw.")
     notes = text("Notities", required=False, max_len=2000)(body.get("notes"))
     margin = number("Marge", maximum=1000)(body.get("margin_pct", 0))
     data, totals = _calc({"data": body.get("data"), "margin_pct": margin})
-    return name, notes, margin, data, totals
+    return name, notes, margin, data, totals, source_url, file_id
 
 
 @bp.post("/projects")
 def create_project():
-    name, notes, margin, data, totals = _project_fields(json_body())
+    name, notes, margin, data, totals, source_url, file_id = _project_fields(json_body())
     with pool().connection() as conn:
         row = conn.execute(
-            "INSERT INTO projects (name, notes, margin_pct, data, totals) VALUES (%s,%s,%s,%s,%s) RETURNING *",
-            (name, notes, margin, json.dumps(data), json.dumps(totals))).fetchone()
+            "INSERT INTO projects (name, notes, margin_pct, data, totals, source_url, file_id) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            (name, notes, margin, json.dumps(data), json.dumps(totals), source_url, file_id)).fetchone()
     return jsonify(_project_row(row)), 201
 
 
 @bp.put("/projects/<uuid:project_id>")
 def update_project(project_id):
-    name, notes, margin, data, totals = _project_fields(json_body())
+    name, notes, margin, data, totals, source_url, file_id = _project_fields(json_body())
     with pool().connection() as conn:
         row = conn.execute(
-            "UPDATE projects SET name=%s, notes=%s, margin_pct=%s, data=%s, totals=%s, updated_at=now() "
-            "WHERE id=%s RETURNING *",
-            (name, notes, margin, json.dumps(data), json.dumps(totals), project_id)).fetchone()
+            "UPDATE projects SET name=%s, notes=%s, margin_pct=%s, data=%s, totals=%s, source_url=%s, "
+            "file_id=%s, updated_at=now() WHERE id=%s RETURNING *",
+            (name, notes, margin, json.dumps(data), json.dumps(totals), source_url, file_id,
+             project_id)).fetchone()
     if row is None:
         raise ApiError(404, "Berekening niet gevonden.")
     return jsonify(_project_row(row))
