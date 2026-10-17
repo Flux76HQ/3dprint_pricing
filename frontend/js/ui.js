@@ -110,6 +110,8 @@ export function blurToggle(ctx) {
 }
 
 // "v0.3.1 (abc1234)": the running release and the commit it was built from.
+/** "Bambu Lab Matte Black": brand, type and colour of a filament roll. */
+export const spoolName = (s, sep = ' ') => [s.brand, s.product_type, s.colour].filter(Boolean).join(sep);
 export const versionLabel = (v) => (v ? `v${v.version} (${v.commit || 'dev'})` : '');
 
 // Banners (install hint, "new version available") stack at the top; one per id.

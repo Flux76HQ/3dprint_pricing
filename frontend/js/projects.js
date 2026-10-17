@@ -1,6 +1,6 @@
 import { api, upload } from './api.js';
 import { setDirty } from './updates.js';
-import { blurToggle, confirmDialog, eur, field, fmt, h, icon, numberInput, parseNum, toast } from './ui.js';
+import { blurToggle, confirmDialog, eur, field, fmt, h, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
 
 const ROUNDINGS = [['none', 'Niet afronden'], ['0.05', 'Op 5 cent'], ['0.10', 'Op 10 cent'], ['0.50', 'Op 50 cent'],
   ['1.00', 'Op hele euro'], ['5.00', 'Op 5 euro'], ['x.95', 'Eindigend op ,95'], ['x.99', 'Eindigend op ,99']];
@@ -39,7 +39,7 @@ export function projectListView(ctx) {
 // --- editor ---------------------------------------------------------------------
 
 // "Bambu ABS Basis Black · ABS · 430 g over": the material is part of the choice (ABS/PLA/PLA+ ...).
-const spoolLabel = (s) => [[s.brand, s.colour].filter(Boolean).join(' '), s.material, `${fmt(s.remaining_g, 0)} g over`].filter(Boolean).join(' · ');
+const spoolLabel = (s) => [spoolName(s), s.material, `${fmt(s.remaining_g, 0)} g over`].filter(Boolean).join(' · ');
 const blankFilament = () => ({ spool_id: '', label: '', grams: '', price_per_kg: '' });
 const blankPart = (group) => ({ group, packaging_id: '', label: '', quantity: '1', unit: 'stuks', unit_price: '' });
 
@@ -188,7 +188,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
       field('Rol', select([['', 'Handmatig'], ...spools.map((s) => [s.id, spoolLabel(s)])], r.spool_id, (v) => {
         r.spool_id = v;
         const s = spools.find((x) => x.id === v);
-        if (s) { r.label = [s.brand, s.colour].filter(Boolean).join(' '); r.price_per_kg = perKg(s); }
+        if (s) { r.label = spoolName(s); r.price_per_kg = perKg(s); }
         touch(); redraw();
       })),
       field('Omschrijving', textInput(r, 'label')),
@@ -318,7 +318,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
   };
   const filamentRow = (label, grams, type) => {
     const sp = spoolFor(type);
-    return { spool_id: sp ? sp.id : '', label: sp ? [sp.brand, sp.colour].filter(Boolean).join(' ') : label, grams: String(grams), price_per_kg: sp ? perKg(sp) : '' };
+    return { spool_id: sp ? sp.id : '', label: sp ? spoolName(sp) : label, grams: String(grams), price_per_kg: sp ? perKg(sp) : '' };
   };
 
   // Takes grams and hours from the slicer into the calculation: filament lines (priced from the

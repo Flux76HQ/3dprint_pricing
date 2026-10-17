@@ -301,3 +301,25 @@ def test_the_barcode_lookup_includes_what_is_in_stock_of_it(owner):
 
 def test_stock_needs_a_session(client):
     assert client.get("/api/spools/stock").status_code == 401
+
+
+# --- brand and type are separate ----------------------------------------------------------------------------
+
+def test_a_roll_has_a_brand_and_a_separate_type_that_may_stay_empty(owner):
+    matte = roll(owner, 1000, brand="Bambu Lab", product_type=" Matte ")
+    assert matte["brand"] == "Bambu Lab" and matte["product_type"] == "Matte"
+    assert roll(owner, 1000)["product_type"] == ""
+    changed = owner.patch(f"/api/spools/{matte['id']}", json={"product_type": "Silk"}, headers=H).get_json()
+    assert changed["product_type"] == "Silk" and changed["brand"] == "Bambu Lab"
+    assert owner.post("/api/spools", json={"brand": "x", "roll_weight_g": 1000, "price": 1, "remaining_g": 1,
+                                           "product_type": "x" * 61}, headers=H).status_code == 400
+
+
+def test_stock_keeps_types_of_one_brand_apart_and_a_lookup_carries_the_type(owner):
+    roll(owner, 500, brand="Bambu Lab", product_type="Matte", barcode="")
+    roll(owner, 700, brand="Bambu Lab", product_type="Basic", barcode="")
+    roll(owner, 100, brand="Bambu Lab", product_type="matte", barcode="")                # case does not matter
+    groups = owner.get("/api/spools/stock").get_json()["groups"]
+    assert sorted((g["product_type"], Decimal(g["remaining_g"])) for g in groups) == [("Basic", 700), ("Matte", 600)]
+    roll(owner, 900, brand="Bambu Lab", product_type="Silk", barcode="777")
+    assert owner.get("/api/spools/lookup?barcode=777").get_json()["spool"]["product_type"] == "Silk"
