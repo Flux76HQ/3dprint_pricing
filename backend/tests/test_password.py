@@ -393,3 +393,89 @@ def test_two_simultaneous_requests_with_the_same_code_let_only_one_in(owner, app
         with app.app_context(), pool.connection() as conn:
             results.append(password_api._check_second_factor(conn, stale, code))
     assert results == [True, False]
+
+
+# --- confirming without a passkey (a device where it cannot be used) ------------------------------------------------
+
+def sure(secret, offset=1, password=PASSWORD):
+    """Password plus a fresh code; enabling already used the current step, hence offset 1."""
+    return {"current_password": password, "code": code_for(secret, offset)}
+
+
+def test_it_can_be_turned_off_with_the_password_and_a_code_when_no_passkey_works(owner, app):
+    secret, _ = enable(owner)
+    assert post(owner, "/api/auth/password/disable", sure(secret)).status_code == 200
+    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+        assert conn.execute("SELECT count(*) FROM password_credentials").fetchone()[0] == 0
+
+
+def test_a_backup_code_confirms_too_and_is_used_up(owner):
+    secret, codes = enable(owner)
+    body = {"current_password": PASSWORD, "code": codes[0]}
+    assert post(owner, "/api/auth/password/backup-codes/regenerate", body).status_code == 200
+    assert post(owner, "/api/auth/password/disable", body).status_code == 401              # replaced anyway; and never twice
+
+
+def test_changing_the_password_and_new_backup_codes_work_the_same_way(owner):
+    secret, old = enable(owner)
+    changed = post(owner, "/api/auth/password/change", {**sure(secret), "password": "een-heel-ander-wachtwoord-77"})
+    assert changed.status_code == 200
+    signed_out(owner)
+    assert password_login(owner).status_code == 401 and password_login(owner, "een-heel-ander-wachtwoord-77").status_code == 200
+    token = password_login(owner, "een-heel-ander-wachtwoord-77").get_json()["mfa_token"]
+    assert post(owner, "/api/auth/password/mfa", {"mfa_token": token, "code": old[0]}).status_code == 200   # signed in by password
+    fresh = post(owner, "/api/auth/password/backup-codes/regenerate",                                          # and confirming without a passkey
+                 {"current_password": "een-heel-ander-wachtwoord-77", "code": old[1]})
+    assert fresh.status_code == 200 and not set(fresh.get_json()["backup_codes"]) & set(old)
+
+
+def test_a_code_cannot_confirm_twice(owner):
+    secret, _ = enable(owner)
+    body = sure(secret)
+    assert post(owner, "/api/auth/password/backup-codes/regenerate", body).status_code == 200
+    assert post(owner, "/api/auth/password/backup-codes/regenerate", body).status_code == 401
+
+
+def test_a_wrong_password_burns_no_code_and_counts_toward_the_lock(owner, app):
+    secret, codes = enable(owner)
+    for _ in range(4):
+        assert post(owner, "/api/auth/password/disable", {"current_password": "fout-fout-fout-123", "code": codes[0]}).status_code == 401
+    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+        assert conn.execute("SELECT count(*) FROM mfa_backup_codes WHERE used_at IS NOT NULL").fetchone()[0] == 0
+    assert post(owner, "/api/auth/password/disable", {"current_password": "fout-fout-fout-123", "code": codes[0]}).status_code == 401
+    locked = post(owner, "/api/auth/password/disable", sure(secret))                         # now even the right ones are refused
+    assert locked.status_code == 429
+    assert owner.get("/api/auth/password/status").get_json()["enabled"] is True
+
+
+def test_the_right_password_with_a_wrong_code_is_refused_and_counted(owner, app):
+    secret, _ = enable(owner)
+    assert post(owner, "/api/auth/password/disable", {"current_password": PASSWORD, "code": "000000"}).status_code == 401
+    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+        assert conn.execute("SELECT failed_count FROM password_credentials").fetchone()[0] == 1
+    assert owner.get("/api/auth/password/status").get_json()["enabled"] is True
+
+
+def test_with_neither_confirmation_nothing_happens(owner):
+    enable(owner)
+    for path in ("disable", "backup-codes/regenerate"):
+        assert post(owner, f"/api/auth/password/{path}", {}).status_code == 400
+    assert owner.get("/api/auth/password/status").get_json()["enabled"] is True
+
+
+def test_a_weak_new_password_is_refused_before_a_confirmation_is_spent(owner, app):
+    secret, _ = enable(owner)
+    refused = post(owner, "/api/auth/password/change", {**sure(secret), "password": "kort"})
+    assert refused.status_code == 400
+    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+        assert conn.execute("SELECT failed_count, last_totp_step FROM password_credentials").fetchone()[0] == 0
+    assert post(owner, "/api/auth/password/change", {**sure(secret), "password": "een-heel-ander-wachtwoord-77"}).status_code == 200
+
+
+def test_confirming_with_a_password_needs_a_session_and_the_ip_limit_applies(client, owner):
+    secret, _ = enable(owner)
+    for _ in range(20):
+        owner.post("/api/auth/password/disable", json={"current_password": "x", "code": "000000"}, headers=H)
+    assert post(owner, "/api/auth/password/disable", sure(secret)).status_code in (429,)
+    signed_out(owner)
+    assert post(owner, "/api/auth/password/disable", sure(secret)).status_code == 401

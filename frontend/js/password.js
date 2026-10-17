@@ -4,7 +4,8 @@ import { confirmDialog, h, switchRow, toast } from './ui.js';
 // Optional password login, always together with an authenticator app (two-step verification).
 // Passkeys stay the primary way in; this is the weaker, opt-in door, and it is off by default.
 // Turning it on only needs the session you are in (it must work on a device without a passkey); changing it,
-// turning it off and new backup codes need a fresh passkey confirmation.
+// turning it off and new backup codes need a passkey confirmation, or the password plus a code on a device
+// where no passkey works.
 
 const group = (secret) => secret.replace(/(.{4})/g, '$1 ').trim();
 
@@ -105,6 +106,44 @@ export function setupWizard() {
   });
 }
 
+/**
+ * Asks for proof it is really the owner: a passkey, or (for a device where no passkey works, e.g. after
+ * signing in with password and code) the password plus a code. Resolves with what the server expects in
+ * the request body, or null when cancelled.
+ */
+export function confirmIdentity({ action, title, message, confirmLabel }) {
+  return new Promise((resolve) => {
+    let proof = null;
+    const error = h('p', { class: 'error', role: 'alert', hidden: true });
+    const fail = (text) => { error.textContent = text; error.hidden = !text; };
+    const password = h('input', { type: 'password', id: 'confirm-password', autocomplete: 'current-password', required: true });
+    const code = h('input', { type: 'text', id: 'confirm-code', inputmode: 'text', autocomplete: 'one-time-code', required: true, maxlength: 14 });
+    const dialog = h('dialog', { class: 'glass sheet' }, h('div', { class: 'stack' },
+      h('h2', {}, title),
+      h('p', {}, message),
+      h('button', { class: 'btn primary', type: 'button', onclick: async () => {
+        fail('');
+        try { proof = { credential: await confirmWithPasskey(action) }; dialog.close(); }
+        catch (e) { fail(`${e.message} Werkt je passkey op dit apparaat niet? Gebruik hieronder je wachtwoord en een code.`); }
+      } }, 'Bevestig met passkey'),
+      h('p', { class: 'muted' }, 'of, zonder passkey:'),
+      h('form', { class: 'stack', onsubmit: (e) => {
+        e.preventDefault();
+        proof = { current_password: password.value, code: code.value };
+        dialog.close();
+      } },
+      h('div', { class: 'field' }, h('label', { for: 'confirm-password' }, 'Huidig wachtwoord'), password),
+      h('div', { class: 'field' }, h('label', { for: 'confirm-code' }, 'Code uit je authenticator-app of een back-upcode'), code),
+      error,
+      h('div', { class: 'row end' },
+        h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Annuleren'),
+        h('button', { class: 'btn primary', type: 'submit' }, confirmLabel)))));
+    dialog.addEventListener('close', () => { dialog.remove(); resolve(proof); });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+
 async function newPassword() {
   return new Promise((resolve) => {
     const pw = h('input', { type: 'password', id: 'pw-change', autocomplete: 'new-password', required: true, minlength: 12 });
@@ -114,8 +153,10 @@ async function newPassword() {
       e.preventDefault();
       if (pw.value !== again.value) { error.textContent = 'De twee wachtwoorden zijn niet gelijk.'; error.hidden = false; return; }
       try {
-        const credential = await confirmWithPasskey('password-change');
-        await api('POST', '/api/auth/password/change', { password: pw.value, credential });
+        const proof = await confirmIdentity({ action: 'password-change', title: 'Wachtwoord wijzigen bevestigen',
+          message: 'Bevestig dat jij dit bent voordat het nieuwe wachtwoord ingaat.', confirmLabel: 'Wijzigen' });
+        if (!proof) return;
+        await api('POST', '/api/auth/password/change', { password: pw.value, ...proof });
         dialog.close('yes');
       } catch (err) { error.textContent = err.message; error.hidden = false; }
     } },
@@ -125,7 +166,7 @@ async function newPassword() {
     error,
     h('div', { class: 'row end' },
       h('button', { class: 'btn', type: 'button', onclick: () => dialog.close('no') }, 'Annuleren'),
-      h('button', { class: 'btn primary', type: 'submit' }, 'Wijzigen (met passkey)'))));
+      h('button', { class: 'btn primary', type: 'submit' }, 'Doorgaan'))));
     dialog.addEventListener('close', () => { dialog.remove(); resolve(dialog.returnValue === 'yes'); });
     document.body.append(dialog);
     dialog.showModal();
@@ -155,8 +196,10 @@ export function passwordCard() {
         h('button', { class: 'btn', type: 'button', onclick: async () => {
           if (!(await confirmDialog('Nieuwe back-upcodes maken? De oude werken daarna niet meer.', 'Nieuwe codes'))) return;
           try {
-            const credential = await confirmWithPasskey('password-backup-codes');
-            const res = await api('POST', '/api/auth/password/backup-codes/regenerate', { credential });
+            const proof = await confirmIdentity({ action: 'password-backup-codes', title: 'Nieuwe back-upcodes bevestigen',
+              message: 'Bevestig dat jij dit bent. De oude codes werken daarna niet meer.', confirmLabel: 'Nieuwe codes maken' });
+            if (!proof) return;
+            const res = await api('POST', '/api/auth/password/backup-codes/regenerate', proof);
             const dialog = h('dialog', { class: 'glass sheet' }, h('h2', {}, 'Nieuwe back-upcodes'),
               h('p', {}, h('strong', {}, 'Bewaar ze nu'), ' — ze worden niet opnieuw getoond.'), ...codesBlock(res.backup_codes),
               h('div', { class: 'row end' }, h('button', { class: 'btn primary', type: 'button', onclick: () => dialog.close() }, 'Klaar')));
@@ -166,10 +209,11 @@ export function passwordCard() {
           } catch (e) { toast(e.message, 'error'); }
         } }, 'Nieuwe back-upcodes'),
         h('button', { class: 'btn danger', type: 'button', onclick: async () => {
-          if (!(await confirmDialog('Wachtwoord-login uitschakelen? Wachtwoord, authenticator en back-upcodes worden verwijderd. Je bevestigt dit met je passkey.', 'Uitschakelen'))) return;
           try {
-            const credential = await confirmWithPasskey('password-disable');
-            await api('POST', '/api/auth/password/disable', { credential });
+            const proof = await confirmIdentity({ action: 'password-disable', title: 'Wachtwoord-login uitschakelen',
+              message: 'Wachtwoord, authenticator en back-upcodes worden verwijderd. Bevestig dat jij dit bent.', confirmLabel: 'Uitschakelen' });
+            if (!proof) return;
+            await api('POST', '/api/auth/password/disable', proof);
             toast('Wachtwoord-login staat uit');
           } catch (e) { toast(e.message, 'error'); }
           draw();

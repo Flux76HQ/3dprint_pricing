@@ -1,7 +1,7 @@
 """Optional password login with mandatory two-step verification (TOTP).
 
-Off by default. Turning it on, changing it, or turning it off needs a fresh passkey confirmation, and it
-only switches on once an authenticator code has been confirmed, so a password never exists without its
+Off by default. Turning it on needs only the session; changing it, turning it off and new backup codes need a
+fresh passkey confirmation, or (where no passkey works) the password plus a code. It only switches on once an authenticator code has been confirmed, so a password never exists without its
 second factor. Logging in takes password then code; the session is issued only after both.
 """
 import uuid
@@ -142,15 +142,44 @@ def _client_ip() -> str:
 
 # --- managing it (signed in, fresh passkey confirmation) ------------------------------------------------------
 
-def _credential(body: dict) -> dict:
+def _reauthenticate(body: dict) -> None:
+    """Confirm with the password and a second-factor code: for a device where the passkey cannot be used
+    (you signed in with password and code). It is the whole login again, with the same lock, the same
+    failure counter, the same replay guard; nothing is cheaper than logging in."""
+    ip_limiter.check(_client_ip())
+    password = str(body.get("current_password", ""))[:passwords.MAX_LENGTH + 1]
+    code = str(body.get("code", ""))
+    refusal = ApiError(401, "Bevestigen mislukt: het wachtwoord of de code klopt niet.")
+    with pool().connection() as conn:
+        row = conn.execute("SELECT user_id, password_hash, totp_secret, last_totp_step, locked_until FROM password_credentials "
+                           "WHERE user_id = %s AND enabled", (g.user_id,)).fetchone()
+        if row is None:
+            passwords.burn_time(password)
+            refusal = ApiError(409, "Wachtwoord-login staat niet aan.")
+        elif _lock_minutes(row):
+            refusal = ApiError(429, _locked_message(_lock_minutes(row)))
+        elif not passwords.verify_password(row["password_hash"], password):
+            _register_failure(conn, row["user_id"])
+        elif not _check_second_factor(conn, row, code):          # only reached with the right password: no code is burnt otherwise
+            _register_failure(conn, row["user_id"])
+        else:
+            conn.execute("UPDATE password_credentials SET failed_count = 0, locked_until = NULL, updated_at = now() "
+                         "WHERE user_id = %s", (row["user_id"],))
+            return
+    raise refusal                                            # outside the block: the failure must commit
+
+
+def _confirm(body: dict, action: str) -> None:
+    """A fresh passkey confirmation for exactly this action, or the password plus a code. Call it before
+    opening the connection that does the work, so a refused attempt is still counted."""
     cred = body.get("credential")
-    if not isinstance(cred, dict) or not isinstance(cred.get("response"), dict):
-        raise ApiError(400, "Bevestig dit met je passkey.")
-    return cred
-
-
-def _confirm(conn, body: dict, action: str) -> None:
-    _verify_assertion(conn, _credential(body), "confirm", purpose=_purpose(action, None), user_id=g.user_id)
+    if isinstance(cred, dict) and isinstance(cred.get("response"), dict):
+        with pool().connection() as conn:
+            _verify_assertion(conn, cred, "confirm", purpose=_purpose(action, None), user_id=g.user_id)
+    elif "current_password" in body:
+        _reauthenticate(body)
+    else:
+        raise ApiError(400, "Bevestig dit met je passkey, of met je wachtwoord en een code.")
 
 
 @bp.get("/status")
@@ -218,8 +247,8 @@ def setup_cancel():
 @bp.post("/disable")
 @login_required
 def disable():
+    _confirm(json_body(), "password-disable")
     with pool().connection() as conn:
-        _confirm(conn, json_body(), "password-disable")
         conn.execute("DELETE FROM password_credentials WHERE user_id = %s", (g.user_id,))
         conn.execute("DELETE FROM mfa_backup_codes WHERE user_id = %s", (g.user_id,))
     return jsonify({"ok": True})
@@ -229,16 +258,17 @@ def disable():
 @login_required
 def change():
     body = json_body()
-    with pool().connection() as conn:
-        _confirm(conn, body, "password-change")
-        row = conn.execute("SELECT enabled FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
-        if not row or not row["enabled"]:
-            raise ApiError(409, "Wachtwoord-login staat niet aan.")
+    with pool().connection() as conn:                         # a weak password is refused before a confirmation is spent
         user = conn.execute("SELECT display_name FROM users WHERE id = %s", (g.user_id,)).fetchone()
         try:
             passwords.check_policy(str(body.get("password", "")), user["display_name"])
         except ValueError as exc:
             raise ApiError(400, str(exc)) from None
+    _confirm(body, "password-change")
+    with pool().connection() as conn:
+        row = conn.execute("SELECT enabled FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
+        if not row or not row["enabled"]:
+            raise ApiError(409, "Wachtwoord-login staat niet aan.")
         conn.execute("UPDATE password_credentials SET password_hash = %s, failed_count = 0, locked_until = NULL, "
                      "updated_at = now() WHERE user_id = %s", (passwords.hash_password(str(body["password"])), g.user_id))
     return jsonify({"ok": True})
@@ -247,8 +277,8 @@ def change():
 @bp.post("/backup-codes/regenerate")
 @login_required
 def regenerate_backup_codes():
+    _confirm(json_body(), "password-backup-codes")
     with pool().connection() as conn:
-        _confirm(conn, json_body(), "password-backup-codes")
         row = conn.execute("SELECT enabled FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
         if not row or not row["enabled"]:
             raise ApiError(409, "Wachtwoord-login staat niet aan.")
