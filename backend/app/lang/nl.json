@@ -46,6 +46,7 @@
  "err.not_number": "{label}: '{value}' is geen getal.",
  "err.nothing_to_change": "Niets om te wijzigen.",
  "err.origin": "Origin niet toegestaan.",
+ "err.propagate_fields": "Kies welke gegevens je wilt doorvoeren.",
  "err.quiet_hours": "Stille uren: geef begin en einde als UU:MM en een geldige tijdzone, bijv. Europe/Amsterdam.",
  "err.rate_limited": "Te veel pogingen. Probeer het later opnieuw.",
  "err.required": "{label} is verplicht.",

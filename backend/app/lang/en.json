@@ -46,6 +46,7 @@
  "err.not_number": "{label}: '{value}' is not a number.",
  "err.nothing_to_change": "Nothing to change.",
  "err.origin": "Origin not allowed.",
+ "err.propagate_fields": "Choose which details to pass on.",
  "err.quiet_hours": "Quiet hours: give the start and end as HH:MM and a valid time zone, e.g. Europe/Amsterdam.",
  "err.rate_limited": "Too many attempts. Try again later.",
  "err.required": "{label} is required.",
