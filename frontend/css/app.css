@@ -317,3 +317,8 @@ input[type=time] { font: inherit; color: var(--text); background: var(--surface-
 .stock-materials { margin: 0; }
 
 [hidden] { display: none !important; }       /* a component's own `display` must not win over the hidden attribute */
+
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
+.filters label { font-size: .875rem; color: var(--text-muted); }
+.filters select { min-height: 44px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--rand);
+  background: var(--surface-field); color: var(--text); font: inherit; max-width: 100%; }
