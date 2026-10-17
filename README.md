@@ -14,7 +14,9 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
   slicer-data) leest de app het volume en **schat** het gewicht (volume × dichtheid × effectieve vulling);
   de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast kun je een **link** naar het model
   bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
-- **Filament** — je rollen met prijs per rol, gewicht en wat er nog over is; verbruik van een
+- **Filament** — je rollen met prijs per rol, gewicht, diameter, print- en bedtemperatuur en wat er nog over is;
+  de **barcode** bewaar je als identifier: scan hem met de camera van je telefoon (of een barcodescanner, die typt
+  gewoon in het veld) en bij een bekende barcode neem je met één klik de gegevens van de vorige rol over; verbruik van een
   berekening kun je met één klik van de voorraad afboeken.
 - **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. In een berekening kies je er
   per product een uit de lijst (of vul je een regel zelf in); de prijs wordt in de berekening bewaard.
@@ -83,6 +85,10 @@ verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.
 | `PROXY_HOPS` | Aantal reverse proxies ervoor (vertrouwt `X-Forwarded-*`) |
 | `WEB_CONCURRENCY` | Aantal Gunicorn-workers (standaard 2) |
 | `APP_IMAGE` | Te draaien image (standaard `ghcr.io/flux76hq/3dprint_pricing:latest`) |
+
+**Camerascannen** (barcode) vraagt, net als passkeys, https en toestemming voor de camera. Chrome/Edge/Android gebruiken
+hun eigen scanner; Safari/iOS laadt een meegeleverde scanbibliotheek ([ZXing](frontend/vendor/zxing/README.md), Apache-2.0).
+Eén barcode hoort bij een *product*: meerdere rollen van hetzelfde filament mogen dezelfde barcode hebben.
 
 **Passkeys vragen https** (behalve op `http://localhost`) en een **domeinnaam**: openen via een IP-adres
 werkt niet. Zet er een reverse proxy met TLS voor en stel `RP_ID`/`RP_ORIGINS` in op dat domein. Wijzig

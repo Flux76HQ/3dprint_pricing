@@ -58,6 +58,9 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   final check, since the 3MF/slice_info layout is the slicer's, not ours.
 - Uploads live under `UPLOAD_DIR` (`/data/uploads`, mounted from `DATA_PATH/app`), never in the
   image. Stored names are generated; the original filename is only a download name.
+- Third-party browser code is vendored under `frontend/vendor/` (unmodified, with its licence and a
+  README saying how to update), never loaded from a CDN: the CSP only allows scripts from this origin.
+  Currently only ZXing, for barcode scanning where the browser has no `BarcodeDetector`.
 - UI text is Dutch. Build DOM with the `h()` helper and `textContent`; never `innerHTML` with data
   (the CSP also forbids inline script and style).
 

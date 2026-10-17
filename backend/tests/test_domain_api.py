@@ -210,3 +210,35 @@ def test_static_files_are_always_revalidated_so_updates_show_at_once(client):
         assert "no-cache" in res.headers["Cache-Control"] and "max-age=3600" not in res.headers["Cache-Control"]
     first = client.get("/app.js")
     assert client.get("/app.js", headers={"If-None-Match": first.headers["ETag"]}).status_code == 304
+
+
+def test_spool_details_barcode_diameter_and_temperatures(owner):
+    s = make(owner, "/api/spools", {"brand": "Bambu ABS", "roll_weight_g": 1000, "price": 26.99, "remaining_g": 1000,
+                                    "barcode": " 6975337030001 ", "diameter_mm": "1.75", "print_temp_c": "250", "bed_temp_c": "90"})
+    assert s["barcode"] == "6975337030001" and s["diameter_mm"] == "1.75"
+    assert (s["print_temp_c"], s["bed_temp_c"]) == (250, 90)
+    plain = make(owner, "/api/spools", {"brand": "x", "roll_weight_g": 1000, "price": 1, "remaining_g": 1000})
+    assert plain["barcode"] == "" and plain["diameter_mm"] == "1.75" and plain["print_temp_c"] is None
+    cleared = owner.patch(f"/api/spools/{s['id']}", json={"print_temp_c": "", "bed_temp_c": None, "diameter_mm": "2.85"}, headers=H)
+    assert cleared.get_json()["print_temp_c"] is None and cleared.get_json()["bed_temp_c"] is None
+    assert cleared.get_json()["diameter_mm"] == "2.85"
+
+
+@pytest.mark.parametrize("field, value", [("print_temp_c", "600"), ("print_temp_c", "abc"), ("print_temp_c", "215.5"),
+                                          ("bed_temp_c", "-5"), ("bed_temp_c", "250"), ("diameter_mm", "0"),
+                                          ("diameter_mm", "9"), ("barcode", "x" * 101)])
+def test_spool_details_are_validated(owner, field, value):
+    body = {"brand": "x", "roll_weight_g": 1000, "price": 1, "remaining_g": 1000, field: value}
+    assert owner.post("/api/spools", json=body, headers=H).status_code == 400
+
+
+def test_barcode_lookup_returns_the_newest_roll_with_that_barcode(owner):
+    base = {"roll_weight_g": 1000, "price": 20, "remaining_g": 0, "barcode": "8719"}
+    make(owner, "/api/spools", {**base, "brand": "Oud", "price": 20})
+    make(owner, "/api/spools", {**base, "brand": "Nieuw", "price": 22})
+    make(owner, "/api/spools", {**base, "brand": "Ander", "barcode": "1234"})
+    assert owner.get("/api/spools/lookup?barcode=8719").get_json()["spool"]["brand"] == "Nieuw"
+    assert owner.get("/api/spools/lookup?barcode=%208719%20").get_json()["spool"]["brand"] == "Nieuw"   # scanner whitespace
+    assert owner.get("/api/spools/lookup?barcode=0000").get_json() == {"spool": None}
+    assert owner.get("/api/spools/lookup").get_json() == {"spool": None}      # empty never matches the "no barcode" rolls
+    assert owner.get("/api/spools").status_code == 200                            # the list route is unaffected

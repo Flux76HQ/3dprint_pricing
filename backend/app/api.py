@@ -4,7 +4,7 @@ import re
 import uuid
 from decimal import Decimal, InvalidOperation
 
-from flask import Blueprint, g, jsonify
+from flask import Blueprint, g, jsonify, request
 
 from .calc import ROUNDINGS, calculate
 from .http import ApiError, json_body, login_required, pool
@@ -44,6 +44,21 @@ def number(label, *, minimum=0, strict=False, maximum=10_000_000):
     return check
 
 
+def optional_int(label, *, minimum, maximum):
+    """A whole number in range, or None when left empty (stored as NULL)."""
+    def check(value):
+        if value is None or str(value).strip() == "":
+            return None
+        try:
+            n = Decimal(str(value).replace(",", "."))
+        except (InvalidOperation, ValueError):
+            raise ApiError(400, f"{label}: '{value}' is geen getal.") from None
+        if n != n.to_integral_value() or not minimum <= n <= maximum:
+            raise ApiError(400, f"{label}: geef een heel getal tussen {minimum} en {maximum}.")
+        return int(n)
+    return check
+
+
 def boolean(label):
     def check(value):
         if not isinstance(value, bool):
@@ -79,11 +94,16 @@ RESOURCES = {
         "roll_weight_g": number("Gewicht rol (g)", strict=True),
         "price": number("Prijs rol"),
         "remaining_g": number("Resterend (g)"),
+        "barcode": text("Barcode", required=False, max_len=100),
+        "diameter_mm": number("Diameter (mm)", strict=True, maximum=5),
+        "print_temp_c": optional_int("Printtemperatuur", minimum=0, maximum=500),
+        "bed_temp_c": optional_int("Bedtemperatuur", minimum=0, maximum=200),
         "notes": text("Notities", required=False, max_len=1000),
         "archived": boolean("Gearchiveerd"),
     }, "brand, colour"),
 }
-OPTIONAL = {"notes", "archived", "is_default", "material", "colour", "power_kw"}
+OPTIONAL = {"notes", "archived", "is_default", "material", "colour", "power_kw", "barcode", "diameter_mm",
+            "print_temp_c", "bed_temp_c"}
 
 
 def _serialise(row: dict) -> dict:
@@ -160,6 +180,18 @@ def _register(path, table, fields, order):
 
 for _path, (_table, _fields, _order) in RESOURCES.items():
     _register(_path, _table, _fields, _order)
+
+
+@bp.get("/spools/lookup")
+def lookup_spool():
+    """The newest roll with this barcode, so a re-purchase can copy its details."""
+    barcode = (request.args.get("barcode") or "").strip()
+    if not barcode:
+        return jsonify({"spool": None})
+    with pool().connection() as conn:
+        row = conn.execute("SELECT * FROM filament_spools WHERE barcode = %s ORDER BY created_at DESC LIMIT 1",
+                           (barcode,)).fetchone()
+    return jsonify({"spool": _serialise(row) if row else None})
 
 
 # --- preferences ----------------------------------------------------------------

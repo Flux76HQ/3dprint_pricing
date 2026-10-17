@@ -225,7 +225,8 @@ output.cost { font-weight: 650; font-variant-numeric: tabular-nums; min-height: 
   background: var(--surface-field); border: 1px solid var(--rand); border-radius: var(--radius-sm); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.05rem; letter-spacing: .04em; }
 
 /* Dialogs & toasts */
-dialog.sheet { border-radius: var(--radius); padding: 20px; width: min(94vw, 520px); color: var(--text); margin: auto; background: var(--surface-solid); }
+dialog.sheet { border-radius: var(--radius); padding: 20px; width: min(94vw, 520px); max-height: 92vh; max-height: 92dvh; overflow-y: auto;
+  color: var(--text); margin: auto; background: var(--surface-solid); }
 dialog.sheet::backdrop { background: rgba(10, 8, 30, .5); }
 #toasts { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 28px + env(safe-area-inset-bottom));
   display: flex; flex-direction: column; gap: 8px; width: min(92vw, 420px); }
@@ -261,3 +262,11 @@ input[type=url] { font: inherit; color: var(--text); background: var(--surface-f
 
 .brand-text { display: flex; flex-direction: column; line-height: 1.2; }
 .version { font-size: .72rem; font-weight: 500; color: var(--text-muted); font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+/* Barcode scanner */
+.row.nowrap { flex-wrap: nowrap; }
+.row.nowrap input { flex: 1; min-width: 0; }
+.footnote { font-size: .8rem; margin: 0; }
+.scan-frame { position: relative; overflow: hidden; border-radius: 12px; background: #000; aspect-ratio: 4 / 3; }
+.scan-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-line { position: absolute; left: 8%; right: 8%; top: 50%; height: 2px; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
