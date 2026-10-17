@@ -5,4 +5,5 @@
 data
 **/__pycache__
 backend/tests
-scripts
+scripts/*
+!scripts/generate_vapid.py
