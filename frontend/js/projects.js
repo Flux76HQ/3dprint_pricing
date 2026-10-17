@@ -37,6 +37,8 @@ export function projectListView(ctx) {
 
 // --- editor ---------------------------------------------------------------------
 
+// "Bambu ABS Basis Black · ABS · 430 g over": the material is part of the choice (ABS/PLA/PLA+ ...).
+const spoolLabel = (s) => [[s.brand, s.colour].filter(Boolean).join(' '), s.material, `${fmt(s.remaining_g, 0)} g over`].filter(Boolean).join(' · ');
 const blankFilament = () => ({ spool_id: '', label: '', grams: '', price_per_kg: '' });
 const blankPart = (group) => ({ group, packaging_id: '', label: '', quantity: '1', unit: 'stuks', unit_price: '' });
 
@@ -181,7 +183,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
   function filamentSection() {
     costEls.filament = [];
     const rows = state.filament.map((r, i) => h('div', { class: 'line filament' },
-      field('Rol', select([['', 'Handmatig'], ...spools.map((s) => [s.id, `${[s.brand, s.colour].filter(Boolean).join(' ')} · ${fmt(s.remaining_g, 0)} g over`])], r.spool_id, (v) => {
+      field('Rol', select([['', 'Handmatig'], ...spools.map((s) => [s.id, spoolLabel(s)])], r.spool_id, (v) => {
         r.spool_id = v;
         const s = spools.find((x) => x.id === v);
         if (s) { r.label = [s.brand, s.colour].filter(Boolean).join(' '); r.price_per_kg = perKg(s); }
