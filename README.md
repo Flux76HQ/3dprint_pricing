@@ -144,6 +144,14 @@ afgedwongen door `backend/tests/test_push.py` (project-baseline §11):
 
 Een pushadres dat de pushdienst afwijst (404/410) wordt automatisch verwijderd. De server moet uitgaand **https** naar de
 pushdiensten kunnen (o.a. `fcm.googleapis.com`, `web.push.apple.com`, `updates.push.services.mozilla.com`, `*.notify.windows.com`).
+Zegt de testknop *“De server kan … niet opzoeken (DNS)”* (of *time-out*), dan bereikt de container de pushdienst niet. Vaak staat
+het adres op een blocklist van Pi-hole, AdGuard Home of de router: `*.notify.windows.com` (Edge/Windows) staat op veel
+privacylijsten, en dan werkt het voor Chrome-op-Android (`fcm.googleapis.com`) wel. Probeer vanaf de server:
+`docker compose exec app python -c "import socket; print(socket.gethostbyname('wns2-am3p.notify.windows.com'))"`
+en `docker compose exec app python -c "import urllib.request as u; print(u.urlopen('https://fcm.googleapis.com').status)"`
+(een 404 is hier goed: de dienst antwoordt). Zet de adressen op de allowlist van je DNS-filter of geef de container een
+andere DNS-server (`dns:` bij de service in `docker-compose.yml`). Een melding op een toestel waarvan de pushdienst
+geblokkeerd is, komt niet aan; de andere toestellen worden gewoon bediend.
 
 ### Iconen en opstartschermen
 

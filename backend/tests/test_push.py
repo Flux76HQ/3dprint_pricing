@@ -392,3 +392,34 @@ def test_a_device_can_be_removed_from_the_list_but_only_your_own(owner, pushapp)
 
 def test_the_device_list_needs_a_session(client):
     assert client.get("/api/push/devices").status_code == 401
+
+
+# --- say which kind of "cannot reach" it is ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("error, fragment", [
+    (ConnectionError("HTTPSConnectionPool(host='x'): NameResolutionError(\"Failed to resolve 'wns2.notify.windows.com' "
+                     "([Errno -2] Name or service not known)\")"), "niet opzoeken (DNS)"),
+    (ConnectionError("Temporary failure in name resolution"), "niet opzoeken (DNS)"),
+    (TimeoutError("Read timed out. (read timeout=8)"), "reageert niet (time-out)"),
+    (ConnectionError("SSLError: certificate verify failed: self-signed certificate in certificate chain"), "certificaat"),
+    (RuntimeError("connection refused"), "bereikt push.example.test niet"),
+])
+def test_an_unreachable_push_service_is_named_by_its_kind_of_failure(owner, error, fragment):
+    subscribe(owner)
+    with mock.patch("app.push.webpush", side_effect=[error]):
+        result = post(owner, "/api/push/test").get_json()
+    assert fragment in result["results"][0]["reason"] and "push.example.test" in result["results"][0]["reason"]
+
+
+def test_a_wrapped_cause_is_found_too(owner):
+    subscribe(owner)
+    try:
+        try:
+            raise OSError("[Errno -2] Name or service not known")
+        except OSError as inner:
+            raise ConnectionError("Max retries exceeded") from inner
+    except ConnectionError as outer:
+        error = outer
+    with mock.patch("app.push.webpush", side_effect=[error]):
+        result = post(owner, "/api/push/test").get_json()
+    assert "DNS" in result["results"][0]["reason"]

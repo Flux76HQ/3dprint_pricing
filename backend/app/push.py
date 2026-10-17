@@ -149,6 +149,25 @@ def describe_agent(user_agent: str):
     return f"{system} · {browser}" if browser else system
 
 
+def _network_kind(exc) -> "str | None":
+    """Why a request never got an answer: 'dns', 'tls', 'timeout' or None. Read from the whole chain of causes,
+    because requests wraps what urllib3 raised, which wraps what the socket raised."""
+    seen, text = set(), ""
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        text += f" {type(exc).__name__} {exc}"
+        exc = exc.__cause__ or exc.__context__
+    low = text.lower()
+    if any(key in low for key in ("name or service not known", "nameresolution", "temporary failure in name resolution",
+                                  "nodename nor servname", "getaddrinfo failed", "no address associated")):
+        return "dns"
+    if "ssl" in low or "certificate" in low:
+        return "tls"
+    if "timed out" in low or "timeout" in low:
+        return "timeout"
+    return None
+
+
 def failure_reason(exc: Exception, endpoint: str) -> L:
     """What the owner can do about it, without the push service's raw answer (that goes to the log).
     A message key, not words: it is stored as such and shown in whatever language the owner reads at the time."""
@@ -166,6 +185,9 @@ def failure_reason(exc: Exception, endpoint: str) -> L:
         return L("push.r_unavailable", host=host, status=status)
     if status:
         return L("push.r_rejected", host=host, status=status)
+    kind = _network_kind(exc)
+    if kind:
+        return L(f"push.r_{kind}", host=host)
     return L("push.r_unreachable", host=host)
 
 
