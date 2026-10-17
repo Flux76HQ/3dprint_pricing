@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 
 from tests.test_auth_api import H, onboard, post
@@ -239,6 +241,62 @@ def test_barcode_lookup_returns_the_newest_roll_with_that_barcode(owner):
     make(owner, "/api/spools", {**base, "brand": "Ander", "barcode": "1234"})
     assert owner.get("/api/spools/lookup?barcode=8719").get_json()["spool"]["brand"] == "Nieuw"
     assert owner.get("/api/spools/lookup?barcode=%208719%20").get_json()["spool"]["brand"] == "Nieuw"   # scanner whitespace
-    assert owner.get("/api/spools/lookup?barcode=0000").get_json() == {"spool": None}
-    assert owner.get("/api/spools/lookup").get_json() == {"spool": None}      # empty never matches the "no barcode" rolls
+    assert owner.get("/api/spools/lookup?barcode=0000").get_json() == {"spool": None, "stock": None}
+    assert owner.get("/api/spools/lookup").get_json() == {"spool": None, "stock": None}      # empty never matches the "no barcode" rolls
     assert owner.get("/api/spools").status_code == 200                            # the list route is unaffected
+
+
+# --- stock per kind of filament -------------------------------------------------------------------------------
+
+def roll(owner, remaining, **extra):
+    body = {"brand": "Bambu PLA Basic", "material": "PLA", "colour": "Black", "roll_weight_g": 1000, "price": 20,
+            "remaining_g": remaining, **extra}
+    return make(owner, "/api/spools", body)
+
+
+def test_stock_counts_the_rolls_you_still_have_with_their_weights_and_the_total(owner):
+    roll(owner, 1000, barcode="111")
+    roll(owner, 250, barcode="111")
+    roll(owner, 0, barcode="111")                                          # empty: not a roll you still have
+    gone = roll(owner, 700, barcode="111")
+    owner.patch(f"/api/spools/{gone['id']}", json={"archived": True}, headers=H)       # archived: not stock
+    stock = owner.get("/api/spools/stock").get_json()
+    (group,) = stock["groups"]
+    assert group["roll_count"] == 2 and Decimal(group["remaining_g"]) == 1250
+    assert sorted(Decimal(r["remaining_g"]) for r in group["rolls"]) == [250, 1000]
+    assert all(r["roll_weight_g"] == "1000.0" for r in group["rolls"])
+
+
+def test_stock_groups_by_barcode_or_by_name_and_totals_per_material(owner):
+    roll(owner, 800, barcode="111")
+    roll(owner, 200, barcode="111", colour="Zwart")                        # same barcode = same kind, whatever it was typed as
+    roll(owner, 500, colour="White")                                       # no barcode: grouped by brand + material + colour
+    roll(owner, 400, colour="white")                                       # ... case does not matter
+    roll(owner, 900, brand="Bambu ABS", material="ABS", colour="Black")
+    stock = owner.get("/api/spools/stock").get_json()
+    by = {(g["material"], g["colour"].lower(), bool(g["barcode"])): g for g in stock["groups"]}
+    assert Decimal(by[("PLA", "black", True)]["remaining_g"]) == 1000 and by[("PLA", "black", True)]["roll_count"] == 2
+    assert Decimal(by[("PLA", "white", False)]["remaining_g"]) == 900 and by[("PLA", "white", False)]["roll_count"] == 2
+    materials = {m["material"]: (m["roll_count"], Decimal(m["remaining_g"])) for m in stock["materials"]}
+    assert materials == {"ABS": (1, 900), "PLA": (4, 1900)}
+
+
+def test_a_sold_out_kind_stays_in_the_list_with_zero(owner):
+    roll(owner, 0, colour="Red")
+    (group,) = owner.get("/api/spools/stock").get_json()["groups"]
+    assert group["roll_count"] == 0 and Decimal(group["remaining_g"]) == 0
+
+
+def test_the_barcode_lookup_includes_what_is_in_stock_of_it(owner):
+    roll(owner, 1000, barcode="999")
+    roll(owner, 300, barcode="999")
+    found = owner.get("/api/spools/lookup?barcode=999").get_json()
+    assert found["spool"]["brand"] == "Bambu PLA Basic" and found["stock"]["roll_count"] == 2
+    assert Decimal(found["stock"]["remaining_g"]) == 1300
+    unknown = owner.get("/api/spools/lookup?barcode=000").get_json()
+    assert unknown == {"spool": None, "stock": None}
+    assert owner.get("/api/spools/lookup").get_json() == {"spool": None, "stock": None}
+
+
+def test_stock_needs_a_session(client):
+    assert client.get("/api/spools/stock").status_code == 401

@@ -16,8 +16,10 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
   bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
 - **Filament** — je rollen met prijs per rol, gewicht, diameter, print- en bedtemperatuur en wat er nog over is;
   de **barcode** bewaar je als identifier: scan hem met de camera van je telefoon (of een barcodescanner, die typt
-  gewoon in het veld) en bij een bekende barcode neem je met één klik de gegevens van de vorige rol over; verbruik van een
-  berekening kun je met één klik van de voorraad afboeken.
+  gewoon in het veld). Een bekende barcode wordt gemeld en de gegevens van de vorige rol worden meteen ingevuld (wat je zelf al
+  typte blijft staan), zodat je alleen nog opslaat, met erbij hoeveel rollen je er nog van hebt. Bovenaan staat de
+  **voorraad per soort**: de rollen die je nog hebt met hun gewicht, het totaal per soort en per materiaal (een soort is
+  één barcode, of merk + materiaal + kleur). Verbruik van een berekening kun je met één klik van de voorraad afboeken.
 - **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. In een berekening kies je er
   per product een uit de lijst (of vul je een regel zelf in); de prijs wordt in de berekening bewaard.
 - **Printers** — aanschafwaarde, levensduur in uren (afschrijving per uur) en vermogen.

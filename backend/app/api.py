@@ -183,16 +183,71 @@ for _path, (_table, _fields, _order) in RESOURCES.items():
     _register(_path, _table, _fields, _order)
 
 
+def _stock_key(row: dict) -> str:
+    """One kind of filament: the barcode when there is one, otherwise brand + material + colour."""
+    barcode = (row["barcode"] or "").strip()
+    if barcode:
+        return f"barcode:{barcode}"
+    return "name:" + "|".join((row[k] or "").strip().lower() for k in ("brand", "material", "colour"))
+
+
+def _stock(rows) -> list[dict]:
+    """Per kind of filament: the rolls that still have filament on them (with their weights) and the total.
+
+    Archived rolls are not stock. A roll that is empty is not a roll you still have, but its kind stays in
+    the list with 0 g so a sold-out colour does not just vanish."""
+    groups: dict[str, dict] = {}
+    for row in rows:
+        group = groups.setdefault(_stock_key(row), {
+            "key": _stock_key(row), "brand": row["brand"], "material": row["material"] or "", "colour": row["colour"] or "",
+            "barcode": (row["barcode"] or "").strip(), "rolls": [], "remaining_g": Decimal(0)})
+        if row["remaining_g"] > 0:
+            group["rolls"].append({"id": str(row["id"]), "remaining_g": str(row["remaining_g"]),
+                                   "roll_weight_g": str(row["roll_weight_g"])})
+            group["remaining_g"] += row["remaining_g"]
+    out = []
+    for group in groups.values():
+        group["roll_count"] = len(group["rolls"])
+        group["remaining_g"] = str(group["remaining_g"])
+        out.append(group)
+    return sorted(out, key=lambda g: ((g["material"] or "~").lower(), g["brand"].lower(), g["colour"].lower()))
+
+
+def _stock_rows(conn, barcode: str | None = None):
+    sql = ("SELECT id, brand, material, colour, barcode, roll_weight_g, remaining_g FROM filament_spools "
+           "WHERE NOT archived")
+    params: tuple = ()
+    if barcode is not None:
+        sql, params = sql + " AND barcode = %s", (barcode,)
+    return conn.execute(sql + " ORDER BY created_at", params).fetchall()
+
+
+@bp.get("/spools/stock")
+def spool_stock():
+    """What is left, per kind of filament and per material."""
+    with pool().connection() as conn:
+        groups = _stock(_stock_rows(conn))
+    materials: dict[str, dict] = {}
+    for g_ in groups:
+        name = g_["material"] or "Onbekend materiaal"
+        m = materials.setdefault(name, {"material": name, "roll_count": 0, "remaining_g": Decimal(0)})
+        m["roll_count"] += g_["roll_count"]
+        m["remaining_g"] += Decimal(g_["remaining_g"])
+    return jsonify({"groups": groups, "materials": [{**m, "remaining_g": str(m["remaining_g"])}
+                                                    for m in sorted(materials.values(), key=lambda m: m["material"].lower())]})
+
+
 @bp.get("/spools/lookup")
 def lookup_spool():
-    """The newest roll with this barcode, so a re-purchase can copy its details."""
+    """The newest roll with this barcode (so a re-purchase can copy its details) and what is in stock of it."""
     barcode = (request.args.get("barcode") or "").strip()
     if not barcode:
-        return jsonify({"spool": None})
+        return jsonify({"spool": None, "stock": None})
     with pool().connection() as conn:
         row = conn.execute("SELECT * FROM filament_spools WHERE barcode = %s ORDER BY created_at DESC LIMIT 1",
                            (barcode,)).fetchone()
-    return jsonify({"spool": _serialise(row) if row else None})
+        stock = _stock(_stock_rows(conn, barcode)) if row else []
+    return jsonify({"spool": _serialise(row) if row else None, "stock": stock[0] if stock else None})
 
 
 # --- preferences ----------------------------------------------------------------

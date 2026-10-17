@@ -307,3 +307,13 @@ input[type=time] { font: inherit; color: var(--text); background: var(--surface-
 .devices p { margin: 2px 0 0; }
 .tag { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; background: var(--accent, #6c5ce7); color: #fff; }
 .status-line { white-space: pre-line; }
+
+.stock { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.stock li { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 10px 12px;
+  border: 1px solid var(--lijn); border-radius: 12px; }
+.stock li.out { opacity: .7; }
+.stock p { margin: 2px 0 0; }
+.stock-total { display: grid; justify-items: end; text-align: right; white-space: nowrap; }
+.stock-materials { margin: 0; }
+
+[hidden] { display: none !important; }       /* a component's own `display` must not win over the hidden attribute */
