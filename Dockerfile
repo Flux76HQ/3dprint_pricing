@@ -18,6 +18,8 @@ COPY backend/app ./app
 COPY backend/wsgi.py backend/migrate.py backend/announce_release.py ./
 COPY frontend ./static
 COPY VERSION ./VERSION
+# So the keys can be generated without Python on the host: docker compose run --rm --no-deps app python generate_vapid.py
+COPY scripts/generate_vapid.py ./generate_vapid.py
 COPY deploy/entrypoint.sh /entrypoint.sh
 
 # The entrypoint starts as root only to fix ownership of the mounted /data, then drops to `app`.

@@ -139,7 +139,7 @@ async function start() {
   if (!status.onboarded) { session = { user: null }; root.replaceChildren(onboardingView(start)); return; }
   if (!status.authenticated) {
     session = { user: null };
-    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen'); start(); }));
+    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen'); start(); }, { passwordLogin: status.password_login }));
     return;
   }
   session = { user: status.user };

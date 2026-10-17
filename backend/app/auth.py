@@ -216,8 +216,9 @@ def status():
         if g.user_id:
             row = conn.execute("SELECT id, display_name FROM users WHERE id = %s", (g.user_id,)).fetchone()
             user = {"id": str(row["id"]), "display_name": row["display_name"]} if row else None
+        password_login = conn.execute("SELECT EXISTS (SELECT 1 FROM password_credentials WHERE enabled) AS e").fetchone()["e"]
     return jsonify({"onboarded": onboarded, "authenticated": user is not None, "user": user,
-                    "rp_id": config().rp_id})
+                    "rp_id": config().rp_id, "password_login": password_login})
 
 
 @bp.post("/onboarding/options")
@@ -361,6 +362,8 @@ def _purpose(action: str, target: str | None) -> str:
         return f"credential:{target}:delete"
     if action == "regenerate-recovery":
         return "recovery:regenerate"
+    if action in ("password-enable", "password-disable", "password-change", "password-backup-codes"):
+        return f"password:{action.split('-', 1)[1]}"
     raise ApiError(400, "Onbekende actie.")
 
 

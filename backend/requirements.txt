@@ -8,3 +8,5 @@ PyJWT==2.15.1
 defusedxml==0.7.1
 pywebpush==2.5.0
 tzdata==2025.2
+argon2-cffi==25.1.0
+segno==1.6.6

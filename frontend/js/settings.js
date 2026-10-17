@@ -1,5 +1,6 @@
 import { api, confirmWithPasskey, createPasskey } from './api.js';
 import { IOS_STEPS, installState, onInstallChange, promptInstall } from './install.js';
+import { passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, pushSupport } from './push.js';
 import { confirmDialog, field, h, icon, numberInput, switchRow, toast, versionLabel } from './ui.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
@@ -210,6 +211,7 @@ export function settingsView(ctx) {
     h('div', { class: 'glass card stack' }, h('h2', {}, 'Beveiliging'),
       h('p', { class: 'muted' }, 'Je logt in met passkeys; er is geen wachtwoord. Verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.'),
       security),
+    passwordCard(),
     h('div', { class: 'glass card stack' }, h('h2', {}, 'Sessie'),
       h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: onLogout }, 'Uitloggen'))));
 }
