@@ -7,6 +7,8 @@ up to the total shown under them.
 """
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
 
+from .i18n import L, Localized
+
 CENT = Decimal("0.01")
 PART_UNITS = ("stuks", "m", "g")
 PART_GROUPS = ("onderdeel", "oplader", "verpakking")
@@ -14,13 +16,13 @@ PART_GROUPS = ("onderdeel", "oplader", "verpakking")
 ROUNDINGS = ("none", "0.05", "0.10", "0.50", "1.00", "5.00", "x.95", "x.99")
 
 
-def _num(value, label: str) -> Decimal:
+def _num(value, label) -> Decimal:
     try:
         number = Decimal(str(value if value not in (None, "") else 0))
     except InvalidOperation:
-        raise ValueError(f"{label}: '{value}' is geen getal.") from None
+        raise Localized("err.not_number", label=label, value=value) from None
     if not number.is_finite() or number < 0:
-        raise ValueError(f"{label}: moet 0 of hoger zijn.")
+        raise Localized("err.ge", label=label, min=0)
     return number
 
 
@@ -36,7 +38,7 @@ def whole_hours(hours: Decimal) -> Decimal:
 def _lines(data: dict, key: str) -> list:
     lines = data.get(key) or []
     if not isinstance(lines, list):
-        raise ValueError(f"'{key}' moet een lijst zijn.")
+        raise Localized("calc.err.list", key=key)
     return lines
 
 
@@ -53,17 +55,17 @@ def round_up_price(value: Decimal, rule: str) -> Decimal:
 
 def calculate(data: dict, margin_pct=0, vat_pct=0, rounding="none") -> dict:
     """Return every line and subtotal as strings with two decimals."""
-    margin = _num(margin_pct, "Marge")
+    margin = _num(margin_pct, L("cl.margin"))
     if rounding not in ROUNDINGS:
-        raise ValueError(f"Afronding: kies een van {', '.join(ROUNDINGS)}.")
-    vat_rate = _num(vat_pct, "BTW")
+        raise Localized("calc.err.rounding", options=", ".join(ROUNDINGS))
+    vat_rate = _num(vat_pct, L("cl.vat"))
     if vat_rate > 100:
-        raise ValueError("BTW: moet tussen 0 en 100% liggen.")
+        raise Localized("calc.err.vat_range")
 
     filament = []
     for i, line in enumerate(_lines(data, "filament"), 1):
-        grams = _num(line.get("grams"), f"Filament {i}: gram")
-        per_kg = _num(line.get("price_per_kg"), f"Filament {i}: prijs/kg")
+        grams = _num(line.get("grams"), L("cl.filament_grams", i=i))
+        per_kg = _num(line.get("price_per_kg"), L("cl.filament_price", i=i))
         filament.append({**line, "cost": _money(grams / 1000 * per_kg)})
 
     parts = []
@@ -71,11 +73,11 @@ def calculate(data: dict, margin_pct=0, vat_pct=0, rounding="none") -> dict:
         unit = line.get("unit", "stuks")
         group = line.get("group", "onderdeel")
         if unit not in PART_UNITS:
-            raise ValueError(f"Onderdeel {i}: eenheid moet een van {', '.join(PART_UNITS)} zijn.")
+            raise Localized("calc.err.unit", i=i, options=", ".join(PART_UNITS))
         if group not in PART_GROUPS:
-            raise ValueError(f"Onderdeel {i}: groep moet een van {', '.join(PART_GROUPS)} zijn.")
-        quantity = _num(line.get("quantity"), f"Onderdeel {i}: aantal")
-        price = _num(line.get("unit_price"), f"Onderdeel {i}: prijs")
+            raise Localized("calc.err.group", i=i, options=", ".join(PART_GROUPS))
+        quantity = _num(line.get("quantity"), L("cl.part_quantity", i=i))
+        price = _num(line.get("unit_price"), L("cl.part_price", i=i))
         # Grams are priced per kilogram, like the spreadsheet's "prijs per meter/kg" column.
         cost = quantity / 1000 * price if unit == "g" else quantity * price
         parts.append({**line, "unit": unit, "group": group, "cost": _money(cost)})
@@ -83,15 +85,15 @@ def calculate(data: dict, margin_pct=0, vat_pct=0, rounding="none") -> dict:
     print_data = data.get("print") or {}
     depreciation = []
     for i, line in enumerate(_lines(print_data, "depreciation"), 1):
-        hours = whole_hours(_num(line.get("hours"), f"Afschrijving {i}: uren"))
-        rate = _num(line.get("price_per_hour"), f"Afschrijving {i}: prijs/uur")
+        hours = whole_hours(_num(line.get("hours"), L("cl.dep_hours", i=i)))
+        rate = _num(line.get("price_per_hour"), L("cl.dep_rate", i=i))
         depreciation.append({**line, "hours_billed": hours, "cost": _money(hours * rate)})
 
     energy = []
     for i, line in enumerate(_lines(print_data, "energy"), 1):
-        hours = whole_hours(_num(line.get("hours"), f"Energie {i}: uren"))
-        kw = _num(line.get("kw"), f"Energie {i}: kW")
-        tariff = _num(line.get("price_per_kwh"), f"Energie {i}: prijs/kWh")
+        hours = whole_hours(_num(line.get("hours"), L("cl.energy_hours", i=i)))
+        kw = _num(line.get("kw"), L("cl.energy_kw", i=i))
+        tariff = _num(line.get("price_per_kwh"), L("cl.energy_tariff", i=i))
         energy.append({**line, "hours_billed": hours, "cost": _money(hours * kw * tariff)})
 
     def total(lines):

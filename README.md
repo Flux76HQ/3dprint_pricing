@@ -19,7 +19,7 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
   gewoon in het veld). Een bekende barcode wordt gemeld en de gegevens van de vorige rol worden meteen ingevuld (wat je zelf al
   typte blijft staan), zodat je alleen nog opslaat, met erbij hoeveel rollen je er nog van hebt. Bovenaan staat de
   **voorraad per soort**: de rollen die je nog hebt met hun gewicht, het totaal per soort en per materiaal (een soort is
-  één barcode, of merk + materiaal + kleur). Merk (bijvoorbeeld *Bambu Lab*) en **type** (*Matte*, *Basic*, *Silk*) zijn aparte velden; een bestaande rol houdt wat in het merkveld stond en het type is leeg tot je het invult. Je kunt de lijst en de voorraad filteren op **soort** (materiaal), **merk** en **type**; elke keuzelijst past zich aan de vorige keuzes aan. Verbruik van een berekening kun je met één klik van de voorraad afboeken.
+  één barcode, of merk + materiaal + kleur). Merk (bijvoorbeeld *Bambu Lab*) en **type** (*Matte*, *Basic*, *Silk*) zijn aparte velden; een bestaande rol houdt wat in het merkveld stond en het type is leeg tot je het invult. Pas je bij een rol met barcode merk, type, materiaal, kleur, gewicht, diameter of temperaturen aan, dan vraagt de app bij het opslaan of de andere rollen met dezelfde barcode ook bijgewerkt moeten worden (alleen wat je veranderde; prijs, wat er nog over is en notities zijn per rol en blijven staan). Je kunt de lijst en de voorraad filteren op **soort** (materiaal), **merk** en **type**; elke keuzelijst past zich aan de vorige keuzes aan. Verbruik van een berekening kun je met één klik van de voorraad afboeken.
 - **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. In een berekening kies je er
   per product een uit de lijst (of vul je een regel zelf in); de prijs wordt in de berekening bewaard.
 - **Printers** — aanschafwaarde, levensduur in uren (afschrijving per uur) en vermogen.
@@ -243,3 +243,37 @@ wachtwoord-login zonder die tweede stap en er komt pas een sessie nadat wachtwoo
 blijft werken. Aanzetten vraagt alleen dat je ingelogd bent (het moet ook werken op een toestel zonder passkey); wijzigen, uitschakelen en nieuwe back-upcodes vragen een verse passkey-bevestiging, of, op een toestel waar de passkey niet werkt, je wachtwoord plus een code (authenticator of back-upcode); dat telt voor de blokkade net als inloggen. Wachtwoorden zijn
 met argon2id gehasht; het TOTP-geheim staat versleuteld met een sleutel afgeleid van `SESSION_SECRET`. Wijzig je
 `SESSION_SECRET`, dan werkt de tweestapscode niet meer en stel je wachtwoord-login opnieuw in (met je passkey).
+
+## Talen (Nederlands en Engels)
+
+De app spreekt Nederlands en Engels. De taal van de browser is de standaard (een onbekende taal wordt Engels); met de vlaggen
+in de zijbalk (op een telefoon: *Meer*) en onder *Instellingen → Weergave* kies je zelf. Die keuze wordt bij je account in de
+database bewaard, dus ze geldt op al je apparaten; op de inlogschermen onthoudt de browser ze. Alle teksten staan in
+taalbestanden en niet in de code: `frontend/lang/nl.json` en `en.json` voor de schermen, `backend/app/lang/nl.json` en
+`en.json` voor wat de server meldt (foutmeldingen, de testmelding en "nieuwe versie"-melding). De server kiest de taal uit de
+`X-Lang`-kop van de app, anders uit je bewaarde keuze, anders uit `Accept-Language`, anders Nederlands. Een taal toevoegen
+is: een bestand per map toevoegen, de taal in `LANGUAGES` (`frontend/js/i18n.js`) en `LANGUAGES` (`backend/app/i18n.py`) zetten
+en een vlag in `frontend/js/langswitch.js` tekenen. `backend/tests/test_i18n.py` bewaakt dat beide bestanden dezelfde sleutels
+en `{plaatshouders}` hebben, dat elke gebruikte sleutel bestaat en dat er geen Nederlandse zin in de schermcode is blijven staan.
+Bewaarde gegevens (een passkeynaam, een regelomschrijving in een berekening) blijven in de taal waarin je ze maakte, en het
+bestand `manifest.webmanifest` (naam van de snelkoppelingen) is niet vertaald.
+
+**Pop-ups.** Elke pop-up past op het scherm (de inhoud scrolt, het kruisje rechtsboven blijft staan) en sluit met het kruisje,
+Escape of Annuleren. Zou je daarmee iets kwijtraken (een half ingevuld formulier, een niet afgemaakte wachtwoord-installatie,
+back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestiging.
+
+## Back-up in de app
+
+*Instellingen → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`):
+je instellingen (thema, taal, btw, afronding, stille uren…), printers, energietarieven, verpakkingen, filamentrollen en
+berekeningen, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
+met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
+mailen of bewaren mag de app niet kunnen openen. Na herstellen op een lege installatie log je dus gewoon in met je passkey.
+
+*Herstellen uit back-up…* kiest zo'n bestand, controleert het eerst helemaal (met dezelfde regels als handmatig invoeren; de
+berekeningen worden opnieuw uitgerekend, een aangepast totaal in het bestand telt dus niet, en printbestanden worden opnieuw
+gelezen en tegen hun controlesom gehouden) en laat zien wat er terugkomt. Pas na jouw bevestiging **vervangt** het alles wat er
+nu staat, in één keer: lukt iets niet, dan verandert er niets. Een bestand uit een nieuwere versie van de app wordt geweigerd.
+Zo'n back-up past binnen `MAX_UPLOAD_MB` (standaard 50 MB); met printbestanden kan dat te klein zijn, verhoog het dan in `.env`.
+Een volledige kopie van de database (`pg_dump`) en de map met uploads blijft de manier voor een back-up van de hele server, zie
+*Back-up en herstel* (onder Beheer) hierboven.

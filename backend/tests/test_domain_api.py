@@ -323,3 +323,37 @@ def test_stock_keeps_types_of_one_brand_apart_and_a_lookup_carries_the_type(owne
     assert sorted((g["product_type"], Decimal(g["remaining_g"])) for g in groups) == [("Basic", 700), ("Matte", 600)]
     roll(owner, 900, brand="Bambu Lab", product_type="Silk", barcode="777")
     assert owner.get("/api/spools/lookup?barcode=777").get_json()["spool"]["product_type"] == "Silk"
+
+
+# --- passing product details on to rolls with the same barcode -----------------------------------------------------------
+
+def test_product_details_can_be_passed_on_to_rolls_with_the_same_barcode_but_never_price_or_what_is_left(owner):
+    a = roll(owner, 1000, barcode="555", price=20, notes="first")
+    b = roll(owner, 400, barcode="555", price=25, notes="second")
+    other = roll(owner, 300, barcode="999")
+    assert owner.get(f"/api/spools/{a['id']}/siblings").get_json() == {"count": 1}
+    owner.patch(f"/api/spools/{a['id']}", json={"brand": "Bambu Lab", "product_type": "Matte", "diameter_mm": "2.85",
+                                               "price": 99, "remaining_g": 1, "notes": "changed"}, headers=H)
+    done = owner.post(f"/api/spools/{a['id']}/propagate", json={"fields": ["brand", "product_type", "diameter_mm"]}, headers=H)
+    assert done.get_json() == {"updated": 1}
+    rows = {r["id"]: r for r in owner.get("/api/spools").get_json()}
+    assert (rows[b["id"]]["brand"], rows[b["id"]]["product_type"], rows[b["id"]]["diameter_mm"]) == ("Bambu Lab", "Matte", "2.85")
+    assert (Decimal(rows[b["id"]]["price"]), Decimal(rows[b["id"]]["remaining_g"]), rows[b["id"]]["notes"]) == (25, 400, "second")
+    assert rows[other["id"]]["brand"] == "Bambu PLA Basic" and rows[other["id"]]["diameter_mm"] == "1.75"     # another barcode: untouched
+
+
+def test_passing_on_only_takes_known_product_fields_and_needs_a_barcode(owner):
+    a = roll(owner, 1000, barcode="555")
+    for bad in (None, [], ["price"], ["remaining_g"], ["brand", "notes"], "brand"):
+        assert owner.post(f"/api/spools/{a['id']}/propagate", json={"fields": bad}, headers=H).status_code == 400
+    plain = roll(owner, 1000)
+    roll(owner, 500)
+    assert owner.get(f"/api/spools/{plain['id']}/siblings").get_json() == {"count": 0}                      # no barcode: no siblings
+    assert owner.post(f"/api/spools/{plain['id']}/propagate", json={"fields": ["brand"]}, headers=H).get_json() == {"updated": 0}
+    assert owner.get("/api/spools/00000000-0000-0000-0000-000000000000/siblings").status_code == 404
+    assert owner.post("/api/spools/00000000-0000-0000-0000-000000000000/propagate", json={"fields": ["brand"]}, headers=H).status_code == 404
+
+
+def test_passing_on_needs_a_session(client):
+    assert client.get("/api/spools/00000000-0000-0000-0000-000000000000/siblings").status_code == 401
+    assert client.post("/api/spools/00000000-0000-0000-0000-000000000000/propagate", json={"fields": ["brand"]}, headers=H).status_code == 401

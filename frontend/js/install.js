@@ -1,4 +1,5 @@
 import { isStandalone } from './pwa.js';
+import { t } from './i18n.js';
 import { h, showBanner } from './ui.js';
 
 // Installing as an app. Android/Chrome/Edge hand us `beforeinstallprompt`; iOS has no API at all, only
@@ -35,7 +36,7 @@ export async function promptInstall() {
   return outcome;                       // 'accepted' | 'dismissed'
 }
 
-export const IOS_STEPS = 'Tik in Safari op Deel (het vierkant met de pijl omhoog) en kies “Zet op beginscherm”.';
+export const iosSteps = () => t('install.ios_steps');
 
 function snoozed() {
   try { return Date.now() - Number(localStorage.getItem(DISMISSED_KEY) || 0) < SNOOZE_MS; } catch { return false; }
@@ -50,10 +51,10 @@ export function maybeShowInstallBanner() {
     banner.close();
   };
   const banner = showBanner('install', {
-    text: state === 'prompt' ? 'Installeer de app op dit apparaat voor een schermvullende, snelle start.' : `Zet de app op je beginscherm. ${IOS_STEPS}`,
+    text: state === 'prompt' ? t('install.banner_prompt') : t('install.banner_ios', { steps: iosSteps() }),
     actions: [
-      state === 'prompt' ? h('button', { class: 'btn small primary', type: 'button', onclick: async () => { await promptInstall(); banner.close(); } }, 'Installeren') : null,
-      h('button', { class: 'btn small', type: 'button', onclick: later }, state === 'prompt' ? 'Niet nu' : 'Begrepen'),
+      state === 'prompt' ? h('button', { class: 'btn small primary', type: 'button', onclick: async () => { await promptInstall(); banner.close(); } }, t('install.install')) : null,
+      h('button', { class: 'btn small', type: 'button', onclick: later }, state === 'prompt' ? t('install.not_now') : t('install.understood')),
     ],
   });
 }

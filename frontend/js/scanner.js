@@ -1,4 +1,5 @@
-import { h } from './ui.js';
+import { t } from './i18n.js';
+import { enhanceDialog, h } from './ui.js';
 
 // Barcode scanning with the camera. Uses the browser's own BarcodeDetector where it exists
 // (Chrome/Edge/Android) and the vendored ZXing build everywhere else (Safari/iOS). A hardware
@@ -11,25 +12,25 @@ function loadZXing() {
   zxingLoading ??= new Promise((resolve, reject) => {
     const script = h('script', { src: '/vendor/zxing/zxing-library.min.js' });
     script.onload = () => resolve(window.ZXing);
-    script.onerror = () => reject(new Error('De scanbibliotheek kon niet worden geladen.'));
+    script.onerror = () => reject(new Error(t('scanner.library_failed')));
     document.head.append(script);
   });
   return zxingLoading;
 }
 
-// Plain Dutch for the errors getUserMedia and ZXing throw; typing or a hardware scanner always works.
+// Plain words for the errors getUserMedia and ZXing throw; typing or a hardware scanner always works.
 function cameraMessage(e) {
   switch (e && e.name) {
     case 'NotAllowedError':
     case 'SecurityError':
-      return 'Geen toegang tot de camera. Sta camera-toegang toe voor deze site, of typ de barcode in.';
+      return t('scanner.no_access');
     case 'NotFoundError':
     case 'OverconstrainedError':
-      return 'Geen camera gevonden op dit apparaat. Typ de barcode in of gebruik een barcodescanner.';
+      return t('scanner.no_camera');
     case 'NotReadableError':
-      return 'De camera is in gebruik door een andere app. Sluit die en probeer opnieuw.';
+      return t('scanner.in_use');
     default:
-      return `Scannen mislukt: ${e && e.message ? e.message : e}`;
+      return t('scanner.failed', { message: e && e.message ? e.message : e });
   }
 }
 
@@ -41,17 +42,17 @@ export function cameraAvailable() {
 export function scanBarcode() {
   return new Promise((resolve) => {
     const video = h('video', { class: 'scan-video', playsinline: true, muted: true, autoplay: true });
-    const status = h('p', { class: 'muted', role: 'status' }, 'Camera starten…');
+    const status = h('p', { class: 'muted', role: 'status' }, t('scanner.starting'));
     let stopped = false;
     let stopScan = () => {};
     let result = null;
 
-    const dialog = h('dialog', { class: 'glass sheet' },
-      h('h2', {}, 'Barcode scannen'),
+    const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
+      h('h2', {}, t('scanner.title')),
       h('div', { class: 'scan-frame' }, video, h('div', { class: 'scan-line', 'aria-hidden': 'true' })),
       status,
       h('div', { class: 'row end' },
-        h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Annuleren')));
+        h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, t('common.cancel')))));
     dialog.addEventListener('close', () => {
       stopped = true;
       stopScan();
@@ -69,7 +70,7 @@ export function scanBarcode() {
     const fail = (message) => { status.textContent = message; status.classList.add('error'); };
 
     if (!cameraAvailable()) {
-      fail('Camera niet beschikbaar. Scannen werkt alleen via https; je kunt de barcode ook intypen of met een scanner invoeren.');
+      fail(t('scanner.unavailable'));
       return;
     }
 
@@ -80,7 +81,7 @@ export function scanBarcode() {
           const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
           video.srcObject = stream;
           await video.play();
-          status.textContent = 'Houd de barcode in beeld.';
+          status.textContent = t('scanner.hold');
           const timer = setInterval(async () => {
             try {
               const codes = await detector.detect(video);
@@ -95,7 +96,7 @@ export function scanBarcode() {
             ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39, ZXing.BarcodeFormat.ITF, ZXing.BarcodeFormat.QR_CODE]]]);
           const reader = new ZXing.BrowserMultiFormatReader(hints, 150);
           stopScan = () => reader.reset();
-          status.textContent = 'Houd de barcode in beeld.';
+          status.textContent = t('scanner.hold');
           await reader.decodeFromVideoDevice(null, video, (res) => { if (res) found(res.getText()); });
         }
       } catch (e) {

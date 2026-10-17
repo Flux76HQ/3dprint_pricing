@@ -7,10 +7,11 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import api, auth, files, password_api, push, push_api
+from . import api, auth, backup, files, password_api, push, push_api
 from .config import Config, load_config
 from .db import make_pool
 from .http import ApiError, error_response
+from .i18n import tr
 
 def _read_version() -> str:
     # /app/VERSION in the container, the repository root in a checkout.
@@ -50,7 +51,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("Origin")
             if origin and origin.rstrip("/") not in cfg.rp_origins:
-                raise ApiError(403, "Origin niet toegestaan.")
+                raise ApiError(403, "err.origin")
 
     @app.after_request
     def _headers(response):
@@ -68,6 +69,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
 
     app.register_blueprint(auth.bp)
     app.register_blueprint(api.bp)
+    app.register_blueprint(backup.bp)
     app.register_blueprint(files.bp)
     app.register_blueprint(push_api.bp)
     app.register_blueprint(password_api.bp)
@@ -79,16 +81,16 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     @app.errorhandler(404)
     def _not_found(_):
         if request.path.startswith("/api/"):
-            return jsonify({"error": "Niet gevonden."}), 404
+            return jsonify({"error": tr("err.not_found")}), 404
         return _spa()
 
     @app.errorhandler(413)
     def _too_large(_):
-        return jsonify({"error": f"Het bestand is groter dan {cfg.max_upload_mb} MB."}), 413
+        return jsonify({"error": tr("err.too_large", mb=cfg.max_upload_mb)}), 413
 
     @app.errorhandler(405)
     def _method(_):
-        return jsonify({"error": "Methode niet toegestaan."}), 405
+        return jsonify({"error": tr("err.method")}), 405
 
     @app.errorhandler(Exception)
     def _unexpected(exc):
@@ -96,7 +98,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
         if isinstance(exc, HTTPException):
             return jsonify({"error": exc.description}), exc.code
         app.logger.exception("Unhandled error")
-        return jsonify({"error": "Er ging iets mis op de server."}), 500
+        return jsonify({"error": tr("err.server")}), 500
 
     @app.get("/healthz")
     def healthz():
@@ -156,7 +158,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     @app.get("/<path:path>")
     def static_files(path):
         if path.startswith("api/"):
-            return jsonify({"error": "Niet gevonden."}), 404
+            return jsonify({"error": tr("err.not_found")}), 404
         target = Path(cfg.static_dir) / path
         if path.startswith("js/") and path.endswith(".js") and target.is_file():
             return _stamped(path)

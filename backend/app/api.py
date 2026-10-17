@@ -9,6 +9,7 @@ from flask import Blueprint, g, jsonify, request
 from . import push
 from .calc import ROUNDINGS, calculate
 from .http import ApiError, json_body, login_required, pool
+from .i18n import LANGUAGES, L, tr
 
 bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -25,9 +26,9 @@ def text(label, *, required=True, max_len=120):
     def check(value):
         value = "" if value is None else str(value).strip()
         if required and not value:
-            raise ApiError(400, f"{label} is verplicht.")
+            raise ApiError(400, "err.required", label=L(label))
         if len(value) > max_len:
-            raise ApiError(400, f"{label} is te lang (maximaal {max_len} tekens).")
+            raise ApiError(400, "err.too_long", label=L(label), max=max_len)
         return value
     return check
 
@@ -37,10 +38,9 @@ def number(label, *, minimum=0, strict=False, maximum=10_000_000):
         try:
             n = Decimal(str(value))
         except (InvalidOperation, ValueError):
-            raise ApiError(400, f"{label}: '{value}' is geen getal.") from None
+            raise ApiError(400, "err.not_number", label=L(label), value=value) from None
         if not n.is_finite() or n < minimum or (strict and n == minimum) or n > maximum:
-            bound = f"groter dan {minimum}" if strict else f"{minimum} of hoger"
-            raise ApiError(400, f"{label}: moet {bound} zijn.")
+            raise ApiError(400, "err.gt" if strict else "err.ge", label=L(label), min=minimum)
         return n
     return check
 
@@ -53,9 +53,9 @@ def optional_int(label, *, minimum, maximum):
         try:
             n = Decimal(str(value).replace(",", "."))
         except (InvalidOperation, ValueError):
-            raise ApiError(400, f"{label}: '{value}' is geen getal.") from None
+            raise ApiError(400, "err.not_number", label=L(label), value=value) from None
         if n != n.to_integral_value() or not minimum <= n <= maximum:
-            raise ApiError(400, f"{label}: geef een heel getal tussen {minimum} en {maximum}.")
+            raise ApiError(400, "err.whole_between", label=L(label), min=minimum, max=maximum)
         return int(n)
     return check
 
@@ -63,45 +63,45 @@ def optional_int(label, *, minimum, maximum):
 def boolean(label):
     def check(value):
         if not isinstance(value, bool):
-            raise ApiError(400, f"{label} moet waar of onwaar zijn.")
+            raise ApiError(400, "err.bool", label=L(label))
         return value
     return check
 
 
 RESOURCES = {
     "printers": ("printers", {
-        "name": text("Naam"),
-        "purchase_price": number("Aanschafwaarde"),
-        "lifetime_hours": number("Levensduur (uren)", strict=True),
-        "power_kw": number("Vermogen (kW)", maximum=100),
-        "notes": text("Notities", required=False, max_len=1000),
-        "archived": boolean("Gearchiveerd"),
+        "name": text("f.name"),
+        "purchase_price": number("f.purchase_price"),
+        "lifetime_hours": number("f.lifetime", strict=True),
+        "power_kw": number("f.power", maximum=100),
+        "notes": text("f.notes", required=False, max_len=1000),
+        "archived": boolean("f.archived"),
     }, "name"),
     "tariffs": ("energy_tariffs", {
-        "name": text("Naam"),
-        "price_per_kwh": number("Prijs per kWh", maximum=100),
-        "is_default": boolean("Standaard"),
+        "name": text("f.name"),
+        "price_per_kwh": number("f.price_per_kwh", maximum=100),
+        "is_default": boolean("f.default"),
     }, "name"),
     "packaging": ("packaging_items", {
-        "name": text("Naam"),
-        "price": number("Prijs per stuk"),
-        "notes": text("Notities", required=False, max_len=1000),
-        "archived": boolean("Gearchiveerd"),
+        "name": text("f.name"),
+        "price": number("f.price_per_piece"),
+        "notes": text("f.notes", required=False, max_len=1000),
+        "archived": boolean("f.archived"),
     }, "name"),
     "spools": ("filament_spools", {
-        "brand": text("Merk"),
-        "product_type": text("Type", required=False, max_len=60),
-        "material": text("Materiaal", required=False, max_len=40),
-        "colour": text("Kleur", required=False, max_len=40),
-        "roll_weight_g": number("Gewicht rol (g)", strict=True),
-        "price": number("Prijs rol"),
-        "remaining_g": number("Resterend (g)"),
-        "barcode": text("Barcode", required=False, max_len=100),
-        "diameter_mm": number("Diameter (mm)", strict=True, maximum=5),
-        "print_temp_c": optional_int("Printtemperatuur", minimum=0, maximum=500),
-        "bed_temp_c": optional_int("Bedtemperatuur", minimum=0, maximum=200),
-        "notes": text("Notities", required=False, max_len=1000),
-        "archived": boolean("Gearchiveerd"),
+        "brand": text("f.brand"),
+        "product_type": text("f.type", required=False, max_len=60),
+        "material": text("f.material", required=False, max_len=40),
+        "colour": text("f.colour", required=False, max_len=40),
+        "roll_weight_g": number("f.roll_weight", strict=True),
+        "price": number("f.roll_price"),
+        "remaining_g": number("f.remaining"),
+        "barcode": text("f.barcode", required=False, max_len=100),
+        "diameter_mm": number("f.diameter", strict=True, maximum=5),
+        "print_temp_c": optional_int("f.print_temp", minimum=0, maximum=500),
+        "bed_temp_c": optional_int("f.bed_temp", minimum=0, maximum=200),
+        "notes": text("f.notes", required=False, max_len=1000),
+        "archived": boolean("f.archived"),
     }, "brand, colour"),
 }
 OPTIONAL = {"notes", "archived", "is_default", "material", "colour", "product_type", "power_kw", "barcode", "diameter_mm",
@@ -156,7 +156,7 @@ def _register(path, table, fields, order):
     def update(item_id):
         values = _validated(fields, json_body(), partial=True)
         if not values:
-            raise ApiError(400, "Niets om te wijzigen.")
+            raise ApiError(400, "err.nothing_to_change")
         sets = ", ".join(f"{k} = %s" for k in values)
         with pool().connection() as conn:
             if values.get("is_default"):
@@ -164,14 +164,14 @@ def _register(path, table, fields, order):
             row = conn.execute(f"UPDATE {table} SET {sets} WHERE id = %s RETURNING *",
                                (*values.values(), item_id)).fetchone()
         if row is None:
-            raise ApiError(404, "Niet gevonden.")
+            raise ApiError(404, "err.not_found")
         return jsonify(_serialise(row))
 
     def delete(item_id):
         with pool().connection() as conn:
             row = conn.execute(f"DELETE FROM {table} WHERE id = %s RETURNING id", (item_id,)).fetchone()
         if row is None:
-            raise ApiError(404, "Niet gevonden.")
+            raise ApiError(404, "err.not_found")
         return jsonify({"ok": True})
 
     bp.add_url_rule(f"/{path}", f"{path}_list", list_all, methods=["GET"])
@@ -230,7 +230,7 @@ def spool_stock():
         groups = _stock(_stock_rows(conn))
     materials: dict[str, dict] = {}
     for g_ in groups:
-        name = (g_["material"] or "Onbekend materiaal").strip()
+        name = (g_["material"] or tr("stock.unknown_material")).strip()
         m = materials.setdefault(name.lower(), {"material": name, "roll_count": 0, "remaining_g": Decimal(0)})   # "PLA" = "pla"
         m["roll_count"] += g_["roll_count"]
         m["remaining_g"] += Decimal(g_["remaining_g"])
@@ -251,6 +251,46 @@ def lookup_spool():
     return jsonify({"spool": _serialise(row) if row else None, "stock": stock[0] if stock else None})
 
 
+# Details of the product, not of one roll: the same barcode means the same brand, type, material, colour,
+# weight and diameter. Price, what is left and notes differ per roll and are never passed on.
+PRODUCT_FIELDS = ("brand", "product_type", "material", "colour", "roll_weight_g", "diameter_mm", "print_temp_c", "bed_temp_c")
+
+
+def _barcode_of(conn, spool_id) -> str:
+    row = conn.execute("SELECT barcode FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
+    if row is None:
+        raise ApiError(404, "err.not_found")
+    return (row["barcode"] or "").strip()
+
+
+@bp.get("/spools/<uuid:spool_id>/siblings")
+def spool_siblings(spool_id):
+    """How many other rolls have the same barcode (none when this roll has no barcode)."""
+    with pool().connection() as conn:
+        barcode = _barcode_of(conn, spool_id)
+        count = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE barcode = %s AND id <> %s",
+                             (barcode, spool_id)).fetchone()["n"] if barcode else 0
+    return jsonify({"count": count})
+
+
+@bp.post("/spools/<uuid:spool_id>/propagate")
+def propagate_spool(spool_id):
+    """Copy the chosen product details of this roll to every other roll with the same barcode."""
+    fields = json_body().get("fields")
+    if not isinstance(fields, list) or not fields or not all(f in PRODUCT_FIELDS for f in fields):
+        raise ApiError(400, "err.propagate_fields")
+    fields = list(dict.fromkeys(fields))
+    with pool().connection() as conn:
+        barcode = _barcode_of(conn, spool_id)
+        if not barcode:
+            return jsonify({"updated": 0})
+        row = conn.execute(f"SELECT {', '.join(fields)} FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
+        sets = ", ".join(f"{name} = %s" for name in fields)
+        done = conn.execute(f"UPDATE filament_spools SET {sets} WHERE barcode = %s AND id <> %s RETURNING id",
+                            (*[row[name] for name in fields], barcode, spool_id)).fetchall()
+    return jsonify({"updated": len(done)})
+
+
 # --- preferences ----------------------------------------------------------------
 
 THEMES = ("system", "light", "dark")
@@ -264,38 +304,48 @@ def get_preferences():
     return jsonify(row["preferences"] if row else {})
 
 
-@bp.put("/preferences")
-def put_preferences():
-    body = json_body()
+def validated_preferences(body: dict) -> dict:
+    """The preferences in `body` that are valid, as they will be stored; raises ApiError for a bad value.
+    Used by the settings screen and by restoring a backup, so both accept exactly the same things."""
     prefs = {}
     if "theme" in body:
         if body["theme"] not in THEMES:
-            raise ApiError(400, "Ongeldig thema.")
+            raise ApiError(400, "err.theme")
         prefs["theme"] = body["theme"]
     if "accent" in body:
         if not isinstance(body["accent"], str) or not HEX.match(body["accent"]):
-            raise ApiError(400, "Accentkleur moet een hex-kleur zijn, bijv. #6c5ce7.")
+            raise ApiError(400, "err.accent")
         prefs["accent"] = body["accent"].lower()
     if "vat_pct" in body:
-        prefs["vat_pct"] = str(number("Standaard btw-tarief", maximum=100)(body["vat_pct"]))
+        prefs["vat_pct"] = str(number("f.default_vat", maximum=100)(body["vat_pct"]))
     if "notify_release" in body:
-        prefs["notify_release"] = boolean("Melding bij nieuwe versie")(body["notify_release"])
+        prefs["notify_release"] = boolean("f.notify_release")(body["notify_release"])
     if "quiet_hours" in body:
         window = body["quiet_hours"]
         if not isinstance(window, dict) or not isinstance(window.get("enabled"), bool) \
                 or not push.valid_window({"tz": window.get("tz"), "start": window.get("start"), "end": window.get("end")}):
-            raise ApiError(400, "Stille uren: geef begin en einde als UU:MM en een geldige tijdzone, bijv. Europe/Amsterdam.")
+            raise ApiError(400, "err.quiet_hours")
         prefs["quiet_hours"] = {"enabled": window["enabled"], "start": window["start"], "end": window["end"], "tz": window["tz"]}
     if "blur_costs" in body:
-        prefs["blur_costs"] = boolean("Kosten blurren")(body["blur_costs"])
+        prefs["blur_costs"] = boolean("f.blur")(body["blur_costs"])
     if "auto_adopt_file" in body:
-        prefs["auto_adopt_file"] = boolean("Automatisch overnemen")(body["auto_adopt_file"])
+        prefs["auto_adopt_file"] = boolean("f.auto_adopt")(body["auto_adopt_file"])
     if "price_rounding" in body:
         if body["price_rounding"] not in ROUNDINGS:
-            raise ApiError(400, "Ongeldige afronding.")
+            raise ApiError(400, "err.rounding")
         prefs["price_rounding"] = body["price_rounding"]
+    if "language" in body:
+        if body["language"] not in LANGUAGES:
+            raise ApiError(400, "err.language")
+        prefs["language"] = body["language"]
     if "sidebar_collapsed" in body:
-        prefs["sidebar_collapsed"] = boolean("Zijbalk")(body["sidebar_collapsed"])
+        prefs["sidebar_collapsed"] = boolean("f.sidebar")(body["sidebar_collapsed"])
+    return prefs
+
+
+@bp.put("/preferences")
+def put_preferences():
+    prefs = validated_preferences(json_body())
     with pool().connection() as conn:
         row = conn.execute("UPDATE users SET preferences = preferences || %s::jsonb WHERE id = %s "
                            "RETURNING preferences", (json.dumps(prefs), g.user_id)).fetchone()
@@ -307,12 +357,12 @@ def put_preferences():
 def _calc(body):
     data = body.get("data")
     if not isinstance(data, dict):
-        raise ApiError(400, "'data' ontbreekt.")
+        raise ApiError(400, "err.data_missing")
     try:
         return data, calculate(data, body.get("margin_pct", 0), body.get("vat_pct", 0),
                                body.get("price_rounding", "none"))
     except ValueError as exc:
-        raise ApiError(400, str(exc)) from None
+        raise ApiError(400, exc) from None
 
 
 @bp.post("/calculate")
@@ -338,7 +388,7 @@ def get_project(project_id):
     with pool().connection() as conn:
         row = conn.execute("SELECT * FROM projects WHERE id = %s", (project_id,)).fetchone()
     if row is None:
-        raise ApiError(404, "Berekening niet gevonden.")
+        raise ApiError(404, "err.calc_not_found")
     return jsonify(_project_row(row))
 
 
@@ -346,25 +396,25 @@ URL = re.compile(r"^https?://[^\s]+$", re.I)
 
 
 def _project_fields(body):
-    name = text("Naam")(body.get("name"))
-    source_url = text("Bronlink", required=False, max_len=500)(body.get("source_url"))
+    name = text("f.name")(body.get("name"))
+    source_url = text("f.source_url", required=False, max_len=500)(body.get("source_url"))
     if source_url and not URL.match(source_url):
-        raise ApiError(400, "Bronlink moet beginnen met http:// of https://.")
+        raise ApiError(400, "err.source_url")
     file_id = body.get("file_id") or None
     if file_id is not None:
         try:
             file_id = uuid.UUID(str(file_id))
         except ValueError:
-            raise ApiError(400, "Ongeldig bestand.") from None
+            raise ApiError(400, "err.bad_file") from None
         with pool().connection() as conn:
             if conn.execute("SELECT 1 FROM print_files WHERE id = %s", (file_id,)).fetchone() is None:
-                raise ApiError(400, "Dat printbestand bestaat niet (meer). Upload het opnieuw.")
-    notes = text("Notities", required=False, max_len=2000)(body.get("notes"))
-    margin = number("Marge", maximum=1000)(body.get("margin_pct", 0))
-    vat = number("BTW", maximum=100)(body.get("vat_pct", 0))
+                raise ApiError(400, "err.file_gone")
+    notes = text("f.notes", required=False, max_len=2000)(body.get("notes"))
+    margin = number("f.margin", maximum=1000)(body.get("margin_pct", 0))
+    vat = number("f.vat", maximum=100)(body.get("vat_pct", 0))
     rounding = body.get("price_rounding", "none")
     if rounding not in ROUNDINGS:
-        raise ApiError(400, "Ongeldige afronding.")
+        raise ApiError(400, "err.rounding")
     data, totals = _calc({"data": body.get("data"), "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding})
     return {"name": name, "notes": notes, "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding, "data": data,
             "totals": totals, "source_url": source_url, "file_id": file_id}
@@ -392,7 +442,7 @@ def update_project(project_id):
             (f["name"], f["notes"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
              json.dumps(f["totals"]), f["source_url"], f["file_id"], project_id)).fetchone()
     if row is None:
-        raise ApiError(404, "Berekening niet gevonden.")
+        raise ApiError(404, "err.calc_not_found")
     return jsonify(_project_row(row))
 
 
@@ -401,7 +451,7 @@ def delete_project(project_id):
     with pool().connection() as conn:
         row = conn.execute("DELETE FROM projects WHERE id = %s RETURNING id", (project_id,)).fetchone()
     if row is None:
-        raise ApiError(404, "Berekening niet gevonden.")
+        raise ApiError(404, "err.calc_not_found")
     return jsonify({"ok": True})
 
 
@@ -412,9 +462,9 @@ def book_stock(project_id):
         project = conn.execute("SELECT data, stock_booked_at FROM projects WHERE id = %s FOR UPDATE",
                                (project_id,)).fetchone()
         if project is None:
-            raise ApiError(404, "Berekening niet gevonden.")
+            raise ApiError(404, "err.calc_not_found")
         if project["stock_booked_at"] is not None:
-            raise ApiError(409, "Het verbruik van deze berekening is al afgeboekt.")
+            raise ApiError(409, "err.already_booked")
         used: dict[str, Decimal] = {}
         for line in project["data"].get("filament", []):
             spool_id = line.get("spool_id")
@@ -427,7 +477,7 @@ def book_stock(project_id):
             if row is None:
                 continue  # spool was deleted since; nothing to subtract from
             if row["remaining_g"] < grams:
-                short.append(f"{' '.join(x for x in (row['brand'], row['product_type']) if x)} (nog {row['remaining_g']} g, nodig {grams} g)")
+                short.append(tr("book.short_item", name=" ".join(x for x in (row["brand"], row["product_type"]) if x), left=row["remaining_g"], need=grams))
             conn.execute("UPDATE filament_spools SET remaining_g = GREATEST(remaining_g - %s, 0) WHERE id = %s",
                          (grams, spool_id))
         conn.execute("UPDATE projects SET stock_booked_at = now() WHERE id = %s", (project_id,))

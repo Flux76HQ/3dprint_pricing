@@ -20,6 +20,8 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from .i18n import Localized
+
 MIN_LENGTH, MAX_LENGTH = 12, 128
 TOTP_STEP, TOTP_DIGITS, TOTP_WINDOW = 30, 6, 1          # +-30 s of clock drift is accepted
 MFA_TOKEN_MINUTES = 5
@@ -40,15 +42,15 @@ _COMMON = {
 def check_policy(password: str, display_name: str = "") -> None:
     """Length first, no composition rules. Raises ValueError with a message for the person."""
     if not isinstance(password, str) or len(password) < MIN_LENGTH:
-        raise ValueError(f"Het wachtwoord moet minstens {MIN_LENGTH} tekens hebben.")
+        raise Localized("pw.too_short", n=MIN_LENGTH)
     if len(password) > MAX_LENGTH:
-        raise ValueError(f"Het wachtwoord mag hoogstens {MAX_LENGTH} tekens hebben.")
+        raise Localized("pw.too_long", n=MAX_LENGTH)
     lowered = password.lower()
     if lowered in _COMMON or len(set(lowered)) < 5:
-        raise ValueError("Dit wachtwoord is te voorspelbaar. Kies een langer, uniek wachtwoord of een zin.")
+        raise Localized("pw.predictable")
     name = display_name.strip().lower()
     if len(name) >= 4 and name in lowered:
-        raise ValueError("Gebruik je naam niet in je wachtwoord.")
+        raise Localized("pw.contains_name")
 
 
 def hash_password(password: str) -> str:

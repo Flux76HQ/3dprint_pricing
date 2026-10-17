@@ -7,6 +7,7 @@ or workers start: the state row is claimed atomically.
 import sys
 
 from app import push
+from app.i18n import DEFAULT_LANGUAGE, translate, user_language
 from app.config import load_config
 from app.db import make_pool
 
@@ -26,8 +27,9 @@ def announce(pool, cfg, label: str) -> int:
         return 0
     sent = 0
     for user in users:
-        result = push.notify(pool, cfg, user["id"], "release", "3D Print Pricing",
-                             f"Versie {label} is beschikbaar. Open de app om bij te werken.")
+        lang = user_language(user["id"], pool) or DEFAULT_LANGUAGE          # each person is told in their own language
+        result = push.notify(pool, cfg, user["id"], "release", translate(lang, "push.test_title"),
+                             translate(lang, "push.release_body", label=label))
         sent += result.get("sent", 0)
     return sent
 

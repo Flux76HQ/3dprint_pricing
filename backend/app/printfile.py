@@ -20,6 +20,8 @@ from pathlib import Path
 from defusedxml import DefusedXmlException
 from defusedxml import ElementTree as ET
 
+from .i18n import Localized
+
 MAX_UNZIPPED_BYTES = 400 * 1024 * 1024
 MAX_TRIANGLES = 5_000_000
 
@@ -27,7 +29,7 @@ DENSITIES = {"PLA": 1.24, "PETG": 1.27, "ABS": 1.04, "ASA": 1.07, "TPU": 1.21, "
 UNIT_MM = {"micron": 0.001, "millimeter": 1.0, "centimeter": 10.0, "inch": 25.4, "foot": 304.8, "meter": 1000.0}
 
 
-class PrintFileError(ValueError):
+class PrintFileError(Localized):
     pass
 
 
@@ -50,7 +52,7 @@ class _Mesh:
     def add(self, a, b, c):
         self.triangles += 1
         if self.triangles > MAX_TRIANGLES:
-            raise PrintFileError("Het model heeft te veel driehoeken om te analyseren.")
+            raise PrintFileError("pf.too_many_triangles")
         self.volume6 += (a[0] * (b[1] * c[2] - b[2] * c[1])
                          - a[1] * (b[0] * c[2] - b[2] * c[0])
                          + a[2] * (b[0] * c[1] - b[1] * c[0]))
@@ -79,25 +81,25 @@ def stl_geometry(data: bytes) -> _Mesh:
     if binary:
         for rec in struct.iter_unpack("<12fH", memoryview(data)[84:]):
             if not _finite(rec[3:12]):
-                raise PrintFileError("De STL bevat ongeldige coördinaten.")
+                raise PrintFileError("pf.stl_bad_coords")
             mesh.add(rec[3:6], rec[6:9], rec[9:12])
     else:
         text = data.decode("utf-8", errors="ignore")
         if not text.lstrip().lower().startswith("solid"):
-            raise PrintFileError("Dit is geen geldige STL (binair noch ASCII).")
+            raise PrintFileError("pf.stl_invalid")
         coords = re.findall(r"vertex\s+(\S+)\s+(\S+)\s+(\S+)", text)
         try:
             pts = [tuple(float(v) for v in c) for c in coords]
         except ValueError:
-            raise PrintFileError("De ASCII-STL bevat ongeldige coördinaten.") from None
+            raise PrintFileError("pf.ascii_bad_coords") from None
         if len(pts) % 3:
-            raise PrintFileError("De ASCII-STL is onvolledig (aantal punten is geen veelvoud van 3).")
+            raise PrintFileError("pf.ascii_incomplete")
         for i in range(0, len(pts), 3):
             if not _finite(pts[i] + pts[i + 1] + pts[i + 2]):
-                raise PrintFileError("De STL bevat ongeldige coördinaten.")
+                raise PrintFileError("pf.stl_bad_coords")
             mesh.add(pts[i], pts[i + 1], pts[i + 2])
     if mesh.triangles == 0 or mesh.volume == 0:
-        raise PrintFileError("De STL bevat geen volume (leeg of geen gesloten model).")
+        raise PrintFileError("pf.stl_no_volume")
     return mesh
 
 
@@ -119,9 +121,9 @@ def _transform(text):
     try:
         m = [float(v) for v in text.split()]
     except ValueError:
-        raise PrintFileError("Een 3MF-transformatie is ongeldig.") from None
+        raise PrintFileError("pf.transform_invalid") from None
     if len(m) != 12 or not _finite(m):
-        raise PrintFileError("Een 3MF-transformatie is ongeldig.")
+        raise PrintFileError("pf.transform_invalid")
     return m
 
 
@@ -158,14 +160,14 @@ def _parse_model_file(stream):
             try:
                 verts.extend((float(el.get("x")), float(el.get("y")), float(el.get("z"))))
             except (TypeError, ValueError):
-                raise PrintFileError("Een 3MF-hoekpunt is ongeldig.") from None
+                raise PrintFileError("pf.vertex_invalid") from None
             el.clear()
         elif name == "triangle" and current is not None:
             try:
                 i, j, k = int(el.get("v1")), int(el.get("v2")), int(el.get("v3"))
                 current["mesh"].add(verts[3 * i:3 * i + 3], verts[3 * j:3 * j + 3], verts[3 * k:3 * k + 3])
             except (TypeError, ValueError):
-                raise PrintFileError("Een 3MF-driehoek verwijst naar een ongeldig punt.") from None
+                raise PrintFileError("pf.triangle_invalid") from None
             el.clear()
         elif name == "component" and current is not None:
             current["components"].append((_attr(el, "path"), el.get("objectid"), _transform(el.get("transform"))))
@@ -188,14 +190,14 @@ def threemf_geometry(zf: zipfile.ZipFile):
         path = path.lstrip("/")
         if path not in parsed:
             if path not in zf.namelist():
-                raise PrintFileError(f"Het 3MF verwijst naar een ontbrekend bestand: {path}")
+                raise PrintFileError("pf.missing_file", path=path)
             with zf.open(path) as fh:
                 parsed[path] = _parse_model_file(fh)
         return parsed[path]
 
     def volume(path, oid, depth=0):
         if depth > 8:
-            raise PrintFileError("Het 3MF bevat een te diepe of cyclische structuur.")
+            raise PrintFileError("pf.too_deep")
         _, objects, _ = load(path)
         obj = objects.get(oid)
         if obj is None or obj["type"] not in ("model", None):
@@ -312,14 +314,14 @@ def analyze(path: Path, extension: str) -> dict:
                 "volume_cm3": round(mesh.volume / 1000, 3),
                 "bbox_mm": [round(mesh.hi[i] - mesh.lo[i], 1) for i in range(3)]}
     if ext != "3mf":
-        raise PrintFileError("Alleen .stl en .3mf worden ondersteund.")
+        raise PrintFileError("pf.unsupported")
     try:
         zf = zipfile.ZipFile(path)
     except zipfile.BadZipFile:
-        raise PrintFileError("Dit is geen geldig 3MF-bestand (geen zip-archief).") from None
+        raise PrintFileError("pf.not_zip") from None
     with zf:
         if sum(i.file_size for i in zf.infolist()) > MAX_UNZIPPED_BYTES:
-            raise PrintFileError("Het 3MF-bestand is uitgepakt te groot om te analyseren.")
+            raise PrintFileError("pf.too_big_unpacked")
         try:
             plates = _plates_from_slice_info(zf) or _plates_from_gcode_headers(zf)
         except (ET.ParseError, DefusedXmlException):
@@ -330,10 +332,10 @@ def analyze(path: Path, extension: str) -> dict:
             if not plates:
                 if isinstance(exc, PrintFileError):
                     raise
-                raise PrintFileError("Het 3MF bevat ongeldige of onveilige XML.") from None
+                raise PrintFileError("pf.bad_xml") from None
             geometry = None  # the slicer's numbers are what matter; a broken mesh is not fatal
     if not plates and geometry is None:
-        raise PrintFileError("Dit 3MF bevat geen slicer-gegevens en geen leesbaar model.")
+        raise PrintFileError("pf.no_data")
     return {"format": "3mf-sliced" if plates else "3mf-model", "exact": bool(plates), "plates": plates,
             "volume_cm3": round(geometry[0], 3) if geometry else None,
             "bbox_mm": geometry[1] if geometry else None}
