@@ -21,6 +21,11 @@ def _read_version() -> str:
 VERSION = _read_version()
 
 
+def _commit() -> str:
+    """Short commit this image was built from (build arg GIT_COMMIT); "dev" for local runs."""
+    return (os.environ.get("APP_COMMIT") or "dev")[:7]
+
+
 def create_app(config: Config | None = None, pool=None) -> Flask:
     cfg = config or load_config()
     app = Flask(__name__, static_folder=None)
@@ -84,7 +89,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
 
     @app.get("/healthz")
     def healthz():
-        return jsonify({"status": "ok", "version": VERSION})
+        return jsonify({"status": "ok", "version": VERSION, "commit": _commit()})
 
     @app.get("/readyz")
     def readyz():
@@ -93,11 +98,11 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
                 conn.execute("SELECT 1")
         except Exception:
             return jsonify({"status": "database unavailable"}), 503
-        return jsonify({"status": "ready", "version": VERSION})
+        return jsonify({"status": "ready", "version": VERSION, "commit": _commit()})
 
     @app.get("/api/version")
     def version():
-        return jsonify({"version": VERSION})
+        return jsonify({"version": VERSION, "commit": _commit()})
 
     def _spa():
         return send_from_directory(cfg.static_dir, "index.html", max_age=0)
@@ -109,8 +114,9 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
             return jsonify({"error": "Niet gevonden."}), 404
         target = Path(cfg.static_dir) / path
         if path and target.is_file():
-            # The service worker and manifest must always be revalidated.
-            return send_from_directory(cfg.static_dir, path, max_age=0 if path in ("sw.js",) else 3600)
+            # Always revalidate (ETag -> cheap 304s): a max-age here left the previous release's
+            # JS and CSS in the browser for up to that long after an update.
+            return send_from_directory(cfg.static_dir, path, max_age=0)
         return _spa()
 
     return app

@@ -3,7 +3,7 @@ import { loginView, onboardingView } from './auth-views.js';
 import { projectEditorView, projectListView } from './projects.js';
 import { resourceView } from './resources.js';
 import { ACCENTS, settingsView } from './settings.js';
-import { h, icon, toast } from './ui.js';
+import { h, icon, toast, versionLabel } from './ui.js';
 
 const root = document.getElementById('root');
 const NAV = [
@@ -22,6 +22,7 @@ const OVERFLOW = NAV.slice(4);
 let session = { user: null };
 let prefs = {};
 let flags = { recovered: false };
+let appVersion = null;
 
 // --- theme & preferences ------------------------------------------------------
 
@@ -92,7 +93,8 @@ function route() {
   const main = h('main', { id: 'main', tabindex: '-1' }, pageContent(r));
   const sidebar = h('nav', { class: 'sidebar glass', 'aria-label': 'Hoofdnavigatie' },
     h('div', { class: 'sidebar-brand' }, h('img', { src: '/icons/icon.svg', alt: '', width: 32, height: 32 }),
-      h('span', { class: 'nav-label' }, '3D Print Pricing')),
+      h('span', { class: 'nav-label brand-text' }, '3D Print Pricing',
+        appVersion ? h('small', { class: 'version', id: 'sidebar-version' }, versionLabel(appVersion)) : null)),
     ...NAV.map((n) => navLink(n, n[0] === r.page)),
     h('button', { class: 'collapse', type: 'button', 'aria-label': prefs.sidebar_collapsed ? 'Zijbalk uitklappen' : 'Zijbalk inklappen',
       onclick: () => { setPrefs({ sidebar_collapsed: !prefs.sidebar_collapsed }).then(route); } },
@@ -124,6 +126,7 @@ async function start() {
     return;
   }
   session = { user: status.user };
+  try { appVersion = await api('GET', '/api/version'); } catch { /* the label is optional */ }
   try { prefs = await api('GET', '/api/preferences'); applyPrefs(); } catch { /* defaults */ }
   route();
 }

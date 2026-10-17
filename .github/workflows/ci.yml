@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the image
-        run: docker build -t printpricing:ci .
+        run: docker build --build-arg GIT_COMMIT=${{ github.sha }} -t printpricing:ci .
       - name: Compose files are valid for the example env
         run: |
           cp .env.example .env

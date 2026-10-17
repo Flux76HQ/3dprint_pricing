@@ -258,3 +258,6 @@ input[type=url] { font: inherit; color: var(--text); background: var(--surface-f
 .switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
 .switch[aria-checked="true"] .thumb { left: 26px; background: var(--on-accent); }
 .btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-subtle); }
+
+.brand-text { display: flex; flex-direction: column; line-height: 1.2; }
+.version { font-size: .72rem; font-weight: 500; color: var(--text-muted); font-family: ui-monospace, Menlo, Consolas, monospace; }
