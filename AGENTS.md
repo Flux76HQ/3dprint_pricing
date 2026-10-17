@@ -39,6 +39,12 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - Money is `Decimal` in `backend/app/calc.py`; each line is rounded to cents *before* summing so
   the lines on screen add up to the total. Never use floats for money, and never compute totals in
   the frontend: it displays what `/api/calculate` returns.
+- Machine time (depreciation and energy lines) is always charged in whole hours, rounded up
+  (`whole_hours` in `calc.py`); this is a business rule, not a display choice, so it lives in the
+  calculator and not in the frontend. VAT is charged on the selling price (cost + margin); purchase
+  prices are entered excl. VAT. With a price rounding, the VAT-inclusive price is authoritative:
+  round up, take the VAT out, and the margin becomes a minimum (the loop in `calculate` exists
+  because cent-rounding the VAT can otherwise land a cent under that minimum).
 - A saved project stores the prices as they were when saved (`projects.data`). Do not make a
   project read live prices from spools, printers or tariffs: that rewrites history.
 - `backend/tests/test_calc.py` pins the owner's real spreadsheet example (total 2,74). If that test
