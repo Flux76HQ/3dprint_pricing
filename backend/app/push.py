@@ -5,6 +5,7 @@ which RFC 8030 §5.2 reads as "drop it if the device is not reachable right now"
 or asleep would lose the message and nothing would report it.
 """
 import hashlib
+import base64
 import concurrent.futures
 import ipaddress
 import json
@@ -18,6 +19,8 @@ from datetime import datetime, time, timedelta, timezone
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from py_vapid import Vapid
 from pywebpush import WebPushException, webpush
 
 from .i18n import L
@@ -171,6 +174,11 @@ def _network_kind(exc) -> "str | None":
     return None
 
 
+def _short(exc: Exception) -> str:
+    text = getattr(exc, "message", None) or str(exc)
+    return f"{type(exc).__name__}: {' '.join(str(text).split())}"[:200]
+
+
 def failure_reason(exc: Exception, endpoint: str) -> L:
     """What the owner can do about it, without the push service's raw answer (that goes to the log).
     A message key, not words: it is stored as such and shown in whatever language the owner reads at the time."""
@@ -188,10 +196,12 @@ def failure_reason(exc: Exception, endpoint: str) -> L:
         return L("push.r_unavailable", host=host, status=status)
     if status:
         return L("push.r_rejected", host=host, status=status)
-    kind = _network_kind(exc)
-    if kind:
-        return L(f"push.r_{kind}", host=host)
-    return L("push.r_unreachable", host=host)
+    if isinstance(exc, OSError):                       # requests' ConnectionError, Timeout and SSLError are all OSErrors
+        kind = _network_kind(exc)
+        return L(f"push.r_{kind}", host=host) if kind else L("push.r_unreachable", host=host)
+    # Not the network at all: a bad VAPID key or contact address, bad subscription keys... say what it was, never
+    # "cannot reach" for something that failed before a single byte was sent.
+    return L("push.r_error", error=_short(exc))
 
 
 # One push service per browser family; the owner's devices use whichever their browser belongs to.
@@ -222,6 +232,20 @@ def check_host(host: str, timeout: float = 4.0) -> dict:
         return result
     result.update(ok=True, stage="ok")
     return result
+
+
+def check_vapid(cfg) -> dict:
+    """Is the VAPID configuration usable? Done locally: sign a header with the private key and the contact address, and
+    see that the public key is the one that belongs to it. A wrong pair is not an error the push services explain."""
+    try:
+        signer = Vapid.from_string(private_key=cfg.vapid_private_key)
+        signer.sign({"sub": cfg.vapid_subject, "aud": "https://push.example.test", "exp": int(_time.time()) + 300})
+        public = signer.public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+    except Exception as exc:
+        return {"ok": False, "stage": "sign", "error": _short(exc)}
+    if base64.urlsafe_b64encode(public).rstrip(b"=").decode("ascii") != (cfg.vapid_public_key or "").strip():
+        return {"ok": False, "stage": "mismatch", "error": ""}
+    return {"ok": True, "stage": "ok", "error": ""}
 
 
 def check_connectivity(hosts=CHECK_HOSTS) -> list:

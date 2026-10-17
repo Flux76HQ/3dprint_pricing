@@ -186,7 +186,7 @@ def test_the_test_notification_and_its_failure_reasons_follow_the_language(owner
 
 def test_a_stored_failure_is_shown_in_the_language_read_at_the_time_not_the_one_it_happened_in(owner):
     subscribe(owner)
-    with mock.patch("app.push.webpush", side_effect=[RuntimeError("down")]):
+    with mock.patch("app.push.webpush", side_effect=[ConnectionError("down")]):
         post(owner, "/api/push/test", headers={**H, **NL})
     nl = owner.get("/api/push/devices", headers=NL).get_json()["devices"][0]["last_error"]
     en = owner.get("/api/push/devices", headers=EN).get_json()["devices"][0]["last_error"]

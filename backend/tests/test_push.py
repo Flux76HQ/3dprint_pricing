@@ -356,7 +356,7 @@ def test_the_test_result_says_per_device_why_a_push_failed(owner):
     subscribe(owner)
     subscribe(owner, "https://push.example.test/send/second")
     subscribe(owner, "https://push.example.test/send/third")
-    outcomes = [WebPushException("no", response=mock.Mock(status_code=403)), RuntimeError("down"), None]
+    outcomes = [WebPushException("no", response=mock.Mock(status_code=403)), ConnectionError("down"), None]
     with mock.patch("app.push.webpush", side_effect=outcomes):
         result = post(owner, "/api/push/test").get_json()
     assert result["sent"] == 1 and result["failed"] == 2
@@ -372,7 +372,7 @@ def test_the_device_list_shows_name_status_and_never_the_endpoint(owner):
     assert post(owner, "/api/push/subscribe", {"endpoint": ENDPOINT, "keys": {"p256dh": "k", "auth": "a"}}).status_code == 200
     owner.post("/api/push/subscribe", json={"endpoint": "https://push.example.test/send/two", "keys": {"p256dh": "k", "auth": "a"}},
                headers={**H, "User-Agent": ua})
-    with mock.patch("app.push.webpush", side_effect=[None, RuntimeError("down")]):
+    with mock.patch("app.push.webpush", side_effect=[None, ConnectionError("down")]):
         post(owner, "/api/push/test")
     body = owner.get("/api/push/devices").get_json()
     first, second = body["devices"]
@@ -402,7 +402,7 @@ def test_the_device_list_needs_a_session(client):
     (ConnectionError("Temporary failure in name resolution"), "niet opzoeken (DNS)"),
     (TimeoutError("Read timed out. (read timeout=8)"), "reageert niet (time-out)"),
     (ConnectionError("SSLError: certificate verify failed: self-signed certificate in certificate chain"), "certificaat"),
-    (RuntimeError("connection refused"), "bereikt push.example.test niet"),
+    (ConnectionError("connection refused"), "bereikt push.example.test niet"),
 ])
 def test_an_unreachable_push_service_is_named_by_its_kind_of_failure(owner, error, fragment):
     subscribe(owner)
@@ -480,3 +480,47 @@ def test_the_connection_check_only_ever_contacts_the_fixed_hosts_and_needs_a_ses
     assert sorted(seen) == sorted(push.CHECK_HOSTS)
     owner.post("/api/auth/logout", headers=H)
     assert owner.post("/api/push/check", headers=H).status_code == 401
+
+
+# --- a failure that is not the network must not be called one -------------------------------------------------------------
+
+@pytest.mark.parametrize("error, fragment", [
+    (ValueError("Could not deserialize key data"), "ValueError: Could not deserialize key data"),
+    (WebPushException("VAPID dict missing 'private_key'"), "WebPushException: VAPID dict missing 'private_key'"),
+    (WebPushException("Invalid p256dh key specified"), "Invalid p256dh key specified"),
+    (RuntimeError("boom\nwith   spaces"), "RuntimeError: boom with spaces"),
+])
+def test_a_failure_before_anything_was_sent_says_what_it_was_and_where_to_look(owner, error, fragment):
+    subscribe(owner)
+    with mock.patch("app.push.webpush", side_effect=[error]):
+        reason = post(owner, "/api/push/test").get_json()["results"][0]["reason"]
+    assert fragment in reason and "VAPID_PRIVATE_KEY" in reason and "De server bereikt" not in reason
+
+
+def real_pair():
+    import base64
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    b64u = lambda raw: base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+    key = ec.generate_private_key(ec.SECP256R1())
+    return (b64u(key.private_numbers().private_value.to_bytes(32, "big")),
+            b64u(key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)))
+
+
+def test_the_vapid_check_accepts_a_matching_pair_and_names_what_is_wrong_otherwise(owner, pushapp, monkeypatch):
+    private, public = real_pair()
+    other_private, other_public = real_pair()
+    cfg = pushapp.config["APP_CONFIG"]
+    def check(**changes):
+        from dataclasses import replace
+        monkeypatch.setitem(pushapp.config, "APP_CONFIG", replace(cfg, **changes))
+        fake_net(monkeypatch)
+        return post(owner, "/api/push/check").get_json()["vapid"]
+    assert check(vapid_private_key=private, vapid_public_key=public) | {"message": ""} == {"ok": True, "stage": "ok", "error": "", "message": ""}
+    assert "in orde" in check(vapid_private_key=private, vapid_public_key=public)["message"]
+    mismatch = check(vapid_private_key=private, vapid_public_key=other_public)
+    assert mismatch["ok"] is False and mismatch["stage"] == "mismatch" and "hoort niet bij" in mismatch["message"]
+    broken = check(vapid_private_key="not a key", vapid_public_key=public)
+    assert broken["stage"] == "sign" and "onbruikbaar" in broken["message"]
+    subject = check(vapid_private_key=private, vapid_public_key=public, vapid_subject="admin@example.com")
+    assert subject["stage"] == "sign" and "VAPID_SUBJECT" in subject["message"]
