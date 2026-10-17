@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { getLanguage, t } from './i18n.js';
 import { scanBarcode } from './scanner.js';
-import { confirmDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
+import { askChoice, confirmDialog, enhanceDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
 
 // Declarative config for the three inventory/rate screens. Money and quantities are
 // sent as typed; the server validates and is the only place that decides what is valid.
@@ -195,6 +195,28 @@ function toPayload(config, values) {
   return out;
 }
 
+// Brand, type, material, colour, weight, diameter and temperatures describe the product, so another roll with
+// the same barcode should agree. Price, what is left and notes are per roll and never offered.
+const PRODUCT_FIELDS = ['brand', 'product_type', 'material', 'colour', 'roll_weight_g', 'diameter_mm', 'print_temp_c', 'bed_temp_c'];
+const sameValue = (a, b) => {
+  const x = String(a ?? '').trim().replace(',', '.'), y = String(b ?? '').trim().replace(',', '.');
+  return x === y || (x !== '' && y !== '' && Number.isFinite(Number(x)) && Number(x) === Number(y));
+};
+
+/** The product details to copy to the other rolls with this barcode: [] for none, null when the question was closed. */
+async function askToPassOn(config, item, payload) {
+  if (config.id !== 'filament' || !item.barcode || !sameValue(payload.barcode, item.barcode)) return [];
+  const changed = PRODUCT_FIELDS.filter((key) => !sameValue(payload[key], item[key]));
+  if (!changed.length) return [];
+  const { count } = await api('GET', `${config.path}/${item.id}/siblings`);
+  if (!count) return [];
+  const names = changed.map((key) => config.fields.find((f) => f.key === key).label.replace(/\s*\(.*\)$/, '')).join(', ');
+  const answer = await askChoice(t('propagate.ask', { n: count, fields: names, barcode: item.barcode }), [
+    { value: 'all', label: t('propagate.all', { n: count }), primary: true },
+    { value: 'one', label: t('propagate.one') }]);
+  return answer === null ? null : (answer === 'all' ? changed : []);
+}
+
 function openForm(config, item, reload) {
   const values = { ...(item || config.defaults) };
   const error = h('p', { class: 'error', role: 'alert', hidden: true });
@@ -245,7 +267,7 @@ function openForm(config, item, reload) {
     };
     const input = h('input', { type: 'text', id, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
       placeholder: t('barcode.placeholder'), value: values[f.key] ?? '',
-      oninput: (e) => { values[f.key] = e.target.value; },
+      oninput: (e) => { values[f.key] = e.target.value; dirty.add(f.key); },
       onchange: lookup,
       // Hardware scanners end with Enter: look it up instead of submitting the form half-filled.
       onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); lookup(); } } });
@@ -273,23 +295,31 @@ function openForm(config, item, reload) {
     els[f.key] = input;
     return field(f.label, input, f.hint);
   });
-  const dialog = h('dialog', { class: 'glass sheet' },
+  const original = item || config.defaults;
+  const changed = () => [...dirty].some((key) => String(values[key] ?? '') !== String(original[key] ?? ''));
+  const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
     h('form', { class: 'stack', method: 'dialog', onsubmit: async (e) => {
       e.preventDefault();
       try {
         const payload = toPayload(config, values);
-        if (item) await api('PATCH', `${config.path}/${item.id}`, payload);
-        else await api('POST', config.path, payload);
+        let passOn = [];
+        if (item) {
+          passOn = await askToPassOn(config, item, payload);
+          if (passOn === null) return;                                     // closed the question: back to the form
+          await api('PATCH', `${config.path}/${item.id}`, payload);
+        } else await api('POST', config.path, payload);
+        let others = 0;
+        if (passOn.length) others = (await api('POST', `${config.path}/${item.id}/propagate`, { fields: passOn })).updated;
         dialog.close();
-        toast(t('common.saved'));
+        toast(others ? t('propagate.done', { n: others }) : t('common.saved'));
         reload();
       } catch (err) { error.textContent = err.message; error.hidden = false; }
     } },
     h('h2', {}, item ? t(`${config.id}.edit`) : t(`${config.id}.new`)),
     ...inputs, ...datalists, error,
     h('div', { class: 'row end' },
-      h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, t('common.cancel')),
-      h('button', { class: 'btn primary', type: 'submit' }, t('common.save')))));
+      h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
+      h('button', { class: 'btn primary', type: 'submit' }, t('common.save'))))), { dirty: changed });
   dialog.addEventListener('close', () => dialog.remove());
   document.body.append(dialog);
   dialog.showModal();

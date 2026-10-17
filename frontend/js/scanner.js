@@ -1,5 +1,5 @@
 import { t } from './i18n.js';
-import { h } from './ui.js';
+import { enhanceDialog, h } from './ui.js';
 
 // Barcode scanning with the camera. Uses the browser's own BarcodeDetector where it exists
 // (Chrome/Edge/Android) and the vendored ZXing build everywhere else (Safari/iOS). A hardware
@@ -47,12 +47,12 @@ export function scanBarcode() {
     let stopScan = () => {};
     let result = null;
 
-    const dialog = h('dialog', { class: 'glass sheet' },
+    const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
       h('h2', {}, t('scanner.title')),
       h('div', { class: 'scan-frame' }, video, h('div', { class: 'scan-line', 'aria-hidden': 'true' })),
       status,
       h('div', { class: 'row end' },
-        h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, t('common.cancel'))));
+        h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, t('common.cancel')))));
     dialog.addEventListener('close', () => {
       stopped = true;
       stopScan();

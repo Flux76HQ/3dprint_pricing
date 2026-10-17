@@ -227,9 +227,22 @@ output.cost { font-weight: 650; font-variant-numeric: tabular-nums; min-height: 
   background: var(--surface-field); border: 1px solid var(--rand); border-radius: var(--radius-sm); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.05rem; letter-spacing: .04em; }
 
 /* Dialogs & toasts */
-dialog.sheet { border-radius: var(--radius); padding: 20px; width: min(94vw, 520px); max-height: 92vh; max-height: 92dvh; overflow-y: auto;
-  color: var(--text); margin: auto; background: var(--surface-solid); }
+/* A pop-up never outgrows the screen: it is as wide as fits (with a gutter), as tall as fits (the content scrolls, the
+   X stays), and keeps clear of the notch and the home indicator. */
+dialog.sheet { position: relative; border-radius: var(--radius); padding: 0; margin: auto; overflow: hidden;
+  width: min(calc(100vw - 24px), 560px); max-width: none;
+  max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  color: var(--text); background: var(--surface-solid); overscroll-behavior: contain; }
+dialog.sheet[open] { display: flex; flex-direction: column; }
 dialog.sheet::backdrop { background: rgba(10, 8, 30, .5); }
+.sheet-body { overflow-y: auto; overscroll-behavior: contain; padding: 20px; min-height: 0; flex: 1 1 auto; -webkit-overflow-scrolling: touch; }
+dialog.sheet h2 { padding-right: 44px; margin-top: 0; }
+.sheet-body > p:first-child { padding-right: 44px; margin-top: 0; }
+.dialog-x { position: absolute; top: 8px; right: 8px; z-index: 3; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); cursor: pointer; }
+.dialog-x:hover { background: var(--accent-subtle); color: var(--text); }
+.dialog-x .icon { width: 22px; height: 22px; }
+@media (max-width: 480px) { .sheet-body { padding: 16px; } }
 #toasts { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 28px + env(safe-area-inset-bottom));
   display: flex; flex-direction: column; gap: 8px; width: min(92vw, 420px); }
 @media (min-width: 860px) { #toasts { bottom: 24px; } }

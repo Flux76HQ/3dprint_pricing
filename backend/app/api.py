@@ -251,6 +251,46 @@ def lookup_spool():
     return jsonify({"spool": _serialise(row) if row else None, "stock": stock[0] if stock else None})
 
 
+# Details of the product, not of one roll: the same barcode means the same brand, type, material, colour,
+# weight and diameter. Price, what is left and notes differ per roll and are never passed on.
+PRODUCT_FIELDS = ("brand", "product_type", "material", "colour", "roll_weight_g", "diameter_mm", "print_temp_c", "bed_temp_c")
+
+
+def _barcode_of(conn, spool_id) -> str:
+    row = conn.execute("SELECT barcode FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
+    if row is None:
+        raise ApiError(404, "err.not_found")
+    return (row["barcode"] or "").strip()
+
+
+@bp.get("/spools/<uuid:spool_id>/siblings")
+def spool_siblings(spool_id):
+    """How many other rolls have the same barcode (none when this roll has no barcode)."""
+    with pool().connection() as conn:
+        barcode = _barcode_of(conn, spool_id)
+        count = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE barcode = %s AND id <> %s",
+                             (barcode, spool_id)).fetchone()["n"] if barcode else 0
+    return jsonify({"count": count})
+
+
+@bp.post("/spools/<uuid:spool_id>/propagate")
+def propagate_spool(spool_id):
+    """Copy the chosen product details of this roll to every other roll with the same barcode."""
+    fields = json_body().get("fields")
+    if not isinstance(fields, list) or not fields or not all(f in PRODUCT_FIELDS for f in fields):
+        raise ApiError(400, "err.propagate_fields")
+    fields = list(dict.fromkeys(fields))
+    with pool().connection() as conn:
+        barcode = _barcode_of(conn, spool_id)
+        if not barcode:
+            return jsonify({"updated": 0})
+        row = conn.execute(f"SELECT {', '.join(fields)} FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
+        sets = ", ".join(f"{name} = %s" for name in fields)
+        done = conn.execute(f"UPDATE filament_spools SET {sets} WHERE barcode = %s AND id <> %s RETURNING id",
+                            (*[row[name] for name in fields], barcode, spool_id)).fetchall()
+    return jsonify({"updated": len(done)})
+
+
 # --- preferences ----------------------------------------------------------------
 
 THEMES = ("system", "light", "dark")

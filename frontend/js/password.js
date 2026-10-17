@@ -1,6 +1,6 @@
 import { api, confirmWithPasskey } from './api.js';
 import { t } from './i18n.js';
-import { confirmDialog, h, switchRow, toast } from './ui.js';
+import { confirmDialog, enhanceDialog, h, switchRow, toast } from './ui.js';
 
 // Optional password login, always together with an authenticator app (two-step verification).
 // Passkeys stay the primary way in; this is the weaker, opt-in door, and it is off by default.
@@ -32,8 +32,10 @@ export function setupWizard() {
     let finished = false;
     let started = false;
     const body = h('div', { class: 'stack' });
-    const dialog = h('dialog', { class: 'glass sheet' }, h('h2', {}, t('pw.setup_title')), body);
-    dialog.addEventListener('cancel', () => {});
+    let guard = () => false;                               // what closing would lose, per step
+    let guardMessage = t('pw.discard_setup');
+    const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' }, h('h2', {}, t('pw.setup_title')), body),
+      { dirty: () => guard(), message: () => guardMessage });
     dialog.addEventListener('close', () => {
       // Leaving before the end discards the half-finished setup: no password without its second factor.
       if (started && !finished) api('POST', '/api/auth/password/setup/cancel').catch(() => {});
@@ -42,12 +44,13 @@ export function setupWizard() {
     });
     const error = h('p', { class: 'error', role: 'alert', hidden: true });
     const fail = (message) => { error.textContent = message; error.hidden = !message; };
-    const cancel = h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, t('common.cancel'));
+    const cancel = h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel'));
 
     function stepPassword() {
       const pw = h('input', { type: 'password', id: 'pw-new', autocomplete: 'new-password', required: true, minlength: 12 });
       const again = h('input', { type: 'password', id: 'pw-again', autocomplete: 'new-password', required: true });
       const submit = h('button', { class: 'btn primary', type: 'submit' }, t('common.continue'));
+      guard = () => !!(pw.value || again.value);
       body.replaceChildren(h('form', { class: 'stack', onsubmit: async (e) => {
         e.preventDefault();
         fail('');
@@ -70,6 +73,8 @@ export function setupWizard() {
     function stepAuthenticator({ qr, secret }) {
       const code = h('input', { type: 'text', id: 'totp-code', inputmode: 'numeric', autocomplete: 'one-time-code', pattern: '[0-9 ]*', required: true, maxlength: 7 });
       const submit = h('button', { class: 'btn primary', type: 'submit' }, t('common.confirm'));
+      guard = () => true;                                   // a half-finished setup is thrown away on close
+      guardMessage = t('pw.discard_setup');
       body.replaceChildren(h('form', { class: 'stack', onsubmit: async (e) => {
         e.preventDefault();
         fail('');
@@ -93,6 +98,8 @@ export function setupWizard() {
       const saved = h('input', { type: 'checkbox', id: 'codes-saved' });
       const done = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: () => dialog.close() }, t('common.done'));
       saved.addEventListener('change', () => { done.disabled = !saved.checked; });
+      guard = () => !saved.checked;                         // the codes are shown once: do not lose them unsaved
+      guardMessage = t('pw.codes_unsaved');
       body.replaceChildren(
         h('p', {}, t('pw.enabled_save'), ' ',
           h('strong', {}, t('auth.shown_once')), ' ', t('auth.each_code_once')),
@@ -119,7 +126,7 @@ export function confirmIdentity({ action, title, message, confirmLabel }) {
     const fail = (text) => { error.textContent = text; error.hidden = !text; };
     const password = h('input', { type: 'password', id: 'confirm-password', autocomplete: 'current-password', required: true });
     const code = h('input', { type: 'text', id: 'confirm-code', inputmode: 'text', autocomplete: 'one-time-code', required: true, maxlength: 14 });
-    const dialog = h('dialog', { class: 'glass sheet' }, h('div', { class: 'stack' },
+    const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' }, h('div', { class: 'stack' },
       h('h2', {}, title),
       h('p', {}, message),
       h('button', { class: 'btn primary', type: 'button', onclick: async () => {
@@ -137,8 +144,8 @@ export function confirmIdentity({ action, title, message, confirmLabel }) {
       h('div', { class: 'field' }, h('label', { for: 'confirm-code' }, t('pw.code_or_backup')), code),
       error,
       h('div', { class: 'row end' },
-        h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, t('common.cancel')),
-        h('button', { class: 'btn primary', type: 'submit' }, confirmLabel)))));
+        h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
+        h('button', { class: 'btn primary', type: 'submit' }, confirmLabel))))));
     dialog.addEventListener('close', () => { dialog.remove(); resolve(proof); });
     document.body.append(dialog);
     dialog.showModal();
@@ -150,7 +157,7 @@ async function newPassword() {
     const pw = h('input', { type: 'password', id: 'pw-change', autocomplete: 'new-password', required: true, minlength: 12 });
     const again = h('input', { type: 'password', id: 'pw-change2', autocomplete: 'new-password', required: true });
     const error = h('p', { class: 'error', role: 'alert', hidden: true });
-    const dialog = h('dialog', { class: 'glass sheet' }, h('form', { class: 'stack', onsubmit: async (e) => {
+    const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' }, h('form', { class: 'stack', onsubmit: async (e) => {
       e.preventDefault();
       if (pw.value !== again.value) { error.textContent = t('pw.mismatch'); error.hidden = false; return; }
       try {
@@ -166,8 +173,8 @@ async function newPassword() {
     h('div', { class: 'field' }, h('label', { for: 'pw-change2' }, t('pw.repeat')), again),
     error,
     h('div', { class: 'row end' },
-      h('button', { class: 'btn', type: 'button', onclick: () => dialog.close('no') }, t('common.cancel')),
-      h('button', { class: 'btn primary', type: 'submit' }, t('common.continue')))));
+      h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
+      h('button', { class: 'btn primary', type: 'submit' }, t('common.continue'))))), { dirty: () => !!(pw.value || again.value) });
     dialog.addEventListener('close', () => { dialog.remove(); resolve(dialog.returnValue === 'yes'); });
     document.body.append(dialog);
     dialog.showModal();
@@ -201,9 +208,11 @@ export function passwordCard() {
               message: t('pw.regen_msg'), confirmLabel: t('pw.regen_make') });
             if (!proof) return;
             const res = await api('POST', '/api/auth/password/backup-codes/regenerate', proof);
-            const dialog = h('dialog', { class: 'glass sheet' }, h('h2', {}, t('pw.new_backup')),
+            let acknowledged = false;
+            const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' }, h('h2', {}, t('pw.new_backup')),
               h('p', {}, h('strong', {}, t('pw.save_them_now')), ' ', t('recovery.not_shown_again')), ...codesBlock(res.backup_codes),
-              h('div', { class: 'row end' }, h('button', { class: 'btn primary', type: 'button', onclick: () => dialog.close() }, t('common.done'))));
+              h('div', { class: 'row end' }, h('button', { class: 'btn primary', type: 'button', onclick: () => { acknowledged = true; dialog.close(); } }, t('common.done')))),
+            { dirty: () => !acknowledged, message: t('pw.codes_unsaved') });
             dialog.addEventListener('close', () => { dialog.remove(); draw(); });
             document.body.append(dialog);
             dialog.showModal();

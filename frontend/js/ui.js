@@ -30,6 +30,7 @@ const ICONS = {
   scan: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M4 12h16"/>',
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l3 3"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
 };
 
 export function icon(name) {
@@ -72,14 +73,66 @@ export function numberInput(value, onInput, attrs = {}) {
     oninput: (e) => onInput(e.target.value) });
 }
 
+/**
+ * Every pop-up goes through here: it fits the screen (the content scrolls, the close button does not),
+ * gets an X at the top right, and Escape / X / Cancel ask first when something would be lost.
+ * `dirty()` says whether closing would lose work; `message` (text or a function) is what to warn with. Call `dialog.requestClose()`
+ * from a Cancel button instead of `dialog.close()` so that it is guarded too.
+ */
+export function enhanceDialog(dialog, options = {}) {
+  const { dirty } = options;
+  dialog.replaceChildren(h('div', { class: 'sheet-body' }, ...dialog.childNodes));
+  let asking = false;
+  const requestClose = async () => {
+    if (asking) return;
+    if (dirty && dirty()) {
+      asking = true;
+      const said = typeof options.message === 'function' ? options.message() : options.message;
+      const leave = await confirmDialog(said || t('dialog.unsaved'), t('dialog.close_anyway'));
+      asking = false;
+      if (!leave) return;
+    }
+    dialog.close('no');
+  };
+  dialog.requestClose = requestClose;
+  // Escape: handled on the key itself, because Chrome closes a dialog straight away (no `cancel` event to stop) when
+  // Escape is pressed twice without a click in between. `cancel` still covers the Android back gesture.
+  const onKey = (event) => {
+    const open = document.querySelectorAll('dialog[open]');
+    if (event.key === 'Escape' && dialog.open && open[open.length - 1] === dialog) { event.preventDefault(); requestClose(); }   // the top one only
+  };
+  document.addEventListener('keydown', onKey, true);
+  dialog.addEventListener('close', () => document.removeEventListener('keydown', onKey, true));
+  dialog.addEventListener('cancel', (event) => { event.preventDefault(); requestClose(); });
+  // After the content in the DOM, so the first field (not the X) takes the focus; CSS puts it top right.
+  dialog.append(h('button', { type: 'button', class: 'dialog-x', 'aria-label': t('common.close'), onclick: requestClose }, icon('close')));
+  return dialog;
+}
+
 export function confirmDialog(message, confirmLabel = t('common.delete')) {
   return new Promise((resolve) => {
-    const dialog = h('dialog', { class: 'glass sheet' },
+    // The answer is given the moment a button is pressed, not when the `close` event arrives a tick later.
+    const answer = (yes) => { resolve(yes); dialog.close(yes ? 'yes' : 'no'); };
+    const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
       h('p', {}, message),
       h('div', { class: 'row end' },
-        h('button', { class: 'btn', type: 'button', onclick: () => dialog.close('no') }, t('common.cancel')),
-        h('button', { class: 'btn danger', type: 'button', onclick: () => dialog.close('yes') }, confirmLabel)));
+        h('button', { class: 'btn', type: 'button', onclick: () => answer(false) }, t('common.cancel')),
+        h('button', { class: 'btn danger', type: 'button', onclick: () => answer(true) }, confirmLabel))));
     dialog.addEventListener('close', () => { resolve(dialog.returnValue === 'yes'); dialog.remove(); });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+
+/** A question with more than two answers: `choices` are { value, label, primary }. Resolves with the value, or null when closed. */
+export function askChoice(message, choices) {
+  return new Promise((resolve) => {
+    let picked = null;
+    const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
+      h('p', {}, message),
+      h('div', { class: 'row end wrap' }, choices.map((c) => h('button', { class: `btn${c.primary ? ' primary' : ''}`, type: 'button',
+        onclick: () => { picked = c.value; resolve(picked); dialog.close(); } }, c.label)))));
+    dialog.addEventListener('close', () => { dialog.remove(); resolve(picked); });
     document.body.append(dialog);
     dialog.showModal();
   });
