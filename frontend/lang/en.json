@@ -308,6 +308,8 @@
  "nav.packaging": "Packaging",
  "nav.printers": "Printers",
  "nav.settings": "Settings",
+ "notify.check": "Check connection to the push services",
+ "notify.check_hint": "If the server cannot reach a push service, notifications to the devices that use it do not arrive. Usually a DNS filter (Pi-hole, AdGuard Home) or a firewall blocks the address; see the README.",
  "notify.denied": "Notifications are blocked for this site. Allow them in your browser or device settings and come back.",
  "notify.from": "From",
  "notify.ios_install": "Notifications on iPhone and iPad only work for an installed app (iOS 16.4 or newer): add the app to your home screen first.",

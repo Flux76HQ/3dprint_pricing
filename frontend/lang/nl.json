@@ -308,6 +308,8 @@
  "nav.packaging": "Verpakking",
  "nav.printers": "Printers",
  "nav.settings": "Instellingen",
+ "notify.check": "Verbinding met pushdiensten controleren",
+ "notify.check_hint": "Bereikt de server een pushdienst niet, dan komen meldingen op de toestellen die daarbij horen niet aan. Meestal blokkeert een DNS-filter (Pi-hole, AdGuard Home) of een firewall het adres; zie de README.",
  "notify.denied": "Meldingen zijn geblokkeerd voor deze site. Sta ze toe in de instellingen van je browser of toestel en kom dan terug.",
  "notify.from": "Van",
  "notify.ios_install": "Meldingen werken op iPhone en iPad alleen voor een geïnstalleerde app (iOS 16.4 of nieuwer): zet de app eerst op je beginscherm.",

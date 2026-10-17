@@ -5,10 +5,13 @@ which RFC 8030 §5.2 reads as "drop it if the device is not reachable right now"
 or asleep would lose the message and nothing would report it.
 """
 import hashlib
+import concurrent.futures
 import ipaddress
 import json
 import logging
 import re
+import socket
+import ssl
 import threading
 import time as _time
 from datetime import datetime, time, timedelta, timezone
@@ -189,6 +192,43 @@ def failure_reason(exc: Exception, endpoint: str) -> L:
     if kind:
         return L(f"push.r_{kind}", host=host)
     return L("push.r_unreachable", host=host)
+
+
+# One push service per browser family; the owner's devices use whichever their browser belongs to.
+CHECK_HOSTS = ("fcm.googleapis.com", "web.push.apple.com", "updates.push.services.mozilla.com", "wns2-am3p.notify.windows.com")
+
+
+def check_host(host: str, timeout: float = 4.0) -> dict:
+    """Can this container reach `host` over https: DNS, then a TCP connection, then the TLS handshake. The stage that
+    failed is the answer to "why do my notifications not arrive": a blocklist, a firewall or an intercepting proxy."""
+    result = {"host": host, "ok": False, "stage": "dns", "error": ""}
+    try:
+        info = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        result["error"] = str(exc)
+        return result
+    result["stage"] = "connect"
+    try:
+        raw = socket.create_connection(info[0][4][:2], timeout=timeout)
+    except OSError as exc:
+        result["error"] = str(exc)
+        return result
+    result["stage"] = "tls"
+    try:
+        with raw, ssl.create_default_context().wrap_socket(raw, server_hostname=host):
+            pass
+    except (OSError, ssl.SSLError) as exc:
+        result["error"] = str(exc)
+        return result
+    result.update(ok=True, stage="ok")
+    return result
+
+
+def check_connectivity(hosts=CHECK_HOSTS) -> list:
+    """All hosts at once (a blocked one only costs its time-out once). The list is fixed: this never connects to a
+    host the caller names."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(hosts)) as pool:
+        return list(pool.map(check_host, hosts))
 
 
 def dump_reason(reason: L) -> str:
