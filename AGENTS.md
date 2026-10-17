@@ -61,6 +61,12 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - Third-party browser code is vendored under `frontend/vendor/` (unmodified, with its licence and a
   README saying how to update), never loaded from a CDN: the CSP only allows scripts from this origin.
   Currently only ZXing, for barcode scanning where the browser has no `BarcodeDetector`.
+- The installed-app surface (iOS icons, launch images, no-zoom viewport, manifest) is generated and
+  guarded: change `frontend/icons/icon-mark.svg` or `scripts/generate_pwa_assets.py`, re-run the script,
+  and never hand-edit the `splash:` block in `index.html`. `test_pwa_assets.py` fails on a launch image
+  whose size does not match its media query, an orphaned PNG, or an icon with transparency.
+  Installed (standalone) navigation must use `goTo()` from `js/pwa.js`, never `location.hash =`, so
+  no history entries are added.
 - UI text is Dutch. Build DOM with the `h()` helper and `textContent`; never `innerHTML` with data
   (the CSP also forbids inline script and style).
 

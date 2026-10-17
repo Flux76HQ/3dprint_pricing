@@ -94,6 +94,25 @@ Eén barcode hoort bij een *product*: meerdere rollen van hetzelfde filament mog
 werkt niet. Zet er een reverse proxy met TLS voor en stel `RP_ID`/`RP_ORIGINS` in op dat domein. Wijzig
 je `RP_ID` later, dan werken bestaande passkeys niet meer; log dan in met een herstelcode.
 
+## Installeren als app (iPhone/iPad)
+
+Open het https-adres in **Safari → Deel → Zet op beginscherm**. De app start dan schermvullend zonder Safari-balk,
+met een eigen icoon en opstartscherm en reageert als een native app:
+- **Geen pinch-zoom en geen dubbeltik-zoom**, en **geen zijwaarts vegen**: de pagina schuift alleen verticaal en de
+  rand-veeg van iOS (terug/vooruit) heeft niets om naartoe te gaan, want de geïnstalleerde app voegt bij het navigeren
+  geen geschiedenis toe.
+- De pagina loopt onder de statusbalk; notch, home-indicator en de zijkanten (liggend) worden gerespecteerd.
+- Aandachtspunt toegankelijkheid: zoom is hier bewust geblokkeerd. Tekst volgt wel de tekstgrootte van het systeem
+  (iOS: Instellingen → Beeldscherm en helderheid → Tekstgrootte). In een gewone Safari-tab kan iOS zoomen soms toch
+  toestaan; het gedrag hierboven geldt voor de geïnstalleerde app.
+- iOS bewaart icoon en opstartscherm bij het toevoegen: na een wijziging daarvan verwijder je de app en zet je hem opnieuw
+  op het beginscherm. Android/Chrome gebruikt `manifest.webmanifest`.
+
+De iconen (`apple-touch-icon-*.png`, volledig gevuld en zonder transparantie; iOS rondt de hoeken zelf af) en de
+19 opstartschermen (`frontend/splash/`, donker, per apparaatformaat) komen uit `frontend/icons/icon-mark.svg`:
+`pip install playwright pillow && python scripts/generate_pwa_assets.py` (zet desnoods `CHROMIUM_PATH`). Het script schrijft
+ook de `<link>`-regels in `index.html`; `backend/tests/test_pwa_assets.py` bewaakt dat bestanden, formaten en links kloppen.
+
 ## Lokaal ontwikkelen
 
 ```bash

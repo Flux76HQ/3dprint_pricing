@@ -3,6 +3,7 @@ import { loginView, onboardingView } from './auth-views.js';
 import { projectEditorView, projectListView } from './projects.js';
 import { resourceView } from './resources.js';
 import { ACCENTS, settingsView } from './settings.js';
+import { goTo, installNativeBehaviour } from './pwa.js';
 import { h, icon, toast, versionLabel } from './ui.js';
 
 const root = document.getElementById('root');
@@ -56,7 +57,7 @@ async function setPrefs(change) {
 
 function navigate(hash, force = false) {
   if (location.hash === hash && force) route();
-  else location.hash = hash;
+  else goTo(hash);
 }
 
 function currentRoute() {
@@ -122,7 +123,7 @@ async function start() {
   if (!status.onboarded) { session = { user: null }; root.replaceChildren(onboardingView(start)); return; }
   if (!status.authenticated) {
     session = { user: null };
-    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) location.hash = '#/instellingen'; start(); }));
+    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen'); start(); }));
     return;
   }
   session = { user: status.user };
@@ -131,6 +132,7 @@ async function start() {
   route();
 }
 
+installNativeBehaviour();
 window.addEventListener('hashchange', route);
 window.addEventListener('auth:expired', () => { if (session.user) { toast('Je sessie is verlopen. Log opnieuw in.', 'error'); start(); } });
 
