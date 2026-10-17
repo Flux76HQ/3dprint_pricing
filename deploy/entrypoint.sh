@@ -13,6 +13,12 @@ if [ "$(id -u)" = "0" ]; then
   exec setpriv --reuid=app --regid=app --init-groups "$0" "$@"
 fi
 
+# A command after the image name (docker compose run app python generate_vapid.py) runs instead of the
+# server, without touching the database.
+if [ "$#" -gt 0 ]; then
+  exec "$@"
+fi
+
 python migrate.py
 
 # Tell opted-in devices about a new release. Best effort: a failed push never blocks the start.
