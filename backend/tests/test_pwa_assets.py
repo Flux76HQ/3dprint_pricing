@@ -9,6 +9,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from tests.test_static_build import real  # noqa: F401  (fixture: the app with the real frontend)
+
 FRONT = Path(__file__).resolve().parents[2] / "frontend"
 INDEX = (FRONT / "index.html").read_text(encoding="utf-8")
 
@@ -43,8 +45,7 @@ def test_installed_app_meta_for_ios():
 
 def test_apple_touch_icons_are_opaque_full_bleed_squares_of_the_declared_size():
     icons = links("apple-touch-icon")
-    sizes = {i.get("sizes", "180x180") for i in icons}
-    assert {"180x180", "167x167", "152x152", "120x120"} <= sizes
+    assert len(icons) == 1 and icons[0]["href"] == "/icons/apple-touch-icon.png" and "sizes" not in icons[0]   # as a known-good PWA does it
     for icon in icons:
         img = png(icon["href"])
         w, h = (int(v) for v in icon.get("sizes", "180x180").split("x"))
@@ -76,12 +77,27 @@ def test_manifest_is_installable():
     purposes = {(i["sizes"], i.get("purpose", "any")) for i in manifest["icons"]}
     assert ("192x192", "any") in purposes and ("512x512", "any") in purposes and ("512x512", "maskable") in purposes
     for icon in manifest["icons"]:
-        if icon["type"] == "image/png":
-            w, h = (int(v) for v in icon["sizes"].split("x"))
-            assert png(icon["src"]).size == (w, h), icon
+        assert icon["type"] == "image/png", icon          # an SVG ("any") entry can be picked by iOS and gives a blank icon
+        w, h = (int(v) for v in icon["sizes"].split("x"))
+        assert png(icon["src"]).size == (w, h), icon
 
 
 def test_the_native_behaviour_script_is_cached_for_offline_use():
     sw = (FRONT / "sw.js").read_text(encoding="utf-8")
     for needed in ("/js/pwa.js", "/js/main.js"):
         assert needed in sw
+
+
+def test_the_page_declares_one_png_favicon_and_one_touch_icon_and_no_svg_icon():
+    icon = links("icon")
+    assert len(icon) == 1 and icon[0]["type"] == "image/png" and png(icon[0]["href"]).size == (32, 32)
+    assert not [i for i in links("icon") + links("apple-touch-icon") if i["href"].endswith(".svg")]
+
+
+def test_the_default_places_iOS_and_browsers_look_serve_real_images_and_missing_files_are_404(real):
+    for path in ("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/icons/apple-touch-icon.png"):
+        res = real.get(path)
+        assert res.status_code == 200 and res.headers["Content-Type"] == "image/png" and res.data[:8] == b"\x89PNG\r\n\x1a\n", path
+    assert real.get("/favicon.ico").headers["Content-Type"] == "image/png"
+    assert real.get("/icons/nope.png").status_code == 404 and real.get("/apple-touch-icon-120x120.png").status_code == 404
+    assert real.get("/some/screen").headers["Content-Type"].startswith("text/html")          # app routes still get the app

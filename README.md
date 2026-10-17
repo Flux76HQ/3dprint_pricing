@@ -147,10 +147,10 @@ pushdiensten kunnen (o.a. `fcm.googleapis.com`, `web.push.apple.com`, `updates.p
 
 ### Iconen en opstartschermen
 
-De iconen (`apple-touch-icon-*.png`, volledig gevuld en zonder transparantie; iOS rondt de hoeken zelf af) en de
+Het beginschermicoon (`icons/apple-touch-icon.png`, 180 px, volledig gevuld en zonder transparantie; iOS rondt de hoeken zelf af; één `<link>` zonder `sizes`, zoals bij een bewezen werkende PWA, en ook bereikbaar op `/apple-touch-icon.png`), het favicon en de
 19 opstartschermen (`frontend/splash/`, donker, per apparaatformaat) komen uit `frontend/icons/icon-mark.svg`:
-`pip install playwright pillow && python scripts/generate_pwa_assets.py` (zet desnoods `CHROMIUM_PATH`). Het script schrijft
-ook de `<link>`-regels in `index.html`; `backend/tests/test_pwa_assets.py` bewaakt dat bestanden, formaten en links kloppen.
+`pip install playwright pillow && python scripts/generate_pwa_assets.py` (zet desnoods `CHROMIUM_PATH`). Zie je op iOS nog een leeg of oud icoon: verwijder de app van het beginscherm, sluit Safari helemaal en voeg hem opnieuw toe; iOS bewaart het icoon van het moment waarop je hem toevoegde. Het script schrijft
+ook de `<link>`-regels voor de opstartschermen in `index.html`; het manifest bevat alleen PNG-iconen (een SVG-regel kan iOS kiezen en geeft dan een leeg icoon); `backend/tests/test_pwa_assets.py` bewaakt dat bestanden, formaten en links kloppen.
 
 ## Lokaal ontwikkelen
 

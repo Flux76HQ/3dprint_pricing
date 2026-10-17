@@ -154,11 +154,19 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
         response.headers["Service-Worker-Allowed"] = "/"
         return response
 
+    # Where browsers and iOS look when a page does not say: real images, never the app's HTML page.
+    root_icons = {"apple-touch-icon.png": "icons/apple-touch-icon.png", "apple-touch-icon-precomposed.png": "icons/apple-touch-icon.png",
+                  "favicon.ico": "icons/favicon-32.png"}
+    asset_types = (".png", ".ico", ".svg", ".jpg", ".jpeg", ".gif", ".webp", ".js", ".css", ".json", ".map", ".txt", ".woff", ".woff2",
+                   ".webmanifest")
+
     @app.get("/", defaults={"path": ""})
     @app.get("/<path:path>")
     def static_files(path):
         if path.startswith("api/"):
             return jsonify({"error": tr("err.not_found")}), 404
+        if path in root_icons and (Path(cfg.static_dir) / root_icons[path]).is_file():
+            return send_from_directory(cfg.static_dir, root_icons[path], max_age=0)
         target = Path(cfg.static_dir) / path
         if path.startswith("js/") and path.endswith(".js") and target.is_file():
             return _stamped(path)
@@ -166,6 +174,8 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
             # Always revalidate (ETag -> cheap 304s): a max-age here left the previous release's
             # JS and CSS in the browser for up to that long after an update.
             return send_from_directory(cfg.static_dir, path, max_age=0)
+        if path.lower().endswith(asset_types):
+            return jsonify({"error": tr("err.not_found")}), 404        # a missing file is missing, not the app's HTML page
         return _spa()
 
     return app
