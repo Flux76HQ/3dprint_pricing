@@ -229,8 +229,8 @@ def spool_stock():
         groups = _stock(_stock_rows(conn))
     materials: dict[str, dict] = {}
     for g_ in groups:
-        name = g_["material"] or "Onbekend materiaal"
-        m = materials.setdefault(name, {"material": name, "roll_count": 0, "remaining_g": Decimal(0)})
+        name = (g_["material"] or "Onbekend materiaal").strip()
+        m = materials.setdefault(name.lower(), {"material": name, "roll_count": 0, "remaining_g": Decimal(0)})   # "PLA" = "pla"
         m["roll_count"] += g_["roll_count"]
         m["remaining_g"] += Decimal(g_["remaining_g"])
     return jsonify({"groups": groups, "materials": [{**m, "remaining_g": str(m["remaining_g"])}

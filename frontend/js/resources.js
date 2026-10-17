@@ -109,26 +109,81 @@ function stockPanel() {
   const body = h('div', { class: 'stack' });
   const panel = h('section', { class: 'glass card stack', 'aria-labelledby': 'stock-title', hidden: true },
     h('h2', { id: 'stock-title' }, 'Voorraad per soort'), body);
-  async function refresh() {
-    try {
-      const { groups, materials } = await api('GET', '/api/spools/stock');
-      panel.hidden = !groups.length;
-      if (!groups.length) return;
-      const plural = (n) => `${n} ${n === 1 ? 'rol' : 'rollen'}`;
-      body.replaceChildren(
-        h('p', { class: 'muted stock-materials' }, materials.map((m) => `${m.material}: ${plural(m.roll_count)}, ${fmt(m.remaining_g, 0)} g`).join(' · ')),
-        h('ul', { class: 'stock', 'aria-label': 'Voorraad per soort' }, groups.map((g) => h('li', { class: g.roll_count ? '' : 'out' },
-          h('div', {},
-            h('strong', {}, [g.brand, g.colour].filter(Boolean).join(' · ')),
-            h('p', { class: 'muted' }, [g.material, g.barcode ? `Barcode ${g.barcode}` : null].filter(Boolean).join(' · ') || ' '),
-            g.roll_count
-              ? h('p', { class: 'muted' }, `Per rol: ${g.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ')}`)
-              : h('p', { class: 'muted' }, 'Op: geen rol meer over.')),
-          h('div', { class: 'stock-total' },
-            h('strong', {}, `${fmt(g.remaining_g, 0)} g`), h('span', { class: 'muted' }, plural(g.roll_count)))))));
-    } catch { panel.hidden = true; }                      // a convenience: the list below still works
+  let data = null;
+  let match = () => true;
+  const plural = (n) => `${n} ${n === 1 ? 'rol' : 'rollen'}`;
+
+  function draw() {
+    panel.hidden = !data || !data.groups.length;
+    if (panel.hidden) return;
+    const groups = data.groups.filter(match);
+    if (!groups.length) { body.replaceChildren(h('p', { class: 'muted' }, 'Geen voorraad met deze filters.')); return; }
+    const materials = new Map();                     // totals follow the filter, so they always match what is listed
+    for (const g of groups) {
+      const name = String(g.material || 'Onbekend materiaal').trim();
+      const k = name.toLowerCase();                  // "PLA" and "pla" are one material
+      const m = materials.get(k) || { name, rolls: 0, grams: 0 };
+      m.rolls += g.roll_count;
+      m.grams += Number(g.remaining_g);
+      materials.set(k, m);
+    }
+    body.replaceChildren(
+      h('p', { class: 'muted stock-materials' }, [...materials.values()].map((m) => `${m.name}: ${plural(m.rolls)}, ${fmt(m.grams, 0)} g`).join(' · ')),
+      h('ul', { class: 'stock', 'aria-label': 'Voorraad per soort' }, groups.map((g) => h('li', { class: g.roll_count ? '' : 'out' },
+        h('div', {},
+          h('strong', {}, [g.brand, g.colour].filter(Boolean).join(' · ')),
+          h('p', { class: 'muted' }, [g.material, g.barcode ? `Barcode ${g.barcode}` : null].filter(Boolean).join(' · ') || ' '),
+          g.roll_count
+            ? h('p', { class: 'muted' }, `Per rol: ${g.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ')}`)
+            : h('p', { class: 'muted' }, 'Op: geen rol meer over.')),
+        h('div', { class: 'stock-total' },
+          h('strong', {}, `${fmt(g.remaining_g, 0)} g`), h('span', { class: 'muted' }, plural(g.roll_count)))))));
   }
-  return { panel, refresh };
+
+  async function refresh() {
+    try { data = await api('GET', '/api/spools/stock'); } catch { data = null; }      // a convenience: the list below still works
+    draw();
+  }
+  return { panel, refresh, setFilter(fn) { match = fn; draw(); } };
+}
+
+// Filters for the filament list: by material ("soort") and by brand. Options come from what you have,
+// the brand options narrow to the chosen material, and both the list and the stock overview follow.
+const norm = (v) => String(v || '').trim().toLowerCase();
+
+function filterBar(onChange) {
+  const state = { material: '', brand: '' };
+  const material = h('select', { id: 'filter-material', 'aria-label': 'Filter op soort' });
+  const brand = h('select', { id: 'filter-brand', 'aria-label': 'Filter op merk' });
+  const clear = h('button', { class: 'btn small', type: 'button', hidden: true, onclick: () => {
+    state.material = ''; state.brand = ''; onChange(); update(lastItems);
+  } }, 'Wis filters');
+  let lastItems = [];
+
+  const distinct = (rows, key) => {
+    const seen = new Map();
+    for (const r of rows) if (norm(r[key]) && !seen.has(norm(r[key]))) seen.set(norm(r[key]), String(r[key]).trim());
+    return [...seen].sort((a, b) => a[1].localeCompare(b[1], 'nl'));
+  };
+  const fill = (select, all, options, current) => {
+    select.replaceChildren(h('option', { value: '' }, all), ...options.map(([value, label]) => h('option', { value }, label)));
+    select.value = options.some(([value]) => value === current) ? current : '';
+  };
+  function update(items) {
+    lastItems = items;
+    fill(material, 'Alle soorten', distinct(items, 'material'), state.material);
+    state.material = material.value;
+    fill(brand, 'Alle merken', distinct(items.filter((i) => !state.material || norm(i.material) === state.material), 'brand'), state.brand);
+    state.brand = brand.value;
+    clear.hidden = !state.material && !state.brand;
+  }
+  material.addEventListener('change', () => { state.material = material.value; update(lastItems); onChange(); });
+  brand.addEventListener('change', () => { state.brand = brand.value; update(lastItems); onChange(); });
+
+  const matches = (row) => (!state.material || norm(row.material) === state.material) && (!state.brand || norm(row.brand) === state.brand);
+  const bar = h('div', { class: 'filters', role: 'group', 'aria-label': 'Filteren' },
+    h('label', { for: 'filter-material' }, 'Soort'), material, h('label', { for: 'filter-brand' }, 'Merk'), brand, clear);
+  return { bar, update, matches, active: () => !!(state.material || state.brand) };
 }
 
 function toPayload(config, values) {
@@ -246,9 +301,10 @@ export function resourceView(key) {
   let items = [];
 
   const render = () => {
-    const visible = items.filter((i) => showArchived || !i.archived);
+    const visible = items.filter((i) => (showArchived || !i.archived) && (!filters || filters.matches(i)));
     if (!visible.length) {
-      list.replaceChildren(h('p', { class: 'empty glass card' }, `${config.empty} Voeg de eerste toe.`));
+      list.replaceChildren(h('p', { class: 'empty glass card' },
+        filters?.active() && items.length ? 'Geen rollen met deze filters.' : `${config.empty} Voeg de eerste toe.`));
       return;
     }
     list.replaceChildren(...visible.map((item) => {
@@ -280,10 +336,15 @@ export function resourceView(key) {
   };
 
   const stock = key === 'filament' ? stockPanel() : null;
+  const filters = key === 'filament' ? filterBar(() => {
+    render();
+    stock.setFilter((g) => filters.matches(g));        // stock groups carry brand and material too
+  }) : null;
 
   async function load() {
     try {
       items = await api('GET', config.path);
+      filters?.update(items.filter((i) => showArchived || !i.archived));
       render();
       stock?.refresh();
     } catch (e) { toast(e.message, 'error'); }
@@ -291,7 +352,7 @@ export function resourceView(key) {
 
   const archiveToggle = config.archivable
     ? h('label', { class: 'check' },
-      h('input', { type: 'checkbox', onchange: (e) => { showArchived = e.target.checked; render(); } }),
+      h('input', { type: 'checkbox', onchange: (e) => { showArchived = e.target.checked; filters?.update(items.filter((i) => showArchived || !i.archived)); render(); } }),
       'Toon gearchiveerd')
     : null;
 
@@ -301,5 +362,5 @@ export function resourceView(key) {
       h('div', {}, h('h1', {}, config.title), h('p', { class: 'muted' }, config.intro)),
       h('button', { class: 'btn primary', type: 'button', onclick: () => openForm(config, null, load) },
         icon('plus'), h('span', {}, `Nieuwe ${config.noun}`))),
-    stock?.panel || null, archiveToggle, list);
+    stock?.panel || null, filters?.bar || null, archiveToggle, list);
 }

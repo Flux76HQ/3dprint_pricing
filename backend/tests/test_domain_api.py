@@ -273,12 +273,13 @@ def test_stock_groups_by_barcode_or_by_name_and_totals_per_material(owner):
     roll(owner, 500, colour="White")                                       # no barcode: grouped by brand + material + colour
     roll(owner, 400, colour="white")                                       # ... case does not matter
     roll(owner, 900, brand="Bambu ABS", material="ABS", colour="Black")
+    roll(owner, 100, colour="Grey", material="pla")                        # the material's case does not matter either
     stock = owner.get("/api/spools/stock").get_json()
     by = {(g["material"], g["colour"].lower(), bool(g["barcode"])): g for g in stock["groups"]}
     assert Decimal(by[("PLA", "black", True)]["remaining_g"]) == 1000 and by[("PLA", "black", True)]["roll_count"] == 2
     assert Decimal(by[("PLA", "white", False)]["remaining_g"]) == 900 and by[("PLA", "white", False)]["roll_count"] == 2
     materials = {m["material"]: (m["roll_count"], Decimal(m["remaining_g"])) for m in stock["materials"]}
-    assert materials == {"ABS": (1, 900), "PLA": (4, 1900)}
+    assert materials == {"ABS": (1, 900), "PLA": (5, 2000)}
 
 
 def test_a_sold_out_kind_stays_in_the_list_with_zero(owner):
