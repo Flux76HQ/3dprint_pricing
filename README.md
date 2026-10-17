@@ -14,6 +14,8 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
   bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
 - **Filament** — je rollen met prijs per rol, gewicht en wat er nog over is; verbruik van een
   berekening kun je met één klik van de voorraad afboeken.
+- **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. In een berekening kies je er
+  per product een uit de lijst (of vul je een regel zelf in); de prijs wordt in de berekening bewaard.
 - **Printers** — aanschafwaarde, levensduur in uren (afschrijving per uur) en vermogen.
 - **Energie** — tarieven per kWh, met een standaardtarief.
 - Licht/donker/systeem, eigen accentkleur, installeerbaar op je beginscherm.
@@ -128,7 +130,7 @@ De container start als root om de rechten van de gemounte map te zetten en draai
 |---|---|
 | `backend/app/calc.py` | de kostprijsberekening (`Decimal`, afronden per regel) |
 | `backend/app/auth.py`, `webauthn.py` | passkeys (ES256), herstelcodes, sessies, step-up |
-| `backend/app/api.py` | printers, tarieven, filament, berekeningen, voorkeuren |
+| `backend/app/api.py` | printers, tarieven, filament, verpakking, berekeningen, voorkeuren |
 | `backend/app/files.py`, `printfile.py` | upload/download van STL/3MF en het uitlezen ervan (slicer-gegevens of volume) |
 | `backend/app/db.py`, `migrations/` | migratierunner (vooruit-only, checksum-bewaakt) |
 | `frontend/` | statische PWA zonder buildstap, plus service worker voor offline schil |

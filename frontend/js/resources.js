@@ -34,6 +34,20 @@ export const RESOURCES = {
       };
     },
   },
+  verpakking: {
+    title: 'Verpakking', path: '/api/packaging', noun: 'verpakking', empty: 'Nog geen verpakkingen.', archivable: true,
+    intro: 'Dozen en ander verpakkingsmateriaal met de prijs per stuk. Kies ze per product in een berekening.',
+    defaults: { name: '', price: '', notes: '' },
+    fields: [
+      { key: 'name', label: 'Naam', type: 'text', required: true, placeholder: 'Doos 20 × 15 × 10 cm' },
+      { key: 'price', label: 'Prijs per stuk (€)', type: 'number', required: true,
+        hint: 'Reken vulmateriaal en tape mee, of maak daar een eigen regel voor.' },
+      { key: 'notes', label: 'Notities', type: 'textarea' },
+    ],
+    card(item) {
+      return { title: item.name, subtitle: item.notes || null, stats: [['Per stuk', eur(item.price)]] };
+    },
+  },
   printers: {
     title: 'Printers', path: '/api/printers', noun: 'printer', empty: 'Nog geen printers.', archivable: true,
     intro: 'De afschrijving per uur is aanschafwaarde ÷ verwachte levensduur in uren.',

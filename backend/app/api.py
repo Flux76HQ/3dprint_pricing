@@ -66,6 +66,12 @@ RESOURCES = {
         "price_per_kwh": number("Prijs per kWh", maximum=100),
         "is_default": boolean("Standaard"),
     }, "name"),
+    "packaging": ("packaging_items", {
+        "name": text("Naam"),
+        "price": number("Prijs per stuk"),
+        "notes": text("Notities", required=False, max_len=1000),
+        "archived": boolean("Gearchiveerd"),
+    }, "name"),
     "spools": ("filament_spools", {
         "brand": text("Merk/type"),
         "material": text("Materiaal", required=False, max_len=40),

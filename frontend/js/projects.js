@@ -34,7 +34,7 @@ export function projectListView() {
 // --- editor ---------------------------------------------------------------------
 
 const blankFilament = () => ({ spool_id: '', label: '', grams: '', price_per_kg: '' });
-const blankPart = (group) => ({ group, label: '', quantity: '1', unit: 'stuks', unit_price: '' });
+const blankPart = (group) => ({ group, packaging_id: '', label: '', quantity: '1', unit: 'stuks', unit_price: '' });
 
 function fromSaved(project) {
   const d = project.data || {};
@@ -44,7 +44,7 @@ function fromSaved(project) {
     file_id: project.file_id || null, source_url: project.source_url || '',
     stock_booked_at: project.stock_booked_at,
     filament: (d.filament || []).map((r) => ({ spool_id: r.spool_id || '', label: str(r.label), grams: str(r.grams), price_per_kg: str(r.price_per_kg) })),
-    parts: (d.parts || []).map((r) => ({ group: r.group || 'onderdeel', label: str(r.label), quantity: str(r.quantity), unit: r.unit || 'stuks', unit_price: str(r.unit_price) })),
+    parts: (d.parts || []).map((r) => ({ group: r.group || 'onderdeel', packaging_id: r.packaging_id || '', label: str(r.label), quantity: str(r.quantity), unit: r.unit || 'stuks', unit_price: str(r.unit_price) })),
     depreciation: ((d.print || {}).depreciation || []).map((r) => ({ label: str(r.label), printer_id: r.printer_id || '', hours: str(r.hours), price_per_hour: str(r.price_per_hour) })),
     energy: ((d.print || {}).energy || []).map((r) => ({ label: str(r.label), tariff_id: r.tariff_id || '', hours: str(r.hours), kw: str(r.kw), price_per_kwh: str(r.price_per_kwh) })),
   };
@@ -53,17 +53,18 @@ function fromSaved(project) {
 export function projectEditorView(id, navigate) {
   const root = h('section', { class: 'page' }, h('p', { class: 'muted' }, 'Laden…'));
   Promise.all([
-    api('GET', '/api/spools'), api('GET', '/api/printers'), api('GET', '/api/tariffs'),
+    api('GET', '/api/spools'), api('GET', '/api/printers'), api('GET', '/api/tariffs'), api('GET', '/api/packaging'),
     id ? api('GET', `/api/projects/${id}`) : Promise.resolve(null),
-  ]).then(([spools, printers, tariffs, project]) => {
+  ]).then(([spools, printers, tariffs, packaging, project]) => {
     root.replaceChildren(buildEditor({
-      spools: spools.filter((s) => !s.archived), printers: printers.filter((p) => !p.archived), tariffs, project, navigate,
+      spools: spools.filter((s) => !s.archived), printers: printers.filter((p) => !p.archived), tariffs,
+      packaging: packaging.filter((p) => !p.archived), project, navigate,
     }));
   }).catch((e) => root.replaceChildren(h('p', { class: 'error', role: 'alert' }, e.message)));
   return root;
 }
 
-function buildEditor({ spools, printers, tariffs, project, navigate }) {
+function buildEditor({ spools, printers, tariffs, packaging, project, navigate }) {
   const state = project ? fromSaved(project) : {
     id: null, name: '', notes: '', margin_pct: '0', stock_booked_at: null, file_id: null, source_url: '',
     filament: [blankFilament()], parts: [], depreciation: [], energy: [],
@@ -85,7 +86,7 @@ function buildEditor({ spools, printers, tariffs, project, navigate }) {
     file_id: state.file_id, source_url: state.source_url.trim(),
     data: {
       filament: state.filament.map((r) => ({ spool_id: r.spool_id || null, label: r.label, grams: parseNum(r.grams), price_per_kg: parseNum(r.price_per_kg) })),
-      parts: state.parts.map((r) => ({ group: r.group, label: r.label, quantity: parseNum(r.quantity), unit: r.unit, unit_price: parseNum(r.unit_price) })),
+      parts: state.parts.map((r) => ({ group: r.group, packaging_id: r.packaging_id || null, label: r.label, quantity: parseNum(r.quantity), unit: r.unit, unit_price: parseNum(r.unit_price) })),
       print: {
         depreciation: state.depreciation.map((r) => ({ label: r.label, printer_id: r.printer_id || null, hours: parseNum(r.hours), price_per_hour: parseNum(r.price_per_hour) })),
         energy: state.energy.map((r) => ({ label: r.label, tariff_id: r.tariff_id || null, hours: parseNum(r.hours), kw: parseNum(r.kw), price_per_kwh: parseNum(r.price_per_kwh) })),
@@ -178,7 +179,15 @@ function buildEditor({ spools, printers, tariffs, project, navigate }) {
   }
 
   function partsSection(group, title, hint) {
-    const rows = state.parts.map((r, i) => (r.group !== group ? null : h('div', { class: 'line parts' },
+    const isPack = group === 'verpakking';
+    const known = (r) => (r.packaging_id && packaging.some((p) => p.id === r.packaging_id) ? r.packaging_id : '');
+    const rows = state.parts.map((r, i) => (r.group !== group ? null : h('div', { class: `line parts${isPack ? ' pack' : ''}` },
+      isPack ? field('Verpakking', select([['', 'Handmatig'], ...packaging.map((p) => [p.id, `${p.name} · ${eur(p.price)}`])], known(r), (v) => {
+        const p = packaging.find((x) => x.id === v);
+        r.packaging_id = v;
+        if (p) { r.label = p.name; r.unit = 'stuks'; r.unit_price = String(Number(p.price)); }
+        touch(); redraw();
+      })) : null,
       field('Omschrijving', textInput(r, 'label')),
       field('Aantal', numberInput(r.quantity, bind(r, 'quantity'))),
       field('Eenheid', select(UNITS, r.unit, (v) => { r.unit = v; touch(); })),
@@ -242,7 +251,9 @@ function buildEditor({ spools, printers, tariffs, project, navigate }) {
       filamentSection(),
       partsSection('onderdeel', 'Andere onderdelen', 'Magneten, schroeven, inserts… Bij gram geef je de prijs per kg op.'),
       partsSection('oplader', 'USB-kabel + lader', 'Accessoires die bij het product horen.'),
-      partsSection('verpakking', 'Verpakkingsmateriaal', 'Doos, vulmateriaal, tape, labels… alles waarmee je de print verstuurt.'),
+      partsSection('verpakking', 'Verpakkingsmateriaal', packaging.length
+        ? 'Kies een verpakking uit je lijst, of vul een regel zelf in (vulmateriaal, tape, labels…).'
+        : 'Tip: maak je dozen aan onder Verpakking, dan kies je ze hier met één klik.'),
       printSection());
     renderTotals();
   }
