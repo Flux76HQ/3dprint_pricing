@@ -5,6 +5,7 @@ import { resourceView } from './resources.js';
 import { ACCENTS, settingsView } from './settings.js';
 import { initUpdates, setDirty } from './updates.js';
 import { maybeShowInstallBanner } from './install.js';
+import { maybeOfferPush } from './push.js';
 import { goTo, installNativeBehaviour } from './pwa.js';
 import { BUILD } from './build.js';
 import { getLanguage, initLanguage, setLanguage, t } from './i18n.js';
@@ -165,6 +166,7 @@ async function start() {
   else setPrefs({ language: getLanguage() });
   route();
   maybeShowInstallBanner();
+  maybeOfferPush();
 }
 
 installNativeBehaviour();

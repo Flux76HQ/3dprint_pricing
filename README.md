@@ -127,7 +127,7 @@ eerst of je die wilt kwijtraken. *Instellingen → Updates* toont de draaiende v
 **Push-meldingen (voorbereid).** Zet ze aan met VAPID-sleutels. Draai je alleen Docker, dan maak je ze in de image zelf:
 `docker compose run --rm --no-deps app python generate_vapid.py` (of `python scripts/generate_vapid.py` met Python op de host,
 of `init_env.py` voor een nieuwe `.env`). Plak de `VAPID_*`-regels in `.env` en start opnieuw: `docker compose up -d`. Zonder sleutels staat het uit en zegt *Instellingen → Meldingen* dat.
-Per apparaat zet je meldingen aan onder *Instellingen → Meldingen*; op **iPhone/iPad werkt het alleen voor een geïnstalleerde app
+**Zodra de app als PWA op het beginscherm staat (iOS en Android) bied de app meldingen meteen aan:** een balk met één knop *Meldingen aanzetten* (de tik is nodig, want iOS en Chrome stellen de toestemmingsvraag alleen na een handeling). Alleen als de server VAPID-sleutels heeft, de browser push kan en dit toestel nog niet is aangemeld; *Niet nu* zet het twee weken uit, en een toestel dat je bewust uitzet onder *Instellingen → Meldingen* wordt nooit uit zichzelf weer aangezet. Is de toestemming al gegeven maar het toestel niet aangemeld (bijvoorbeeld na opnieuw installeren), dan meldt de app het stilletjes aan. Per apparaat zet je meldingen aan onder *Instellingen → Meldingen*; op **iPhone/iPad werkt het alleen voor een geïnstalleerde app
 (iOS 16.4 of nieuwer)** en pas na een tik. Er is nu één echte melding: “Versie X is beschikbaar” zodra de server na een update
 opstart (uit te zetten), plus een testknop. Dit zijn de afleveringsvoorwaarden, vastgelegd in `backend/app/push.py` en
 afgedwongen door `backend/tests/test_push.py` (project-baseline §11):
