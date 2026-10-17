@@ -235,9 +235,9 @@ Er zit geen CDN of proxy in deze repository; wat ervoor staat bepaalt de werkeli
 
 Standaard **uit**; passkeys blijven de aanbevolen manier van inloggen en werken altijd, ook als je het wachtwoord inschakelt.
 Aanzetten kan onder *Instellingen → Wachtwoord en tweestapsverificatie*, ook als er al passkeys actief zijn, en vraagt:
-een bevestiging met je passkey, een wachtwoord (minstens 12 tekens) en een authenticator-app (TOTP, 6 cijfers). Er is geen
+een wachtwoord (minstens 12 tekens) en een authenticator-app (TOTP, 6 cijfers). Er is geen
 wachtwoord-login zonder die tweede stap en er komt pas een sessie nadat wachtwoord én code kloppen. Je krijgt 8 back-upcodes
 (elk één keer bruikbaar). Na 5 mislukte pogingen blokkeert wachtwoord-login 15 minuten (daarna steeds langer); je passkey
-blijft werken. Wijzigen, uitschakelen en nieuwe back-upcodes vragen opnieuw een passkey-bevestiging. Wachtwoorden zijn
+blijft werken. Aanzetten vraagt alleen dat je ingelogd bent (het moet ook werken op een toestel zonder passkey); wijzigen, uitschakelen en nieuwe back-upcodes vragen een verse passkey-bevestiging. Wachtwoorden zijn
 met argon2id gehasht; het TOTP-geheim staat versleuteld met een sleutel afgeleid van `SESSION_SECRET`. Wijzig je
 `SESSION_SECRET`, dan werkt de tweestapscode niet meer en stel je wachtwoord-login opnieuw in (met je passkey).

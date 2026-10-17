@@ -3,7 +3,8 @@ import { confirmDialog, h, switchRow, toast } from './ui.js';
 
 // Optional password login, always together with an authenticator app (two-step verification).
 // Passkeys stay the primary way in; this is the weaker, opt-in door, and it is off by default.
-// Turning it on, changing it and turning it off each need a fresh passkey confirmation.
+// Turning it on only needs the session you are in (it must work on a device without a passkey); changing it,
+// turning it off and new backup codes need a fresh passkey confirmation.
 
 const group = (secret) => secret.replace(/(.{4})/g, '$1 ').trim();
 
@@ -51,13 +52,12 @@ export function setupWizard() {
         if (pw.value !== again.value) { fail('De twee wachtwoorden zijn niet gelijk.'); return; }
         submit.disabled = true;
         try {
-          const credential = await confirmWithPasskey('password-enable');
-          const res = await api('POST', '/api/auth/password/setup/start', { password: pw.value, credential });
+          const res = await api('POST', '/api/auth/password/setup/start', { password: pw.value });
           started = true;
           stepAuthenticator(res);
         } catch (err) { fail(err.message); submit.disabled = false; }
       } },
-      h('p', { class: 'muted' }, 'Je kiest een wachtwoord en koppelt daarna een authenticator-app. Zonder die tweede stap bestaat er geen wachtwoord-login. Je bevestigt dit met je passkey.'),
+      h('p', { class: 'muted' }, 'Je kiest een wachtwoord en koppelt daarna een authenticator-app. Zonder die tweede stap bestaat er geen wachtwoord-login.'),
       h('div', { class: 'field' }, h('label', { for: 'pw-new' }, 'Nieuw wachtwoord'), pw,
         h('p', { class: 'hint' }, 'Minstens 12 tekens. Een zin van een paar woorden is sterk én te onthouden.')),
       h('div', { class: 'field' }, h('label', { for: 'pw-again' }, 'Herhaal wachtwoord'), again),
@@ -140,7 +140,7 @@ export function passwordCard() {
     try { status = await api('GET', '/api/auth/password/status'); } catch (e) { body.replaceChildren(h('p', { class: 'error' }, e.message)); return; }
     if (!status.enabled) {
       body.replaceChildren(
-        h('p', { class: 'muted' }, 'Standaard uit. Passkeys blijven de aanbevolen manier van inloggen. Een wachtwoord werkt alleen samen met een authenticator-app (tweestapsverificatie) en wordt ingesteld met een bevestiging van je passkey.'),
+        h('p', { class: 'muted' }, 'Standaard uit. Passkeys blijven de aanbevolen manier van inloggen. Een wachtwoord werkt alleen samen met een authenticator-app (tweestapsverificatie) en stel je hier in.'),
         switchRow('Inloggen met wachtwoord en tweestapsverificatie', 'Naast je passkey kun je dan ook met wachtwoord en code inloggen.', false, async (on) => {
           if (on) await setupWizard();
           draw();

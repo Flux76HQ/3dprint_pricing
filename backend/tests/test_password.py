@@ -34,10 +34,8 @@ def confirmation(client, action):
     return client.passkey.assert_(options)
 
 
-def start(client, password=PASSWORD, action="password-enable", credential=True):
+def start(client, password=PASSWORD):
     body = {"password": password}
-    if credential:
-        body["credential"] = confirmation(client, action)
     return post(client, "/api/auth/password/setup/start", body)
 
 
@@ -161,15 +159,17 @@ def test_management_endpoints_need_a_session(client):
 
 # --- switching it on ---------------------------------------------------------------------------------------------
 
-def test_turning_it_on_needs_a_fresh_passkey_confirmation_for_exactly_that(owner):
-    assert start(owner, credential=False).status_code == 400                                  # no confirmation
-    assert start(owner, action="password-disable").status_code == 403                         # a confirmation for something else
-    assert start(owner, action="regenerate-recovery").status_code == 403
-    stranger = FakeAuthenticator()
-    options = post(owner, "/api/auth/stepup/options", {"action": "password-enable"}).get_json()
-    forged = post(owner, "/api/auth/password/setup/start", {"password": PASSWORD, "credential": stranger.assert_(options)})
-    assert forged.status_code == 403                                                          # not one of the owner's keys
-    assert owner.get("/api/auth/password/status").get_json() == {"enabled": False, "pending": False, "backup_codes_remaining": 0}
+def test_turning_it_on_needs_a_session_but_no_passkey_confirmation(owner, client):
+    # It has to work on a device that cannot do a passkey ceremony: the session you are in is enough.
+    assert start(owner).status_code == 200
+    assert post(owner, "/api/auth/stepup/options", {"action": "password-enable"}).status_code == 400   # no such step-up any more
+    signed_out(owner)
+    assert start(owner).status_code == 401                                                              # but never without a session
+
+
+def test_turning_it_on_twice_is_refused_while_it_is_on(owner):
+    enable(owner)
+    assert start(owner).status_code == 409
 
 
 def test_setup_returns_a_qr_and_the_manual_key_and_stores_nothing_readable(owner, app):
@@ -361,7 +361,7 @@ def test_changing_the_password_needs_the_passkey_and_keeps_the_second_factor(own
 def test_switching_it_off_removes_everything_and_needs_the_passkey(owner, app):
     enable(owner)
     assert post(owner, "/api/auth/password/disable", {}).status_code == 400
-    assert post(owner, "/api/auth/password/disable", {"credential": confirmation(owner, "password-enable")}).status_code == 403
+    assert post(owner, "/api/auth/password/disable", {"credential": confirmation(owner, "password-change")}).status_code == 403
     assert post(owner, "/api/auth/password/disable", {"credential": confirmation(owner, "password-disable")}).status_code == 200
     with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
         assert conn.execute("SELECT count(*) FROM password_credentials").fetchone()[0] == 0
