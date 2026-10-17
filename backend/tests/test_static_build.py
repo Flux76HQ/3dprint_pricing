@@ -31,6 +31,10 @@ def test_every_import_and_the_entry_scripts_carry_the_release(real):
     token = re.compile(r"\?v=[\w.]+-0123456")
     index = real.get("/").get_data(as_text=True)
     assert 'src="/js/main.js?v=' in index and 'href="/css/app.css?v=' in index and token.search(index)
+    # iOS keeps a home-screen icon (or the failure to get one) per URL, so the icon URL changes with every release
+    assert re.search(r'rel="apple-touch-icon" href="/icons/apple-touch-icon\.png\?v=[\w.]+-0123456"', index)
+    assert re.search(r'rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32\.png\?v=', index)
+    assert "/splash/splash-" in index and "splash.png?v=" not in index and "icon.svg?v=" not in index
     for script in sorted((FRONT / "js").glob("*.js")):
         served = real.get(f"/js/{script.name}")
         assert served.status_code == 200 and "no-cache" in served.headers["Cache-Control"]

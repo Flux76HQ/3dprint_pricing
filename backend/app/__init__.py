@@ -30,7 +30,7 @@ def _commit() -> str:
 
 
 _IMPORT = re.compile(r"""((?:\bfrom|\bimport)\s*\(?\s*)(["'])(\.{1,2}/[^"']+?\.js)\2""")
-_ASSET = re.compile(r"""\b(src|href)="(/(?:js|css)/[^"?]+\.(?:js|css))\"""")
+_ASSET = re.compile(r"""\b(src|href)="(/(?:js|css|icons)/[^"?]+\.(?:js|css|png))\"""")
 
 
 def create_app(config: Config | None = None, pool=None) -> Flask:
@@ -121,7 +121,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
         return f"{VERSION}-{_commit()}"
 
     def _stamped(relative: str):
-        """index.html, scripts and styles with this release in every URL they load.
+        """index.html, scripts, styles and PNG icons with this release in every URL they load.
 
         A browser or proxy that keeps an old copy of a file (or an installed app that has been open for days)
         can only ever hold URLs of its own release, so a new release cannot be mixed with old scripts. The
