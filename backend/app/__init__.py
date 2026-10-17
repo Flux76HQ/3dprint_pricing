@@ -5,7 +5,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import api, auth
+from . import api, auth, files
 from .config import Config, load_config
 from .db import make_pool
 from .http import ApiError, error_response
@@ -25,7 +25,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     cfg = config or load_config()
     app = Flask(__name__, static_folder=None)
     app.config["APP_CONFIG"] = cfg
-    app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
+    app.config["MAX_CONTENT_LENGTH"] = (cfg.max_upload_mb + 1) * 1024 * 1024
     hops = int(os.environ.get("PROXY_HOPS", "0"))
     if hops:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops)
@@ -57,6 +57,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
 
     app.register_blueprint(auth.bp)
     app.register_blueprint(api.bp)
+    app.register_blueprint(files.bp)
     app.register_error_handler(ApiError, error_response)
 
     @app.errorhandler(404)
@@ -64,6 +65,10 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
         if request.path.startswith("/api/"):
             return jsonify({"error": "Niet gevonden."}), 404
         return _spa()
+
+    @app.errorhandler(413)
+    def _too_large(_):
+        return jsonify({"error": f"Het bestand is groter dan {cfg.max_upload_mb} MB."}), 413
 
     @app.errorhandler(405)
     def _method(_):

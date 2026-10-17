@@ -5,3 +5,4 @@ psycopg-pool==3.3.3
 cbor2==6.1.5
 cryptography==50.0.2
 PyJWT==2.15.1
+defusedxml==0.7.1

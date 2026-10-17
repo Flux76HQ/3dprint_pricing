@@ -9,10 +9,15 @@ const root = document.getElementById('root');
 const NAV = [
   ['berekeningen', 'Berekeningen', 'calculator'],
   ['filament', 'Filament', 'spool'],
+  ['verpakking', 'Verpakking', 'box'],
   ['printers', 'Printers', 'printer'],
   ['energie', 'Energie', 'bolt'],
   ['instellingen', 'Instellingen', 'settings'],
 ];
+// On compact widths the bottom bar holds five destinations: the first four, then "Meer",
+// which lists the rest. The sidebar shows all of them in the same order.
+const COMPACT = NAV.slice(0, 4);
+const OVERFLOW = NAV.slice(4);
 
 let session = { user: null };
 let prefs = {};
@@ -62,7 +67,12 @@ function pageContent({ page, id }) {
     case 'berekeningen':
       if (id) return projectEditorView(id === 'nieuw' ? null : id, navigate);
       return projectListView();
-    case 'filament': case 'printers': case 'energie': return resourceView(page);
+    case 'filament': case 'verpakking': case 'printers': case 'energie': return resourceView(page);
+    case 'meer':
+      return h('section', { class: 'page' },
+        h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Meer'))),
+        h('div', { class: 'cards' }, OVERFLOW.map(([key, label, ic]) => h('a', { class: 'glass card item link-card', href: `#/${key}` },
+          h('h3', {}, icon(ic), label)))));
     case 'instellingen':
       return settingsView({ prefs, setPrefs, user: session.user, highlightPasskey: flags.recovered,
         onLogout: async () => { await api('POST', '/api/auth/logout'); start(); } });
@@ -87,7 +97,9 @@ function route() {
       onclick: () => { setPrefs({ sidebar_collapsed: !prefs.sidebar_collapsed }).then(route); } },
     icon(prefs.sidebar_collapsed ? 'expand' : 'collapse'), h('span', { class: 'nav-label' }, 'Inklappen')));
   // One primary navigator at a time: CSS shows the tab bar on compact widths, the sidebar otherwise.
-  const tabbar = h('nav', { class: 'tabbar glass', 'aria-label': 'Hoofdnavigatie (mobiel)' }, ...NAV.map((n) => navLink(n, n[0] === r.page)));
+  const inOverflow = r.page === 'meer' || OVERFLOW.some((n) => n[0] === r.page);
+  const tabbar = h('nav', { class: 'tabbar glass', 'aria-label': 'Hoofdnavigatie (mobiel)' },
+    ...COMPACT.map((n) => navLink(n, n[0] === r.page)), navLink(['meer', 'Meer', 'more'], inOverflow));
   root.replaceChildren(h('div', { class: 'app' }, sidebar, main, tabbar));
   window.scrollTo(0, 0);
 }

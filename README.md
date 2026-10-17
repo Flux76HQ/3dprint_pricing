@@ -3,11 +3,19 @@
 Zelf-gehoste PWA om de **kostprijs van 3D-prints** uit te rekenen en de voorraad en tarieven bij
 te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (geen wachtwoord).
 
-- **Berekeningen** — filament, onderdelen, USB-kabel/lader, printerafschrijving en energie → totale
-  kostprijs, optioneel met marge voor een adviesverkoopprijs. Opgeslagen berekeningen bewaren de prijzen
-  van het moment van opslaan.
+- **Berekeningen** — filament, onderdelen, USB-kabel/lader, **verpakkingsmateriaal**, printerafschrijving en
+  energie → totale kostprijs, optioneel met marge voor een adviesverkoopprijs. Opgeslagen berekeningen
+  bewaren de prijzen van het moment van opslaan.
+- **Printbestand koppelen** — upload een `.3mf` of `.stl` bij een berekening; het bestand blijft bewaard en is later
+  te downloaden. Uit een **gesliced 3MF** (Bambu Studio / Orca, “Export plate sliced file”) leest de app de
+  echte **gram per filament** en **printtijd**, die je met één klik overneemt. Uit een **STL** (of een 3MF zonder
+  slicer-data) leest de app het volume en **schat** het gewicht (volume × dichtheid × effectieve vulling);
+  de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast kun je een **link** naar het model
+  bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
 - **Filament** — je rollen met prijs per rol, gewicht en wat er nog over is; verbruik van een
   berekening kun je met één klik van de voorraad afboeken.
+- **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. In een berekening kies je er
+  per product een uit de lijst (of vul je een regel zelf in); de prijs wordt in de berekening bewaard.
 - **Printers** — aanschafwaarde, levensduur in uren (afschrijving per uur) en vermogen.
 - **Energie** — tarieven per kWh, met een standaardtarief.
 - Licht/donker/systeem, eigen accentkleur, installeerbaar op je beginscherm.
@@ -51,7 +59,8 @@ verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.
 | Variabele | Betekenis |
 |---|---|
 | `WEB_PORT` | Poort van de app; compose publiceert en de app luistert op deze ene waarde |
-| `DATA_PATH` | Map op de host voor de PostgreSQL-data (blijft bestaan bij herbouwen) |
+| `DATA_PATH` | Map op de host voor de PostgreSQL-data (`postgres/`) en geüploade bestanden (`app/`); blijft bestaan bij herbouwen |
+| `MAX_UPLOAD_MB` | Grootste STL/3MF-upload in MB (standaard 50) |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Database; gebruik een wachtwoord met alleen letters en cijfers |
 | `RP_ID` | Domein waarop de app draait, zonder schema of poort; passkeys zijn eraan gebonden |
 | `RP_ORIGINS` | Volledige origin(s), komma-gescheiden, bijv. `https://print.voorbeeld.nl` |
@@ -105,19 +114,24 @@ docker compose exec -T db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup-$(
 # herstel (op een lege database, app gestopt)
 docker compose exec -T db psql -U "$POSTGRES_USER" "$POSTGRES_DB" < backup-2026-01-01.sql
 ```
-Alternatief: stop de stack en kopieer `DATA_PATH`. De back-up bevat je passkey-publieke sleutels en gehashte
-herstelcodes, geen geheimen. Bewaar `.env` apart (in je wachtwoordmanager): zonder `SESSION_SECRET` log je gewoon opnieuw
+`pg_dump` bevat **niet** de geüploade STL/3MF-bestanden: die staan in `DATA_PATH/app/uploads`. Back die map ook
+op (`tar czf uploads.tgz "$DATA_PATH/app"`), of stop de stack en kopieer heel `DATA_PATH` (dat is dan alles in één
+keer). Een berekening zonder terugkomend bestand blijft werken; alleen “Downloaden” geeft dan een melding.
+De back-up bevat je passkey-publieke sleutels en gehashte herstelcodes, geen geheimen. Bewaar `.env` apart (in je wachtwoordmanager): zonder `SESSION_SECRET` log je gewoon opnieuw
 in, maar `RP_ID` moet gelijk blijven.
 
 ### Runtime-architectuur
-Eén app-container (Gunicorn serveert API **en** de statische PWA) + één PostgreSQL-17-container. Data: alleen
-PostgreSQL, in `DATA_PATH/postgres`. Er is geen andere opslag.
+Eén app-container (Gunicorn serveert API **en** de statische PWA) + één PostgreSQL-17-container. Data: PostgreSQL in
+`DATA_PATH/postgres` en geüploade printbestanden in `DATA_PATH/app/uploads` (de database bewaart per bestand de metadata
+en wat eruit is gelezen). Bestanden die nooit aan een berekening zijn gekoppeld worden na een dag opgeruimd.
+De container start als root om de rechten van de gemounte map te zetten en draait daarna als gebruiker `app`.
 
 | Onderdeel | Taak |
 |---|---|
 | `backend/app/calc.py` | de kostprijsberekening (`Decimal`, afronden per regel) |
 | `backend/app/auth.py`, `webauthn.py` | passkeys (ES256), herstelcodes, sessies, step-up |
-| `backend/app/api.py` | printers, tarieven, filament, berekeningen, voorkeuren |
+| `backend/app/api.py` | printers, tarieven, filament, verpakking, berekeningen, voorkeuren |
+| `backend/app/files.py`, `printfile.py` | upload/download van STL/3MF en het uitlezen ervan (slicer-gegevens of volume) |
 | `backend/app/db.py`, `migrations/` | migratierunner (vooruit-only, checksum-bewaakt) |
 | `frontend/` | statische PWA zonder buildstap, plus service worker voor offline schil |
 
@@ -126,8 +140,8 @@ Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de ap
 
 | Limiet | Waarde die de app nodig heeft | Beperkt |
 |---|---|---|
-| Maximale request-body (proxy/CDN) | ≥ 1 MB | `MAX_CONTENT_LENGTH` in `backend/app/__init__.py` (1 MB; alleen JSON) |
-| Request-timeout (proxy/CDN) | ≥ 30 s | Gunicorn `--timeout 30` in `deploy/entrypoint.sh` |
+| Maximale request-body (proxy/CDN) | ≥ `MAX_UPLOAD_MB` + 1 MB (standaard 51 MB) | uploadlimiet van de app; Cloudflare Free stopt bij 100 MB, nginx staat standaard op 1 MB (`client_max_body_size`) |
+| Request-timeout (proxy/CDN) | ≥ 120 s | Gunicorn `--timeout 120` in `deploy/entrypoint.sh` (een groot 3MF uitlezen duurt even) |
 | `Origin`-header op schrijvende verzoeken doorgeven | verplicht ongewijzigd | origin-check tegen `RP_ORIGINS` |
 | `X-Forwarded-For/-Proto/-Host` doorgeven | aantal proxies = `PROXY_HOPS` | rate-limit op de setupcode per client-IP |
 | TLS | verplicht (behalve `localhost`) | WebAuthn werkt alleen in een secure context |

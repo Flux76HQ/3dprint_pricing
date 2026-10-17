@@ -22,6 +22,18 @@ export async function api(method, path, body) {
   return data;
 }
 
+export async function upload(path, formData) {
+  let res;
+  try {
+    res = await fetch(path, { method: 'POST', credentials: 'same-origin', body: formData });
+  } catch {
+    throw new ApiError(0, 'Geen verbinding met de server.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.error || `Fout ${res.status}`);
+  return data;
+}
+
 // --- passkeys ------------------------------------------------------------------
 
 const toBuf = (b64u) => {

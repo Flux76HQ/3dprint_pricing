@@ -9,7 +9,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 CENT = Decimal("0.01")
 PART_UNITS = ("stuks", "m", "g")
-PART_GROUPS = ("onderdeel", "oplader")
+PART_GROUPS = ("onderdeel", "oplader", "verpakking")
 
 
 def _num(value, label: str) -> Decimal:
@@ -77,9 +77,11 @@ def calculate(data: dict, margin_pct=0) -> dict:
     filament_total = total(filament)
     parts_total = total([p for p in parts if p["group"] == "onderdeel"])
     charger_total = total([p for p in parts if p["group"] == "oplader"])
+    packaging_total = total([p for p in parts if p["group"] == "verpakking"])
     depreciation_total = total(depreciation)
     energy_total = total(energy)
-    cost_price = filament_total + parts_total + charger_total + depreciation_total + energy_total
+    cost_price = (filament_total + parts_total + charger_total + packaging_total
+                  + depreciation_total + energy_total)
     margin_amount = _money(cost_price * margin / 100)
 
     def fmt(lines):
@@ -95,6 +97,7 @@ def calculate(data: dict, margin_pct=0) -> dict:
             "parts": str(parts_total),
             "charger": str(charger_total),
             "parts_and_charger": str(parts_total + charger_total),
+            "packaging": str(packaging_total),
             "depreciation": str(depreciation_total),
             "energy": str(energy_total),
             "energy_and_depreciation": str(energy_total + depreciation_total),

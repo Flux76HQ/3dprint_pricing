@@ -191,6 +191,7 @@ output.cost { font-weight: 650; font-variant-numeric: tabular-nums; min-height: 
 @media (min-width: 720px) {
   .line.filament { grid-template-columns: 1.4fr 1.4fr .8fr .8fr .8fr auto; }
   .line.parts { grid-template-columns: 1.6fr .6fr 1fr 1fr .8fr auto; }
+  .line.parts.pack { grid-template-columns: 1.4fr 1.3fr .5fr .9fr .9fr .7fr auto; }
   .line.print { grid-template-columns: 1.6fr .6fr .9fr .9fr auto; }
   .line.print.energy { grid-template-columns: 1.4fr .5fr .7fr 1.2fr .8fr .7fr auto; }
   .line.add-printer { grid-template-columns: 1fr 1fr auto; border: 0; }
@@ -235,3 +236,9 @@ dialog.sheet::backdrop { background: rgba(10, 8, 30, .5); }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Print file card */
+.dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--rand); background: var(--lijn); display: inline-block; }
+input[type=file] { font: inherit; color: var(--text); max-width: 100%; }
+input[type=url] { font: inherit; color: var(--text); background: var(--surface-field); border: 1px solid var(--rand);
+  border-radius: var(--radius-sm); padding: 8px 12px; min-height: 44px; width: 100%; }

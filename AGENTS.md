@@ -45,6 +45,13 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   has to change, the calculation changed: say so in the pull request.
 - WebAuthn is hand-rolled (`backend/app/webauthn.py`, ES256 only). Do not widen what is accepted
   without a test that fails first.
+- Uploaded print files are untrusted. All parsing goes through `backend/app/printfile.py`
+  (defusedxml, size caps, readable `PrintFileError`s); never open an upload with another parser. A
+  sliced 3MF is exact, geometry is only an estimate, and print time is never derived from geometry.
+  Test with the synthetic fixtures in `backend/tests/printfiles.py`; a real slicer file is the
+  final check, since the 3MF/slice_info layout is the slicer's, not ours.
+- Uploads live under `UPLOAD_DIR` (`/data/uploads`, mounted from `DATA_PATH/app`), never in the
+  image. Stored names are generated; the original filename is only a download name.
 - UI text is Dutch. Build DOM with the `h()` helper and `textContent`; never `innerHTML` with data
   (the CSP also forbids inline script and style).
 

@@ -117,3 +117,28 @@ def test_health_endpoints_and_spa_fallback(client):
     assert client.get("/instellingen").status_code == 200       # SPA route
     assert client.get("/api/does-not-exist").status_code == 404  # but never HTML for the API
     assert client.get("/api/does-not-exist").is_json
+
+
+def test_packaging_items_crud_and_validation(owner):
+    box = make(owner, "/api/packaging", {"name": "Doos 20x15x10", "price": "0,85".replace(",", "."), "notes": "bruin karton"})
+    assert box["price"] == "0.85" and box["archived"] is False
+    assert owner.post("/api/packaging", json={"name": "x"}, headers=H).status_code == 400
+    assert owner.post("/api/packaging", json={"name": "x", "price": -1}, headers=H).status_code == 400
+    assert owner.patch(f"/api/packaging/{box['id']}", json={"price": "0.95"}, headers=H).get_json()["price"] == "0.95"
+    assert owner.patch(f"/api/packaging/{box['id']}", json={"archived": True}, headers=H).get_json()["archived"] is True
+    assert owner.delete(f"/api/packaging/{box['id']}", headers=H).status_code == 200
+    assert owner.get("/api/packaging").get_json() == []
+
+
+def test_a_saved_calculation_keeps_the_packaging_price_after_the_item_changes(owner):
+    box = make(owner, "/api/packaging", {"name": "Doos", "price": "0.85"})
+    body = sheet_payload()
+    body["data"]["parts"] = [{"group": "verpakking", "label": "Doos", "packaging_id": box["id"],
+                              "quantity": 2, "unit": "stuks", "unit_price": "0.85"}]
+    p = make(owner, "/api/projects", body)
+    assert p["totals"]["subtotals"]["packaging"] == "1.70"
+    owner.patch(f"/api/packaging/{box['id']}", json={"price": "5"}, headers=H)
+    owner.delete(f"/api/packaging/{box['id']}", headers=H)
+    again = owner.get(f"/api/projects/{p['id']}").get_json()
+    assert again["totals"]["subtotals"]["packaging"] == "1.70"
+    assert again["data"]["parts"][0]["packaging_id"] == box["id"]      # the link survives; the price is a snapshot
