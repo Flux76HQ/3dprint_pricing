@@ -14,7 +14,7 @@ function resources() {
     id: 'filament', title: t('filament.title'), path: '/api/spools', empty: t('filament.empty'), archivable: true,
     intro: t('filament.intro'),
     defaults: { brand: '', product_type: '', material: '', colour: '', roll_weight_g: '1000', price: '', remaining_g: '1000',
-      barcode: '', diameter_mm: '1.75', print_temp_c: '', bed_temp_c: '', notes: '' },
+      barcode: '', diameter_mm: '1.75', print_temp_c: '', bed_temp_c: '', notify_low: false, notes: '' },
     fields: [
       { key: 'barcode', label: t('filament.barcode'), type: 'barcode', hint: t('filament.barcode_hint') },
       { key: 'brand', label: t('filament.brand'), type: 'text', required: true, placeholder: t('filament.brand_ph') },
@@ -27,6 +27,7 @@ function resources() {
       { key: 'diameter_mm', label: t('filament.diameter'), type: 'number', required: true, list: ['1.75', '2.85'] },
       { key: 'print_temp_c', label: t('filament.print_temp'), type: 'number', placeholder: t('filament.print_temp_ph'), hint: t('filament.print_temp_hint') },
       { key: 'bed_temp_c', label: t('filament.bed_temp'), type: 'number', placeholder: t('filament.bed_temp_ph'), hint: t('filament.optional') },
+      { key: 'notify_low', label: t('filament.notify_low'), type: 'checkbox', hint: t('filament.notify_low_hint') },
       { key: 'notes', label: t('common.notes'), type: 'textarea' },
     ],
     card(item) {
@@ -128,20 +129,16 @@ function stockPanel() {
       m.grams += Number(g.remaining_g);
       materials.set(k, m);
     }
-    const low = new Set((data.materials || []).filter((m) => m.low).map((m) => m.key));     // below the threshold set under Settings
-    const totals = [...materials.entries()].map(([k, m], i) => {
-      const text = `${m.name}: ${plural(m.rolls)}, ${fmt(m.grams, 0)} g`;
-      return [i ? ' · ' : null, low.has(k) ? h('span', { class: 'stock-low' }, `${text} · ${t('stock.low_badge')}`) : text];
-    }).flat();
     body.replaceChildren(
-      h('p', { class: 'muted stock-materials' }, totals),
-      h('ul', { class: 'stock', 'aria-label': t('stock.title') }, groups.map((g) => h('li', { class: g.roll_count ? '' : 'out' },
+      h('p', { class: 'muted stock-materials' }, [...materials.values()].map((m) => `${m.name}: ${plural(m.rolls)}, ${fmt(m.grams, 0)} g`).join(' · ')),
+      h('ul', { class: 'stock', 'aria-label': t('stock.title') }, groups.map((g) => h('li', { class: [g.roll_count ? '' : 'out', g.low ? 'low' : ''].join(' ').trim() },
         h('div', {},
           h('strong', {}, spoolName(g, ' · ')),
           h('p', { class: 'muted' }, [g.material, g.barcode ? t('filament.barcode_note', { code: g.barcode }) : null].filter(Boolean).join(' · ') || ' '),
           g.roll_count
             ? h('p', { class: 'muted' }, t('stock.per_roll', { weights: g.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ') }))
-            : h('p', { class: 'muted' }, t('stock.sold_out'))),
+            : h('p', { class: 'muted' }, t('stock.sold_out')),
+          g.notify_low ? h('p', { class: g.low ? 'stock-low' : 'muted' }, g.low ? `${t('stock.low_badge')} · ${t('stock.notify_at', { n: g.threshold_g })}` : t('stock.notify_at', { n: g.threshold_g })) : null),
         h('div', { class: 'stock-total' },
           h('strong', {}, `${fmt(g.remaining_g, 0)} g`), h('span', { class: 'muted' }, plural(g.roll_count)))))));
   }
@@ -195,7 +192,7 @@ function filterBar(onChange) {
 function toPayload(config, values) {
   const out = {};
   for (const f of config.fields) {
-    out[f.key] = f.type === 'number' ? num(values[f.key]) : values[f.key];
+    out[f.key] = f.type === 'number' ? num(values[f.key]) : (f.type === 'checkbox' ? !!values[f.key] : values[f.key]);
   }
   return out;
 }
@@ -259,6 +256,10 @@ function openForm(config, item, reload) {
           values[key] = spool[key] ?? '';
           if (els[key]) els[key].value = values[key];
         }
+        if (!dirty.has('notify_low')) {                 // the setting belongs to the kind, so a new roll starts with it
+          values.notify_low = !!spool.notify_low;
+          if (els.notify_low) els.notify_low.checked = values.notify_low;
+        }
         if (!dirty.has('remaining_g')) {
           values.remaining_g = spool.roll_weight_g;     // a new roll starts full
           if (els.remaining_g) els.remaining_g.value = values.remaining_g;
@@ -287,6 +288,12 @@ function openForm(config, item, reload) {
 
   const inputs = config.fields.map((f) => {
     if (f.type === 'barcode') return barcodeField(f);
+    if (f.type === 'checkbox') {
+      const box = h('input', { type: 'checkbox', checked: !!values[f.key],
+        onchange: (e) => { values[f.key] = e.target.checked; dirty.add(f.key); } });
+      els[f.key] = box;
+      return h('div', { class: 'field' }, h('label', { class: 'check' }, box, f.label), f.hint ? h('p', { class: 'hint' }, f.hint) : null);
+    }
     let listId = null;
     if (f.list) {
       listId = `dl-${f.key}`;

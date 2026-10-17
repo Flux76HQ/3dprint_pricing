@@ -49,28 +49,26 @@ function updatesCard() {
 
 const DEFAULT_QUIET = () => ({ enabled: false, start: '22:00', end: '07:00', tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Amsterdam' });
 
-// "Notify me when a material is running low": a switch, one threshold for all materials, and an optional one per material.
-// Saving a field does not redraw the card (that would take the focus from the field you tab to); only switching on or off,
-// and a refused value, do.
+// The thresholds of the low-stock notification: one for every kind of filament and an optional one per material. Which kinds
+// are watched is chosen on the rolls. Saving a field does not redraw the card (that would take the focus from the field you
+// tab to); only a refused value does.
 function lowStockRows(ctx, stock, redraw) {
-  const low = { enabled: false, threshold_g: 500, materials: {}, ...(ctx.prefs.low_stock || {}) };
+  const low = { threshold_g: 500, materials: {}, ...(ctx.prefs.low_stock || {}) };
   const save = async (change) => {
     const saved = await ctx.setPrefs({ low_stock: { ...low, ...change } });
-    if (saved) Object.assign(low, change);
-    if (!saved || 'enabled' in change) redraw();
+    if (saved) Object.assign(low, change); else redraw();
     return saved;
   };
-  const rows = [switchRow(t('notify.low_stock'), t('notify.low_stock_hint'), !!low.enabled, (on) => save({ enabled: on }))];
-  if (!low.enabled) return rows;
   const whole = (v) => (/^\d+$/.test(v) ? Number(v) : v);                // anything else goes to the server, which says what is wrong
   const own = [];
-  rows.push(field(t('notify.low_default'), h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', value: low.threshold_g,
-    onchange: async (e) => { if (await save({ threshold_g: whole(e.target.value.trim()) })) own.forEach((i) => { i.placeholder = String(low.threshold_g); }); } }),
-  t('notify.low_default_hint')));
-  const followed = ((stock && stock.materials) || []).filter((m) => m.key);
-  if (!followed.length) { rows.push(h('p', { class: 'muted' }, t('notify.low_none'))); return rows; }
+  const rows = [h('strong', {}, t('notify.low_stock')), h('p', { class: 'muted' }, t('notify.low_stock_hint')),
+    field(t('notify.low_default'), h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', value: low.threshold_g,
+      onchange: async (e) => { if (await save({ threshold_g: whole(e.target.value.trim()) })) own.forEach((i) => { i.placeholder = String(low.threshold_g); }); } }),
+    t('notify.low_default_hint'))];
+  const materials = ((stock && stock.materials) || []).filter((m) => m.key);
+  if (!materials.length) { rows.push(h('p', { class: 'muted' }, t('notify.low_none'))); return rows; }
   rows.push(h('strong', {}, t('notify.low_materials')), h('p', { class: 'muted' }, t('notify.low_materials_hint')));
-  for (const m of followed) {
+  for (const m of materials) {
     const input = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', value: low.materials[m.key] ?? '', placeholder: String(low.threshold_g),
       onchange: (e) => {
         const value = e.target.value.trim();

@@ -1,19 +1,20 @@
-"""A notification when a material (PLA, PETG, ...) is nearly used up.
+"""A notification when a kind of filament is nearly used up.
 
-The owner switches it on and sets a threshold in grams: one for every material, optionally another for a
-material of their own choosing. After anything that changes what is on the shelf the totals are compared with
-those thresholds. A material that has just dropped to or below its threshold is announced once; it is announced
-again only after it has been above the threshold in between (a new purchase), so adjusting a roll that is already
-low does not repeat the message. The message goes through the push outbox: it is delivered by the background worker
-within a minute, on the usual terms (quiet hours, one message per kind), and saving a roll never waits for a push service.
+On a roll the owner chooses "notify me when this is nearly used up". That belongs to the kind, not the roll: rolls with the same
+barcode (without one: the same brand, type, material and colour) share it and count together, so three rolls of 1 kg are one
+kind with 3 kg. The threshold is set under Settings: one in grams for every kind, optionally another for a material (PLA, PETG...).
 
-Rolls without a material are not followed: their total mixes unrelated filaments and would say nothing.
+After anything that changes the shelf the totals of the watched kinds are compared with their thresholds. A kind that has just
+dropped to or below its threshold is announced once; it is announced again only after it has been above the threshold in between
+(a new purchase), so adjusting a roll that is already low does not repeat the message. The message goes through the push outbox:
+it is delivered by the background worker within a minute, on the usual terms (quiet hours, one message per kind), and saving a
+roll never waits for a push service.
 """
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from . import push
+from . import push, stock
 from .i18n import DEFAULT_LANGUAGE, translate, user_language
 
 log = logging.getLogger(__name__)
@@ -36,41 +37,36 @@ def _grams(value, fallback: Decimal) -> Decimal:
     return grams if grams.is_finite() and grams >= 0 else fallback
 
 
-def settings(preferences) -> "dict | None":
-    """The owner's thresholds as numbers, or None when the notification is off."""
+def settings(preferences) -> dict:
+    """The owner's thresholds as numbers: the default, and the ones of their own per material."""
     stored = (preferences or {}).get("low_stock")
-    if not isinstance(stored, dict) or stored.get("enabled") is not True:
-        return None
+    stored = stored if isinstance(stored, dict) else {}
     default = _grams(stored.get("threshold_g"), Decimal(DEFAULT_THRESHOLD_G))
     own = stored.get("materials") if isinstance(stored.get("materials"), dict) else {}
     return {"default": default, "materials": {material_key(k): _grams(v, default) for k, v in own.items() if material_key(k)}}
 
 
-def threshold_for(config: dict, key: str) -> Decimal:
-    return config["materials"].get(key, config["default"])
+def threshold_for(limits: dict, material: str) -> Decimal:
+    return limits["materials"].get(material, limits["default"])
 
 
-def totals(conn) -> dict:
-    """What is left per material, by lower-case name: {"name", "rolls", "grams"} (archived rolls are not stock)."""
-    out: dict[str, dict] = {}
-    for row in conn.execute("SELECT material, remaining_g FROM filament_spools WHERE NOT archived").fetchall():
-        key = material_key(row["material"])
-        if not key:
-            continue
-        item = out.setdefault(key, {"name": str(row["material"]).strip(), "rolls": 0, "grams": Decimal(0)})
-        item["grams"] += row["remaining_g"]
-        item["rolls"] += 1 if row["remaining_g"] > 0 else 0
-    return out
+def low_kinds(limits: dict, groups: list) -> dict:
+    """The watched kinds whose total (all their rolls together) is at or below the threshold, by key."""
+    return {g["key"]: g for g in groups
+            if g["notify_low"] and Decimal(g["remaining_g"]) <= threshold_for(limits, material_key(g["material"]))}
 
 
-def low_materials(config: dict, all_totals: dict) -> dict:
-    return {key: item for key, item in all_totals.items() if item["grams"] <= threshold_for(config, key)}
+def kind_name(group: dict) -> str:
+    """"Bambu Lab Matte Zwart (PLA)": what the owner calls it; the material only when the name does not already say it."""
+    name = " ".join(part for part in (group["brand"], group["product_type"], group["colour"]) if part)
+    material = group["material"].strip()
+    return f"{name} ({material})" if material and material.lower() not in name.lower() else name
 
 
 def build_message(lang: str, low: dict) -> tuple:
-    """Title and body: the emptiest materials first, and how many more there are when the list is long."""
-    items = sorted(low.values(), key=lambda item: (item["grams"], item["name"].lower()))
-    shown = ", ".join(f"{item['name']}: {item['grams']:.0f} g" for item in items[:MAX_LISTED])
+    """Title and body: the emptiest kinds first, and how many more there are when the list is long."""
+    items = sorted(low.values(), key=lambda g: (Decimal(g["remaining_g"]), kind_name(g).lower()))
+    shown = ", ".join(f"{kind_name(g)}: {Decimal(g['remaining_g']):.0f} g" for g in items[:MAX_LISTED])
     body = translate(lang, "push.low_body", list=shown)
     if len(items) > MAX_LISTED:
         body += " " + translate(lang, "push.low_more", n=len(items) - MAX_LISTED)
@@ -90,20 +86,17 @@ def check(pool, cfg, now: "datetime | None" = None) -> int:
 def _check(pool, cfg, now) -> int:
     with pool.connection() as conn:
         users = conn.execute("SELECT id, preferences FROM users").fetchall()
-        all_totals = totals(conn)
+        groups = stock.groups(stock.fetch(conn))
     queued = 0
     for user in users:
-        config = settings(user["preferences"])
+        low = low_kinds(settings(user["preferences"]), groups)
+        keys = list(low)
         with pool.connection() as conn:
-            if config is None:                                   # switched off: forget, so switching on starts afresh
-                conn.execute("DELETE FROM low_stock_alerts WHERE user_id = %s", (user["id"],))
-                continue
-            low = low_materials(config, all_totals)
-            keys = list(low)
-            conn.execute("DELETE FROM low_stock_alerts WHERE user_id = %s AND NOT (material = ANY(%s::text[]))", (user["id"], keys))
+            # What is no longer low (or no longer watched, or gone) is forgotten, so the next drop is announced.
+            conn.execute("DELETE FROM low_stock_alerts WHERE user_id = %s AND NOT (stock_key = ANY(%s::text[]))", (user["id"], keys))
             # Claimed atomically, so two workers saving at the same moment announce it once.
-            fresh = conn.execute("INSERT INTO low_stock_alerts (user_id, material) SELECT %s, unnest(%s::text[]) "
-                                 "ON CONFLICT DO NOTHING RETURNING material", (user["id"], keys)).fetchall()
+            fresh = conn.execute("INSERT INTO low_stock_alerts (user_id, stock_key) SELECT %s, unnest(%s::text[]) "
+                                 "ON CONFLICT DO NOTHING RETURNING stock_key", (user["id"], keys)).fetchall()
         if fresh and cfg.push_configured:
             lang = user_language(user["id"], pool) or DEFAULT_LANGUAGE
             title, body = build_message(lang, low)               # everything that is low, not only the newest: one message replaces the last
