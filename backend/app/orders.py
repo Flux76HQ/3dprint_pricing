@@ -6,11 +6,11 @@ lines, so what the customer pays is exactly the sum of what the lines say.
 """
 import uuid
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import invoice_docs, invoice_template
+from . import invoice_docs, invoice_logo, invoice_template
 from .api import _serialise, number, text
 from .http import ApiError, json_body, login_required, pool
 from .i18n import L
@@ -34,22 +34,47 @@ def _money(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
+def _split_net(grosses: list, rate: Decimal) -> list:
+    """The net part of each gross amount of one VAT rate, in cents, so that the nets add up to exactly the net of the whole
+    (the VAT is taken out of the sum): every line gets its rounded-down share and the cents that are left go to the lines with the
+    largest remainders."""
+    total = sum(grosses, Decimal(0))
+    group_net = total - (_money(total - total / (1 + rate / 100)) if rate > 0 else Decimal(0))
+    if rate <= 0:
+        return list(grosses)
+    exact = [g / (1 + rate / 100) for g in grosses]
+    nets = [e.quantize(CENT, rounding=ROUND_DOWN) for e in exact]
+    left = int(((group_net - sum(nets, Decimal(0))) / CENT).to_integral_value())
+    order = sorted(range(len(nets)), key=lambda i: (exact[i] - nets[i], -i), reverse=True)
+    for i in order[:max(left, 0)]:
+        nets[i] += CENT
+    return nets
+
+
 def compute_totals(lines: list) -> dict:
-    """The line totals and, per VAT rate, what is net, what is VAT and what is gross. Amounts are strings with two decimals."""
-    gross_by_rate: dict[Decimal, Decimal] = {}
-    line_totals = []
-    for line in lines:
+    """The line totals and, per VAT rate, what is net, what is VAT and what is gross; also the net and VAT part of every line.
+    Amounts are strings with two decimals."""
+    gross_by_rate: dict[Decimal, list] = {}
+    line_totals, rates = [], []
+    for index, line in enumerate(lines):
         total = _money(Decimal(line["quantity"]) * Decimal(line["unit_price"]))
         line_totals.append(total)
         rate = Decimal(line["vat_pct"]).quantize(CENT)
-        gross_by_rate[rate] = gross_by_rate.get(rate, Decimal(0)) + total
+        rates.append(rate)
+        gross_by_rate.setdefault(rate, []).append(index)
     vat_rows, net_sum, vat_sum, gross_sum = [], Decimal(0), Decimal(0), Decimal(0)
+    line_net = [Decimal(0)] * len(lines)
     for rate in sorted(gross_by_rate):
-        gross = gross_by_rate[rate]
+        indexes = gross_by_rate[rate]
+        grosses = [line_totals[i] for i in indexes]
+        gross = sum(grosses, Decimal(0))
         vat = _money(gross - gross / (1 + rate / 100)) if rate > 0 else _money(Decimal(0))
+        for i, net in zip(indexes, _split_net(grosses, rate)):
+            line_net[i] = net
         vat_rows.append({"pct": format(rate.normalize(), "f"), "net": str(gross - vat), "vat": str(vat), "gross": str(gross)})
         net_sum, vat_sum, gross_sum = net_sum + gross - vat, vat_sum + vat, gross_sum + gross
-    return {"line_totals": [str(t) for t in line_totals], "vat": vat_rows,
+    return {"line_totals": [str(t) for t in line_totals], "line_net": [str(n) for n in line_net],
+            "line_vat": [str(t - n) for t, n in zip(line_totals, line_net)], "vat": vat_rows,
             "total_excl": str(_money(net_sum)), "total_vat": str(_money(vat_sum)), "total": str(_money(gross_sum))}
 
 
@@ -102,6 +127,8 @@ def validated_order(body: dict) -> dict:
         "order_date": _date("f.order_date", body.get("order_date") or date.today().isoformat(), required=True),
         "delivery_date": _date("f.delivery_date", body.get("delivery_date"), required=False),
         "customer_name": text("f.customer_name")(body.get("customer_name")),
+        "customer_number": text("f.customer_number", required=False, max_len=40)(body.get("customer_number")),
+        "subject": text("f.subject", required=False, max_len=200)(body.get("subject")),
         "address": text("f.address", required=False, max_len=200)(body.get("address")),
         "postal_code": text("f.postal_code", required=False, max_len=20)(body.get("postal_code")),
         "city": text("f.city", required=False, max_len=100)(body.get("city")),
@@ -116,8 +143,8 @@ def validated_order(body: dict) -> dict:
 
 # --- storage ----------------------------------------------------------------------------------------------------
 
-ORDER_FIELDS = ("status", "order_date", "delivery_date", "customer_name", "address", "postal_code", "city", "country",
-                "email", "phone", "notes")
+ORDER_FIELDS = ("status", "order_date", "delivery_date", "customer_name", "customer_number", "subject", "address", "postal_code", "city",
+                "country", "email", "phone", "notes")
 
 
 def _write_lines(conn, order_id, lines: list) -> None:
@@ -274,8 +301,9 @@ def make_invoice(order_id):
         prefs = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()
         business = ((prefs or {}).get("preferences") or {}).get("business") or {}
         template = invoice_template.load(conn)
+        logo = invoice_logo.load(conn)
         try:
-            content, mimetype, extension = invoice_docs.render_invoice(order, lines, compute_totals(lines), business, template)
+            content, mimetype, extension = invoice_docs.render_invoice(order, lines, compute_totals(lines), business, template, logo)
         except invoice_docs.InvoiceError as exc:
             raise ApiError(422, exc.key, **exc.params) from None
     return Response(content, mimetype=mimetype, headers={

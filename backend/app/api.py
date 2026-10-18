@@ -353,7 +353,8 @@ def validated_preferences(body: dict) -> dict:
 
 BUSINESS_TEXT = (("name", "f.company_name", 120), ("address", "f.address", 200), ("postal_code", "f.postal_code", 20),
                  ("city", "f.city", 100), ("country", "f.country", 60), ("email", "f.email", 200), ("phone", "f.phone", 40),
-                 ("kvk", "f.kvk", 30), ("vat_id", "f.vat_id", 30), ("iban", "f.iban", 40), ("note", "f.invoice_note", 500))
+                 ("website", "f.website", 200), ("kvk", "f.kvk", 30), ("vat_id", "f.vat_id", 30), ("iban", "f.iban", 40), ("bic", "f.bic", 20),
+                 ("note", "f.invoice_note", 500))
 
 
 def _validated_business(value) -> dict:
@@ -367,6 +368,7 @@ def _validated_business(value) -> dict:
     if language not in LANGUAGES:
         raise ApiError(400, "err.language")
     out["invoice_language"] = language
+    out["invoice_qr"] = boolean("f.invoice_qr")(value.get("invoice_qr", True))              # a payment QR code under the invoice
     return out
 
 

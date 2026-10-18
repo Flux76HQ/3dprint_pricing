@@ -369,3 +369,5 @@ code { overflow-wrap: anywhere; white-space: normal; }
   color: var(--text); text-decoration: none; background: var(--surface-field); white-space: nowrap; }
 .subnav a:hover { border-color: var(--accent); }
 .subnav a[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 650; }
+
+.logo-preview { max-width: 220px; max-height: 80px; object-fit: contain; padding: 6px; border: 1px solid var(--rand); border-radius: var(--radius-sm); background: #fff; }

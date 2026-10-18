@@ -308,29 +308,45 @@ en zoek je op naam, plaats, bestelnummer of factuurnummer; de status zet je daar
 nummer (`JJJJ-0001`, per jaar doorgeteld, nooit tweemaal uitgegeven) en een factuurdatum (vandaag, daarna aan te passen);
 daarna levert dezelfde knop (*Factuur opnieuw downloaden*) hetzelfde nummer met wat de bestelling nu zegt, dus een bestelling
 bewerken en de factuur opnieuw downloaden kan altijd. Een factuur heeft zijn eigen bestand niet: hij wordt elke keer uit de
-bestelling gemaakt. Gegevens van je bedrijf (naam, adres, KvK, btw-nummer, IBAN, betaaltermijn, taal van de factuur en een
-tekst onderaan) vul je in onder *Instellingen → Zakelijk → Bedrijfsgegevens*.
+bestelling gemaakt. Gegevens van je bedrijf (naam, adres, telefoon, e-mail, website, KvK, btw-nummer, IBAN en BIC, betaaltermijn, taal
+van de factuur, een tekst onderaan en of er een betaal-QR op komt) vul je in onder *Instellingen → Zakelijk → Bedrijfsgegevens*, je
+**logo** (PNG of JPEG, maximaal 2 MB) onder *Instellingen → Zakelijk → Logo*. Per bestelling vul je ook het **klantnummer** en een
+**Betreft**-regel in (leeg: “Bestelling” met het nummer).
+
+**De ingebouwde factuur** heeft de layout van het voorbeeld dat de eigenaar aanleverde (Open Sans, A4): het logo linksboven, rechts de
+bedrijfsgegevens (naam en adres, daaronder in kleine letters btw-nummer, KVK, telefoon, e-mail, website, IBAN en BIC), links het
+adres van de klant, rechts factuurdatum, vervaldatum en klantnummer, dan *Factuur: nummer* en *Betreft:*, een tabel met aantal,
+beschrijving en het bedrag excl. en incl. btw per regel (met het btw-tarief eronder), de totalen per btw-tarief (*Btw hoog (21%)*,
+*Btw laag (9%)*), de betaalzin en een **betaal-QR**. Datums staan als `dd/mm/jjjj`. De QR is een SEPA-code (EPC069-12) die bankapps
+lezen: bedrag, IBAN, naam en factuurnummer worden ingevuld (dus geen iDEAL-link); hij komt er alleen als IBAN en bedrijfsnaam zijn
+ingevuld en je hem niet hebt uitgezet. Per regel zijn netto en btw zo verdeeld dat de regels precies optellen tot de totalen
+(`orders._split_net`: afgerond naar beneden, de overgebleven centen naar de grootste resten). Het lettertype (Open Sans, SIL Open Font
+License) staat in `backend/app/fonts/` met zijn licentie; ontbreekt het, dan valt de PDF terug op Helvetica.
 
 **Sjabloon** (*Instellingen → Zakelijk → Factuursjabloon*, maximaal 5 MB, één tegelijk; een nieuw bestand vervangt het vorige):
 
-- **Zonder sjabloon** gebruikt de app een ingebouwde PDF met je bedrijfsgegevens bovenaan.
+- **Zonder sjabloon** gebruikt de app de ingebouwde PDF hierboven.
 - **Word (`.docx`)**: zet velden tussen dubbele accolades in je document (kop, voet en tabellen werken ook). Eén tabelrij met
-  `{{regel.omschrijving}}`, `{{regel.aantal}}`, `{{regel.prijs}}`, `{{regel.btw}}` en `{{regel.totaal}}` (en `{{regel.nr}}`) wordt voor
-  elke regel van de bestelling herhaald; een sjabloon zonder zo'n rij wordt bij het uploaden geweigerd. Je krijgt een Word-bestand
+  `{{regel.omschrijving}}`, `{{regel.aantal}}`, `{{regel.bedrag_excl}}`, `{{regel.bedrag_incl}}`, `{{regel.btw}}` (ook `{{regel.prijs}}`
+  per stuk, `{{regel.totaal}}` en `{{regel.nr}}`) wordt voor elke regel van de bestelling herhaald; een sjabloon zonder zo'n rij wordt bij het uploaden geweigerd. Je krijgt een Word-bestand
   terug (de app zet het niet om naar PDF). Een veld dat niet bestaat blijft zichtbaar in de factuur staan, zodat je een typefout ziet.
-  *Voorbeeldsjabloon downloaden* geeft een Word-bestand om mee te beginnen.
+  `{{logo}}` en `{{betaal_qr}}` worden afbeeldingen (je logo en de betaal-QR; zonder logo of IBAN verdwijnt de tekst). *Voorbeeldsjabloon
+  downloaden* geeft een Word-bestand in dezelfde layout als de ingebouwde factuur, om mee te beginnen; het gebruikt Open Sans (Word
+  neemt een ander lettertype waar het ontbreekt).
 - **PDF als briefpapier**: de eerste pagina van je PDF blijft zoals hij is (logo, bedrijfsgegevens) en de factuur wordt erop gezet,
   tussen de marges boven en onder die je bij het uploaden opgeeft (standaard 55 en 25 mm; later aan te passen met *Marges
-  opslaan*). De bedrijfsgegevens uit de instellingen worden dan niet nog eens afgedrukt. Een lange bestelling loopt door op een
+  opslaan*). Het logo en de bedrijfsgegevens uit de instellingen worden dan niet nog eens afgedrukt (de betaal-QR wel). Een lange bestelling loopt door op een
   tweede pagina op hetzelfde briefpapier.
 
-Beschikbare velden (ook te zien onder *Beschikbare velden* bij het sjabloon): `factuurnummer`, `factuurdatum`, `vervaldatum`,
-`bestelnummer`, `besteldatum`, `leverdatum`, `opmerking` (de notities van de bestelling), `klant.naam`, `klant.adres`,
+Beschikbare velden (ook te zien onder *Beschikbare velden* bij het sjabloon): `logo`, `betaal_qr`, `factuurnummer`, `factuurdatum`,
+`vervaldatum`, `betreft`, `bestelnummer`, `besteldatum`, `leverdatum`, `opmerking` (de notities van de bestelling), `klant.naam`,
+`klant.nummer`, `klant.adres`,
 `klant.postcode`, `klant.plaats`, `klant.postcode_plaats`, `klant.land`, `klant.email`, `klant.telefoon`, `klant.adresblok` (naam, adres,
 postcode en plaats, land onder elkaar), `bedrijf.naam`, `bedrijf.adres`, `bedrijf.postcode`, `bedrijf.plaats`, `bedrijf.land`,
-`bedrijf.email`, `bedrijf.telefoon`, `bedrijf.kvk`, `bedrijf.btw_nummer`, `bedrijf.iban`, `bedrijf.tekst`, `totaal_excl`, `btw_totaal`,
-`totaal`, `btw_overzicht` (per tarief), `betaaltekst` (de betaalinstructie met bedrag, vervaldatum, IBAN en factuurnummer) en de
-regelvelden hierboven. Het sjabloonbestand staat, net als elke upload, onder `UPLOAD_DIR`; het wordt met de rest meegenomen in de
+`bedrijf.email`, `bedrijf.telefoon`, `bedrijf.website`, `bedrijf.kvk`, `bedrijf.btw_nummer`, `bedrijf.iban`, `bedrijf.bic`,
+`bedrijf.tekst`, `totaal_excl`, `btw_totaal`, `totaal`, `btw_overzicht` (per tarief, labels en bedragen samen), `btw_labels` en
+`btw_bedragen` (dezelfde regels apart, om in twee kolommen te zetten), `betaaltekst` (bedrag, vervaldatum en factuurnummer) en de
+regelvelden hierboven. Het sjabloonbestand en het logo staan, net als elke upload, onder `UPLOAD_DIR`; ze worden met de rest meegenomen in de
 back-up van de app. Word- en PDF-bestanden worden als onbetrouwbaar behandeld: grootte en uitgepakte grootte zijn begrensd, Word
 wordt gelezen met `python-docx` (zonder XML-entiteiten) en PDF alleen met `pypdf`; er wordt niets uitgevoerd.
 
@@ -338,7 +354,7 @@ wordt gelezen met `python-docx` (zonder XML-entiteiten) en PDF alleen met `pypdf
 
 *Instellingen → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`):
 je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, filamentrollen,
-berekeningen (met hun nummers), bestellingen met hun factuurnummers en het factuursjabloon, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
+berekeningen (met hun nummers), bestellingen met hun factuurnummers, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
 mailen of bewaren mag de app niet kunnen openen. Na herstellen op een lege installatie log je dus gewoon in met je passkey.
 

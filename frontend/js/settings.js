@@ -247,8 +247,8 @@ function backupCard() {
 
 // The company details that go on an invoice. Each field is saved when it is left; `ctx.prefs` is read at that moment, never copied.
 const COMPANY_TEXT = [['name', 'company.name'], ['address', 'company.address'], ['postal_code', 'company.postal_code'], ['city', 'company.city'],
-  ['country', 'company.country'], ['email', 'company.email'], ['phone', 'company.phone'], ['kvk', 'company.kvk'], ['vat_id', 'company.vat_id'],
-  ['iban', 'company.iban']];
+  ['country', 'company.country'], ['email', 'company.email'], ['phone', 'company.phone'], ['website', 'company.website'], ['kvk', 'company.kvk'],
+  ['vat_id', 'company.vat_id'], ['iban', 'company.iban'], ['bic', 'company.bic']];
 
 function companyCard(ctx) {
   const current = () => ({ payment_days: 14, invoice_language: 'nl', ...(ctx.prefs.business || {}) });
@@ -270,10 +270,44 @@ function companyCard(ctx) {
     h('div', { class: 'two' }, text(by.postal_code), text(by.city)),
     text(by.country),
     h('div', { class: 'two even' }, text(by.email, { type: 'email', inputmode: 'email' }), text(by.phone, { type: 'tel', inputmode: 'tel' })),
+    text(by.website, { inputmode: 'url' }),
     h('div', { class: 'two even' }, text(by.kvk), text(by.vat_id)),
-    text(by.iban),
+    h('div', { class: 'two' }, text(by.iban), text(by.bic)),
+    switchRow(t('company.qr'), t('company.qr_hint'), current().invoice_qr !== false, (on) => ctx.setPrefs({ business: { ...current(), invoice_qr: on } })),
     h('div', { class: 'two even' }, field(t('company.payment_days'), days), field(t('company.language'), language)),
     field(t('company.note'), note, t('company.note_hint')));
+}
+
+// The logo at the top left of the invoice (and where a Word template says {{logo}}): one PNG or JPEG.
+function invoiceLogoCard() {
+  const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
+  let lastError = '';
+  async function draw() {
+    let info;
+    try { info = await api('GET', '/api/invoice-logo'); } catch (e) { body.replaceChildren(h('p', { class: 'error' }, e.message)); return; }
+    const logo = info.logo;
+    const file = h('input', { type: 'file', accept: 'image/png,image/jpeg', 'aria-label': t('logo.choose'), onchange: async () => {
+      const chosen = file.files[0];
+      if (!chosen) return;
+      const form = new FormData();
+      form.append('file', chosen);
+      try { await upload('/api/invoice-logo', form); lastError = ''; toast(t('logo.saved')); } catch (e) { lastError = e.message; }
+      draw();
+    } });
+    body.replaceChildren(
+      h('p', { class: 'muted' }, t('logo.intro')),
+      logo ? h('div', { class: 'list-row' },
+        h('img', { class: 'logo-preview', src: `/api/invoice-logo/file?v=${encodeURIComponent(logo.uploaded_at)}`, alt: t('logo.alt') }),
+        h('div', { class: 'row' }, h('button', { class: 'btn small danger', type: 'button', onclick: async () => {
+          if (!(await confirmDialog(t('logo.remove_confirm'), t('common.delete')))) return;
+          try { await api('DELETE', '/api/invoice-logo'); lastError = ''; draw(); } catch (e) { toast(e.message, 'error'); }
+        } }, t('common.delete'))))
+        : h('p', { class: 'muted' }, t('logo.none')),
+      field(logo ? t('logo.replace') : t('logo.choose'), file, t('logo.file_hint')),
+      h('p', { class: 'error', role: 'alert', hidden: !lastError }, lastError));
+  }
+  draw();
+  return h('div', { class: 'glass card stack' }, h('h2', {}, t('logo.title')), body);
 }
 
 // The invoice template: a Word file with {{placeholders}} or a PDF used as letter paper. The invoice is made from it (or, without one,
@@ -454,7 +488,7 @@ export function settingsView(ctx, requested) {
           field(t('business.rounding'), h('select', { onchange: (e) => setPrefs({ price_rounding: e.target.value }) },
             ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (ctx.prefs.price_rounding || 'none') === v }, t(l)))))),
         h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
-      companyCard(ctx), invoiceTemplateCard()],
+      companyCard(ctx), invoiceLogoCard(), invoiceTemplateCard()],
     notificaties: () => notificationsCards(ctx),
     backup: () => [backupCard()],
   };

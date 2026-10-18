@@ -19,7 +19,7 @@ def line(description="Vaas", quantity=1, unit_price="12.10", vat_pct="21", **ext
 
 
 def new_order(owner, lines=None, **extra):
-    body = {"customer_name": "Jan Jansen", "address": "Kerkstraat 1", "postal_code": "1234 AB", "city": "Utrecht", "country": "Nederland",
+    body = {"customer_name": "Jan Jansen", "customer_number": "K9999", "subject": "Rack-houders voor oktober", "address": "Kerkstraat 1", "postal_code": "1234 AB", "city": "Utrecht", "country": "Nederland",
             "email": "jan@example.nl", "order_date": "2026-10-01", "delivery_date": "2026-10-15",
             "lines": [line()] if lines is None else lines, **extra}
     res = owner.post("/api/orders", json=body, headers=H)
@@ -29,8 +29,8 @@ def new_order(owner, lines=None, **extra):
 
 def business(owner, **extra):
     body = {"name": "Flux76 Prints", "address": "Industrieweg 5", "postal_code": "3500 AA", "city": "Utrecht", "email": "info@flux76.nl",
-            "kvk": "12345678", "vat_id": "NL001234567B01", "iban": "NL91ABNA0417164300", "note": "Bedankt voor je bestelling!",
-            "payment_days": 14, "invoice_language": "nl", **extra}
+            "kvk": "12345678", "vat_id": "NL001234567B01", "iban": "NL91ABNA0417164300", "bic": "ABNANL2A", "website": "flux76.nl",
+            "phone": "06 12345678", "note": "Bedankt voor je bestelling!", "payment_days": 14, "invoice_language": "nl", **extra}
     res = owner.put("/api/preferences", json={"business": body}, headers=H)
     assert res.status_code == 200, res.get_json()
     return res.get_json()["business"]
@@ -213,36 +213,50 @@ def test_the_invoice_date_can_be_changed_once_there_is_an_invoice(owner):
 
 # --- the invoice: built-in layout -------------------------------------------------------------------------------
 
-def test_the_built_in_invoice_has_everything_an_invoice_needs(owner):
+def test_the_built_in_invoice_follows_the_example_layout(owner):
     business(owner)
     order = new_order(owner, [line("Rack-houder", 2, "12.10", "21"), line("Verzending", 1, "5.00", "0")])
     text = pdf_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
-    for expected in ("Flux76 Prints", "Industrieweg 5", "3500 AA Utrecht", "KvK 12345678", "NL001234567B01", "NL91ABNA0417164300",
-                     "Factuur", f"{date.today().year}-0001", "Jan Jansen", "Kerkstraat 1", "1234 AB Utrecht",
-                     "Rack-houder", "Verzending", "€ 12,10", "€ 24,20", "€ 29,20", "Totaal excl. btw", "€ 25,00", "Btw 21%", "€ 4,20",
-                     "Totaal incl. btw", "Bedankt voor je bestelling!", "Gelieve"):
+    year = date.today().year
+    due = (date.today() + timedelta(days=14)).strftime("%d/%m/%Y")
+    for expected in ("Flux76 Prints", "Industrieweg 5", "3500 AA Utrecht", "Btw-nummer: NL001234567B01", "KVK-nummer: 12345678", "Tel.: 06 12345678",
+                     "E-mail: info@flux76.nl", "Website: flux76.nl", "IBAN: NL91ABNA0417164300", "BIC: ABNANL2A",
+                     "Jan Jansen", "Kerkstraat 1", "1234 AB Utrecht",
+                     f"Factuurdatum: {date.today().strftime('%d/%m/%Y')}", f"Vervaldatum: {due}", "Klantnummer: K9999",
+                     f"Factuur: {year}-0001", "Betreft: Rack-houders voor oktober",
+                     "Aantal", "Beschrijving", "Bedrag", "excl. btw", "incl. btw", "Rack-houder", "Verzending", "€ 20,00", "€ 24,20", "€ 5,00", "21% Btw", "0% Btw",
+                     "Totaalbedrag excl. btw", "€ 25,00", "Btw hoog (21%)", "€ 4,20", "Totaalbedrag incl. btw", "€ 29,20",
+                     f"Gelieve dit bedrag van € 29,20 te betalen voor: {due} onder vermelding van {year}-0001.", "Bedankt voor je bestelling!"):
         assert expected in text, expected
-    due = (date.today() + timedelta(days=14)).strftime("%d-%m-%Y")
-    assert f"vóór {due}" in text and "01-10-2026" in text and "15-10-2026" in text
+
+
+def test_a_subject_that_was_not_filled_in_says_which_order_it_is(owner):
+    business(owner)
+    order = new_order(owner, subject="")
+    text = pdf_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
+    assert f"Betreft: Bestelling {order['number']}" in text
 
 
 def test_the_invoice_can_be_in_english(owner):
     business(owner, invoice_language="en")
-    order = new_order(owner)
+    order = new_order(owner, subject="")
     text = pdf_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
-    assert "Invoice number" in text and "Total incl. VAT" in text and "Please pay € 12.10" in text and "Factuurnummer" not in text
+    for expected in ("Invoice: ", "Subject: Order 1", "Invoice date: ", "Due date: ", "Customer number: K9999", "Description", "Total incl. VAT",
+                     "VAT standard rate (21%)", "Please pay this amount of € 12.10 by", "VAT no.: NL001234567B01", "CoC no.: 12345678"):
+        assert expected in text, expected
+    assert "Factuur" not in text and "Beschrijving" not in text
 
 
 def test_an_order_without_vat_shows_only_the_total(owner):
     order = new_order(owner, [line("Vrijgesteld", 3, "5.00", "0")])
     text = pdf_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
-    assert "€ 15,00" in text and "Totaal excl. btw" not in text
+    assert "€ 15,00" in text and "Totaalbedrag excl. btw" not in text and "Btw hoog" not in text and "Totaalbedrag" in text
 
 
 def test_a_long_order_continues_on_a_second_page_with_the_header_repeated(owner):
     order = new_order(owner, [line(f"Model nummer {i}", 1, "1.00", "21") for i in range(80)])
     reader = PdfReader(io.BytesIO(post(owner, f"/api/orders/{order['id']}/invoice").data))
-    assert len(reader.pages) >= 2 and "Omschrijving" in reader.pages[1].extract_text() and "Model nummer 79" in reader.pages[-1].extract_text()
+    assert len(reader.pages) >= 2 and "Beschrijving" in reader.pages[1].extract_text() and "Model nummer 79" in reader.pages[-1].extract_text()
 
 
 def test_markup_in_a_name_is_not_taken_for_markup(owner):
@@ -253,12 +267,21 @@ def test_markup_in_a_name_is_not_taken_for_markup(owner):
 
 # --- the invoice: Word template ---------------------------------------------------------------------------------
 
-def test_the_sample_template_is_a_word_file_with_every_placeholder(owner):
+def lines_table(docx_bytes):
+    """The table that holds the lines (its first cell says Aantal), among the layout tables of the template."""
+    return next(t for t in Document(io.BytesIO(docx_bytes)).tables if t.rows[0].cells[0].text.strip() == "Aantal")
+
+
+def test_the_sample_template_is_a_word_file_in_the_example_layout(owner):
     res = owner.get("/api/invoice-template/sample")
     assert res.status_code == 200 and "wordprocessingml" in res.mimetype
     text = docx_text(res.data)
-    for name in ("factuurnummer", "klant.adresblok", "regel.omschrijving", "regel.totaal", "totaal", "btw_overzicht", "betaaltekst", "bedrijf.iban"):
+    for name in ("logo", "betaal_qr", "factuurnummer", "factuurdatum", "vervaldatum", "betreft", "klant.naam", "klant.adres", "klant.postcode_plaats",
+                 "klant.nummer", "regel.aantal", "regel.omschrijving", "regel.bedrag_excl", "regel.bedrag_incl", "regel.btw", "totaal_excl",
+                 "btw_labels", "btw_bedragen", "totaal", "betaaltekst", "bedrijf.naam", "bedrijf.btw_nummer", "bedrijf.kvk", "bedrijf.telefoon",
+                 "bedrijf.email", "bedrijf.website", "bedrijf.iban", "bedrijf.bic", "bedrijf.tekst"):
         assert "{{%s}}" % name in text, name
+    assert [c.text.strip() for c in lines_table(res.data).rows[0].cells] == ["Aantal", "Beschrijving", "Bedrag\nexcl. btw", "Bedrag\nincl. btw"]
     assert owner.get("/api/invoice-template").get_json()["placeholders"] == list(invoice_docs.PLACEHOLDERS)
 
 
@@ -272,7 +295,7 @@ def test_every_placeholder_that_is_offered_is_actually_filled_in(owner):
     assert "{{" not in text and "Graag in doos" in text and "NL001234567B01" in text and "Nederland" in text and "jan@example.nl" in text
 
 
-def test_an_order_is_filled_into_a_word_template_with_one_row_per_line(owner):
+def test_an_order_is_filled_into_the_sample_template_with_one_row_per_line(owner):
     business(owner)
     sample = owner.get("/api/invoice-template/sample").data
     res = upload(owner, "mijn factuur.docx", sample)
@@ -280,15 +303,19 @@ def test_an_order_is_filled_into_a_word_template_with_one_row_per_line(owner):
     order = new_order(owner, [line("Rack-houder", 2, "12.10", "21"), line("Verzending", 1, "5.00", "0")])
     made = post(owner, f"/api/orders/{order['id']}/invoice")
     assert made.status_code == 200 and "wordprocessingml" in made.mimetype
-    assert f'Factuur-{date.today().year}-0001.docx' in made.headers["Content-Disposition"]
+    year = date.today().year
+    assert f'Factuur-{year}-0001.docx' in made.headers["Content-Disposition"]
     text = docx_text(made.data)
     assert "{{" not in text
-    for expected in ("Flux76 Prints", "Industrieweg 5", "KvK 12345678", "IBAN NL91ABNA0417164300", f"Factuur {date.today().year}-0001",
-                     "Jan Jansen", "Kerkstraat 1", "1234 AB Utrecht", "Rack-houder", "Verzending", "€ 12,10", "€ 24,20", "€ 29,20", "€ 25,00",
-                     "Totaal incl. btw: € 29,20", "21% btw over € 20,00: € 4,20", "Bestelling %d van 01-10-2026" % order["number"], "Gelieve"):
+    for expected in ("Flux76 Prints", "Industrieweg 5", "KVK-nummer: 12345678", "IBAN: NL91ABNA0417164300", "BIC: ABNANL2A", "Website: flux76.nl",
+                     f"Factuur: {year}-0001", "Betreft: Rack-houders voor oktober", "Klantnummer: K9999", "Jan Jansen", "Kerkstraat 1", "1234 AB Utrecht",
+                     "Rack-houder", "Verzending", "€ 20,00", "€ 24,20", "€ 5,00", "21% Btw", "Totaalbedrag incl. btw", "€ 29,20", "€ 25,00",
+                     "Btw hoog (21%)", "€ 4,20", "Gelieve dit bedrag van € 29,20"):
         assert expected in text, expected
-    table = Document(io.BytesIO(made.data)).tables[0]
-    assert [row.cells[0].text for row in table.rows] == ["Omschrijving", "Rack-houder", "Verzending"]      # header + one row per line
+    table = lines_table(made.data)
+    assert [row.cells[0].text for row in table.rows] == ["Aantal", "2", "1"]                       # header + one row per line
+    assert [row.cells[1].text for row in table.rows][1:] == ["Rack-houder", "Verzending"]
+    assert len(Document(io.BytesIO(made.data)).inline_shapes) == 1                                      # the payment QR; there is no logo yet
 
 
 def make_docx(paragraphs=(), rows=(), runs=None):
@@ -365,7 +392,7 @@ def test_the_invoice_is_drawn_on_the_letter_paper_and_the_paper_stays(owner):
     assert made.mimetype == "application/pdf"
     reader = PdfReader(io.BytesIO(made.data))
     text = reader.pages[0].extract_text()
-    assert "BRIEFPAPIER Flux76" in text and "Jan Jansen" in text and "Rack" not in text and "€ 12,10" in text
+    assert "BRIEFPAPIER Flux76" in text and "Jan Jansen" in text and "Btw-nummer" not in text and "€ 12,10" in text
     assert "Industrieweg" not in text                       # the paper carries the company details, so they are not printed twice
     assert float(reader.pages[0].mediabox.width) == pytest.approx(595.27, abs=0.1)
 
@@ -457,3 +484,163 @@ def test_a_template_file_that_went_missing_is_said_so(owner, app):
                                                   ("0.005", "nl", "€ 0,01"), ("1000000", "nl", "€ 1.000.000,00")])
 def test_amounts_are_written_the_way_the_language_does(value, lang, shown):
     assert invoice_docs.money(value, lang) == shown
+
+
+# --- the lines add up exactly ---------------------------------------------------------------------------------------
+
+def test_the_net_and_vat_of_the_lines_add_up_to_the_totals_to_the_cent():
+    import random
+    from app.orders import compute_totals
+    rng = random.Random(7)
+    for _ in range(300):
+        lines = [{"quantity": rng.randint(1, 5), "unit_price": Decimal(rng.randint(1, 9999)) / 100, "vat_pct": rng.choice(["0", "9", "21", "21", "12.5"])}
+                 for _ in range(rng.randint(1, 7))]
+        totals = compute_totals(lines)
+        nets, vats, gross = (list(map(Decimal, totals[k])) for k in ("line_net", "line_vat", "line_totals"))
+        assert sum(nets) == Decimal(totals["total_excl"]) and sum(vats) == Decimal(totals["total_vat"]) and sum(gross) == Decimal(totals["total"]), lines
+        assert all(n + v == g and 0 <= n <= g for n, v, g in zip(nets, vats, gross)), lines
+
+
+def test_three_lines_of_99_cents_share_the_cents_of_the_group(owner):
+    order = new_order(owner, [line("A", 1, "0.99", "21"), line("B", 1, "0.99", "21"), line("C", 1, "0.99", "21")])
+    totals = order["totals"]
+    assert sorted(totals["line_net"]) == ["0.81", "0.82", "0.82"] and totals["total_excl"] == "2.45"      # not 3 x 0.82
+    assert sum(map(Decimal, totals["line_vat"])) == Decimal("0.52")
+
+
+# --- the new order and company fields ------------------------------------------------------------------------------------
+
+def test_an_order_keeps_its_customer_number_and_subject(owner):
+    order = new_order(owner)
+    assert (order["customer_number"], order["subject"]) == ("K9999", "Rack-houders voor oktober")
+    bare = owner.post("/api/orders", json={"customer_name": "Piet"}, headers=H).get_json()
+    assert (bare["customer_number"], bare["subject"]) == ("", "")
+    for bad in ({"customer_number": "x" * 41}, {"subject": "x" * 201}):
+        assert owner.post("/api/orders", json={"customer_name": "Piet", **bad}, headers=H).status_code == 400
+
+
+def test_the_company_details_have_a_website_a_bic_and_a_qr_switch(owner):
+    saved = business(owner)
+    assert saved["website"] == "flux76.nl" and saved["bic"] == "ABNANL2A" and saved["invoice_qr"] is True
+    assert business(owner, invoice_qr=False)["invoice_qr"] is False
+    for bad in ("yes", 1, None):
+        assert owner.put("/api/preferences", json={"business": {"name": "x", "invoice_qr": bad}}, headers=H).status_code == 400, bad
+    assert owner.put("/api/preferences", json={"business": {"name": "x"}}, headers=H).get_json()["business"]["invoice_qr"] is True      # default: on
+
+
+# --- the payment QR code ----------------------------------------------------------------------------------------------
+
+def test_the_payment_qr_is_a_sepa_code_with_the_amount_and_the_invoice_number():
+    order = {"invoice_number": "2026-0001"}
+    payload = invoice_docs.epc_payload({"name": "Flux76 Prints", "iban": "nl91 abna 0417 1643 00", "bic": "abnanl2a"}, order, Decimal("29.2"))
+    assert payload.split("\n") == ["BCD", "002", "1", "SCT", "ABNANL2A", "Flux76 Prints", "NL91ABNA0417164300", "EUR29.20", "", "", "2026-0001", ""]
+    assert invoice_docs.qr_png(payload).startswith(b"\x89PNG")
+
+
+@pytest.mark.parametrize("business_, amount", [
+    ({"name": "Flux", "iban": ""}, "10"), ({"name": "Flux", "iban": "geen iban"}, "10"), ({"name": "", "iban": "NL91ABNA0417164300"}, "10"),
+    ({"name": "Flux", "iban": "NL91ABNA0417164300", "invoice_qr": False}, "10"), ({"name": "Flux", "iban": "NL91ABNA0417164300"}, "0"),
+])
+def test_there_is_no_qr_without_what_a_payment_needs(business_, amount):
+    assert invoice_docs.epc_payload(business_, {"invoice_number": "2026-0001"}, Decimal(amount)) is None
+
+
+def pdf_images(content: bytes) -> int:
+    return len(PdfReader(io.BytesIO(content)).pages[0].images)
+
+
+def test_the_qr_is_on_the_invoice_only_when_it_can_and_should_be(owner):
+    business(owner)
+    order = new_order(owner)
+    assert pdf_images(post(owner, f"/api/orders/{order['id']}/invoice").data) == 1                       # the QR
+    business(owner, invoice_qr=False)
+    assert pdf_images(post(owner, f"/api/orders/{order['id']}/invoice").data) == 0
+    business(owner, iban="")
+    assert pdf_images(post(owner, f"/api/orders/{order['id']}/invoice").data) == 0
+
+
+# --- the logo -----------------------------------------------------------------------------------------------------------
+
+def picture(size=(600, 200), fmt="PNG", colour=(200, 30, 30)):
+    from PIL import Image
+    out = io.BytesIO()
+    Image.new("RGB", size, colour).save(out, fmt)
+    return out.getvalue()
+
+
+def upload_logo(owner, name, content):
+    return owner.post("/api/invoice-logo", data={"file": (io.BytesIO(content), name)}, headers=H, content_type="multipart/form-data")
+
+
+def test_a_logo_can_be_uploaded_looked_at_replaced_and_removed(owner, app):
+    from pathlib import Path
+    assert owner.get("/api/invoice-logo").get_json() == {"logo": None} and owner.get("/api/invoice-logo/file").status_code == 404
+    png = picture()
+    res = upload_logo(owner, "mijn logo.png", png)
+    assert res.status_code == 201 and res.get_json()["logo"] | {"uploaded_at": 0} == {
+        "filename": "mijn logo.png", "kind": "png", "size_bytes": len(png), "width_px": 600, "height_px": 200, "uploaded_at": 0}
+    shown = owner.get("/api/invoice-logo/file")
+    assert shown.data == png and shown.mimetype == "image/png"
+    jpeg = picture((300, 100), "JPEG")
+    assert upload_logo(owner, "logo.jpg", jpeg).get_json()["logo"]["kind"] == "jpeg"
+    assert owner.get("/api/invoice-logo/file").mimetype == "image/jpeg"
+    folder = Path(app.config["APP_CONFIG"].upload_dir)
+    assert len(list(folder.glob("invoice-logo-*"))) == 1                                                 # the replaced file is gone
+    assert owner.delete("/api/invoice-logo", headers=H).status_code == 200
+    assert owner.get("/api/invoice-logo").get_json() == {"logo": None} and list(folder.glob("invoice-logo-*")) == []
+
+
+@pytest.mark.parametrize("name, content", [
+    ("logo.png", b"dit is geen plaatje"), ("logo.svg", b"<svg xmlns='http://www.w3.org/2000/svg'><rect width='9' height='9'/></svg>"),
+    ("logo.png", picture(fmt="GIF")), ("logo.png", picture(fmt="BMP")), ("logo.png", picture()[:60]), ("logo.png", b""),
+    ("logo.png", b"\x89PNG\r\n\x1a\n" + b"0" * (2 * 1024 * 1024 + 1)),
+])
+def test_a_file_that_is_not_a_png_or_jpeg_logo_is_refused(owner, name, content):
+    res = upload_logo(owner, name, content)
+    assert res.status_code == 400 and owner.get("/api/invoice-logo").get_json() == {"logo": None}
+
+
+def test_an_image_with_far_too_many_pixels_is_refused(owner):
+    assert upload_logo(owner, "groot.png", picture((6000, 5000))).status_code == 400
+
+
+def test_the_logo_needs_a_session(client):
+    for method, path in (("get", "/api/invoice-logo"), ("post", "/api/invoice-logo"), ("delete", "/api/invoice-logo"), ("get", "/api/invoice-logo/file")):
+        assert getattr(client, method)(path, headers=H).status_code == 401, path
+
+
+def test_the_logo_is_drawn_on_the_built_in_invoice_but_not_on_letter_paper(owner):
+    business(owner)
+    upload_logo(owner, "logo.png", picture())
+    order = new_order(owner)
+    assert pdf_images(post(owner, f"/api/orders/{order['id']}/invoice").data) == 2                      # the logo and the QR
+    upload(owner, "paper.pdf", letter_paper())                                                          # the paper has its own header
+    assert pdf_images(post(owner, f"/api/orders/{order['id']}/invoice").data) == 1
+
+
+def test_a_logo_that_went_missing_does_not_stop_the_invoice(owner, app):
+    from pathlib import Path
+    upload_logo(owner, "logo.png", picture())
+    for path in Path(app.config["APP_CONFIG"].upload_dir).glob("invoice-logo-*"):
+        path.unlink()
+    assert post(owner, f"/api/orders/{new_order(owner)['id']}/invoice").status_code == 200
+
+
+def test_the_logo_and_the_qr_become_pictures_in_a_word_template(owner):
+    business(owner)
+    upload(owner, "sjabloon.docx", owner.get("/api/invoice-template/sample").data)
+    order = new_order(owner)
+    assert len(Document(io.BytesIO(post(owner, f"/api/orders/{order['id']}/invoice").data)).inline_shapes) == 1
+    upload_logo(owner, "logo.png", picture((900, 300)))
+    made = Document(io.BytesIO(post(owner, f"/api/orders/{order['id']}/invoice").data))
+    shapes = made.inline_shapes
+    assert len(shapes) == 2
+    widths = sorted(round(s.width.cm, 1) for s in shapes)
+    assert widths == [2.4, 5.0] and round(max(shapes, key=lambda s: s.width).height.cm, 1) == 1.7      # the QR is square, the logo keeps its shape
+
+
+def test_a_picture_placeholder_without_a_picture_just_disappears(owner):
+    business(owner, iban="")
+    upload(owner, "sjabloon.docx", owner.get("/api/invoice-template/sample").data)
+    made = post(owner, f"/api/orders/{new_order(owner)['id']}/invoice").data
+    assert "{{" not in docx_text(made) and len(Document(io.BytesIO(made)).inline_shapes) == 0

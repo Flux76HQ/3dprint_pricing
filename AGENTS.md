@@ -62,7 +62,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   work out the totals on the server per VAT rate (`compute_totals`); the browser only displays them. An invoice number
   (`YYYY-NNNN`, `invoice_counters`) is claimed atomically once per order and never reused. Invoice templates (`invoice_docs.py`,
   `invoice_template.py`) are untrusted uploads like print files: capped in size and unpacked size, parsed only by `python-docx` / `pypdf`,
-  stored under `UPLOAD_DIR`, and part of the backup together with orders and calculation numbers.
+  stored under `UPLOAD_DIR`, and part of the backup together with orders and calculation numbers. The invoice logo (`invoice_logo.py`) is an upload too (PNG/JPEG only, size and pixel caps). The built-in invoice follows the owner's example layout (`invoice_docs.py`); the payment QR is a SEPA/EPC code, not an iDEAL link; Open Sans lives in `backend/app/fonts/` with its licence.
 - Third-party browser code is vendored under `frontend/vendor/` (unmodified, with its licence and a
   README saying how to update), never loaded from a CDN: the CSP only allows scripts from this origin.
   Currently only ZXing, for barcode scanning where the browser has no `BarcodeDetector`.

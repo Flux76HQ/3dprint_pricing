@@ -315,7 +315,7 @@ def fill_orders(owner):
     from pypdf import PdfWriter
     project = make(owner, "/api/projects", sheet_payload())
     order = owner.post("/api/orders", headers=H, json={
-        "customer_name": "Jan Jansen", "address": "Kerkstraat 1", "postal_code": "1234 AB", "city": "Utrecht", "country": "Nederland",
+        "customer_name": "Jan Jansen", "customer_number": "K9999", "subject": "Rack-houders voor oktober", "address": "Kerkstraat 1", "postal_code": "1234 AB", "city": "Utrecht", "country": "Nederland",
         "email": "jan@example.nl", "phone": "0612345678", "order_date": "2026-10-01", "delivery_date": "2026-10-15", "status": "verwerkt",
         "notes": "Graag in doos", "lines": [{"description": "Rack-houder", "quantity": 2, "unit_price": "12.10", "vat_pct": "21", "project_id": project["id"]},
                                             {"description": "Verzending", "quantity": 1, "unit_price": "5.00", "vat_pct": "0"}]}).get_json()
@@ -329,6 +329,10 @@ def fill_orders(owner):
     res = owner.post("/api/invoice-template", data={"file": (io.BytesIO(paper.getvalue()), "paper.pdf"), "margin_top_mm": "62"}, headers=H,
                      content_type="multipart/form-data")
     assert res.status_code == 201
+    from PIL import Image
+    logo = io.BytesIO()
+    Image.new("RGB", (300, 100), (10, 120, 200)).save(logo, "PNG")
+    assert owner.post("/api/invoice-logo", data={"file": (io.BytesIO(logo.getvalue()), "logo.png")}, headers=H, content_type="multipart/form-data").status_code == 201
     return project, order, paper.getvalue()
 
 
@@ -339,7 +343,9 @@ def order_snapshot(client):
         for line in order["lines"]:
             line.pop("id")                                   # a line has no identity of its own outside its order
     return {"orders": orders, "numbers": {p["id"]: p["number"] for p in client.get("/api/projects").get_json()},
-            "template": {k: v for k, v in (client.get("/api/invoice-template").get_json()["template"] or {}).items() if k != "uploaded_at"}, "business": client.get("/api/preferences").get_json()["business"]}
+            "template": {k: v for k, v in (client.get("/api/invoice-template").get_json()["template"] or {}).items() if k != "uploaded_at"},
+            "logo": {k: v for k, v in (client.get("/api/invoice-logo").get_json()["logo"] or {}).items() if k != "uploaded_at"},
+            "logo_bytes": client.get("/api/invoice-logo/file").data if client.get("/api/invoice-logo").get_json()["logo"] else None, "business": client.get("/api/preferences").get_json()["business"]}
 
 
 def test_orders_numbers_and_the_template_come_back_exactly(owner):
@@ -350,10 +356,13 @@ def test_orders_numbers_and_the_template_come_back_exactly(owner):
     assert base64.b64decode(doc["invoice_template"]["content_b64"]) == paper
     owner.delete(f"/api/orders/{order['id']}", headers=H)
     owner.delete("/api/invoice-template", headers=H)
+    owner.delete("/api/invoice-logo", headers=H)
     owner.delete(f"/api/projects/{project['id']}", headers=H)
     res = owner.post("/api/backup/restore", json=doc, headers=H)
-    assert res.status_code == 200 and res.get_json()["summary"]["orders"] == 1 and res.get_json()["summary"]["template"] == 1
-    assert order_snapshot(owner) == before
+    summary = res.get_json()["summary"]
+    assert res.status_code == 200 and summary["orders"] == 1 and summary["template"] == 1 and summary["logo"] == 1
+    assert order_snapshot(owner) == before and before["logo"]["kind"] == "png" and before["logo_bytes"].startswith(b"\x89PNG")
+    assert doc["orders"][0]["customer_number"] == "K9999" and doc["orders"][0]["subject"] == "Rack-houders voor oktober"
     assert owner.get("/api/invoice-template/download").data == paper
 
 
@@ -372,14 +381,14 @@ def test_numbers_carry_on_after_a_restore(owner):
 def test_a_restore_without_orders_empties_them_and_a_version_1_file_still_works(owner):
     project, order, _ = fill_orders(owner)
     old = backup(owner).get_json()
-    for key in ("orders", "invoice_template"):
+    for key in ("orders", "invoice_template", "invoice_logo"):
         old.pop(key)
     old["format_version"] = 1
     for row in old["projects"]:
         row.pop("number")
     res = owner.post("/api/backup/restore", json=old, headers=H)
     assert res.status_code == 200 and owner.get("/api/orders").get_json() == []
-    assert owner.get("/api/invoice-template").get_json()["template"] is None
+    assert owner.get("/api/invoice-template").get_json()["template"] is None and owner.get("/api/invoice-logo").get_json()["logo"] is None
     assert [p["number"] for p in owner.get("/api/projects").get_json()] == [1]               # numbered afresh
 
 
@@ -401,6 +410,9 @@ def test_a_calculation_without_a_number_gets_the_next_free_one(owner):
     (lambda d: d["orders"][0]["lines"][0].update(quantity=0), "Bestellingen"),
     (lambda d: d["invoice_template"].update(content_b64="!!geen base64!!"), "Factuursjabloon"),
     (lambda d: d["invoice_template"].update(kind="docx"), "Factuursjabloon"),
+    (lambda d: d["invoice_logo"].update(content_b64="!!geen base64!!"), "Logo"),
+    (lambda d: d["invoice_logo"].update(content_b64=base64.b64encode(b"geen plaatje").decode()), "Logo"),
+    (lambda d: d["invoice_logo"].update(content_b64=base64.b64encode(b"\x89PNG" + b"0" * (2 * 1024 * 1024 + 1)).decode()), "Logo"),
     (lambda d: d["projects"][0].update(number=5) or d["projects"].append({**d["projects"][0], "id": "11111111-1111-1111-1111-111111111111"}), "Berekeningen"),
 ])
 def test_a_damaged_order_or_template_is_refused_before_anything_changes(owner, change, expected):
@@ -417,3 +429,15 @@ def test_the_backup_holds_the_template_but_no_credentials(owner):
     fill_orders(owner)
     text = backup(owner).get_data(as_text=True)
     assert '"invoice_template"' in text and "credential_id" not in text and "recovery" not in text
+
+
+def test_a_backup_from_before_the_logo_and_the_new_order_fields_still_restores(owner):
+    fill_orders(owner)
+    old = backup(owner).get_json()
+    old.pop("invoice_logo")
+    for order in old["orders"]:
+        order.pop("customer_number"), order.pop("subject")
+    assert owner.post("/api/backup/restore", json=old, headers=H).status_code == 200
+    (order,) = owner.get("/api/orders").get_json()
+    detail = owner.get(f"/api/orders/{order['id']}").get_json()
+    assert (detail["customer_number"], detail["subject"]) == ("", "") and owner.get("/api/invoice-logo").get_json()["logo"] is None
