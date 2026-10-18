@@ -614,5 +614,7 @@
  "updates.unknown": "onbekend",
  "updates.unsaved": "Je hebt niet-opgeslagen wijzigingen. Toch bijwerken en deze kwijtraken?",
  "updates.update": "Bijwerken",
- "updates.update_now": "Nu bijwerken"
+ "updates.update_now": "Nu bijwerken",
+ "company.number_format": "Factuurnummer-sjabloon",
+ "company.number_format_hint": "Een voorvoegsel naar keuze en daarachter het volgnummer, bijvoorbeeld FLX-{JJJJ}-{NNNN} geeft FLX-2026-0001. {JJJJ} (ook {YYYY}) of {JJ} (ook {YY}) is het jaar; de teller begint dan elk jaar opnieuw. Het aantal N's is het minimum aantal cijfers. Zonder jaar telt het gewoon door. Geldt voor nieuwe facturen; een factuur die al een nummer heeft houdt dat."
 }

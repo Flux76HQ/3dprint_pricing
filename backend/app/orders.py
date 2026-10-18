@@ -4,13 +4,14 @@ The prices on an order line are the price per piece including VAT, copied from a
 a line of its own); the totals are worked out here, never in the browser: per VAT rate the VAT is taken out of the sum of the
 lines, so what the customer pays is exactly the sum of what the lines say.
 """
+import re
 import uuid
 from datetime import date
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import invoice_docs, invoice_logo, invoice_template
+from . import invoice_docs, invoice_logo, invoice_numbers, invoice_template
 from .api import _serialise, number, text
 from .http import ApiError, json_body, login_required, pool
 from .i18n import L
@@ -278,11 +279,22 @@ def delete_order(order_id):
 
 # --- the invoice ------------------------------------------------------------------------------------------------
 
-def _claim_invoice_number(conn, year: int) -> str:
-    """The next number of this year, claimed atomically (two requests never get the same one)."""
-    last = conn.execute("INSERT INTO invoice_counters (year, last) VALUES (%s, 1) ON CONFLICT (year) DO UPDATE "
-                        "SET last = invoice_counters.last + 1 RETURNING last", (year,)).fetchone()["last"]
-    return f"{year}-{last:04d}"
+def _file_safe(number: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", number)
+
+
+def _claim_invoice_number(conn, year: int, template: str) -> str:
+    """The next number, claimed atomically (two requests never get the same one). It counts per year when the template has
+    the year in it, else it keeps counting (under year 0). A number that exists already, because the template was changed
+    and changed back, is skipped."""
+    scope = year if invoice_numbers.uses_year(template) else 0
+    for _ in range(1000):
+        last = conn.execute("INSERT INTO invoice_counters (year, last) VALUES (%s, 1) ON CONFLICT (year) DO UPDATE "
+                            "SET last = invoice_counters.last + 1 RETURNING last", (scope,)).fetchone()["last"]
+        candidate = invoice_numbers.render(template, year, last)
+        if not conn.execute("SELECT 1 FROM orders WHERE invoice_number = %s", (candidate,)).fetchone():
+            return candidate
+    raise ApiError(409, "invoice.number_exhausted")
 
 
 @bp.post("/<uuid:order_id>/invoice")
@@ -293,13 +305,14 @@ def make_invoice(order_id):
         order, lines = _fetch(conn, order_id, lock=True)
         if not lines:
             raise ApiError(409, "invoice.no_lines")
+        prefs = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()
+        business = ((prefs or {}).get("preferences") or {}).get("business") or {}
         if not order["invoice_number"]:
             today = date.today()
             invoice_date = order["invoice_date"] or today
+            template_text = business.get("invoice_number_format") or invoice_numbers.DEFAULT
             order = conn.execute("UPDATE orders SET invoice_number = %s, invoice_date = %s, updated_at = now() WHERE id = %s RETURNING *",
-                                 (_claim_invoice_number(conn, invoice_date.year), invoice_date, order_id)).fetchone()
-        prefs = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()
-        business = ((prefs or {}).get("preferences") or {}).get("business") or {}
+                                 (_claim_invoice_number(conn, invoice_date.year, template_text), invoice_date, order_id)).fetchone()
         template = invoice_template.load(conn)
         logo = invoice_logo.load(conn)
         try:
@@ -307,4 +320,4 @@ def make_invoice(order_id):
         except invoice_docs.InvoiceError as exc:
             raise ApiError(422, exc.key, **exc.params) from None
     return Response(content, mimetype=mimetype, headers={
-        "Content-Disposition": f'attachment; filename="Factuur-{order["invoice_number"]}.{extension}"'})
+        "Content-Disposition": f'attachment; filename="Factuur-{_file_safe(order["invoice_number"])}.{extension}"'})

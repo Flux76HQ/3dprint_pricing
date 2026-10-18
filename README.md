@@ -163,7 +163,7 @@ geblokkeerd is, komt niet aan; de andere toestellen worden gewoon bediend.
 
 Het beginschermicoon (`icons/apple-touch-icon.png`, 180 px, volledig gevuld en zonder transparantie; iOS rondt de hoeken zelf af; één `<link>` zonder `sizes`, zoals bij een bewezen werkende PWA, en ook bereikbaar op `/apple-touch-icon.png`), het favicon en de
 19 opstartschermen (`frontend/splash/`, donker, per apparaatformaat) komen uit `frontend/icons/icon-mark.svg`:
-`pip install playwright pillow && python scripts/generate_pwa_assets.py` (zet desnoods `CHROMIUM_PATH`). De server zet de release achter de icoon-URL (`apple-touch-icon.png?v=…`), want iOS onthoudt het icoon (of het mislukken ervan) per URL en per website: zo haalt een iPhone na een update een nieuwe op, ook als er eerder iets misging (bij een iPad kan het wel lukken en bij een iPhone niet). Zie je op iOS nog een leeg of oud icoon: verwijder de app van het beginscherm, sluit Safari helemaal en voeg hem opnieuw toe; iOS bewaart het icoon van het moment waarop je hem toevoegde. Het script schrijft
+`pip install playwright pillow && python scripts/generate_pwa_assets.py` (zet desnoods `CHROMIUM_PATH`). De server zet de release en bij elke paginalaad een tijdstempel achter de icoon-URL (`apple-touch-icon.png?v=…`), want iOS onthoudt het icoon (of het mislukken ervan) per URL en per website: zo gebruikt een pin op het beginscherm altijd het icoon van het moment, en haalt een iPhone na een update een nieuwe op, ook als er eerder iets misging (bij een iPad kan het wel lukken en bij een iPhone niet). Zie je op iOS nog een leeg of oud icoon: verwijder de app van het beginscherm, sluit Safari helemaal en voeg hem opnieuw toe; iOS bewaart het icoon van het moment waarop je hem toevoegde. Het script schrijft
 ook de `<link>`-regels voor de opstartschermen in `index.html`; het manifest bevat alleen PNG-iconen (een SVG-regel kan iOS kiezen en geeft dan een leeg icoon); `backend/tests/test_pwa_assets.py` bewaakt dat bestanden, formaten en links kloppen.
 
 ## Lokaal ontwikkelen
@@ -337,6 +337,8 @@ License) staat in `backend/app/fonts/` met zijn licentie; ontbreekt het, dan val
   tussen de marges boven en onder die je bij het uploaden opgeeft (standaard 55 en 25 mm; later aan te passen met *Marges
   opslaan*). Het logo en de bedrijfsgegevens uit de instellingen worden dan niet nog eens afgedrukt (de betaal-QR wel). Een lange bestelling loopt door op een
   tweede pagina op hetzelfde briefpapier.
+
+**Factuurnummer-sjabloon:** onder *Instellingen → Zakelijk → Bedrijfsgegevens* stel je in hoe factuurnummers eruitzien: een voorvoegsel naar keuze en daarachter het volgnummer, standaard `{JJJJ}-{NNNN}` (2026-0001). `FLX-{JJJJ}-{NNNN}` geeft FLX-2026-0001; `{JJJJ}`/`{YYYY}` is het jaar en `{JJ}`/`{YY}` het jaar in twee cijfers (de teller begint dan elk jaar opnieuw bij 1); het aantal N's is het minimum aantal cijfers; zonder jaar telt het gewoon door. Precies één volgnummer, daaromheen alleen letters, cijfers, spatie en `. _ / -` (max. 40 tekens). Een wijziging geldt voor nieuwe facturen; een factuur die al een nummer heeft houdt dat. Een nummer dat al bestaat wordt overgeslagen.
 
 Beschikbare velden (ook te zien onder *Beschikbare velden* bij het sjabloon): `logo`, `betaal_qr`, `factuurnummer`, `factuurdatum`,
 `vervaldatum`, `betreft`, `bestelnummer`, `besteldatum`, `leverdatum`, `opmerking` (de notities van de bestelling), `klant.naam`,

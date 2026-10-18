@@ -2,6 +2,7 @@
 import hashlib
 import os
 import re
+import time
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -30,6 +31,7 @@ def _commit() -> str:
 
 
 _IMPORT = re.compile(r"""((?:\bfrom|\bimport)\s*\(?\s*)(["'])(\.{1,2}/[^"']+?\.js)\2""")
+_TOUCH_ICON = re.compile(r'''(<link rel="apple-touch-icon"[^>]*href="/icons/[^"?]+\.png)\?v=[^"]*"''')
 _ASSET = re.compile(r"""\b(src|href)="(/(?:js|css|icons)/[^"?]+\.(?:js|css|png))\"""")
 
 
@@ -135,6 +137,9 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
         token = _build()
         if relative == "index.html":
             text = _ASSET.sub(lambda m: f'{m.group(1)}="{m.group(2)}?v={token}"', text)
+            # The home screen icon is looked at when someone pins the page: iOS keeps an icon per URL, so this one URL is new
+            # on every load and a pin always takes the icon of the moment.
+            text = _TOUCH_ICON.sub(lambda m: f'{m.group(1)}?v={token}.{time.time_ns() // 1_000_000:x}"', text)
         else:
             text = _IMPORT.sub(lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}?v={token}{m.group(2)}", text)
             text = text.replace("export const BUILD = { version: 'dev', commit: 'dev' };",

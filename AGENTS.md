@@ -60,7 +60,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   image. Stored names are generated; the original filename is only a download name.
 - Orders (`backend/app/orders.py`) keep the price per piece *including* VAT, copied from the calculation when the line is made, and
   work out the totals on the server per VAT rate (`compute_totals`); the browser only displays them. An invoice number
-  (`YYYY-NNNN`, `invoice_counters`) is claimed atomically once per order and never reused. Invoice templates (`invoice_docs.py`,
+  (a template in the business preferences, default `{JJJJ}-{NNNN}`, see `invoice_numbers.py`; counted per year in `invoice_counters`, or under year 0 when the template has no year) is claimed atomically once per order and never reused. Invoice templates (`invoice_docs.py`,
   `invoice_template.py`) are untrusted uploads like print files: capped in size and unpacked size, parsed only by `python-docx` / `pypdf`,
   stored under `UPLOAD_DIR`, and part of the backup together with orders and calculation numbers. The invoice logo (`invoice_logo.py`) is an upload too (PNG/JPEG only, size and pixel caps). The built-in invoice follows the owner's example layout (`invoice_docs.py`); the payment QR is a SEPA/EPC code, not an iDEAL link; Open Sans lives in `backend/app/fonts/` with its licence.
 - Third-party browser code is vendored under `frontend/vendor/` (unmodified, with its licence and a

@@ -614,5 +614,7 @@
  "updates.unknown": "unknown",
  "updates.unsaved": "You have unsaved changes. Update anyway and lose them?",
  "updates.update": "Update",
- "updates.update_now": "Update now"
+ "updates.update_now": "Update now",
+ "company.number_format": "Invoice number template",
+ "company.number_format_hint": "A prefix of your choice followed by the running number, for example FLX-{JJJJ}-{NNNN} gives FLX-2026-0001. {JJJJ} (also {YYYY}) or {JJ} (also {YY}) is the year; the count then starts again every year. The number of N's is the minimum number of digits. Without a year it just keeps counting. It applies to new invoices; an invoice that has a number keeps it."
 }
