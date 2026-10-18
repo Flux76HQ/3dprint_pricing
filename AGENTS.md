@@ -58,6 +58,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   final check, since the 3MF/slice_info layout is the slicer's, not ours.
 - Uploads live under `UPLOAD_DIR` (`/data/uploads`, mounted from `DATA_PATH/app`), never in the
   image. Stored names are generated; the original filename is only a download name.
+- Customers (`backend/app/customers.py`, migration 0014) own the klantnummer (unique, case-insensitive; empty = next free whole number, claimed under an advisory lock). An order always has a `customer_id` (required by the API) and keeps a copy of the customer's details; saving the order or editing the customer refreshes that copy, except in orders that already have an invoice number. A customer with orders cannot be deleted. Backups carry customers; an older file without them gets customers derived from its orders.
 - Orders (`backend/app/orders.py`) keep the price per piece *including* VAT, copied from the calculation when the line is made, and
   work out the totals on the server per VAT rate (`compute_totals`); the browser only displays them. An invoice number
   (a template in the business preferences, default `{JJJJ}-{NNNN}`, see `invoice_numbers.py`; counted per year in `invoice_counters`, or under year 0 when the template has no year) is claimed atomically once per order and never reused. Invoice templates (`invoice_docs.py`,

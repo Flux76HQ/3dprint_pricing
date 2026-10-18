@@ -20,7 +20,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import invoice_docs, invoice_logo, invoice_template, orders, printfile
+from . import customers, invoice_docs, invoice_logo, invoice_template, orders, printfile
 from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized
@@ -64,6 +64,8 @@ def export():
             doc[key] = [_serialise(r) for r in rows]
         rows = conn.execute(f"SELECT {', '.join(PROJECT_COLUMNS)} FROM projects ORDER BY created_at, id").fetchall()
         doc["projects"] = [_serialise(r) for r in rows]
+        doc["customers"] = [_serialise(r) for r in conn.execute(
+            f"SELECT id, {', '.join(customers.FIELDS)}, created_at, updated_at FROM customers ORDER BY created_at, id").fetchall()]
         doc["orders"] = _export_orders(conn)
         doc["invoice_pdfs"] = [{"order_id": str(r["order_id"]), "invoice_number": r["invoice_number"],
                                 "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
@@ -95,7 +97,7 @@ def export():
 
 
 MAX_INVOICE_PDF_BYTES = 10 * 1024 * 1024
-ORDER_COLUMNS = ("id", "number", "invoice_number", "invoice_date", "created_at", "updated_at", *orders.ORDER_FIELDS)
+ORDER_COLUMNS = ("id", "number", "customer_id", "invoice_number", "invoice_date", "created_at", "updated_at", *orders.ORDER_FIELDS)
 
 
 def _export_orders(conn) -> list:
@@ -201,6 +203,7 @@ def _parse(doc) -> dict:
     _number_projects(projects, doc)
     plan["projects"] = projects
     plan["orders"] = _parse_orders(doc)
+    plan["customers"] = _parse_customers(doc, plan["orders"])
     plan["invoice_pdfs"] = _parse_invoice_pdfs(doc.get("invoice_pdfs"), plan["orders"])
     plan["template"] = _parse_template(doc.get("invoice_template"))
     plan["logo"] = _parse_logo(doc.get("invoice_logo"))
@@ -244,11 +247,52 @@ def _parse_orders(doc: dict) -> list:
             if invoice:
                 invoices.add(invoice)
             parsed.append({"id": _uuid(row.get("id") or uuid.uuid4(), "orders"), "number": number, "values": values, "invoice_number": invoice,
+                           "customer_id": _uuid(row["customer_id"], "orders") if row.get("customer_id") else None,
                            "invoice_date": values["invoice_date"] if invoice else None, "created_at": _when(row.get("created_at")),
                            "updated_at": _when(row.get("updated_at"))})
         except (ApiError, Localized) as exc:
             raise _row_error("orders", n, exc) from None
     return parsed
+
+
+def _parse_customers(doc: dict, parsed_orders: list) -> list:
+    """The customers of the file. An order that names no (known) customer, as in a file from before customers existed, gets one made
+    from the details it carries: one per name + customer number, with the next free whole number where that number is empty or taken."""
+    out, by_id, numbers = [], {}, set()
+    for n, row in enumerate(_rows(doc, "customers"), 1):
+        try:
+            if not isinstance(row, dict):
+                raise Localized("backup.bad_row_type")
+            values = customers.validated_customer(row)
+            cid = _uuid(row.get("id"), "customers")
+            if not values["number"] or values["number"].lower() in numbers or cid in by_id:
+                raise Localized("backup.bad_number")
+            numbers.add(values["number"].lower())
+            item = {"id": cid, "values": values, "created_at": _when(row.get("created_at")), "updated_at": _when(row.get("updated_at"))}
+            by_id[cid] = item
+            out.append(item)
+        except (ApiError, Localized) as exc:
+            raise _row_error("customers", n, exc) from None
+    made, free = {}, 1
+    for order in parsed_orders:
+        if order["customer_id"] in by_id:
+            continue
+        v = order["values"]
+        key = (v["customer_name"].lower(), v["customer_number"].lower())
+        if key not in made:
+            number = v["customer_number"]
+            while not number or number.lower() in numbers:
+                number, free = str(free), free + 1
+            numbers.add(number.lower())
+            cid = uuid.uuid4()
+            item = {"id": cid, "created_at": None, "updated_at": None, "values": {
+                "number": number, "name": v["customer_name"], "address": v["address"], "postal_code": v["postal_code"], "city": v["city"],
+                "country": v["country"], "email": v["email"], "phone": v["phone"], "notes": ""}}
+            made[key] = cid
+            out.append(item)
+        order["customer_id"] = made[key]
+        order["values"]["customer_number"] = next(c["values"]["number"] for c in out if c["id"] == made[key])
+    return out
 
 
 def _parse_invoice_pdfs(entries, parsed_orders: list) -> list:
@@ -351,7 +395,7 @@ def _summary(plan: dict) -> dict:
     return {"printers": len(plan["sections"]["printers"][1]), "tariffs": len(plan["sections"]["tariffs"][1]),
             "packaging": len(plan["sections"]["packaging"][1]), "spools": len(plan["sections"]["spools"][1]),
             "projects": len(plan["projects"]), "files": len(plan["files"]), "preferences": len(plan["preferences"]),
-            "orders": len(plan["orders"]), "template": 1 if plan["template"] else 0, "logo": 1 if plan["logo"] else 0}
+            "orders": len(plan["orders"]), "customers": len(plan["customers"]), "template": 1 if plan["template"] else 0, "logo": 1 if plan["logo"] else 0}
 
 
 def _insert(conn, table: str, values: dict) -> None:
@@ -363,7 +407,8 @@ def _insert(conn, table: str, values: dict) -> None:
 def _restore_orders(conn, items: list) -> None:
     for item in items:
         v = item["values"]
-        columns = {"id": item["id"], "number": item["number"], "invoice_number": item["invoice_number"], "invoice_date": item["invoice_date"],
+        columns = {"id": item["id"], "number": item["number"], "customer_id": item["customer_id"], "invoice_number": item["invoice_number"],
+                   "invoice_date": item["invoice_date"],
                    **{f: v[f] for f in orders.ORDER_FIELDS}}
         for key in ("created_at", "updated_at"):
             if item[key]:
@@ -398,6 +443,7 @@ def restore():
         with pool().connection() as conn:
             conn.execute("DELETE FROM projects")
             conn.execute("DELETE FROM orders")
+            conn.execute("DELETE FROM customers")
             conn.execute("DELETE FROM invoice_counters")
             for table in ("invoice_template", "invoice_logo"):
                 replaced = conn.execute(f"DELETE FROM {table} RETURNING stored_name").fetchone()
@@ -434,6 +480,9 @@ def restore():
                     values["updated_at"] = item["updated_at"] or item["created_at"]
                 _insert(conn, "projects", values)
             conn.execute(f"ALTER SEQUENCE project_number_seq RESTART WITH {max((p['number'] for p in plan['projects']), default=0) + 1}")
+            for c in plan["customers"]:
+                _insert(conn, "customers", {"id": c["id"], **c["values"], **({"created_at": c["created_at"]} if c["created_at"] else {}),
+                                            **({"updated_at": c["updated_at"]} if c["updated_at"] else {})})
             _restore_orders(conn, plan["orders"])
             for pdf in plan["invoice_pdfs"]:
                 conn.execute("INSERT INTO invoice_pdfs (order_id, invoice_number, content, size_bytes) VALUES (%s, %s, %s, %s)",

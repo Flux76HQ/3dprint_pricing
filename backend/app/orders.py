@@ -11,7 +11,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import invoice_docs, invoice_logo, invoice_numbers, invoice_template
+from . import customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template
 from .api import _serialise, number, text
 from .http import ApiError, json_body, login_required, pool
 from .i18n import L
@@ -203,8 +203,8 @@ def list_orders():
         params.append(status)
     if query:
         like = f"%{query.replace('%', '').replace('_', '')}%"
-        where.append("(customer_name ILIKE %s OR city ILIKE %s OR number::text = %s OR invoice_number ILIKE %s)")
-        params += [like, like, query.lstrip("#"), like]
+        where.append("(customer_name ILIKE %s OR customer_number ILIKE %s OR city ILIKE %s OR number::text = %s OR invoice_number ILIKE %s)")
+        params += [like, like, like, query.lstrip("#"), like]
     sql = "SELECT * FROM orders" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY order_date DESC, number DESC"
     with pool().connection() as conn:
         orders = conn.execute(sql, params).fetchall()
@@ -212,7 +212,7 @@ def list_orders():
     out = []
     for order in orders:
         totals = compute_totals(lines[order["id"]])
-        item = _serialise({k: order[k] for k in ("id", "number", "status", "order_date", "delivery_date", "customer_name", "city",
+        item = _serialise({k: order[k] for k in ("id", "number", "status", "order_date", "delivery_date", "customer_id", "customer_name", "customer_number", "city",
                                                   "invoice_number", "invoice_date", "updated_at")})
         item.update(line_count=len(lines[order["id"]]), total=totals["total"])
         out.append(item)
@@ -228,12 +228,27 @@ def totals():
     return jsonify(compute_totals([_line(line, n) for n, line in enumerate(raw, 1)]))
 
 
+def _order_with_customer(conn, body: dict) -> dict:
+    """The order in `body`, validated, with the details of the customer it names copied in (an order always has a customer)."""
+    try:
+        customer_id = uuid.UUID(str(body.get("customer_id")))
+    except ValueError:
+        raise ApiError(400, "err.order_customer") from None
+    customer = conn.execute("SELECT * FROM customers WHERE id = %s", (customer_id,)).fetchone()
+    if customer is None:
+        raise ApiError(400, "err.order_customer")
+    values = validated_order({**body, **customers.snapshot(customer)})
+    values["customer_id"] = customer_id
+    return values
+
+
 @bp.post("")
 def create_order():
-    values = validated_order(json_body())
     with pool().connection() as conn:
-        order = conn.execute(f"INSERT INTO orders ({', '.join(ORDER_FIELDS)}) VALUES ({', '.join(['%s'] * len(ORDER_FIELDS))}) RETURNING *",
-                             tuple(values[f] for f in ORDER_FIELDS)).fetchone()     # an invoice date only exists once there is an invoice
+        values = _order_with_customer(conn, json_body())
+        fields = (*ORDER_FIELDS, "customer_id")
+        order = conn.execute(f"INSERT INTO orders ({', '.join(fields)}) VALUES ({', '.join(['%s'] * len(fields))}) RETURNING *",
+                             tuple(values[f] for f in fields)).fetchone()     # an invoice date only exists once there is an invoice
         _write_lines(conn, order["id"], values["lines"])
         order, lines = _fetch(conn, order["id"])
     return jsonify(_present(order, lines)), 201
@@ -249,13 +264,15 @@ def get_order(order_id):
 
 @bp.put("/<uuid:order_id>")
 def update_order(order_id):
-    values = validated_order(json_body())
+    body = json_body()
     with pool().connection() as conn:
         current, _ = _fetch(conn, order_id, lock=True)
-        sets = ", ".join(f"{f} = %s" for f in ORDER_FIELDS)
+        values = _order_with_customer(conn, body)
+        fields = (*ORDER_FIELDS, "customer_id")
+        sets = ", ".join(f"{f} = %s" for f in fields)
         invoice_date = values["invoice_date"] if current["invoice_number"] else None
         conn.execute(f"UPDATE orders SET {sets}, invoice_date = COALESCE(%s, invoice_date), updated_at = now() WHERE id = %s",
-                     (*[values[f] for f in ORDER_FIELDS], invoice_date, order_id))
+                     (*[values[f] for f in fields], invoice_date, order_id))
         conn.execute("DELETE FROM order_lines WHERE order_id = %s", (order_id,))
         _write_lines(conn, order_id, values["lines"])
         order, lines = _fetch(conn, order_id)

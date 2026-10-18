@@ -18,9 +18,30 @@ def line(description="Vaas", quantity=1, unit_price="12.10", vat_pct="21", **ext
     return {"description": description, "quantity": quantity, "unit_price": unit_price, "vat_pct": vat_pct, **extra}
 
 
+CUSTOMER_KEYS = {"customer_name": "name", "customer_number": "number", "address": "address", "postal_code": "postal_code", "city": "city",
+                 "country": "country", "email": "email", "phone": "phone"}
+
+
+def customer(owner, **extra):
+    """A customer: without arguments the usual one (number K9999, made once), with arguments a new one (its number is the next free one
+    unless given)."""
+    body = {"name": "Jan Jansen", "number": "K9999", "address": "Kerkstraat 1", "postal_code": "1234 AB", "city": "Utrecht", "country": "Nederland",
+            "email": "jan@example.nl", "phone": ""}
+    if extra:
+        body = {**body, "number": "", **extra}
+    else:
+        found = [c for c in owner.get("/api/customers?q=K9999").get_json() if c["number"] == "K9999"]
+        if found:
+            return found[0]
+    res = owner.post("/api/customers", json=body, headers=H)
+    assert res.status_code == 201, res.get_json()
+    return res.get_json()
+
+
 def new_order(owner, lines=None, **extra):
-    body = {"customer_name": "Jan Jansen", "customer_number": "K9999", "subject": "Rack-houders voor oktober", "address": "Kerkstraat 1", "postal_code": "1234 AB", "city": "Utrecht", "country": "Nederland",
-            "email": "jan@example.nl", "order_date": "2026-10-01", "delivery_date": "2026-10-15",
+    own = {CUSTOMER_KEYS[key]: extra.pop(key) for key in list(extra) if key in CUSTOMER_KEYS}
+    customer_id = extra.pop("customer_id", None) or customer(owner, **own)["id"]
+    body = {"customer_id": customer_id, "subject": "Rack-houders voor oktober", "order_date": "2026-10-01", "delivery_date": "2026-10-15",
             "lines": [line()] if lines is None else lines, **extra}
     res = owner.post("/api/orders", json=body, headers=H)
     assert res.status_code == 201, res.get_json()
@@ -119,19 +140,20 @@ def test_the_totals_endpoint_gives_what_saving_will_store(owner):
 # --- validation -----------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("change", [
-    {"customer_name": ""}, {"status": "klaar"}, {"order_date": "morgen"}, {"delivery_date": "31-12-2026"}, {"email": "geen-adres"},
+    {"customer_id": ""}, {"customer_id": "niet-een-uuid"}, {"customer_id": "00000000-0000-0000-0000-000000000000"}, {"customer_id": None},
+    {"status": "klaar"}, {"order_date": "morgen"}, {"delivery_date": "31-12-2026"},
     {"lines": "veel"}, {"lines": [line(quantity=0)]}, {"lines": [line(quantity=1.5)]}, {"lines": [line(quantity="x")]},
     {"lines": [line(unit_price="-1")]}, {"lines": [line(unit_price="abc")]}, {"lines": [line(vat_pct="101")]},
     {"lines": [line(description="")]}, {"lines": [line(project_id="niet-een-uuid")]}, {"lines": [line()] * 201},
-    {"customer_name": "x" * 121},
+    {"subject": "x" * 201},
 ])
 def test_an_order_that_makes_no_sense_is_refused(owner, change):
-    body = {"customer_name": "Jan", "order_date": "2026-10-01", "lines": [line()], **change}
+    body = {"customer_id": customer(owner)["id"], "order_date": "2026-10-01", "lines": [line()], **change}
     assert owner.post("/api/orders", json=body, headers=H).status_code == 400
 
 
-def test_an_order_may_start_without_lines_and_with_only_a_name(owner):
-    order = owner.post("/api/orders", json={"customer_name": "Jan"}, headers=H).get_json()
+def test_an_order_may_start_without_lines_and_with_only_a_customer(owner):
+    order = owner.post("/api/orders", json={"customer_id": customer(owner)["id"]}, headers=H).get_json()
     assert order["lines"] == [] and order["totals"]["total"] == "0.00" and order["status"] == "nieuw"
     assert order["order_date"] == date.today().isoformat() and order["number"] == 1
 
@@ -180,7 +202,7 @@ def test_the_list_filters_by_status_and_searches_by_name_number_and_city(owner):
 
 def test_an_order_can_be_edited_and_deleted(owner):
     order = new_order(owner)
-    body = {**order, "customer_name": "Piet", "lines": [line("Nieuw", 4, "2.50", "0")]}
+    body = {**order, "customer_id": customer(owner, name="Piet")["id"], "lines": [line("Nieuw", 4, "2.50", "0")]}
     saved = owner.put(f"/api/orders/{order['id']}", json=body, headers=H).get_json()
     assert saved["customer_name"] == "Piet" and [l["description"] for l in saved["lines"]] == ["Nieuw"] and saved["totals"]["total"] == "10.00"
     assert owner.delete(f"/api/orders/{order['id']}", headers=H).status_code == 200
@@ -288,7 +310,8 @@ def test_the_invoice_is_kept_as_a_pdf_and_can_be_downloaded_again_as_it_was(owne
     kept = owner.get(f"/api/orders/{order['id']}/invoice")
     assert kept.status_code == 200 and kept.mimetype == "application/pdf" and kept.data == made.data
     assert f'Factuur-{date.today().year}-0001.pdf' in kept.headers["Content-Disposition"]
-    owner.put(f"/api/orders/{order['id']}", json={**order, "customer_name": "Piet Pietersen"}, headers=H)
+    owner.put(f"/api/customers/{order['customer_id']}", json={**customer(owner), "name": "Piet Pietersen"}, headers=H)
+    owner.put(f"/api/orders/{order['id']}", json=order, headers=H)
     assert owner.get(f"/api/orders/{order['id']}/invoice").data == made.data                       # a change does not touch the kept one
     again = post(owner, f"/api/orders/{order['id']}/invoice")
     assert "Piet Pietersen" in pdf_text(again.data) and owner.get(f"/api/orders/{order['id']}/invoice").data == again.data
@@ -658,10 +681,9 @@ def test_three_lines_of_99_cents_share_the_cents_of_the_group(owner):
 def test_an_order_keeps_its_customer_number_and_subject(owner):
     order = new_order(owner)
     assert (order["customer_number"], order["subject"]) == ("K9999", "Rack-houders voor oktober")
-    bare = owner.post("/api/orders", json={"customer_name": "Piet"}, headers=H).get_json()
-    assert (bare["customer_number"], bare["subject"]) == ("", "")
-    for bad in ({"customer_number": "x" * 41}, {"subject": "x" * 201}):
-        assert owner.post("/api/orders", json={"customer_name": "Piet", **bad}, headers=H).status_code == 400
+    bare = owner.post("/api/orders", json={"customer_id": customer(owner)["id"]}, headers=H).get_json()
+    assert (bare["customer_number"], bare["subject"]) == ("K9999", "")
+    assert owner.post("/api/orders", json={"customer_id": customer(owner)["id"], "subject": "x" * 201}, headers=H).status_code == 400
 
 
 def test_the_company_details_have_a_website_a_bic_and_a_qr_switch(owner):

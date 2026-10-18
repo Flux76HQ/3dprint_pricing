@@ -273,5 +273,10 @@
  "invoice.err_no_converter": "Er is geen programma om het Word-sjabloon naar PDF om te zetten (LibreOffice). In de Docker-installatie zit dat standaard; gebruik anders een PDF-sjabloon of het standaardontwerp.",
  "invoice.err_convert": "Het Word-sjabloon kon niet naar PDF worden omgezet. Probeer het opnieuw of controleer het sjabloon.",
  "invoice.err_no_pdf": "Van deze bestelling is nog geen factuur-PDF gemaakt.",
- "backup.s.invoice_pdfs": "Factuur-PDF's"
+ "backup.s.invoice_pdfs": "Factuur-PDF's",
+ "err.order_customer": "Kies een klant voor deze bestelling, of maak een nieuwe klant aan.",
+ "err.customer_not_found": "Klant niet gevonden.",
+ "err.customer_number_taken": "Klantnummer {number} is al in gebruik.",
+ "err.customer_in_use": "Deze klant heeft nog {n} bestelling(en) en kan niet verwijderd worden.",
+ "backup.s.customers": "Klanten"
 }

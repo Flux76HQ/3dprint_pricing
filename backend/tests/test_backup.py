@@ -13,6 +13,7 @@ import pytest
 from tests import printfiles as pf
 from tests.test_auth_api import H, onboard, post
 from tests.test_domain_api import make, sheet_payload
+from tests.test_orders import customer
 
 EN = {"X-Lang": "en"}
 
@@ -315,8 +316,7 @@ def fill_orders(owner):
     from pypdf import PdfWriter
     project = make(owner, "/api/projects", sheet_payload())
     order = owner.post("/api/orders", headers=H, json={
-        "customer_name": "Jan Jansen", "customer_number": "K9999", "subject": "Rack-houders voor oktober", "address": "Kerkstraat 1", "postal_code": "1234 AB", "city": "Utrecht", "country": "Nederland",
-        "email": "jan@example.nl", "phone": "0612345678", "order_date": "2026-10-01", "delivery_date": "2026-10-15", "status": "verwerkt",
+        "customer_id": customer(owner, name="Jan Jansen", number="K9999", phone="0612345678", notes="Betaalt altijd op tijd")["id"], "subject": "Rack-houders voor oktober", "order_date": "2026-10-01", "delivery_date": "2026-10-15", "status": "verwerkt",
         "notes": "Graag in doos", "lines": [{"description": "Rack-houder", "quantity": 2, "unit_price": "12.10", "vat_pct": "21", "project_id": project["id"]},
                                             {"description": "Verzending", "quantity": 1, "unit_price": "5.00", "vat_pct": "0"}]}).get_json()
     owner.put("/api/preferences", json={"business": {"name": "Flux76 Prints", "kvk": "12345678", "payment_days": 30}}, headers=H)
@@ -338,11 +338,12 @@ def fill_orders(owner):
 
 def order_snapshot(client):
     orders = [client.get(f"/api/orders/{o['id']}").get_json() for o in client.get("/api/orders").get_json()]
+    customers_ = client.get("/api/customers").get_json()
     for order in orders:
         order.pop("updated_at")
         for line in order["lines"]:
             line.pop("id")                                   # a line has no identity of its own outside its order
-    return {"orders": orders, "numbers": {p["id"]: p["number"] for p in client.get("/api/projects").get_json()},
+    return {"orders": orders, "customers": [{k: v for k, v in c.items() if k != "updated_at"} for c in customers_], "numbers": {p["id"]: p["number"] for p in client.get("/api/projects").get_json()},
             "template": {k: v for k, v in (client.get("/api/invoice-template").get_json()["template"] or {}).items() if k != "uploaded_at"},
             "logo": {k: v for k, v in (client.get("/api/invoice-logo").get_json()["logo"] or {}).items() if k != "uploaded_at"},
             "logo_bytes": client.get("/api/invoice-logo/file").data if client.get("/api/invoice-logo").get_json()["logo"] else None, "business": client.get("/api/preferences").get_json()["business"]}
@@ -373,7 +374,7 @@ def test_numbers_carry_on_after_a_restore(owner):
     project, order, _ = fill_orders(owner)
     doc = backup(owner).get_json()
     owner.post("/api/backup/restore", json=doc, headers=H)
-    again = owner.post("/api/orders", json={"customer_name": "Piet", "lines": [{"description": "x", "quantity": 1, "unit_price": "1", "vat_pct": "0"}]},
+    again = owner.post("/api/orders", json={"customer_id": customer(owner, name="Piet")["id"], "lines": [{"description": "x", "quantity": 1, "unit_price": "1", "vat_pct": "0"}]},
                        headers=H).get_json()
     assert again["number"] == order["number"] + 1
     assert make(owner, "/api/projects", sheet_payload())["number"] == project["number"] + 1
@@ -460,3 +461,52 @@ def test_a_kept_invoice_for_an_order_that_is_not_in_the_file_is_let_go(owner):
     assert owner.post("/api/backup/restore", json=doc, headers=H).status_code == 200
     order_id = doc["orders"][0]["id"]
     assert owner.get(f"/api/orders/{order_id}/invoice").status_code == 404
+
+
+def test_customers_travel_in_the_backup_with_their_numbers_and_links(owner):
+    fill_orders(owner)
+    extra = customer(owner, name="Zonder bestelling", number="Z1", notes="Nog geen order")
+    doc = backup(owner).get_json()
+    assert {c["number"] for c in doc["customers"]} == {"K9999", "Z1"} and doc["orders"][0]["customer_id"]
+    before = order_snapshot(owner)
+    owner.delete(f"/api/orders/{doc['orders'][0]['id']}", headers=H)
+    owner.delete(f"/api/customers/{extra['id']}", headers=H)
+    res = owner.post("/api/backup/restore", json=doc, headers=H)
+    assert res.status_code == 200 and res.get_json()["summary"]["customers"] == 2
+    assert order_snapshot(owner) == before and owner.get(f"/api/customers/{extra['id']}").get_json()["notes"] == "Nog geen order"
+
+
+def test_a_backup_from_before_customers_gets_customers_made_from_its_orders(owner):
+    fill_orders(owner)
+    new_order_ = owner.get("/api/orders").get_json()[0]
+    doc = backup(owner).get_json()
+    old = copy.deepcopy(doc)
+    old.pop("customers")
+    second = copy.deepcopy(old["orders"][0])
+    second.update(id="33333333-3333-3333-3333-333333333333", number=2, invoice_number=None, customer_number="", customer_name="Els")
+    old["orders"].append(second)
+    old["invoice_pdfs"] = []
+    for order in old["orders"]:
+        order.pop("customer_id")
+    res = owner.post("/api/backup/restore", json=old, headers=H)
+    assert res.status_code == 200, res.get_json()
+    customers_ = {c["name"]: c for c in owner.get("/api/customers").get_json()}
+    assert customers_["Jan Jansen"]["number"] == "K9999" and customers_["Els"]["number"] == "1"
+    listed = {o["customer_name"]: o for o in owner.get("/api/orders").get_json()}
+    assert listed["Jan Jansen"]["customer_id"] == customers_["Jan Jansen"]["id"] and listed["Els"]["customer_number"] == "1"
+    assert new_order_["customer_name"] == "Jan Jansen"
+
+
+@pytest.mark.parametrize("change", [
+    lambda d: d["customers"][0].update(name=""), lambda d: d["customers"][0].update(number=""),
+    lambda d: d["customers"].append(copy.deepcopy(d["customers"][0])), lambda d: d["customers"][0].update(id="geen-uuid"),
+    lambda d: d["customers"][0].update(email="geen-adres"), lambda d: d.update(customers="geen lijst"),
+])
+def test_a_damaged_customer_is_refused_before_anything_changes(owner, change):
+    fill_orders(owner)
+    doc = backup(owner).get_json()
+    change(doc)
+    before = order_snapshot(owner)
+    res = owner.post("/api/backup/restore", json=doc, headers=H)
+    assert res.status_code == 400 and "Klanten" in res.get_json()["error"]
+    assert order_snapshot(owner) == before

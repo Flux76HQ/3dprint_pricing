@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { loginView, onboardingView } from './auth-views.js';
+import { customerEditorView, customerListView } from './customers.js';
 import { orderEditorView, orderListView } from './orders.js';
 import { projectEditorView, projectListView } from './projects.js';
 import { resourceView } from './resources.js';
@@ -18,6 +19,7 @@ const root = document.getElementById('root');
 const NAV = [
   ['berekeningen', 'nav.calculations', 'calculator'],
   ['bestellingen', 'nav.orders', 'clipboard'],
+  ['klanten', 'nav.customers', 'users'],
   ['filament', 'nav.filament', 'spool'],
   ['verpakking', 'nav.packaging', 'box'],
   ['printers', 'nav.printers', 'printer'],
@@ -95,6 +97,9 @@ function pageContent({ page, id }) {
     case 'bestellingen':
       if (id) return orderEditorView(id === 'nieuw' ? null : id, navigate, { get prefs() { return prefs; } });
       return orderListView();
+    case 'klanten':
+      if (id) return customerEditorView(id === 'nieuw' ? null : id, navigate);
+      return customerListView();
     case 'filament': case 'verpakking': case 'printers': case 'energie': return resourceView(page);
     case 'meer':
       return h('section', { class: 'page' },
