@@ -83,9 +83,11 @@ function lowStockRows(ctx, stock, redraw) {
 }
 
 // `ctx.prefs` is read when needed, never copied: a copy goes stale the moment a setting is saved.
-function notificationsCard(ctx) {
+function notificationsCards(ctx) {
   const { setPrefs } = ctx;
   const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
+  const quietBody = h('div', { class: 'stack' });
+  const quietCard = h('div', { class: 'glass card stack', hidden: true }, h('h2', {}, t('notify.quiet')), quietBody);
   let lastResult = '';                                    // survives the redraw that refreshes the device list
   let lastCheck = null;                                   // ... and so does the answer of the connection check
 
@@ -108,26 +110,29 @@ function notificationsCard(ctx) {
         draw();
       })];
 
+    // Quiet hours are the account's, so they are there whether or not this device is signed up.
+    const quiet = { ...DEFAULT_QUIET(), ...(ctx.prefs.quiet_hours || {}) };
+    const saveQuiet = async (change) => {
+      const saved = await setPrefs({ quiet_hours: { ...quiet, ...change } });
+      if (saved) Object.assign(quiet, change);       // later edits build on what was really saved
+      else draw();                                    // refused (e.g. unknown timezone): show the saved values again
+    };
+    quietBody.replaceChildren(
+      switchRow(t('notify.quiet_on'), t('notify.quiet_hint'), !!quiet.enabled, (on) => saveQuiet({ enabled: on })),
+      h('div', { class: 'time-row' },
+        field(t('notify.from'), h('input', { type: 'time', value: quiet.start, onchange: (e) => saveQuiet({ start: e.target.value }) })),
+        field(t('notify.to'), h('input', { type: 'time', value: quiet.end, onchange: (e) => saveQuiet({ end: e.target.value }) }))),
+      field(t('notify.timezone'), h('input', { type: 'text', value: quiet.tz, autocomplete: 'off', spellcheck: 'false',
+        onchange: (e) => saveQuiet({ tz: e.target.value.trim() }) }), t('notify.timezone_hint')));
+    quietCard.hidden = false;
+
     if (sub) {
-      const quiet = { ...DEFAULT_QUIET(), ...(ctx.prefs.quiet_hours || {}) };
-      const saveQuiet = async (change) => {
-        const saved = await setPrefs({ quiet_hours: { ...quiet, ...change } });
-        if (saved) Object.assign(quiet, change);       // later edits build on what was really saved
-        else draw();                                    // refused (e.g. unknown timezone): show the saved values again
-      };
       const result = h('p', { class: 'status-line', role: 'status' }, lastResult);
       const stock = await api('GET', '/api/spools/stock').catch(() => null);      // the materials there are, for their own thresholds
       rows.push(
         switchRow(t('notify.release'), t('notify.release_hint'), ctx.prefs.notify_release !== false,
           (on) => setPrefs({ notify_release: on })),
         ...lowStockRows(ctx, stock, draw),
-        switchRow(t('notify.quiet'), t('notify.quiet_hint'),
-          !!quiet.enabled, (on) => saveQuiet({ enabled: on })),
-        h('div', { class: 'time-row' },
-          field(t('notify.from'), h('input', { type: 'time', value: quiet.start, onchange: (e) => saveQuiet({ start: e.target.value }) })),
-          field(t('notify.to'), h('input', { type: 'time', value: quiet.end, onchange: (e) => saveQuiet({ end: e.target.value }) }))),
-        field(t('notify.timezone'), h('input', { type: 'text', value: quiet.tz, autocomplete: 'off', spellcheck: 'false',
-          onchange: (e) => saveQuiet({ tz: e.target.value.trim() }) }), t('notify.timezone_hint')),
         h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
           try {
             const r = await api('POST', '/api/push/test');
@@ -165,7 +170,7 @@ function notificationsCard(ctx) {
   }
 
   draw();
-  return h('div', { class: 'glass card stack' }, h('h2', {}, t('notify.title')), body);
+  return [h('div', { class: 'glass card stack' }, h('h2', {}, t('notify.title')), body), quietCard];
 }
 
 const when = (iso) => formatDateTime(iso, { dateStyle: 'short', timeStyle: 'short' });
@@ -327,8 +332,17 @@ function invoiceTemplateCard() {
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('invoice_tpl.title')), body);
 }
 
-export function settingsView(ctx) {
-  const { setPrefs, user, onLogout, highlightPasskey } = ctx;
+// The parts of the settings, in the order of the sub menu: [route, label key]. "Zakelijk" is only there when it is switched on.
+const SECTIONS = [['algemeen', 'settings.tab_general'], ['weergave', 'settings.tab_appearance'], ['beveiliging', 'settings.tab_security'],
+  ['zakelijk', 'settings.tab_business'], ['notificaties', 'settings.tab_notifications'], ['backup', 'settings.tab_backup']];
+
+export function settingsView(ctx, requested) {
+  const { setPrefs, user, highlightPasskey } = ctx;
+  const businessOn = () => !!ctx.prefs.business_mode;
+  const shown = () => SECTIONS.filter(([key]) => key !== 'zakelijk' || businessOn());
+  const section = shown().some(([key]) => key === requested) ? requested : 'algemeen';
+  // The address says what is shown: a part that is not there (Business while it is off) must not stay in the URL, or clicking its tab later would change nothing.
+  if (requested && requested !== section) history.replaceState(null, '', `#/instellingen/${section}`);
   let vatTimer = null;
   const security = h('div', { class: 'stack' });
   const codesBox = h('div');
@@ -406,35 +420,47 @@ export function settingsView(ctx) {
     } catch (e) { toast(e.message, 'error'); }
   }
 
-  drawAppearance();
-  loadSecurity();
+  const subnav = h('nav', { class: 'subnav', 'aria-label': t('settings.sections') });
+  const drawSubnav = () => subnav.replaceChildren(...shown().map(([key, label]) => h('a', { href: `#/instellingen/${key}`,
+    'aria-current': key === section ? 'page' : null }, t(label))));
+  drawSubnav();
+
+  // Only the part that is open is built: the others would fetch things nobody looks at.
+  const parts = {
+    algemeen: () => [
+      h('div', { class: 'glass card stack' }, h('h2', {}, t('settings.tab_general')),
+        switchRow(t('appearance.blur'), t('appearance.blur_hint'), !!ctx.prefs.blur_costs, (on) => setPrefs({ blur_costs: on })),
+        switchRow(t('general.business'), t('general.business_hint'), businessOn(), async (on) => { await setPrefs({ business_mode: on }); drawSubnav(); })),
+      installCard(), updatesCard()],
+    weergave: () => {
+      drawAppearance();
+      return [h('div', { class: 'glass card stack' }, h('h2', {}, t('appearance.title')),
+        h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.language')), h('p', { class: 'muted' }, t('appearance.language_hint'))), langSwitch(ctx.setLanguage)),
+        h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.theme')), h('p', { class: 'muted' }, t('appearance.theme_hint'))), themeButtons),
+        h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.accent')), h('p', { class: 'muted' }, t('appearance.accent_hint'))), accentButtons))];
+    },
+    beveiliging: () => {
+      loadSecurity();
+      return [h('div', { class: 'glass card stack' }, h('h2', {}, t('security.title')), h('p', { class: 'muted' }, t('security.hint')), security), passwordCard()];
+    },
+    zakelijk: () => [
+      h('div', { class: 'glass card stack' }, h('h2', {}, t('business.title')),
+        h('p', { class: 'muted' }, t('business.hint')),
+        h('div', { class: 'two' },
+          field(t('business.vat'), numberInput(ctx.prefs.vat_pct ?? '21', (v) => {
+            clearTimeout(vatTimer);
+            vatTimer = setTimeout(() => setPrefs({ vat_pct: v.replace(',', '.') }), 600);
+          }, { list: 'vat-presets-settings' }), t('business.vat_hint')),
+          field(t('business.rounding'), h('select', { onchange: (e) => setPrefs({ price_rounding: e.target.value }) },
+            ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (ctx.prefs.price_rounding || 'none') === v }, t(l)))))),
+        h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
+      companyCard(ctx), invoiceTemplateCard()],
+    notificaties: () => notificationsCards(ctx),
+    backup: () => [backupCard()],
+  };
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.settings')), h('p', { class: 'muted' }, t('settings.signed_in_as', { name: user.display_name })))),
-    highlightPasskey ? h('p', { class: 'notice', role: 'status' }, t('settings.recovered')) : null,
-    h('div', { class: 'glass card stack' }, h('h2', {}, t('appearance.title')),
-      h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.language')), h('p', { class: 'muted' }, t('appearance.language_hint'))), langSwitch(ctx.setLanguage)),
-      h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.theme')), h('p', { class: 'muted' }, t('appearance.theme_hint'))), themeButtons),
-      h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.accent')), h('p', { class: 'muted' }, t('appearance.accent_hint'))), accentButtons),
-      switchRow(t('appearance.blur'),
-        t('appearance.blur_hint'),
-        !!ctx.prefs.blur_costs, (on) => setPrefs({ blur_costs: on }))),
-    h('div', { class: 'glass card stack' }, h('h2', {}, t('business.title')),
-      h('p', { class: 'muted' }, t('business.hint')),
-      h('div', { class: 'two' },
-        field(t('business.vat'), numberInput(ctx.prefs.vat_pct ?? '21', (v) => {
-          clearTimeout(vatTimer);
-          vatTimer = setTimeout(() => setPrefs({ vat_pct: v.replace(',', '.') }), 600);
-        }, { list: 'vat-presets-settings' }), t('business.vat_hint')),
-        field(t('business.rounding'), h('select', { onchange: (e) => setPrefs({ price_rounding: e.target.value }) },
-          ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (ctx.prefs.price_rounding || 'none') === v }, t(l)))))),
-      h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
-    companyCard(ctx), invoiceTemplateCard(),
-    installCard(), notificationsCard(ctx), updatesCard(),
-    h('div', { class: 'glass card stack' }, h('h2', {}, t('security.title')),
-      h('p', { class: 'muted' }, t('security.hint')),
-      security),
-    passwordCard(),
-    backupCard(),
-    h('div', { class: 'glass card stack' }, h('h2', {}, t('session.title')),
-      h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: onLogout }, t('session.logout')))));
+    subnav,
+    highlightPasskey && section === 'beveiliging' ? h('p', { class: 'notice', role: 'status' }, t('settings.recovered')) : null,
+    ...parts[section]());
 }

@@ -346,6 +346,8 @@ def validated_preferences(body: dict) -> dict:
         prefs["low_stock"] = _validated_low_stock(body["low_stock"])
     if "business" in body:
         prefs["business"] = _validated_business(body["business"])
+    if "business_mode" in body:
+        prefs["business_mode"] = boolean("f.business_mode")(body["business_mode"])      # shows the Business part of the settings
     return prefs
 
 

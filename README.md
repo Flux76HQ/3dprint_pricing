@@ -38,7 +38,7 @@ afgerond op hele uren**: 3,06 uur rekent als 4 uur.
 passen; 0 = geen btw). Inkoopprijzen voer je excl. btw in. Met **“Prijs incl. btw afronden”** (op 5/10/50 cent, hele
 euro's of eindigend op ,95/,99) wordt de prijs incl. btw naar boven afgerond en geldt je marge als *minimum*: de app
 verhoogt de marge net genoeg en toont de effectieve marge; de btw wordt uit de ronde prijs gehaald. Standaard btw en
-afronding stel je in onder *Instellingen → Zakelijk*. Onder *Instellingen → Weergave* kun je kostprijs, subtotalen en
+afronding stel je in onder *Instellingen → Zakelijk → Btw en afronding* (het onderdeel *Zakelijk* zet je eerst aan onder *Instellingen → Algemeen*). Onder *Instellingen → Algemeen* kun je kostprijs, subtotalen en
 marge **blurren** op de berekeningenpagina (ook met de knop “Kosten verbergen” daar), handig als een klant meekijkt.
 
 ## Starten (Docker)
@@ -105,7 +105,7 @@ je `RP_ID` later, dan werken bestaande passkeys niet meer; log dan in met een he
 ## Installeren als app (iPhone, iPad en Android)
 
 **Android (Chrome, Edge, Samsung Internet) en computer:** open het https-adres; er verschijnt een melding “Installeer de app”,
-of kies *Instellingen → App installeren*. Lang drukken op het icoon geeft snelkoppelingen (nieuwe berekening, filament).
+of kies *Instellingen → Algemeen → App installeren*. Lang drukken op het icoon geeft snelkoppelingen (nieuwe berekening, filament).
 Eenmaal geïnstalleerd verdwijnt de melding; kies je “Niet nu”, dan komt ze pas na twee weken terug.
 
 **iPhone/iPad:** iOS biedt geen installatieknop aan, dus de app legt het uit. Open het https-adres in
@@ -126,12 +126,12 @@ met een eigen icoon en opstartscherm en reageert als een native app:
 **Nieuwe versie.** De versie in de zijbalk is die van de code die de pagina echt geladen heeft (de server vult hem in `js/build.js` in), niet het antwoord van de server van dit moment; elke script- en stijl-URL draagt de release (`?v=0.7.3-abc1234`), zodat een oude cache of proxy geen oude scripts met een nieuwe server kan mengen. De app vraagt de server bij het openen, na terugkeren naar de voorgrond en elk kwartier welke versie draait.
 Is die nieuwer dan wat de app geladen heeft, dan verschijnt bovenaan “Nieuwe versie beschikbaar: vX.Y.Z (commit)” met
 *Nu bijwerken* en *Later* (een uur rust). Heb je een berekening met niet-opgeslagen wijzigingen open, dan vraagt de app
-eerst of je die wilt kwijtraken. *Instellingen → Updates* toont de draaiende versie en controleert op verzoek.
+eerst of je die wilt kwijtraken. *Instellingen → Algemeen → Updates* toont de draaiende versie en controleert op verzoek.
 
 **Push-meldingen (voorbereid).** Zet ze aan met VAPID-sleutels. Draai je alleen Docker, dan maak je ze in de image zelf:
 `docker compose run --rm --no-deps app python generate_vapid.py` (of `python scripts/generate_vapid.py` met Python op de host,
-of `init_env.py` voor een nieuwe `.env`). Plak de `VAPID_*`-regels in `.env` en start opnieuw: `docker compose up -d`. Zonder sleutels staat het uit en zegt *Instellingen → Meldingen* dat.
-**Zodra de app als PWA op het beginscherm staat (iOS en Android) bied de app meldingen meteen aan:** een balk met één knop *Meldingen aanzetten* (de tik is nodig, want iOS en Chrome stellen de toestemmingsvraag alleen na een handeling). Alleen als de server VAPID-sleutels heeft, de browser push kan en dit toestel nog niet is aangemeld; *Niet nu* zet het twee weken uit, en een toestel dat je bewust uitzet onder *Instellingen → Meldingen* wordt nooit uit zichzelf weer aangezet. Is de toestemming al gegeven maar het toestel niet aangemeld (bijvoorbeeld na opnieuw installeren), dan meldt de app het stilletjes aan. Per apparaat zet je meldingen aan onder *Instellingen → Meldingen*; op **iPhone/iPad werkt het alleen voor een geïnstalleerde app
+of `init_env.py` voor een nieuwe `.env`). Plak de `VAPID_*`-regels in `.env` en start opnieuw: `docker compose up -d`. Zonder sleutels staat het uit en zegt *Instellingen → Notificaties → Meldingen* dat.
+**Zodra de app als PWA op het beginscherm staat (iOS en Android) bied de app meldingen meteen aan:** een balk met één knop *Meldingen aanzetten* (de tik is nodig, want iOS en Chrome stellen de toestemmingsvraag alleen na een handeling). Alleen als de server VAPID-sleutels heeft, de browser push kan en dit toestel nog niet is aangemeld; *Niet nu* zet het twee weken uit, en een toestel dat je bewust uitzet onder *Instellingen → Notificaties → Meldingen* wordt nooit uit zichzelf weer aangezet. Is de toestemming al gegeven maar het toestel niet aangemeld (bijvoorbeeld na opnieuw installeren), dan meldt de app het stilletjes aan. Per apparaat zet je meldingen aan onder *Instellingen → Notificaties → Meldingen*; op **iPhone/iPad werkt het alleen voor een geïnstalleerde app
 (iOS 16.4 of nieuwer)** en pas na een tik. Er zijn twee echte meldingen: “Versie X is beschikbaar” zodra de server na een update
 opstart, en *Filament bijna op* (beide uit te zetten), plus een testknop. Dit zijn de afleveringsvoorwaarden, vastgelegd in `backend/app/push.py` en
 afgedwongen door `backend/tests/test_push.py` (project-baseline §11):
@@ -146,11 +146,11 @@ afgedwongen door `backend/tests/test_push.py` (project-baseline §11):
 | Stille uren | instelbaar rooster | de app ziet de Focus-stand niet; zet hier hetzelfde rooster als je slaap-Focus. Wandkloktijd + tijdzonenaam (volgt zomer/wintertijd), werkt over middernacht heen, **houdt vast en levert daarna alsnog af**, en bij een onleesbare instelling wordt er juist wél verstuurd |
 | Testknop | dezelfde functie en voorwaarden | een test die luider of korter leeft dan het echte werk wordt geloofd |
 
-**Filament bijna op.** Je kiest per soort filament of je een melding wilt: vink bij *Filament → Wijzigen* de optie *Melding als dit bijna op is* aan. Dat geldt voor de hele soort: alle rollen met dezelfde barcode (zonder barcode: hetzelfde merk, type, materiaal en kleur) krijgen dezelfde keuze en tellen samen, dus drie rollen van 1 kg zijn één soort met 3 kg. Een nieuwe rol met een bekende barcode begint met de keuze van die soort. De drempel stel je in onder *Instellingen → Meldingen → Voorraadmelding*: één in gram voor alle soorten (standaard 500 g) en, als je wilt, een eigen drempel per materiaal (PLA, PETG, …; leeg = de standaarddrempel). Zakt het totaal van een gevolgde soort tot of onder zijn drempel, na het opslaan of verwijderen van een rol, het boeken van een print, het doorgeven van een materiaal aan rollen met dezelfde barcode, het aanpassen van een drempel of het terugzetten van een back-up, dan volgt één melding met de soorten die laag zijn (de laagste eerst). Een nieuwe melding komt pas als die soort er tussendoor weer boven de drempel kwam, dus een rol die al bijna leeg is die je nog aanpast, meldt niet opnieuw; zet je de keuze voor een soort die al laag is aan, dan hoor je dat meteen. Gearchiveerde rollen tellen niet mee. De melding gaat via de uitgaande wachtrij (`push_outbox`) en komt binnen een minuut aan, met dezelfde voorwaarden als de rest (stille uren, stil, TTL); het opslaan van een rol wacht dus nooit op een pushdienst. In *Voorraad per soort* staat een gevolgde soort onder zijn drempel rood met *bijna op*. De toestand (welke soort al gemeld is) staat in de tabel `low_stock_alerts`.
+**Filament bijna op.** Je kiest per soort filament of je een melding wilt: vink bij *Filament → Wijzigen* de optie *Melding als dit bijna op is* aan. Dat geldt voor de hele soort: alle rollen met dezelfde barcode (zonder barcode: hetzelfde merk, type, materiaal en kleur) krijgen dezelfde keuze en tellen samen, dus drie rollen van 1 kg zijn één soort met 3 kg. Een nieuwe rol met een bekende barcode begint met de keuze van die soort. De drempel stel je in onder *Instellingen → Notificaties → Meldingen → Voorraadmelding*: één in gram voor alle soorten (standaard 500 g) en, als je wilt, een eigen drempel per materiaal (PLA, PETG, …; leeg = de standaarddrempel). Zakt het totaal van een gevolgde soort tot of onder zijn drempel, na het opslaan of verwijderen van een rol, het boeken van een print, het doorgeven van een materiaal aan rollen met dezelfde barcode, het aanpassen van een drempel of het terugzetten van een back-up, dan volgt één melding met de soorten die laag zijn (de laagste eerst). Een nieuwe melding komt pas als die soort er tussendoor weer boven de drempel kwam, dus een rol die al bijna leeg is die je nog aanpast, meldt niet opnieuw; zet je de keuze voor een soort die al laag is aan, dan hoor je dat meteen. Gearchiveerde rollen tellen niet mee. De melding gaat via de uitgaande wachtrij (`push_outbox`) en komt binnen een minuut aan, met dezelfde voorwaarden als de rest (stille uren, stil, TTL); het opslaan van een rol wacht dus nooit op een pushdienst. In *Voorraad per soort* staat een gevolgde soort onder zijn drempel rood met *bijna op*. De toestand (welke soort al gemeld is) staat in de tabel `low_stock_alerts`.
 
 Een pushadres dat de pushdienst afwijst (404/410) wordt automatisch verwijderd. De server moet uitgaand **https** naar de
 pushdiensten kunnen (o.a. `fcm.googleapis.com`, `web.push.apple.com`, `updates.push.services.mozilla.com`, `*.notify.windows.com`).
-*Instellingen → Meldingen → Verbinding met pushdiensten controleren* controleert eerst lokaal je VAPID-sleutels en contactadres (kloppen privé en publiek bij elkaar, is `VAPID_SUBJECT` bruikbaar) en probeert dan vanaf de server de vier pushdiensten (DNS, verbinding op poort 443, https-handshake) en zegt per onderdeel welke stap faalt. Faalt het versturen zelf met een melding als *“Versturen mislukte voordat de pushdienst werd bereikt (…)”*, dan ligt het niet aan het netwerk maar aan die sleutels of aan de aanmelding van het toestel. Zegt de testknop *“De server kan … niet opzoeken (DNS)”* (of *time-out*), dan bereikt de container de pushdienst niet. Vaak staat
+*Instellingen → Notificaties → Meldingen → Verbinding met pushdiensten controleren* controleert eerst lokaal je VAPID-sleutels en contactadres (kloppen privé en publiek bij elkaar, is `VAPID_SUBJECT` bruikbaar) en probeert dan vanaf de server de vier pushdiensten (DNS, verbinding op poort 443, https-handshake) en zegt per onderdeel welke stap faalt. Faalt het versturen zelf met een melding als *“Versturen mislukte voordat de pushdienst werd bereikt (…)”*, dan ligt het niet aan het netwerk maar aan die sleutels of aan de aanmelding van het toestel. Zegt de testknop *“De server kan … niet opzoeken (DNS)”* (of *time-out*), dan bereikt de container de pushdienst niet. Vaak staat
 het adres op een blocklist van Pi-hole, AdGuard Home of de router: `*.notify.windows.com` (Edge/Windows) staat op veel
 privacylijsten, en dan werkt het voor Chrome-op-Android (`fcm.googleapis.com`) wel. Probeer vanaf de server:
 `docker compose exec app python -c "import socket; print(socket.gethostbyname('wns2-am3p.notify.windows.com'))"`
@@ -250,7 +250,7 @@ Er zit geen CDN of proxy in deze repository; wat ervoor staat bepaalt de werkeli
 ## Wachtwoord en tweestapsverificatie (optioneel)
 
 Standaard **uit**; passkeys blijven de aanbevolen manier van inloggen en werken altijd, ook als je het wachtwoord inschakelt.
-Aanzetten kan onder *Instellingen → Wachtwoord en tweestapsverificatie*, ook als er al passkeys actief zijn, en vraagt:
+Aanzetten kan onder *Instellingen → Beveiliging → Wachtwoord en tweestapsverificatie*, ook als er al passkeys actief zijn, en vraagt:
 een wachtwoord (minstens 12 tekens) en een authenticator-app (TOTP, 6 cijfers). Er is geen
 wachtwoord-login zonder die tweede stap en er komt pas een sessie nadat wachtwoord én code kloppen. Je krijgt 8 back-upcodes
 (elk één keer bruikbaar). Na 5 mislukte pogingen blokkeert wachtwoord-login 15 minuten (daarna steeds langer); je passkey
@@ -276,6 +276,23 @@ bestand `manifest.webmanifest` (naam van de snelkoppelingen) is niet vertaald.
 Escape of Annuleren. Zou je daarmee iets kwijtraken (een half ingevuld formulier, een niet afgemaakte wachtwoord-installatie,
 back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestiging.
 
+## Instellingen
+
+*Instellingen* heeft een submenu bovenaan; elk onderdeel heeft een eigen adres (`#/instellingen/<onderdeel>`):
+
+| Onderdeel | Bevat |
+|---|---|
+| **Algemeen** | kostprijs en marge blurren, de schakelaar **Zakelijk**, app installeren, updates |
+| **Weergave** | taal, thema, accentkleur |
+| **Beveiliging** | passkeys en herstelcodes, wachtwoord en tweestapsverificatie |
+| **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon; alleen zichtbaar als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
+| **Notificaties** | meldingen (dit apparaat, nieuwe versie, filament bijna op, testmelding, verbindingscontrole, apparatenlijst) en stille uren |
+| **Back-up en herstel** | zie *Back-up in de app* |
+
+*Uitloggen* staat onderaan de zijbalk (op een telefoon onderaan *Meer*). *Zakelijk* verbergt alleen dat onderdeel van de instellingen; het menu
+*Bestellingen* blijft gewoon zichtbaar. Een onderdeel dat niet getoond wordt (bijvoorbeeld *Zakelijk* terwijl het uit staat) valt terug op
+*Algemeen*.
+
 ## Bestellingen en facturen
 
 **Bestellingen** (menu *Bestellingen*): *Nieuwe bestelling* vraagt de besteldatum en leverdatum, de gegevens van de klant (naam,
@@ -292,9 +309,9 @@ nummer (`JJJJ-0001`, per jaar doorgeteld, nooit tweemaal uitgegeven) en een fact
 daarna levert dezelfde knop (*Factuur opnieuw downloaden*) hetzelfde nummer met wat de bestelling nu zegt, dus een bestelling
 bewerken en de factuur opnieuw downloaden kan altijd. Een factuur heeft zijn eigen bestand niet: hij wordt elke keer uit de
 bestelling gemaakt. Gegevens van je bedrijf (naam, adres, KvK, btw-nummer, IBAN, betaaltermijn, taal van de factuur en een
-tekst onderaan) vul je in onder *Instellingen → Bedrijfsgegevens*.
+tekst onderaan) vul je in onder *Instellingen → Zakelijk → Bedrijfsgegevens*.
 
-**Sjabloon** (*Instellingen → Factuursjabloon*, maximaal 5 MB, één tegelijk; een nieuw bestand vervangt het vorige):
+**Sjabloon** (*Instellingen → Zakelijk → Factuursjabloon*, maximaal 5 MB, één tegelijk; een nieuw bestand vervangt het vorige):
 
 - **Zonder sjabloon** gebruikt de app een ingebouwde PDF met je bedrijfsgegevens bovenaan.
 - **Word (`.docx`)**: zet velden tussen dubbele accolades in je document (kop, voet en tabellen werken ook). Eén tabelrij met

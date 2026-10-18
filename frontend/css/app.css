@@ -116,17 +116,17 @@ main:focus { outline: none; }
   main { padding: 32px 32px 48px; width: 100%; }
   .sidebar { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 12px; height: calc(100vh - 24px);
     margin: 12px 0 12px 12px; padding: 12px; border-radius: 22px; }
-  .sidebar a, .sidebar .collapse { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 12px;
+  .sidebar a, .sidebar .collapse, .sidebar .logout { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 12px;
     border-radius: 12px; color: var(--text); text-decoration: none; background: none; border: 0; font: inherit; cursor: pointer; text-align: left; }
-  .sidebar a:hover, .sidebar .collapse:hover { background: var(--accent-subtle); }
+  .sidebar a:hover, .sidebar .collapse:hover, .sidebar .logout:hover { background: var(--accent-subtle); }
   .sidebar a[aria-current="page"] { background: var(--accent-subtle); color: var(--accent); font-weight: 600;
     box-shadow: inset 3px 0 0 var(--accent); }                       /* active is not colour alone */
   .sidebar-brand { display: flex; align-items: center; gap: 10px; padding: 8px 8px 16px; font-weight: 700; }
-  .sidebar .collapse { color: var(--text-muted); }
+  .sidebar .collapse, .sidebar .logout { color: var(--text-muted); }
   .sidebar .lang-switch { margin-top: auto; padding: 0 4px; }
   .sidebar-collapsed .sidebar .lang-switch { flex-direction: column; align-items: center; }
   .sidebar-collapsed .nav-label { display: none; }
-  .sidebar-collapsed .sidebar a, .sidebar-collapsed .sidebar .collapse { justify-content: center; padding: 8px; }
+  .sidebar-collapsed .sidebar a, .sidebar-collapsed .sidebar .collapse, .sidebar-collapsed .sidebar .logout { justify-content: center; padding: 8px; }
   .sidebar-collapsed .sidebar-brand { justify-content: center; }
 }
 
@@ -362,3 +362,10 @@ select.status { width: auto; min-height: 44px; }
 .summary h3 { margin: 8px 0 0; font-size: .95rem; }
 details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
 code { overflow-wrap: anywhere; white-space: normal; }
+
+/* The sub menu of the settings */
+.subnav { display: flex; gap: 8px; overflow-x: auto; margin: 0 0 16px; padding-bottom: 4px; scrollbar-width: thin; }
+.subnav a { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 6px 16px; border: 1px solid var(--rand); border-radius: 99px;
+  color: var(--text); text-decoration: none; background: var(--surface-field); white-space: nowrap; }
+.subnav a:hover { border-color: var(--accent); }
+.subnav a[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 650; }
