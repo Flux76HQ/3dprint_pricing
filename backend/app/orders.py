@@ -177,6 +177,11 @@ def _present(order: dict, lines: list) -> dict:
     return out
 
 
+def _with_pdf_flag(conn, order: dict, presented: dict) -> dict:
+    presented["has_invoice_pdf"] = conn.execute("SELECT 1 FROM invoice_pdfs WHERE order_id = %s", (order["id"],)).fetchone() is not None
+    return presented
+
+
 def _fetch(conn, order_id, *, lock: bool = False):
     order = conn.execute(f"SELECT * FROM orders WHERE id = %s{' FOR UPDATE' if lock else ''}", (order_id,)).fetchone()
     if order is None:
@@ -238,7 +243,8 @@ def create_order():
 def get_order(order_id):
     with pool().connection() as conn:
         order, lines = _fetch(conn, order_id)
-    return jsonify(_present(order, lines))
+        presented = _with_pdf_flag(conn, order, _present(order, lines))
+    return jsonify(presented)
 
 
 @bp.put("/<uuid:order_id>")
@@ -299,8 +305,9 @@ def _claim_invoice_number(conn, year: int, template: str) -> str:
 
 @bp.post("/<uuid:order_id>/invoice")
 def make_invoice(order_id):
-    """The invoice of this order as a file: the first time it gets its number and date, after that the same ones, with
-    whatever the order says now. A Word template gives a Word file, a PDF template or none gives a PDF."""
+    """The invoice of this order as a PDF: the first time it gets its number and date, after that the same ones, with whatever the
+    order says now. The PDF is kept (`invoice_pdfs`); a Word template is turned into a PDF first. When that fails nothing is kept,
+    not even the number."""
     with pool().connection() as conn:
         order, lines = _fetch(conn, order_id, lock=True)
         if not lines:
@@ -316,8 +323,28 @@ def make_invoice(order_id):
         template = invoice_template.load(conn)
         logo = invoice_logo.load(conn)
         try:
-            content, mimetype, extension = invoice_docs.render_invoice(order, lines, compute_totals(lines), business, template, logo)
+            content, _mimetype, extension = invoice_docs.render_invoice(order, lines, compute_totals(lines), business, template, logo)
+            if extension == "docx":                                  # a Word template gives a Word file; the invoice itself is a PDF
+                content = invoice_docs.docx_to_pdf(content)
         except invoice_docs.InvoiceError as exc:
             raise ApiError(422, exc.key, **exc.params) from None
-    return Response(content, mimetype=mimetype, headers={
-        "Content-Disposition": f'attachment; filename="Factuur-{_file_safe(order["invoice_number"])}.{extension}"'})
+        conn.execute("INSERT INTO invoice_pdfs (order_id, invoice_number, content, size_bytes) VALUES (%s, %s, %s, %s) "
+                     "ON CONFLICT (order_id) DO UPDATE SET invoice_number = EXCLUDED.invoice_number, content = EXCLUDED.content, "
+                     "size_bytes = EXCLUDED.size_bytes, created_at = now()",
+                     (order_id, order["invoice_number"], content, len(content)))
+    return _pdf_response(order["invoice_number"], content)
+
+
+def _pdf_response(number: str, content: bytes) -> Response:
+    return Response(content, mimetype="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="Factuur-{_file_safe(number)}.pdf"'})
+
+
+@bp.get("/<uuid:order_id>/invoice")
+def get_invoice(order_id):
+    """The invoice as it was made (the PDF kept when it was made), without making it again."""
+    with pool().connection() as conn:
+        row = conn.execute("SELECT invoice_number, content FROM invoice_pdfs WHERE order_id = %s", (order_id,)).fetchone()
+    if row is None:
+        raise ApiError(404, "invoice.err_no_pdf")
+    return _pdf_response(row["invoice_number"], bytes(row["content"]))

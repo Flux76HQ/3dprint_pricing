@@ -354,12 +354,15 @@ def test_orders_numbers_and_the_template_come_back_exactly(owner):
     doc = backup(owner).get_json()
     assert doc["orders"][0]["invoice_number"] and len(doc["orders"][0]["lines"]) == 2 and doc["invoice_template"]["kind"] == "pdf"
     assert base64.b64decode(doc["invoice_template"]["content_b64"]) == paper
+    kept_pdf = owner.get(f"/api/orders/{order['id']}/invoice").data
+    assert len(doc["invoice_pdfs"]) == 1 and base64.b64decode(doc["invoice_pdfs"][0]["content_b64"]) == kept_pdf
     owner.delete(f"/api/orders/{order['id']}", headers=H)
     owner.delete("/api/invoice-template", headers=H)
     owner.delete("/api/invoice-logo", headers=H)
     owner.delete(f"/api/projects/{project['id']}", headers=H)
     res = owner.post("/api/backup/restore", json=doc, headers=H)
     summary = res.get_json()["summary"]
+    assert owner.get(f"/api/orders/{order['id']}/invoice").data == kept_pdf             # the invoice as it was made comes back with the order
     assert res.status_code == 200 and summary["orders"] == 1 and summary["template"] == 1 and summary["logo"] == 1
     assert order_snapshot(owner) == before and before["logo"]["kind"] == "png" and before["logo_bytes"].startswith(b"\x89PNG")
     assert doc["orders"][0]["customer_number"] == "K9999" and doc["orders"][0]["subject"] == "Rack-houders voor oktober"
@@ -410,6 +413,10 @@ def test_a_calculation_without_a_number_gets_the_next_free_one(owner):
     (lambda d: d["orders"][0]["lines"][0].update(quantity=0), "Bestellingen"),
     (lambda d: d["invoice_template"].update(content_b64="!!geen base64!!"), "Factuursjabloon"),
     (lambda d: d["invoice_template"].update(kind="docx"), "Factuursjabloon"),
+    (lambda d: d["invoice_pdfs"][0].update(content_b64=base64.b64encode(b"geen pdf").decode()), "Factuur-PDF"),
+    (lambda d: d["invoice_pdfs"][0].update(content_b64="!!geen base64!!"), "Factuur-PDF"),
+    (lambda d: d["invoice_pdfs"][0].update(order_id="geen-uuid"), "Factuur-PDF"),
+    (lambda d: d.update(invoice_pdfs="geen lijst"), "Factuur-PDF"),
     (lambda d: d["invoice_logo"].update(content_b64="!!geen base64!!"), "Logo"),
     (lambda d: d["invoice_logo"].update(content_b64=base64.b64encode(b"geen plaatje").decode()), "Logo"),
     (lambda d: d["invoice_logo"].update(content_b64=base64.b64encode(b"\x89PNG" + b"0" * (2 * 1024 * 1024 + 1)).decode()), "Logo"),
@@ -441,3 +448,15 @@ def test_a_backup_from_before_the_logo_and_the_new_order_fields_still_restores(o
     (order,) = owner.get("/api/orders").get_json()
     detail = owner.get(f"/api/orders/{order['id']}").get_json()
     assert (detail["customer_number"], detail["subject"]) == ("", "") and owner.get("/api/invoice-logo").get_json()["logo"] is None
+
+
+def test_a_kept_invoice_for_an_order_that_is_not_in_the_file_is_let_go(owner):
+    fill_orders(owner)
+    doc = backup(owner).get_json()
+    stray = copy.deepcopy(doc["invoice_pdfs"][0])
+    stray["order_id"] = "22222222-2222-2222-2222-222222222222"
+    doc["invoice_pdfs"].append(stray)
+    doc["invoice_pdfs"][0]["invoice_number"] = "ANDERS-1"                      # a number that is not the order's: not trusted either
+    assert owner.post("/api/backup/restore", json=doc, headers=H).status_code == 200
+    order_id = doc["orders"][0]["id"]
+    assert owner.get(f"/api/orders/{order_id}/invoice").status_code == 404

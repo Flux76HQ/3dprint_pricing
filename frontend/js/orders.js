@@ -82,7 +82,7 @@ function fromSaved(order) {
   return {
     id: order.id, number: order.number, status: order.status, order_date: order.order_date, delivery_date: str(order.delivery_date),
     customer_name: order.customer_name, customer_number: order.customer_number, subject: order.subject, address: order.address, postal_code: order.postal_code, city: order.city, country: order.country,
-    email: order.email, phone: order.phone, notes: order.notes, invoice_number: order.invoice_number, invoice_date: str(order.invoice_date),
+    email: order.email, phone: order.phone, notes: order.notes, invoice_number: order.invoice_number, invoice_date: str(order.invoice_date), has_invoice_pdf: !!order.has_invoice_pdf,
     lines: order.lines.map((l) => ({ project_id: l.project_id, project_number: l.project_number, description: l.description,
       quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)) })),
   };
@@ -100,7 +100,7 @@ function buildEditor(order, navigate, ctx) {
   const defaultVat = str(ctx.prefs.vat_pct ?? '21');
   const state = order ? fromSaved(order) : {
     id: null, number: null, status: 'nieuw', order_date: today(), delivery_date: '', customer_name: '', customer_number: '', subject: '', address: '', postal_code: '', city: '',
-    country: '', email: '', phone: '', notes: '', invoice_number: null, invoice_date: '', lines: [],
+    country: '', email: '', phone: '', notes: '', invoice_number: null, invoice_date: '', has_invoice_pdf: false, lines: [],
   };
   let result = null;
   let dirty = false;
@@ -248,8 +248,16 @@ function buildEditor(order, navigate, ctx) {
       const fresh = await api('GET', `/api/orders/${state.id}`);
       state.invoice_number = fresh.invoice_number;
       state.invoice_date = str(fresh.invoice_date);
+      state.has_invoice_pdf = !!fresh.has_invoice_pdf;
       drawInvoice();
       toast(t('orders.invoice_made', { name }));
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function downloadInvoice() {
+    try {
+      const { blob, name } = await downloadFile(`/api/orders/${state.id}/invoice`);       // the PDF as it was kept
+      saveBlob(blob, name);
     } catch (e) { toast(e.message, 'error'); }
   }
 
@@ -261,6 +269,10 @@ function buildEditor(order, navigate, ctx) {
     } else parts.push(h('p', { class: 'muted' }, state.id ? t('orders.no_invoice') : t('orders.save_first')));
     parts.push(h('button', { class: 'btn primary', type: 'button', disabled: !state.id || !state.lines.length, onclick: makeInvoice, id: 'make-invoice' },
       icon('clipboard'), h('span', {}, state.invoice_number ? t('orders.invoice_again') : t('orders.make_invoice'))));
+    if (state.has_invoice_pdf) {
+      parts.push(h('button', { class: 'btn', type: 'button', onclick: downloadInvoice, id: 'download-invoice' }, t('orders.download_invoice')),
+        h('p', { class: 'hint' }, t('orders.invoice_kept_hint')));
+    }
     invoiceBox.replaceChildren(...parts);
   }
 

@@ -1,10 +1,10 @@
 """The logo on the invoice: one PNG or JPEG, uploaded under Settings and drawn at the top left of the built-in invoice (or put in a Word
-template where it says `{{logo}}`). Like every upload it lives under UPLOAD_DIR with a generated name and is checked before it is kept:
+template where it says `{{logo}}`). It is kept in the database (so it survives whatever happens to the uploads folder; a logo uploaded by an earlier release is moved there
+the first time it is read) and is checked before it is kept:
 only PNG and JPEG, a size cap, and a cap on the number of pixels (an image is decoded to measure it)."""
 import hashlib
 import os
 import re
-import uuid
 from io import BytesIO
 from pathlib import Path
 
@@ -72,26 +72,34 @@ def load(conn) -> "dict | None":
     row = conn.execute("SELECT * FROM invoice_logo").fetchone()
     if row is None:
         return None
-    path = _dir() / row["stored_name"]
-    if not path.is_file():
+    content = content_of(conn, row)
+    if content is None:
         return None
-    return {**serialise(row), "content": path.read_bytes()}
+    return {**serialise(row), "content": content}
 
 
-def store_file(content: bytes, kind: str) -> str:
-    stored = f"invoice-logo-{uuid.uuid4().hex}.{'png' if kind == 'png' else 'jpg'}"
-    (_dir() / stored).write_bytes(content)
-    return stored
+def content_of(conn, row) -> "bytes | None":
+    """The bytes of the logo: from the database, or from the file an earlier release left (then moved into the database)."""
+    if row["content"] is not None:
+        return bytes(row["content"])
+    path = _dir() / row["stored_name"] if row["stored_name"] else None
+    if path is None or not path.is_file():
+        return None
+    content = path.read_bytes()
+    conn.execute("UPDATE invoice_logo SET content = %s, stored_name = NULL WHERE id = true", (content,))
+    path.unlink(missing_ok=True)
+    return content
 
 
-def replace(conn, *, filename: str, kind: str, content: bytes, stored_name: str, width: int, height: int) -> "str | None":
-    """Make this the logo; returns the stored name of the one it replaced (to delete once the transaction has committed)."""
+def replace(conn, *, filename: str, kind: str, content: bytes, width: int, height: int) -> "str | None":
+    """Make this the logo; returns the stored name of an older file under UPLOAD_DIR that it replaced (to delete once the transaction
+    has committed), if there was one."""
     old = conn.execute("SELECT stored_name FROM invoice_logo").fetchone()
     conn.execute(
-        "INSERT INTO invoice_logo (id, filename, kind, stored_name, size_bytes, sha256, width_px, height_px) VALUES (true, %s, %s, %s, %s, %s, %s, %s) "
-        "ON CONFLICT (id) DO UPDATE SET filename = EXCLUDED.filename, kind = EXCLUDED.kind, stored_name = EXCLUDED.stored_name, "
+        "INSERT INTO invoice_logo (id, filename, kind, content, size_bytes, sha256, width_px, height_px) VALUES (true, %s, %s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (id) DO UPDATE SET filename = EXCLUDED.filename, kind = EXCLUDED.kind, content = EXCLUDED.content, stored_name = NULL, "
         "size_bytes = EXCLUDED.size_bytes, sha256 = EXCLUDED.sha256, width_px = EXCLUDED.width_px, height_px = EXCLUDED.height_px, uploaded_at = now()",
-        (filename, kind, stored_name, len(content), hashlib.sha256(content).hexdigest(), width, height))
+        (filename, kind, content, len(content), hashlib.sha256(content).hexdigest(), width, height))
     return old["stored_name"] if old else None
 
 
@@ -117,15 +125,9 @@ def upload_logo():
         kind, width, height = inspect(content)
     except LogoError as exc:
         raise ApiError(400, exc.key) from None
-    stored = store_file(content, kind)
-    try:
-        with pool().connection() as conn:
-            old = replace(conn, filename=clean_filename(upload.filename, kind), kind=kind, content=content, stored_name=stored,
-                          width=width, height=height)
-            row = conn.execute("SELECT * FROM invoice_logo").fetchone()
-    except Exception:
-        (_dir() / stored).unlink(missing_ok=True)
-        raise
+    with pool().connection() as conn:
+        old = replace(conn, filename=clean_filename(upload.filename, kind), kind=kind, content=content, width=width, height=height)
+        row = conn.execute("SELECT * FROM invoice_logo").fetchone()
     if old:
         (_dir() / old).unlink(missing_ok=True)
     return jsonify({"logo": serialise(row)}), 201
@@ -135,7 +137,7 @@ def upload_logo():
 def delete_logo():
     with pool().connection() as conn:
         row = conn.execute("DELETE FROM invoice_logo RETURNING stored_name").fetchone()
-    if row is not None:
+    if row is not None and row["stored_name"]:
         (_dir() / row["stored_name"]).unlink(missing_ok=True)
     return jsonify({"ok": True})
 

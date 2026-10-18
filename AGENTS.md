@@ -62,7 +62,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   work out the totals on the server per VAT rate (`compute_totals`); the browser only displays them. An invoice number
   (a template in the business preferences, default `{JJJJ}-{NNNN}`, see `invoice_numbers.py`; counted per year in `invoice_counters`, or under year 0 when the template has no year) is claimed atomically once per order and never reused. Invoice templates (`invoice_docs.py`,
   `invoice_template.py`) are untrusted uploads like print files: capped in size and unpacked size, parsed only by `python-docx` / `pypdf`,
-  stored under `UPLOAD_DIR`, and part of the backup together with orders and calculation numbers. The invoice logo (`invoice_logo.py`) is an upload too (PNG/JPEG only, size and pixel caps). The built-in invoice follows the owner's example layout (`invoice_docs.py`); the payment QR is a SEPA/EPC code, not an iDEAL link; Open Sans lives in `backend/app/fonts/` with its licence.
+  stored under `UPLOAD_DIR`, and part of the backup together with orders and calculation numbers. The invoice logo (`invoice_logo.py`) is an upload too (PNG/JPEG only, size and pixel caps). Template, logo and the made invoice PDFs (`invoice_pdfs`) are stored as `bytea` in the database, never as files under `UPLOAD_DIR` (a rebuilt container without its volume must not lose them); the invoice is always a PDF, a Word template is converted with LibreOffice (`docx_to_pdf`, `SOFFICE_BIN`, installed in the image). The built-in invoice follows the owner's example layout (`invoice_docs.py`); the payment QR is a SEPA/EPC code, not an iDEAL link; Open Sans lives in `backend/app/fonts/` with its licence.
 - Third-party browser code is vendored under `frontend/vendor/` (unmodified, with its licence and a
   README saying how to update), never loaded from a CDN: the CSP only allows scripts from this origin.
   Currently only ZXing, for barcode scanning where the browser has no `BarcodeDetector`.
@@ -106,7 +106,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   | `agent-instructions-lint` | that this file stays canonical and unduplicated |
   | `backend-tests` | calculator, WebAuthn, migrations, API; fails if any test was skipped |
   | `frontend-syntax` | every frontend module parses, checked as an ES module (a copy named `.mjs`: `node --check` on a `.js` file that uses `import` reports nothing, even for a broken one); the manifest is valid JSON |
-  | `docker-build` | the image builds and both compose files are valid for `.env.example` |
+  | `docker-build` | the image builds, a Word invoice template is turned into a PDF inside it (LibreOffice, as the unprivileged user), and both compose files are valid for `.env.example` |
 
 - A control has to be findable on the pull request under the name a document cites it by.
 - Migrations are forward-only: never edit an applied `NNNN_*.sql`; add a new one. The runner

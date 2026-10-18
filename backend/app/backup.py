@@ -65,6 +65,9 @@ def export():
         rows = conn.execute(f"SELECT {', '.join(PROJECT_COLUMNS)} FROM projects ORDER BY created_at, id").fetchall()
         doc["projects"] = [_serialise(r) for r in rows]
         doc["orders"] = _export_orders(conn)
+        doc["invoice_pdfs"] = [{"order_id": str(r["order_id"]), "invoice_number": r["invoice_number"],
+                                "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
+                               for r in conn.execute("SELECT order_id, invoice_number, content FROM invoice_pdfs ORDER BY created_at, order_id").fetchall()]
         try:
             template = invoice_template.load(conn)
         except ApiError:                                             # the file went missing: the rest of the backup is still worth having
@@ -91,6 +94,7 @@ def export():
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
+MAX_INVOICE_PDF_BYTES = 10 * 1024 * 1024
 ORDER_COLUMNS = ("id", "number", "invoice_number", "invoice_date", "created_at", "updated_at", *orders.ORDER_FIELDS)
 
 
@@ -197,6 +201,7 @@ def _parse(doc) -> dict:
     _number_projects(projects, doc)
     plan["projects"] = projects
     plan["orders"] = _parse_orders(doc)
+    plan["invoice_pdfs"] = _parse_invoice_pdfs(doc.get("invoice_pdfs"), plan["orders"])
     plan["template"] = _parse_template(doc.get("invoice_template"))
     plan["logo"] = _parse_logo(doc.get("invoice_logo"))
     return plan
@@ -244,6 +249,33 @@ def _parse_orders(doc: dict) -> list:
         except (ApiError, Localized) as exc:
             raise _row_error("orders", n, exc) from None
     return parsed
+
+
+def _parse_invoice_pdfs(entries, parsed_orders: list) -> list:
+    """The kept invoice PDFs that belong to an order (with that invoice number) of this file; any other one is let go."""
+    if not entries:
+        return []
+    if not isinstance(entries, list):
+        raise _row_error("invoice_pdfs", 1, Localized("backup.bad_row_type"))
+    numbers = {o["id"]: o["invoice_number"] for o in parsed_orders if o["invoice_number"]}
+    out, seen = [], set()
+    for n, entry in enumerate(entries, 1):
+        try:
+            if not isinstance(entry, dict):
+                raise Localized("backup.bad_row_type")
+            order_id = _uuid(entry.get("order_id"), "invoice_pdfs")
+            try:
+                content = base64.b64decode(str(entry.get("content_b64", "")), validate=True)
+            except (binascii.Error, ValueError):
+                raise Localized("backup.bad_file") from None
+            if not content.startswith(b"%PDF") or len(content) > MAX_INVOICE_PDF_BYTES:
+                raise Localized("backup.bad_file")
+        except (ApiError, Localized) as exc:
+            raise _row_error("invoice_pdfs", n, exc) from None
+        if numbers.get(order_id) and numbers[order_id] == entry.get("invoice_number") and order_id not in seen:
+            seen.add(order_id)
+            out.append({"order_id": order_id, "invoice_number": numbers[order_id], "content": content})
+    return out
 
 
 def _parse_logo(entry):
@@ -367,16 +399,14 @@ def restore():
             conn.execute("DELETE FROM projects")
             conn.execute("DELETE FROM orders")
             conn.execute("DELETE FROM invoice_counters")
-            replaced = conn.execute("DELETE FROM invoice_template RETURNING stored_name").fetchone()
-            if replaced:
-                old_files.append(replaced["stored_name"])
-            replaced_logo = conn.execute("DELETE FROM invoice_logo RETURNING stored_name").fetchone()
-            if replaced_logo:
-                old_files.append(replaced_logo["stored_name"])
+            for table in ("invoice_template", "invoice_logo"):
+                replaced = conn.execute(f"DELETE FROM {table} RETURNING stored_name").fetchone()
+                if replaced and replaced["stored_name"]:                       # a file an earlier release left under UPLOAD_DIR
+                    old_files.append(replaced["stored_name"])
             for table in ("filament_spools", "packaging_items", "energy_tariffs", "printers"):
                 conn.execute(f"DELETE FROM {table}")
             if plan["files"]:
-                old_files = [r["stored_name"] for r in conn.execute("DELETE FROM print_files RETURNING stored_name").fetchall()]
+                old_files += [r["stored_name"] for r in conn.execute("DELETE FROM print_files RETURNING stored_name").fetchall()]
                 for item in plan["files"]:
                     stored = f"{uuid.uuid4().hex}.{item['kind']}"
                     (upload_dir / stored).write_bytes(item["content"])
@@ -405,17 +435,15 @@ def restore():
                 _insert(conn, "projects", values)
             conn.execute(f"ALTER SEQUENCE project_number_seq RESTART WITH {max((p['number'] for p in plan['projects']), default=0) + 1}")
             _restore_orders(conn, plan["orders"])
+            for pdf in plan["invoice_pdfs"]:
+                conn.execute("INSERT INTO invoice_pdfs (order_id, invoice_number, content, size_bytes) VALUES (%s, %s, %s, %s)",
+                             (pdf["order_id"], pdf["invoice_number"], pdf["content"], len(pdf["content"])))
             if plan["template"]:
                 t = plan["template"]
-                stored = invoice_template.store_file(t["content"], t["kind"])
-                written.append(Path(config().upload_dir) / stored)
-                invoice_template.replace(conn, filename=t["filename"], kind=t["kind"], content=t["content"], stored_name=stored,
-                                         top=t["top"], bottom=t["bottom"])
+                invoice_template.replace(conn, filename=t["filename"], kind=t["kind"], content=t["content"], top=t["top"], bottom=t["bottom"])
             if plan["logo"]:
                 lg = plan["logo"]
-                stored = invoice_logo.store_file(lg["content"], lg["kind"])
-                written.append(Path(config().upload_dir) / stored)
-                invoice_logo.replace(conn, filename=lg["filename"], kind=lg["kind"], content=lg["content"], stored_name=stored, width=lg["width"], height=lg["height"])
+                invoice_logo.replace(conn, filename=lg["filename"], kind=lg["kind"], content=lg["content"], width=lg["width"], height=lg["height"])
             conn.execute("UPDATE users SET preferences = %s::jsonb WHERE id = %s", (json.dumps(plan["preferences"]), g.user_id))
     except Exception:
         for path in written:                                          # nothing was swapped in: take the new files out again

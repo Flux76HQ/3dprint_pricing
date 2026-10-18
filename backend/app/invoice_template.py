@@ -1,15 +1,16 @@
 """The invoice template: one Word file with placeholders, or one PDF used as letter paper, uploaded under Settings.
 
-The file lives under UPLOAD_DIR with a generated name (like every upload); the database holds what it is called and the margins of
-a PDF template. Uploading a new one replaces the old one. Nothing here makes an invoice: see `invoice_docs` and `orders`.
+The file itself is kept in the database (so it survives whatever happens to the uploads folder, and is part of every database backup)
+together with what it is called and the margins of a PDF template; templates uploaded before that still have a file under UPLOAD_DIR,
+which is moved into the database the first time it is read. Uploading a new one replaces the old one. Nothing here makes an invoice: see `invoice_docs` and `orders`.
 """
 import hashlib
 import os
 import re
-import uuid
 from pathlib import Path
+from urllib.parse import quote
 
-from flask import Blueprint, Response, jsonify, request, send_file
+from flask import Blueprint, Response, jsonify, request
 
 from . import invoice_docs
 from .api import optional_int
@@ -43,10 +44,23 @@ def load(conn) -> "dict | None":
     row = conn.execute("SELECT * FROM invoice_template").fetchone()
     if row is None:
         return None
-    path = _dir() / row["stored_name"]
-    if not path.is_file():
+    content = _content(conn, row)
+    if content is None:
         raise ApiError(422, "invoice.err_template_gone")
-    return {**serialise(row), "content": path.read_bytes()}
+    return {**serialise(row), "content": content}
+
+
+def _content(conn, row) -> "bytes | None":
+    """The bytes of the template: from the database, or from the file an earlier release left (then moved into the database)."""
+    if row["content"] is not None:
+        return bytes(row["content"])
+    path = _dir() / row["stored_name"] if row["stored_name"] else None
+    if path is None or not path.is_file():
+        return None
+    content = path.read_bytes()
+    conn.execute("UPDATE invoice_template SET content = %s, stored_name = NULL WHERE id = true", (content,))
+    path.unlink(missing_ok=True)
+    return content
 
 
 def validate(kind: str, content: bytes) -> None:
@@ -59,27 +73,26 @@ def validate(kind: str, content: bytes) -> None:
         invoice_docs.validate_pdf(content)
 
 
-def store_file(content: bytes, kind: str) -> str:
-    stored = f"invoice-template-{uuid.uuid4().hex}.{kind}"
-    (_dir() / stored).write_bytes(content)
-    return stored
-
-
-def replace(conn, *, filename: str, kind: str, content: bytes, stored_name: str, top: int, bottom: int) -> "str | None":
-    """Make this the template; returns the stored name of the one it replaced (to delete once the transaction has committed)."""
+def replace(conn, *, filename: str, kind: str, content: bytes, top: int, bottom: int) -> "str | None":
+    """Make this the template; returns the stored name of an older file under UPLOAD_DIR that it replaced (to delete once the
+    transaction has committed), if there was one."""
     old = conn.execute("SELECT stored_name FROM invoice_template").fetchone()
     conn.execute(
-        "INSERT INTO invoice_template (id, filename, kind, stored_name, size_bytes, sha256, margin_top_mm, margin_bottom_mm) "
+        "INSERT INTO invoice_template (id, filename, kind, content, size_bytes, sha256, margin_top_mm, margin_bottom_mm) "
         "VALUES (true, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET filename = EXCLUDED.filename, kind = EXCLUDED.kind, "
-        "stored_name = EXCLUDED.stored_name, size_bytes = EXCLUDED.size_bytes, sha256 = EXCLUDED.sha256, "
+        "content = EXCLUDED.content, stored_name = NULL, size_bytes = EXCLUDED.size_bytes, sha256 = EXCLUDED.sha256, "
         "margin_top_mm = EXCLUDED.margin_top_mm, margin_bottom_mm = EXCLUDED.margin_bottom_mm, uploaded_at = now()",
-        (filename, kind, stored_name, len(content), hashlib.sha256(content).hexdigest(), top, bottom))
+        (filename, kind, content, len(content), hashlib.sha256(content).hexdigest(), top, bottom))
     return old["stored_name"] if old else None
 
 
 def clean_filename(name: str, kind: str) -> str:
     cleaned = re.sub(r"[\\/\x00-\x1f]", "_", os.path.basename(str(name or "").replace("\\", "/")))[:200]
     return cleaned or f"template.{kind}"
+
+
+def _ascii(name: str) -> str:
+    return re.sub(r'[^A-Za-z0-9._ -]', "_", name)
 
 
 def _margin(label: str, value, default: int) -> int:
@@ -113,15 +126,9 @@ def upload_template():
         validate(kind, content)
     except invoice_docs.InvoiceError as exc:
         raise ApiError(400, exc.key, **exc.params) from None
-    stored = store_file(content, kind)
-    try:
-        with pool().connection() as conn:
-            old = replace(conn, filename=clean_filename(upload.filename, kind), kind=kind, content=content, stored_name=stored,
-                          top=top, bottom=bottom)
-            row = conn.execute("SELECT * FROM invoice_template").fetchone()
-    except Exception:
-        (_dir() / stored).unlink(missing_ok=True)
-        raise
+    with pool().connection() as conn:
+        old = replace(conn, filename=clean_filename(upload.filename, kind), kind=kind, content=content, top=top, bottom=bottom)
+        row = conn.execute("SELECT * FROM invoice_template").fetchone()
     if old:
         (_dir() / old).unlink(missing_ok=True)
     return jsonify({"template": serialise(row)}), 201
@@ -143,7 +150,7 @@ def set_margins():
 def delete_template():
     with pool().connection() as conn:
         row = conn.execute("DELETE FROM invoice_template RETURNING stored_name").fetchone()
-    if row is not None:
+    if row is not None and row["stored_name"]:
         (_dir() / row["stored_name"]).unlink(missing_ok=True)
     return jsonify({"ok": True})
 
@@ -152,12 +159,13 @@ def delete_template():
 def download():
     with pool().connection() as conn:
         row = conn.execute("SELECT * FROM invoice_template").fetchone()
+        content = _content(conn, row) if row else None
     if row is None:
         raise ApiError(404, "invoice.err_none")
-    path = _dir() / row["stored_name"]
-    if not path.is_file():
+    if content is None:
         raise ApiError(404, "invoice.err_template_gone")
-    return send_file(path, as_attachment=True, download_name=row["filename"], mimetype="application/octet-stream")
+    return Response(content, mimetype="application/octet-stream", headers={
+        "Content-Disposition": f'attachment; filename="{_ascii(row["filename"])}"; filename*=UTF-8\'\'{quote(row["filename"])}'})
 
 
 @bp.get("/sample")
