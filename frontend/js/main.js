@@ -100,12 +100,17 @@ function pageContent({ page, id }) {
       return h('section', { class: 'page' },
         h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.more'))), langSwitch(chooseLanguage)),
         h('div', { class: 'cards' }, OVERFLOW.map(([key, label, ic]) => h('a', { class: 'glass card item link-card', href: `#/${key}` },
-          h('h3', {}, icon(ic), t(label))))));
+          h('h3', {}, icon(ic), t(label))))),
+        h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: logout }, icon('logout'), h('span', {}, t('session.logout')))));
     case 'instellingen':
-      return settingsView({ get prefs() { return prefs; }, setPrefs, setLanguage: chooseLanguage, user: session.user, highlightPasskey: flags.recovered,
-        onLogout: async () => { await api('POST', '/api/auth/logout'); start(); } });
+      return settingsView({ get prefs() { return prefs; }, setPrefs, setLanguage: chooseLanguage, user: session.user, highlightPasskey: flags.recovered }, id);
     default: return h('p', {}, t('nav.not_found'));
   }
+}
+
+async function logout() {
+  await api('POST', '/api/auth/logout').catch(() => {});
+  start();
 }
 
 function navLink([page, labelKey, ic], active) {
@@ -134,7 +139,8 @@ function route() {
     langSwitch(chooseLanguage),
     h('button', { class: 'collapse', type: 'button', 'aria-label': prefs.sidebar_collapsed ? t('nav.expand') : t('nav.collapse'),
       onclick: () => { setPrefs({ sidebar_collapsed: !prefs.sidebar_collapsed }).then(route); } },
-    icon(prefs.sidebar_collapsed ? 'expand' : 'collapse'), h('span', { class: 'nav-label' }, t('nav.collapse_short'))));
+    icon(prefs.sidebar_collapsed ? 'expand' : 'collapse'), h('span', { class: 'nav-label' }, t('nav.collapse_short'))),
+    h('button', { class: 'logout', type: 'button', onclick: logout }, icon('logout'), h('span', { class: 'nav-label' }, t('session.logout'))));
   // One primary navigator at a time: CSS shows the tab bar on compact widths, the sidebar otherwise.
   const inOverflow = r.page === 'meer' || OVERFLOW.some((n) => n[0] === r.page);
   const tabbar = h('nav', { class: 'tabbar glass', 'aria-label': t('nav.main_mobile') },
@@ -158,7 +164,7 @@ async function start() {
   if (!status.onboarded) { session = { user: null }; root.replaceChildren(onboardingView(start, chooseLanguage)); return; }
   if (!status.authenticated) {
     session = { user: null };
-    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen'); start(); }, { passwordLogin: status.password_login, onLanguage: chooseLanguage }));
+    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen/beveiliging'); start(); }, { passwordLogin: status.password_login, onLanguage: chooseLanguage }));
     return;
   }
   session = { user: status.user };

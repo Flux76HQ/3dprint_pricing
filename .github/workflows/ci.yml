@@ -44,7 +44,11 @@ jobs:
           node-version: "22"
       - name: Syntax-check every frontend module
         run: |
-          for f in frontend/js/*.js frontend/sw.js; do node --check "$f" || exit 1; done
+          # Checked as ES modules (a copy named .mjs): `node --check` on a .js file that uses import/export reports nothing, even for a broken one.
+          for f in frontend/js/*.js frontend/sw.js; do
+            cp "$f" "$RUNNER_TEMP/check.mjs"
+            node --check "$RUNNER_TEMP/check.mjs" || { echo "Syntax error in $f"; exit 1; }
+          done
           node -e "JSON.parse(require('fs').readFileSync('frontend/manifest.webmanifest','utf8'))"
 
   docker-build:

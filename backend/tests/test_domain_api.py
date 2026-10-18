@@ -357,3 +357,12 @@ def test_passing_on_only_takes_known_product_fields_and_needs_a_barcode(owner):
 def test_passing_on_needs_a_session(client):
     assert client.get("/api/spools/00000000-0000-0000-0000-000000000000/siblings").status_code == 401
     assert client.post("/api/spools/00000000-0000-0000-0000-000000000000/propagate", json={"fields": ["brand"]}, headers=H).status_code == 401
+
+
+def test_the_business_part_of_the_settings_is_a_switch_that_is_validated_and_kept(owner):
+    assert "business_mode" not in owner.get("/api/preferences").get_json()
+    assert owner.put("/api/preferences", json={"business_mode": True}, headers=H).get_json()["business_mode"] is True
+    assert owner.put("/api/preferences", json={"theme": "dark"}, headers=H).get_json()["business_mode"] is True      # other changes leave it
+    for bad in ("yes", 1, None, "true"):
+        assert owner.put("/api/preferences", json={"business_mode": bad}, headers=H).status_code == 400, bad
+    assert owner.put("/api/preferences", json={"business_mode": False}, headers=H).get_json()["business_mode"] is False
