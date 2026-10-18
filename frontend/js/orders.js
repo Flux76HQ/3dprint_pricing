@@ -81,7 +81,7 @@ const str = (v) => (v == null ? '' : String(v));
 function fromSaved(order) {
   return {
     id: order.id, number: order.number, status: order.status, order_date: order.order_date, delivery_date: str(order.delivery_date),
-    customer_name: order.customer_name, address: order.address, postal_code: order.postal_code, city: order.city, country: order.country,
+    customer_name: order.customer_name, customer_number: order.customer_number, subject: order.subject, address: order.address, postal_code: order.postal_code, city: order.city, country: order.country,
     email: order.email, phone: order.phone, notes: order.notes, invoice_number: order.invoice_number, invoice_date: str(order.invoice_date),
     lines: order.lines.map((l) => ({ project_id: l.project_id, project_number: l.project_number, description: l.description,
       quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)) })),
@@ -99,7 +99,7 @@ export function orderEditorView(id, navigate, ctx = { prefs: {} }) {
 function buildEditor(order, navigate, ctx) {
   const defaultVat = str(ctx.prefs.vat_pct ?? '21');
   const state = order ? fromSaved(order) : {
-    id: null, number: null, status: 'nieuw', order_date: today(), delivery_date: '', customer_name: '', address: '', postal_code: '', city: '',
+    id: null, number: null, status: 'nieuw', order_date: today(), delivery_date: '', customer_name: '', customer_number: '', subject: '', address: '', postal_code: '', city: '',
     country: '', email: '', phone: '', notes: '', invoice_number: null, invoice_date: '', lines: [],
   };
   let result = null;
@@ -114,6 +114,7 @@ function buildEditor(order, navigate, ctx) {
 
   const payload = () => ({
     status: state.status, order_date: state.order_date, delivery_date: state.delivery_date || null, customer_name: state.customer_name.trim(),
+    customer_number: state.customer_number.trim(), subject: state.subject.trim(),
     address: state.address, postal_code: state.postal_code, city: state.city, country: state.country, email: state.email.trim(), phone: state.phone,
     notes: state.notes, invoice_date: state.invoice_date || null,
     lines: state.lines.map((l) => ({ project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity),
@@ -277,9 +278,12 @@ function buildEditor(order, navigate, ctx) {
           h('div', { class: 'three' },
             field(t('orders.order_date'), dateInput('order_date', { required: true })),
             field(t('orders.delivery_date'), dateInput('delivery_date')),
-            field(t('orders.status'), statusSelect))),
+            field(t('orders.status'), statusSelect)),
+          field(t('orders.subject'), textInput('subject', { maxlength: 200, placeholder: t('orders.subject_ph') }), t('orders.subject_hint'))),
         h('div', { class: 'glass card stack' }, h('h2', {}, t('orders.customer')),
-          field(t('orders.customer_name'), textInput('customer_name', { required: true, maxlength: 120, autocomplete: 'name' })),
+          h('div', { class: 'two' },
+            field(t('orders.customer_name'), textInput('customer_name', { required: true, maxlength: 120, autocomplete: 'name' })),
+            field(t('orders.customer_number'), textInput('customer_number', { maxlength: 40, autocomplete: 'off' }))),
           field(t('orders.address'), textInput('address', { maxlength: 200, autocomplete: 'street-address' })),
           h('div', { class: 'two' },
             field(t('orders.postal_code'), textInput('postal_code', { maxlength: 20, autocomplete: 'postal-code' })),

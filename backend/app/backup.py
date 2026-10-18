@@ -20,7 +20,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import invoice_docs, invoice_template, orders, printfile
+from . import invoice_docs, invoice_logo, invoice_template, orders, printfile
 from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized
@@ -69,6 +69,9 @@ def export():
             template = invoice_template.load(conn)
         except ApiError:                                             # the file went missing: the rest of the backup is still worth having
             template = None
+        logo = invoice_logo.load(conn)
+        if logo:
+            doc["invoice_logo"] = {"filename": logo["filename"], "kind": logo["kind"], "content_b64": base64.b64encode(logo["content"]).decode("ascii")}
         if template:
             doc["invoice_template"] = {"filename": template["filename"], "kind": template["kind"], "margin_top_mm": template["margin_top_mm"],
                                        "margin_bottom_mm": template["margin_bottom_mm"],
@@ -195,6 +198,7 @@ def _parse(doc) -> dict:
     plan["projects"] = projects
     plan["orders"] = _parse_orders(doc)
     plan["template"] = _parse_template(doc.get("invoice_template"))
+    plan["logo"] = _parse_logo(doc.get("invoice_logo"))
     return plan
 
 
@@ -240,6 +244,25 @@ def _parse_orders(doc: dict) -> list:
         except (ApiError, Localized) as exc:
             raise _row_error("orders", n, exc) from None
     return parsed
+
+
+def _parse_logo(entry):
+    if entry in (None, {}):
+        return None
+    try:
+        if not isinstance(entry, dict):
+            raise Localized("backup.bad_row_type")
+        try:
+            content = base64.b64decode(str(entry.get("content_b64", "")), validate=True)
+        except (binascii.Error, ValueError):
+            raise Localized("backup.bad_file") from None
+        try:
+            kind, width, height = invoice_logo.inspect(content)                 # read again, never taken on trust from the file
+        except invoice_logo.LogoError as exc:
+            raise Localized(exc.key) from None
+        return {"filename": invoice_logo.clean_filename(entry.get("filename"), kind), "kind": kind, "content": content, "width": width, "height": height}
+    except (ApiError, Localized) as exc:
+        raise _row_error("logo", 1, exc) from None
 
 
 def _parse_template(entry):
@@ -296,7 +319,7 @@ def _summary(plan: dict) -> dict:
     return {"printers": len(plan["sections"]["printers"][1]), "tariffs": len(plan["sections"]["tariffs"][1]),
             "packaging": len(plan["sections"]["packaging"][1]), "spools": len(plan["sections"]["spools"][1]),
             "projects": len(plan["projects"]), "files": len(plan["files"]), "preferences": len(plan["preferences"]),
-            "orders": len(plan["orders"]), "template": 1 if plan["template"] else 0}
+            "orders": len(plan["orders"]), "template": 1 if plan["template"] else 0, "logo": 1 if plan["logo"] else 0}
 
 
 def _insert(conn, table: str, values: dict) -> None:
@@ -347,6 +370,9 @@ def restore():
             replaced = conn.execute("DELETE FROM invoice_template RETURNING stored_name").fetchone()
             if replaced:
                 old_files.append(replaced["stored_name"])
+            replaced_logo = conn.execute("DELETE FROM invoice_logo RETURNING stored_name").fetchone()
+            if replaced_logo:
+                old_files.append(replaced_logo["stored_name"])
             for table in ("filament_spools", "packaging_items", "energy_tariffs", "printers"):
                 conn.execute(f"DELETE FROM {table}")
             if plan["files"]:
@@ -385,6 +411,11 @@ def restore():
                 written.append(Path(config().upload_dir) / stored)
                 invoice_template.replace(conn, filename=t["filename"], kind=t["kind"], content=t["content"], stored_name=stored,
                                          top=t["top"], bottom=t["bottom"])
+            if plan["logo"]:
+                lg = plan["logo"]
+                stored = invoice_logo.store_file(lg["content"], lg["kind"])
+                written.append(Path(config().upload_dir) / stored)
+                invoice_logo.replace(conn, filename=lg["filename"], kind=lg["kind"], content=lg["content"], stored_name=stored, width=lg["width"], height=lg["height"])
             conn.execute("UPDATE users SET preferences = %s::jsonb WHERE id = %s", (json.dumps(plan["preferences"]), g.user_id))
     except Exception:
         for path in written:                                          # nothing was swapped in: take the new files out again
