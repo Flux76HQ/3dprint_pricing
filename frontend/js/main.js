@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { loginView, onboardingView } from './auth-views.js';
+import { orderEditorView, orderListView } from './orders.js';
 import { projectEditorView, projectListView } from './projects.js';
 import { resourceView } from './resources.js';
 import { ACCENTS, settingsView } from './settings.js';
@@ -16,6 +17,7 @@ const root = document.getElementById('root');
 // [route, label key, icon]: the route is the URL part and stays as it is in every language.
 const NAV = [
   ['berekeningen', 'nav.calculations', 'calculator'],
+  ['bestellingen', 'nav.orders', 'clipboard'],
   ['filament', 'nav.filament', 'spool'],
   ['verpakking', 'nav.packaging', 'box'],
   ['printers', 'nav.printers', 'printer'],
@@ -90,6 +92,9 @@ function pageContent({ page, id }) {
     case 'berekeningen':
       if (id) return projectEditorView(id === 'nieuw' ? null : id, navigate, { get prefs() { return prefs; }, setPrefs });
       return projectListView({ get prefs() { return prefs; }, setPrefs });
+    case 'bestellingen':
+      if (id) return orderEditorView(id === 'nieuw' ? null : id, navigate, { get prefs() { return prefs; } });
+      return orderListView();
     case 'filament': case 'verpakking': case 'printers': case 'energie': return resourceView(page);
     case 'meer':
       return h('section', { class: 'page' },

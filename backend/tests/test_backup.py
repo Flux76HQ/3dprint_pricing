@@ -78,7 +78,7 @@ def test_the_download_is_a_json_attachment_with_every_section(owner):
     res = backup(owner)
     assert "attachment" in res.headers["Content-Disposition"] and res.headers["Content-Disposition"].endswith('.json"')
     doc = res.get_json()
-    assert doc["format"] == "printpricing-backup" and doc["format_version"] == 1 and doc["app_version"]
+    assert doc["format"] == "printpricing-backup" and doc["format_version"] == 2 and doc["app_version"]
     assert [len(doc[k]) for k in ("printers", "tariffs", "packaging", "spools", "projects")] == [1, 1, 1, 2, 1]
     assert doc["preferences"]["theme"] == "dark" and doc["includes_files"] is False and "files" not in doc
 
@@ -306,3 +306,114 @@ def test_a_damaged_or_edited_print_file_is_refused(owner, app):
     kind["files"][0]["kind"] = "exe"
     refuses(owner, kind, "Printbestanden, regel 1")
     assert set(os.listdir(app.config["APP_CONFIG"].upload_dir)) == names   # nothing was left on disk by the refusals
+
+
+# --- orders, the invoice template and numbers (format version 2) ---------------------------------------------------------
+
+def fill_orders(owner):
+    from docx import Document
+    from pypdf import PdfWriter
+    project = make(owner, "/api/projects", sheet_payload())
+    order = owner.post("/api/orders", headers=H, json={
+        "customer_name": "Jan Jansen", "address": "Kerkstraat 1", "postal_code": "1234 AB", "city": "Utrecht", "country": "Nederland",
+        "email": "jan@example.nl", "phone": "0612345678", "order_date": "2026-10-01", "delivery_date": "2026-10-15", "status": "verwerkt",
+        "notes": "Graag in doos", "lines": [{"description": "Rack-houder", "quantity": 2, "unit_price": "12.10", "vat_pct": "21", "project_id": project["id"]},
+                                            {"description": "Verzending", "quantity": 1, "unit_price": "5.00", "vat_pct": "0"}]}).get_json()
+    owner.put("/api/preferences", json={"business": {"name": "Flux76 Prints", "kvk": "12345678", "payment_days": 30}}, headers=H)
+    assert post(owner, f"/api/orders/{order['id']}/invoice").status_code == 200           # gets its invoice number
+    order = owner.get(f"/api/orders/{order['id']}").get_json()
+    paper = io.BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(595, 842)
+    writer.write(paper)
+    res = owner.post("/api/invoice-template", data={"file": (io.BytesIO(paper.getvalue()), "paper.pdf"), "margin_top_mm": "62"}, headers=H,
+                     content_type="multipart/form-data")
+    assert res.status_code == 201
+    return project, order, paper.getvalue()
+
+
+def order_snapshot(client):
+    orders = [client.get(f"/api/orders/{o['id']}").get_json() for o in client.get("/api/orders").get_json()]
+    for order in orders:
+        order.pop("updated_at")
+        for line in order["lines"]:
+            line.pop("id")                                   # a line has no identity of its own outside its order
+    return {"orders": orders, "numbers": {p["id"]: p["number"] for p in client.get("/api/projects").get_json()},
+            "template": {k: v for k, v in (client.get("/api/invoice-template").get_json()["template"] or {}).items() if k != "uploaded_at"}, "business": client.get("/api/preferences").get_json()["business"]}
+
+
+def test_orders_numbers_and_the_template_come_back_exactly(owner):
+    project, order, paper = fill_orders(owner)
+    before = order_snapshot(owner)
+    doc = backup(owner).get_json()
+    assert doc["orders"][0]["invoice_number"] and len(doc["orders"][0]["lines"]) == 2 and doc["invoice_template"]["kind"] == "pdf"
+    assert base64.b64decode(doc["invoice_template"]["content_b64"]) == paper
+    owner.delete(f"/api/orders/{order['id']}", headers=H)
+    owner.delete("/api/invoice-template", headers=H)
+    owner.delete(f"/api/projects/{project['id']}", headers=H)
+    res = owner.post("/api/backup/restore", json=doc, headers=H)
+    assert res.status_code == 200 and res.get_json()["summary"]["orders"] == 1 and res.get_json()["summary"]["template"] == 1
+    assert order_snapshot(owner) == before
+    assert owner.get("/api/invoice-template/download").data == paper
+
+
+def test_numbers_carry_on_after_a_restore(owner):
+    project, order, _ = fill_orders(owner)
+    doc = backup(owner).get_json()
+    owner.post("/api/backup/restore", json=doc, headers=H)
+    again = owner.post("/api/orders", json={"customer_name": "Piet", "lines": [{"description": "x", "quantity": 1, "unit_price": "1", "vat_pct": "0"}]},
+                       headers=H).get_json()
+    assert again["number"] == order["number"] + 1
+    assert make(owner, "/api/projects", sheet_payload())["number"] == project["number"] + 1
+    third = post(owner, f"/api/orders/{again['id']}/invoice").headers["Content-Disposition"]
+    assert order["invoice_number"][:4] in third and "-0002" in third                       # the invoice counter went on after the restored one
+
+
+def test_a_restore_without_orders_empties_them_and_a_version_1_file_still_works(owner):
+    project, order, _ = fill_orders(owner)
+    old = backup(owner).get_json()
+    for key in ("orders", "invoice_template"):
+        old.pop(key)
+    old["format_version"] = 1
+    for row in old["projects"]:
+        row.pop("number")
+    res = owner.post("/api/backup/restore", json=old, headers=H)
+    assert res.status_code == 200 and owner.get("/api/orders").get_json() == []
+    assert owner.get("/api/invoice-template").get_json()["template"] is None
+    assert [p["number"] for p in owner.get("/api/projects").get_json()] == [1]               # numbered afresh
+
+
+def test_a_calculation_without_a_number_gets_the_next_free_one(owner):
+    first = make(owner, "/api/projects", sheet_payload())
+    second = make(owner, "/api/projects", {**sheet_payload(), "name": "Tweede"})
+    doc = backup(owner).get_json()
+    doc["projects"][0].pop("number")                                                        # one without, one with (2)
+    assert owner.post("/api/backup/restore", json=doc, headers=H).status_code == 200
+    numbers = {p["name"]: p["number"] for p in owner.get("/api/projects").get_json()}
+    assert numbers[second["name"]] == 2 and numbers[first["name"]] == 3
+
+
+@pytest.mark.parametrize("change, expected", [
+    (lambda d: d["orders"][0].update(customer_name=""), "Bestellingen"),
+    (lambda d: d["orders"][0].update(status="klaar"), "Bestellingen"),
+    (lambda d: d["orders"][0].update(number=0), "Bestellingen"),
+    (lambda d: d["orders"].append(copy.deepcopy(d["orders"][0])), "Bestellingen"),
+    (lambda d: d["orders"][0]["lines"][0].update(quantity=0), "Bestellingen"),
+    (lambda d: d["invoice_template"].update(content_b64="!!geen base64!!"), "Factuursjabloon"),
+    (lambda d: d["invoice_template"].update(kind="docx"), "Factuursjabloon"),
+    (lambda d: d["projects"][0].update(number=5) or d["projects"].append({**d["projects"][0], "id": "11111111-1111-1111-1111-111111111111"}), "Berekeningen"),
+])
+def test_a_damaged_order_or_template_is_refused_before_anything_changes(owner, change, expected):
+    fill_orders(owner)
+    doc = backup(owner).get_json()
+    change(doc)
+    before = order_snapshot(owner)
+    res = owner.post("/api/backup/restore", json=doc, headers=H)
+    assert res.status_code == 400 and expected in res.get_json()["error"]
+    assert order_snapshot(owner) == before
+
+
+def test_the_backup_holds_the_template_but_no_credentials(owner):
+    fill_orders(owner)
+    text = backup(owner).get_data(as_text=True)
+    assert '"invoice_template"' in text and "credential_id" not in text and "recovery" not in text

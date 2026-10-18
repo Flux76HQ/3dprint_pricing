@@ -20,7 +20,7 @@ export function projectListView(ctx) {
     }
     list.replaceChildren(...items.map((p) => h('a', { class: 'glass card item link-card', href: `#/berekeningen/${p.id}` },
       h('div', { class: 'item-head' },
-        h('div', {}, h('h3', {}, p.name,
+        h('div', {}, h('h3', {}, h('span', { class: 'badge' }, `#${p.number}`), ' ', p.name,
           p.stock_booked_at ? h('span', { class: 'badge' }, t('calc.stock_booked')) : null),
         h('p', { class: 'muted' }, dateFmt(p.updated_at)))),
       h('dl', { class: 'stats' },
@@ -49,7 +49,7 @@ function fromSaved(project) {
   const d = project.data || {};
   const str = (v) => (v == null ? '' : String(v));
   return {
-    id: project.id, name: project.name, notes: project.notes, margin_pct: str(project.margin_pct),
+    id: project.id, number: project.number, name: project.name, notes: project.notes, margin_pct: str(project.margin_pct),
     file_id: project.file_id || null, source_url: project.source_url || '',
     vat_pct: str(project.vat_pct), price_rounding: project.price_rounding || 'none',
     stock_booked_at: project.stock_booked_at,
@@ -454,7 +454,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
   return h('div', { class: 'editor' },
     h('header', { class: 'page-head' },
       h('div', {}, h('a', { class: 'back', href: '#/berekeningen' }, t('calc.back')),
-        h('h1', {}, state.id ? t('calc.title') : t('calc.new')),
+        h('h1', {}, state.id ? t('calc.title') : t('calc.new'), state.number ? h('span', { class: 'badge' }, `#${state.number}`) : null),
         state.stock_booked_at ? h('span', { class: 'badge' }, t('calc.stock_booked')) : null)),
     h('div', { class: 'editor-grid' },
       h('div', { class: 'stack' },
