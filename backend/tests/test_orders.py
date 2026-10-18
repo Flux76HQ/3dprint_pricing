@@ -842,3 +842,58 @@ def test_without_a_converter_the_error_says_so(monkeypatch):
     with pytest.raises(invoice_docs.InvoiceError) as caught:
         invoice_docs.docx_to_pdf(b"PK word")
     assert caught.value.key == "invoice.err_no_converter"
+
+
+# --- the payment QR: switch, own link ---------------------------------------------------------------------------------
+
+LINK = "https://betaal.example.nl/pay?amount={bedrag}&cents={bedrag_cent}&ref={factuurnummer}&klant={klantnummer}&omschrijving={betreft}&iban={iban}&order={bestelnummer}"
+ORDER = {"invoice_number": "FLX 2026/0001", "customer_number": "K 9&9", "subject": "Rack-houders & meer", "number": 7}
+
+
+def test_the_own_payment_link_is_filled_in_with_every_value_made_safe_for_an_address():
+    link = invoice_docs.payment_link({"invoice_qr_link": LINK, "iban": "nl91 abna 0417 1643 00"}, ORDER, Decimal("29.2"))
+    assert link == ("https://betaal.example.nl/pay?amount=29.20&cents=2920&ref=FLX%202026%2F0001&klant=K%209%269&"
+                    "omschrijving=Rack-houders%20%26%20meer&iban=NL91ABNA0417164300&order=7")
+
+
+def test_the_payment_qr_is_the_own_link_when_there_is_one_else_the_sepa_code_else_nothing():
+    sepa = {"name": "Flux76", "iban": "NL91ABNA0417164300"}
+    total = Decimal("12.10")
+    assert invoice_docs.qr_payload(sepa, ORDER, total).startswith("BCD\n002")
+    assert invoice_docs.qr_payload({**sepa, "invoice_qr_link": "https://pay.example.nl/{factuurnummer}"}, ORDER, total) == "https://pay.example.nl/FLX%202026%2F0001"
+    assert invoice_docs.qr_payload({"invoice_qr_link": "https://pay.example.nl/x"}, ORDER, total) == "https://pay.example.nl/x"      # a link needs no IBAN
+    assert invoice_docs.qr_payload({**sepa, "invoice_qr_link": "https://pay.example.nl/x", "invoice_qr": False}, ORDER, total) is None   # off is off
+    assert invoice_docs.qr_payload({}, ORDER, total) is None
+    assert invoice_docs.qr_payload({"invoice_qr_link": "https://pay.example.nl/x"}, {**ORDER, "invoice_number": None}, total) is None   # no invoice yet
+
+
+@pytest.mark.parametrize("link", ["http://onveilig.example.nl/{bedrag}", "ftp://x.nl", "betaal.example.nl/{bedrag}", "https://x.nl/{onbekend}",
+                                  "https://x.nl/ {bedrag}", "https://x.nl/" + "a" * 500, "javascript:alert(1)", "https://x.nl/{bedrag"])
+def test_a_payment_link_that_cannot_be_used_is_refused(owner, link):
+    res = owner.put("/api/preferences", json={"business": {"name": "x", "invoice_qr_link": link}}, headers=H)
+    assert res.status_code == 400 and "Betaallink" in res.get_json()["error"]
+
+
+def test_the_payment_link_is_saved_and_may_be_emptied(owner):
+    assert business(owner, invoice_qr_link=LINK)["invoice_qr_link"] == LINK
+    assert business(owner)["invoice_qr_link"] == ""
+    assert business(owner, invoice_qr_link="  https://pay.example.nl/{factuurnummer}  ")["invoice_qr_link"] == "https://pay.example.nl/{factuurnummer}"
+
+
+def test_the_qr_on_the_invoice_follows_the_switch_and_the_link(owner):
+    def pictures(**extra):
+        business(owner, **extra)
+        return pdf_images(post(owner, f"/api/orders/{new_order(owner)['id']}/invoice").data)
+    assert pictures() == 1                                                          # SEPA code
+    assert pictures(invoice_qr_link="https://pay.example.nl/{factuurnummer}") == 1  # own link
+    assert pictures(iban="", invoice_qr_link="https://pay.example.nl/{factuurnummer}") == 1     # a link needs no IBAN
+    assert pictures(iban="") == 0
+    assert pictures(invoice_qr=False, invoice_qr_link="https://pay.example.nl/{factuurnummer}") == 0   # switched off: no QR, whatever else is set
+    assert pictures(invoice_qr=False) == 0
+
+
+def test_a_word_template_without_a_qr_loses_the_placeholder_and_keeps_the_rest(owner):
+    business(owner, invoice_qr=False)
+    upload(owner, "sjabloon.docx", owner.get("/api/invoice-template/sample").data)
+    made = word(owner, f"/api/orders/{new_order(owner)['id']}/invoice")
+    assert "{{" not in docx_text(made) and len(Document(io.BytesIO(made)).inline_shapes) == 0

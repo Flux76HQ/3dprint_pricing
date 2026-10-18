@@ -345,7 +345,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
   }
 
   const autoToggle = () => h('label', { class: 'check' },
-    h('input', { type: 'checkbox', checked: ctx.prefs.auto_adopt_file !== false,
+    h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: ctx.prefs.auto_adopt_file !== false,
       onchange: (e) => ctx.setPrefs({ auto_adopt_file: e.target.checked }) }),
     t('file.auto_adopt'));
 

@@ -200,8 +200,8 @@
  "company.payment_days": "Payment term (days)",
  "company.phone": "Phone",
  "company.postal_code": "Postal code",
- "company.qr": "Payment QR on the invoice",
- "company.qr_hint": "A QR code that banking apps read (SEPA): the amount, IBAN and invoice number are filled in. Only with an IBAN and a company name. In a Word template it goes where it says {{betaal_qr}}.",
+ "company.qr": "QR code on the invoice",
+ "company.qr_hint": "Switch it off and there is no QR code on the invoice (and in a Word template {{betaal_qr}} disappears). On: the code below.",
  "company.title": "Company details",
  "company.vat_id": "VAT number",
  "company.website": "Website",
@@ -647,5 +647,9 @@
  "customers.create_and_choose": "Save and choose",
  "customers.back_to_list": "Back to the list",
  "customers.no_customers": "There are no customers yet. Create the first one.",
- "customers.choose_one": "Choose a customer for this order."
+ "customers.choose_one": "Choose a customer for this order.",
+ "company.qr_title": "Payment QR",
+ "company.qr_link": "Own payment link",
+ "company.qr_link_ph": "https://pay.example.com/invoice/{factuurnummer}",
+ "company.qr_link_hint": "Leave empty for a SEPA code that banking apps read (amount, IBAN and invoice number, only with an IBAN and a company name). Enter an https address here and that goes into the QR code, so you can build a real payment link. Fields that are filled in (safe for an address): {bedrag} (29.20), {bedrag_cent} (2920), {factuurnummer}, {klantnummer}, {betreft}, {iban} and {bestelnummer}."
 }

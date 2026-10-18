@@ -289,7 +289,7 @@ function openForm(config, item, reload) {
   const inputs = config.fields.map((f) => {
     if (f.type === 'barcode') return barcodeField(f);
     if (f.type === 'checkbox') {
-      const box = h('input', { type: 'checkbox', checked: !!values[f.key],
+      const box = h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: !!values[f.key],
         onchange: (e) => { values[f.key] = e.target.checked; dirty.add(f.key); } });
       els[f.key] = box;
       return h('div', { class: 'field' }, h('label', { class: 'check' }, box, f.label), f.hint ? h('p', { class: 'hint' }, f.hint) : null);
@@ -395,7 +395,7 @@ export function resourceView(key) {
 
   const archiveToggle = config.archivable
     ? h('label', { class: 'check' },
-      h('input', { type: 'checkbox', onchange: (e) => { showArchived = e.target.checked; filters?.update(items.filter((i) => showArchived || !i.archived)); render(); } }),
+      h('input', { type: 'checkbox', class: 'toggle', role: 'switch', onchange: (e) => { showArchived = e.target.checked; filters?.update(items.filter((i) => showArchived || !i.archived)); render(); } }),
       t('common.show_archived'))
     : null;
 

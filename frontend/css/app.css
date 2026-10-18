@@ -12,6 +12,8 @@
   --text-muted: #55536f;
   --lijn: rgba(27, 26, 46, .10);      /* dividers: decoration */
   --rand: #7b7996;                    /* control borders: >= 3:1 on --surface-field */
+  --switch-off: #e5e5ea;              /* switches as on iOS: grey track, green when on, white round thumb */
+  --switch-on: #34c759;
   --accent: #6c5ce7;
   --on-accent: #ffffff;
   --accent-hover: color-mix(in srgb, var(--accent) 85%, black);
@@ -40,6 +42,8 @@
   --text-muted: #b0aed0;
   --lijn: #2a284d;
   --rand: #8c8ab0;
+  --switch-off: #39393d;
+  --switch-on: #30d158;
   --danger: #ff8a90;
   --ok: #6fdc8c;
   --glass-border: rgba(255, 255, 255, .10);
@@ -60,6 +64,8 @@
     --text-muted: #b0aed0;
     --lijn: #2a284d;
     --rand: #8c8ab0;
+    --switch-off: #39393d;
+    --switch-on: #30d158;
     --danger: #ff8a90;
     --ok: #6fdc8c;
     --glass-border: rgba(255, 255, 255, .10);
@@ -208,6 +214,9 @@ output.cost { font-weight: 650; font-variant-numeric: tabular-nums; min-height: 
 .toggle-row, .list-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap;
   padding: 8px 0; border-top: 1px solid var(--lijn); }
 .toggle-row:first-of-type { border-top: 0; }
+.toggle-row { flex-wrap: nowrap; padding: 10px 0; }                                   /* the switch stays on the right of its text, as in iOS settings */
+.toggle-row > div { flex: 1; min-width: 0; }
+.toggle-row p { margin: 2px 0 0; }
 .plain-list { list-style: none; margin: 0; padding: 0; }
 .segmented { display: inline-flex; border: 1px solid var(--rand); border-radius: 12px; overflow: hidden; }
 .seg { min-height: 44px; padding: 8px 16px; background: var(--surface-field); color: var(--text); border: 0; font: inherit; cursor: pointer; }
@@ -266,13 +275,24 @@ input[type=url] { font: inherit; color: var(--text); background: var(--surface-f
 .row.between { justify-content: space-between; flex-wrap: nowrap; }
 .row.between h2 { margin: 0; }
 
-/* Switch (a real button with role=switch) */
-.switch { position: relative; flex: none; width: 52px; height: 32px; padding: 0; border-radius: 99px; border: 1px solid var(--rand);
-  background: var(--surface-field); cursor: pointer; min-height: 44px; min-width: 52px; background-clip: padding-box; }
-.switch .thumb { position: absolute; top: 50%; left: 4px; width: 22px; height: 22px; border-radius: 50%; background: var(--rand);
-  transform: translateY(-50%); transition: left .15s, background .15s; }
-.switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
-.switch[aria-checked="true"] .thumb { left: 26px; background: var(--on-accent); }
+/* Switches look like the iOS ones: a 51 x 31 pill, grey when off and green when on, with a white round thumb that slides.
+   The button (role=switch) is the one the settings use; a checkbox with class "toggle" gets the same look for the on/off options in forms. */
+.switch, input.toggle { --thumb-shadow: 0 3px 8px rgba(0, 0, 0, .15), 0 1px 1px rgba(0, 0, 0, .16), 0 3px 1px rgba(0, 0, 0, .10);
+  position: relative; flex: none; width: 51px; height: 31px; padding: 0; margin: 0; border: 0; border-radius: 99px; cursor: pointer;
+  background: var(--switch-off); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .06); transition: background-color .25s ease; -webkit-tap-highlight-color: transparent; }
+.switch::before { content: ""; position: absolute; inset: -7px -4px; }                         /* a 44 px touch target around the pill */
+.switch .thumb, input.toggle::after { position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #ffffff;
+  box-shadow: var(--thumb-shadow); transition: transform .25s cubic-bezier(.3, 1.2, .4, 1), width .25s ease; }
+.switch:active .thumb, input.toggle:active::after { width: 33px; }                           /* the thumb stretches while pressed, as on iOS */
+.switch[aria-checked="true"], input.toggle:checked { background: var(--switch-on); }
+.switch[aria-checked="true"] .thumb, input.toggle:checked::after { transform: translateX(20px); }
+.switch[aria-checked="true"]:active .thumb, input.toggle:checked:active::after { transform: translateX(14px); }
+input.toggle { -webkit-appearance: none; appearance: none; }
+input.toggle::after { content: ""; }
+.check input.toggle { width: 51px; height: 31px; accent-color: auto; }
+.switch:focus-visible, input.toggle:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.switch:disabled, input.toggle:disabled { opacity: .5; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .switch, .switch .thumb, input.toggle, input.toggle::after { transition: none; } }
 .btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-subtle); }
 
 .brand-text { display: flex; flex-direction: column; line-height: 1.2; }

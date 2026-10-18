@@ -23,6 +23,7 @@ from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote
 from xml.sax.saxutils import escape
 
 import segno
@@ -117,6 +118,40 @@ def epc_payload(business: dict, order: dict, amount) -> "str | None":
     return "\n".join(["BCD", "002", "1", "SCT", bic, name, iban, f"EUR{Decimal(amount).quantize(CENT)}", "", "", reference, ""])
 
 
+LINK_FIELDS = ("bedrag", "bedrag_cent", "factuurnummer", "klantnummer", "betreft", "iban", "bestelnummer")
+_LINK_TOKEN = re.compile(r"\{(\w+)\}")
+MAX_LINK_LENGTH = 500
+
+
+def link_template_problem(template: str) -> bool:
+    """True when `template` cannot be used as a payment link: it must be an https address of limited length, and every {field} in it
+    must be one that exists."""
+    return not (template.startswith("https://") and len(template) <= MAX_LINK_LENGTH and not re.search(r"\s", template)
+                and all(name in LINK_FIELDS for name in _LINK_TOKEN.findall(template))
+                and not re.search(r"[{}]", _LINK_TOKEN.sub("", template)))                       # no stray brace left over
+
+
+def payment_link(business: dict, order: dict, amount) -> "str | None":
+    """The own payment link of the owner with this invoice filled in (every value made safe for an address), or None when there is
+    none. Fields: bedrag (29.20), bedrag_cent (2920), factuurnummer, klantnummer, betreft, iban, bestelnummer."""
+    template = str(business.get("invoice_qr_link") or "").strip()
+    if not template or link_template_problem(template) or not order["invoice_number"]:
+        return None
+    total = Decimal(amount).quantize(CENT)
+    values = {"bedrag": str(total), "bedrag_cent": str(int(total * 100)), "factuurnummer": order["invoice_number"],
+              "klantnummer": order["customer_number"] or "", "betreft": order["subject"] or "",
+              "iban": re.sub(r"\s+", "", str(business.get("iban") or "")).upper(), "bestelnummer": str(order["number"])}
+    return _LINK_TOKEN.sub(lambda m: quote(values[m.group(1)], safe=""), template)
+
+
+def qr_payload(business: dict, order: dict, amount) -> "str | None":
+    """What the payment QR code holds: nothing when it is switched off, the owner's own payment link when there is one, else the SEPA
+    transfer (see `epc_payload`)."""
+    if business.get("invoice_qr", True) is False:
+        return None
+    return payment_link(business, order, amount) or epc_payload(business, order, amount)
+
+
 def qr_png(payload: str) -> bytes:
     out = BytesIO()
     segno.make(payload, error="m", micro=False).save(out, kind="png", scale=6, border=2)
@@ -164,7 +199,7 @@ def images_for(order: dict, totals: dict, business: dict, logo: "dict | None") -
     out = {}
     if logo:
         out["logo"] = (logo["content"], logo["width_px"], logo["height_px"])
-    payload = epc_payload(business, order, totals["total"])
+    payload = qr_payload(business, order, totals["total"])
     if payload:
         out["betaal_qr"] = (qr_png(payload), 0, 0)
     return out

@@ -318,7 +318,7 @@ adres van de klant, rechts factuurdatum, vervaldatum en klantnummer, dan *Factuu
 beschrijving en het bedrag excl. en incl. btw per regel (met het btw-tarief eronder), de totalen per btw-tarief (*Btw hoog (21%)*,
 *Btw laag (9%)*), de betaalzin en een **betaal-QR**. Datums staan als `dd/mm/jjjj`. De QR is een SEPA-code (EPC069-12) die bankapps
 lezen: bedrag, IBAN, naam en factuurnummer worden ingevuld (dus geen iDEAL-link); hij komt er alleen als IBAN en bedrijfsnaam zijn
-ingevuld en je hem niet hebt uitgezet. Per regel zijn netto en btw zo verdeeld dat de regels precies optellen tot de totalen
+ingevuld en je hem niet hebt uitgezet. Onder *Instellingen → Zakelijk → Betaal-QR* zet je de QR-code **uit** (dan staat er niets op de factuur en verdwijnt `{{betaal_qr}}` uit een Word-sjabloon) of vul je een **eigen betaallink** in: een https-adres met de velden `{bedrag}` (29.20), `{bedrag_cent}` (2920), `{factuurnummer}`, `{klantnummer}`, `{betreft}`, `{iban}` en `{bestelnummer}` (elk veilig voor een adres gemaakt), bijvoorbeeld `https://betaal.voorbeeld.nl/factuur/{factuurnummer}?bedrag={bedrag}`. Die link komt dan in de QR-code, ook zonder IBAN; leeg laten geeft de SEPA-code. Per regel zijn netto en btw zo verdeeld dat de regels precies optellen tot de totalen
 (`orders._split_net`: afgerond naar beneden, de overgebleven centen naar de grootste resten). Het lettertype (Open Sans, SIL Open Font
 License) staat in `backend/app/fonts/` met zijn licentie; ontbreekt het, dan valt de PDF terug op Helvetica.
 
