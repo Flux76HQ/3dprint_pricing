@@ -52,6 +52,7 @@ def fake_libreoffice(monkeypatch):
         KEPT.append(content)
         return buf.getvalue()
     monkeypatch.setattr(invoice_docs, "docx_to_pdf", convert)
+    return convert
 
 
 def word(owner, url):
@@ -297,7 +298,7 @@ def test_the_invoice_is_kept_as_a_pdf_and_can_be_downloaded_again_as_it_was(owne
         assert conn.execute("SELECT count(*) AS n FROM invoice_pdfs").fetchone()["n"] == 0        # gone with its order
 
 
-def test_a_word_template_that_cannot_be_turned_into_a_pdf_leaves_no_invoice_number_behind(owner, app, monkeypatch):
+def test_a_word_template_that_cannot_be_turned_into_a_pdf_leaves_no_invoice_number_behind(owner, app, monkeypatch, fake_libreoffice):
     business(owner)
     upload(owner, "sjabloon.docx", owner.get("/api/invoice-template/sample").data)
     order = new_order(owner)
@@ -308,7 +309,7 @@ def test_a_word_template_that_cannot_be_turned_into_a_pdf_leaves_no_invoice_numb
     res = post(owner, f"/api/orders/{order['id']}/invoice")
     assert res.status_code == 422 and "PDF" in res.get_json()["error"]
     assert owner.get(f"/api/orders/{order['id']}").get_json()["invoice_number"] is None and owner.get(f"/api/orders/{order['id']}/invoice").status_code == 404
-    monkeypatch.undo()
+    monkeypatch.setattr(invoice_docs, "docx_to_pdf", fake_libreoffice)                    # the converter works again
     assert f"{date.today().year}-0001" in post(owner, f"/api/orders/{order['id']}/invoice").headers["Content-Disposition"]      # the number was not used up
 
 
