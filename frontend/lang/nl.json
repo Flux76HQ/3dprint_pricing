@@ -200,8 +200,8 @@
  "company.payment_days": "Betaaltermijn (dagen)",
  "company.phone": "Telefoon",
  "company.postal_code": "Postcode",
- "company.qr": "Betaal-QR op de factuur",
- "company.qr_hint": "Een QR-code die bankapps lezen (SEPA): bedrag, IBAN en factuurnummer worden ingevuld. Alleen met een IBAN en een bedrijfsnaam. In een Word-sjabloon komt hij op de plek van {{betaal_qr}}.",
+ "company.qr": "QR-code op de factuur",
+ "company.qr_hint": "Zet uit en er komt geen QR-code op de factuur (en in een Word-sjabloon verdwijnt {{betaal_qr}}). Aan: de code hieronder.",
  "company.title": "Bedrijfsgegevens",
  "company.vat_id": "Btw-nummer",
  "company.website": "Website",
@@ -647,5 +647,9 @@
  "customers.create_and_choose": "Opslaan en kiezen",
  "customers.back_to_list": "Terug naar de lijst",
  "customers.no_customers": "Er zijn nog geen klanten. Maak de eerste aan.",
- "customers.choose_one": "Kies een klant voor deze bestelling."
+ "customers.choose_one": "Kies een klant voor deze bestelling.",
+ "company.qr_title": "Betaal-QR",
+ "company.qr_link": "Eigen betaallink",
+ "company.qr_link_ph": "https://betaal.voorbeeld.nl/factuur/{factuurnummer}",
+ "company.qr_link_hint": "Leeg laten geeft een SEPA-code die bankapps lezen (bedrag, IBAN en factuurnummer, alleen met een IBAN en een bedrijfsnaam). Vul je hier een https-adres in, dan komt dat in de QR-code, zodat je een echte betaallink kunt bouwen. Velden die worden ingevuld (veilig voor een adres): {bedrag} (29.20), {bedrag_cent} (2920), {factuurnummer}, {klantnummer}, {betreft}, {iban} en {bestelnummer}."
 }

@@ -275,10 +275,25 @@ function companyCard(ctx) {
     text(by.website, { inputmode: 'url' }),
     h('div', { class: 'two even' }, text(by.kvk), text(by.vat_id)),
     h('div', { class: 'two' }, text(by.iban), text(by.bic)),
-    switchRow(t('company.qr'), t('company.qr_hint'), current().invoice_qr !== false, (on) => ctx.setPrefs({ business: { ...current(), invoice_qr: on } })),
     h('div', { class: 'two even' }, field(t('company.payment_days'), days), field(t('company.language'), language)),
     field(t('company.number_format'), numberFormat, t('company.number_format_hint')),
     field(t('company.note'), note, t('company.note_hint')));
+}
+
+// The QR code under the invoice: on or off, and what it holds: the SEPA transfer (the default) or an own payment link with the invoice filled in.
+function qrCard(ctx) {
+  const current = () => ({ payment_days: 14, invoice_language: 'nl', ...(ctx.prefs.business || {}) });
+  const link = h('input', { type: 'url', maxlength: 500, inputmode: 'url', autocomplete: 'off', spellcheck: false, placeholder: t('company.qr_link_ph'),
+    value: current().invoice_qr_link || '', disabled: current().invoice_qr === false,
+    onchange: async () => {
+      if (!(await ctx.setPrefs({ business: { ...current(), invoice_qr_link: link.value.trim() } }))) link.value = current().invoice_qr_link || '';      // refused: show what is saved
+    } });
+  return h('div', { class: 'glass card stack' }, h('h2', {}, t('company.qr_title')),
+    switchRow(t('company.qr'), t('company.qr_hint'), current().invoice_qr !== false, async (on) => {
+      await ctx.setPrefs({ business: { ...current(), invoice_qr: on } });
+      link.disabled = !on;
+    }),
+    field(t('company.qr_link'), link, t('company.qr_link_hint')));
 }
 
 // The logo at the top left of the invoice (and where a Word template says {{logo}}): one PNG or JPEG.
@@ -491,7 +506,7 @@ export function settingsView(ctx, requested) {
           field(t('business.rounding'), h('select', { onchange: (e) => setPrefs({ price_rounding: e.target.value }) },
             ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (ctx.prefs.price_rounding || 'none') === v }, t(l)))))),
         h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
-      companyCard(ctx), invoiceLogoCard(), invoiceTemplateCard()],
+      companyCard(ctx), qrCard(ctx), invoiceLogoCard(), invoiceTemplateCard()],
     notificaties: () => notificationsCards(ctx),
     backup: () => [backupCard()],
   };
