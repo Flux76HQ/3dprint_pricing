@@ -201,6 +201,56 @@ def test_an_invoice_number_is_given_once_and_counted_per_year(owner, app):
     assert f"{year - 1}-0001" in post(owner, f"/api/orders/{second['id']}/invoice").headers["Content-Disposition"]
 
 
+def test_the_invoice_number_template_gives_a_prefix_and_a_running_number(owner, app):
+    year = date.today().year
+    assert business(owner)["invoice_number_format"] == "{JJJJ}-{NNNN}"                              # the default
+    business(owner, invoice_number_format="FLX-{JJJJ}-{NNNNN}")
+    first, second = new_order(owner), new_order(owner)
+    assert f"Factuur-FLX-{year}-00001.pdf" in post(owner, f"/api/orders/{first['id']}/invoice").headers["Content-Disposition"]
+    assert owner.get(f"/api/orders/{second['id']}").get_json()["invoice_number"] is None
+    business(owner, invoice_number_format="B{JJ}/{N}")                                                # changed: new invoices only, the count goes on
+    assert f"Factuur-B{year % 100}_2.pdf" in post(owner, f"/api/orders/{second['id']}/invoice").headers["Content-Disposition"]
+    assert owner.get(f"/api/orders/{second['id']}").get_json()["invoice_number"] == f"B{year % 100}/2"
+    assert owner.get(f"/api/orders/{first['id']}").get_json()["invoice_number"] == f"FLX-{year}-00001"      # an existing number stays
+
+
+def test_without_the_year_in_the_template_the_count_goes_on_in_the_next_year(owner, app):
+    business(owner, invoice_number_format="F{NNN}")
+    one, two = new_order(owner), new_order(owner)
+    assert "Factuur-F001.pdf" in post(owner, f"/api/orders/{one['id']}/invoice").headers["Content-Disposition"]
+    with app.extensions["pool"].connection() as conn:
+        conn.execute("UPDATE orders SET invoice_date = %s WHERE id = %s", (date(date.today().year - 1, 12, 30), two["id"]))
+    assert "Factuur-F002.pdf" in post(owner, f"/api/orders/{two['id']}/invoice").headers["Content-Disposition"]
+
+
+def test_a_number_that_exists_already_is_skipped(owner, app):
+    business(owner, invoice_number_format="X{NN}")
+    one, two = new_order(owner), new_order(owner)
+    post(owner, f"/api/orders/{one['id']}/invoice")                                                   # X01
+    business(owner, invoice_number_format="Y{NN}")
+    post(owner, f"/api/orders/{two['id']}/invoice")                                                   # Y02
+    business(owner, invoice_number_format="X{NN}")                                                    # back again: X02 is free, X01 is not
+    three = new_order(owner)
+    with app.extensions["pool"].connection() as conn:
+        conn.execute("UPDATE invoice_counters SET last = 0 WHERE year = 0")
+    assert "Factuur-X02.pdf" in post(owner, f"/api/orders/{three['id']}/invoice").headers["Content-Disposition"]
+
+
+def test_the_invoice_number_template_is_checked(owner):
+    for bad in ("FLX-{JJJJ}", "{NNNN}{NN}", "{FOO}-{NNNN}", "A\"B{NNNN}", "{NNNNNNNNNN}", "x" * 40 + "{N}", 5, ["{N}"], "A\n{N}"):
+        res = owner.put("/api/preferences", json={"business": {"name": "x", "invoice_number_format": bad}}, headers=H)
+        assert res.status_code == 400, bad
+    assert business(owner, invoice_number_format="")["invoice_number_format"] == "{JJJJ}-{NNNN}"      # empty: the default
+    assert business(owner, invoice_number_format=" {yyyy}.{nn} ")["invoice_number_format"] == "{yyyy}.{nn}"
+
+
+def test_rendering_the_invoice_number_template():
+    from app import invoice_numbers as n
+    assert n.render("FLX-{JJJJ}-{NNNN}", 2026, 7) == "FLX-2026-0007"
+    assert n.render("{YY}{N}", 2026, 12345) == "2612345"
+    assert n.uses_year("{JJ}{N}") and not n.uses_year("F{NN}")
+
+
 def test_the_invoice_date_can_be_changed_once_there_is_an_invoice(owner):
     order = new_order(owner)
     owner.put(f"/api/orders/{order['id']}", json={**order, "invoice_date": "2026-01-01"}, headers=H)

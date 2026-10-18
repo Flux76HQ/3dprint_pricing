@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, g, jsonify, request
 
-from . import lowstock, push, stock
+from . import invoice_numbers, lowstock, push, stock
 from .calc import ROUNDINGS, calculate
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import LANGUAGES, L, tr
@@ -369,6 +369,7 @@ def _validated_business(value) -> dict:
         raise ApiError(400, "err.language")
     out["invoice_language"] = language
     out["invoice_qr"] = boolean("f.invoice_qr")(value.get("invoice_qr", True))              # a payment QR code under the invoice
+    out["invoice_number_format"] = invoice_numbers.validate(value.get("invoice_number_format"))
     return out
 
 

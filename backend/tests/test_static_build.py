@@ -32,7 +32,7 @@ def test_every_import_and_the_entry_scripts_carry_the_release(real):
     index = real.get("/").get_data(as_text=True)
     assert 'src="/js/main.js?v=' in index and 'href="/css/app.css?v=' in index and token.search(index)
     # iOS keeps a home-screen icon (or the failure to get one) per URL, so the icon URL changes with every release
-    assert re.search(r'rel="apple-touch-icon" href="/icons/apple-touch-icon\.png\?v=[\w.]+-0123456"', index)
+    assert re.search(r'rel="apple-touch-icon" href="/icons/apple-touch-icon\.png\?v=[\w.]+-0123456\.[0-9a-f]+"', index)
     assert re.search(r'rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32\.png\?v=', index)
     assert "/splash/splash-" in index and "splash.png?v=" not in index and "icon.svg?v=" not in index
     for script in sorted((FRONT / "js").glob("*.js")):
@@ -64,3 +64,15 @@ def test_the_release_is_part_of_the_urls_so_a_new_release_cannot_reuse_old_ones(
     monkeypatch.setenv("APP_COMMIT", "fedcba9876")
     new = real.get("/js/main.js").get_data(as_text=True)
     assert old != new and "-fedcba9" in new and "-0123456" not in new
+
+
+def test_the_home_screen_icon_has_a_new_url_on_every_load(real, monkeypatch):
+    pattern = re.compile(r'rel="apple-touch-icon" href="(/icons/apple-touch-icon\.png\?v=[^"]+)"')
+    ticks = iter(range(1_700_000_000_000_000_000, 1_700_000_000_000_000_000 + 10 ** 10, 10 ** 7))
+    monkeypatch.setattr("app.time.time_ns", lambda: next(ticks))
+    first = pattern.search(real.get("/").get_data(as_text=True)).group(1)
+    second = pattern.search(real.get("/").get_data(as_text=True)).group(1)
+    assert first != second
+    for url in (first, second):                                                          # whatever the query says, it is the icon
+        served = real.get(url)
+        assert served.status_code == 200 and served.mimetype == "image/png" and "no-cache" in served.headers["Cache-Control"]

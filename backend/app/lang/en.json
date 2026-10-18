@@ -266,5 +266,8 @@
  "wa.origin": "Origin not allowed.",
  "wa.rp_hash": "RP ID hash does not match.",
  "wa.signature": "Invalid signature.",
- "wa.uv": "User presence and verification are both required."
+ "wa.uv": "User presence and verification are both required.",
+ "err.invoice_number_format": "Invoice number: use exactly one running number ({{NNNN}}), optionally the year ({{JJJJ}}, {{YYYY}}, {{JJ}} or {{YY}}), with only letters, digits, spaces and . _ / - around it (40 characters at most).",
+ "invoice.number_exhausted": "No free invoice number can be found with this template.",
+ "f.invoice_number_format": "Invoice number"
 }

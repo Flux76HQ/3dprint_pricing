@@ -263,6 +263,8 @@ function companyCard(ctx) {
     onchange: () => save('payment_days', days, /^\d+$/.test(days.value.trim()) ? Number(days.value.trim()) : days.value.trim()) });
   const language = h('select', { onchange: () => save('invoice_language', language, language.value) },
     [['nl', 'Nederlands'], ['en', 'English']].map(([v, l]) => h('option', { value: v, selected: current().invoice_language === v }, l)));
+  const numberFormat = h('input', { type: 'text', maxlength: 40, value: current().invoice_number_format || '{JJJJ}-{NNNN}', autocomplete: 'off', spellcheck: false,
+    onchange: () => save('invoice_number_format', numberFormat, numberFormat.value.trim()) });
   const note = h('textarea', { rows: 3, maxlength: 500, onchange: () => save('note', note, note.value.trim()) }, current().note || '');
   const by = Object.fromEntries(COMPANY_TEXT.map((f) => [f[0], f]));
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('company.title')), h('p', { class: 'muted' }, t('company.hint')),
@@ -275,6 +277,7 @@ function companyCard(ctx) {
     h('div', { class: 'two' }, text(by.iban), text(by.bic)),
     switchRow(t('company.qr'), t('company.qr_hint'), current().invoice_qr !== false, (on) => ctx.setPrefs({ business: { ...current(), invoice_qr: on } })),
     h('div', { class: 'two even' }, field(t('company.payment_days'), days), field(t('company.language'), language)),
+    field(t('company.number_format'), numberFormat, t('company.number_format_hint')),
     field(t('company.note'), note, t('company.note_hint')));
 }
 
