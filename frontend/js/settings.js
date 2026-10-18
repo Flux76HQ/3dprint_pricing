@@ -236,7 +236,7 @@ function backupCard() {
   picker.addEventListener('change', () => { const file = picker.files[0]; picker.value = ''; if (file) restore(file); });
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('backup.title')),
     h('p', { class: 'muted' }, t('backup.intro')),
-    h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: (e) => { withFiles = e.target.checked; } }), t('backup.files')),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', class: 'toggle', role: 'switch', onchange: (e) => { withFiles = e.target.checked; } }), t('backup.files')),
     h('p', { class: 'hint' }, t('backup.files_hint')),
     h('div', { class: 'row' },
       h('button', { class: 'btn primary', type: 'button', onclick: download }, t('backup.download')),
