@@ -14,7 +14,7 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
   slicer-data) leest de app het volume en **schat** het gewicht (volume × dichtheid × effectieve vulling);
   de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast kun je een **link** naar het model
   bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
-- **Bestellingen** — een bestelling van een klant met meerdere prints: besteldatum, leverdatum, naam en adres, een lijst met
+- **Klanten en bestellingen** — klanten met klantnummer, en een bestelling van een klant met meerdere prints: besteldatum, leverdatum, de klant, een lijst met
   modellen (zoek een berekening op **nummer** of naam; elke berekening heeft een nummer, `#12`), aantallen en de totaalprijs. Per
   bestelling maak je een **factuur** en zet je de status op *nieuw*, *verwerkt*, *verstuurd* of *afgehandeld*. Zie *Bestellingen en
   facturen* hieronder.
@@ -295,20 +295,19 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 
 ## Bestellingen en facturen
 
-**Bestellingen** (menu *Bestellingen*): *Nieuwe bestelling* vraagt de besteldatum en leverdatum, de gegevens van de klant (naam,
-adres, postcode, plaats, land, e-mail, telefoon) en de modellen. Bij *Model toevoegen* zoek je een berekening op nummer (`2`, `#2`)
+**Klanten** (menu *Klanten*): een klant heeft een klantnummer, naam, adres, postcode, plaats, land, e-mail, telefoon en een notitie (alleen voor jezelf). Laat je het klantnummer leeg, dan krijgt de klant het volgende vrije hele getal (`1`, `2`, …); een eigen nummer (`K9999`) mag ook, maar is uniek (hoofdletters tellen niet). Een klant met bestellingen kan niet verwijderd worden. Bestaande bestellingen kregen bij het bijwerken automatisch een klant: één per naam + klantnummer, met een vrij nummer als het klantnummer leeg of dubbel was.
+
+**Bestellingen** (menu *Bestellingen*): *Nieuwe bestelling* vraagt de besteldatum en leverdatum, de **klant** (kies een bestaande klant of maak er op dat moment een aan; een bestelling hoort altijd bij een klant; de gegevens staan bij de klant) en de modellen. De bestelling bewaart een kopie van de klantgegevens: bewerk je een klant, dan verandert die kopie in zijn bestellingen **zonder factuur**; een factuur die al een nummer heeft blijft zoals hij was, tot je de bestelling opnieuw opslaat. Bij *Model toevoegen* zoek je een berekening op nummer (`2`, `#2`)
 of op een deel van de naam; kies je hem nog eens, dan gaat het aantal omhoog. De prijs per stuk is de verkoopprijs **incl. btw** uit
 de berekening zoals die er op dat moment uit zag; hij wordt gekopieerd en is per regel aan te passen, een latere wijziging van de
 berekening verandert een bestelling dus niet. Met *Eigen regel toevoegen* komt er een regel bij die niet bij een berekening hoort
 (bijvoorbeeld verzending). De **totalen rekent de server uit** (`backend/app/orders.py`, nooit de browser): de btw wordt per tarief
 uit de som van de regels gehaald, zodat wat de klant betaalt precies de som van de regels is. In de lijst filter je op status
-en zoek je op naam, plaats, bestelnummer of factuurnummer; de status zet je daar met één keuzelijst, of in de bestelling zelf.
+en zoek je op naam, klantnummer, plaats, bestelnummer of factuurnummer; de status zet je daar met één keuzelijst, of in de bestelling zelf.
 
-**Facturen**: *Factuur genereren* maakt de factuur van de bestelling en downloadt hem. De eerste keer krijgt de factuur een
+**Facturen**: *Factuur genereren (PDF)* maakt de factuur van de bestelling als **PDF**, bewaart hem op de server en downloadt hem. De eerste keer krijgt de factuur een
 nummer (`JJJJ-0001`, per jaar doorgeteld, nooit tweemaal uitgegeven) en een factuurdatum (vandaag, daarna aan te passen);
-daarna levert dezelfde knop (*Factuur opnieuw downloaden*) hetzelfde nummer met wat de bestelling nu zegt, dus een bestelling
-bewerken en de factuur opnieuw downloaden kan altijd. Een factuur heeft zijn eigen bestand niet: hij wordt elke keer uit de
-bestelling gemaakt. Gegevens van je bedrijf (naam, adres, telefoon, e-mail, website, KvK, btw-nummer, IBAN en BIC, betaaltermijn, taal
+daarna maakt dezelfde knop (*Factuur opnieuw genereren*) hem opnieuw met hetzelfde nummer en wat de bestelling nu zegt, en vervangt de bewaarde PDF. *Factuur downloaden (PDF)* geeft de bewaarde PDF zoals hij gemaakt is, zonder opnieuw te genereren. De PDF’s staan in de database (en in de back-up van de app). Gegevens van je bedrijf (naam, adres, telefoon, e-mail, website, KvK, btw-nummer, IBAN en BIC, betaaltermijn, taal
 van de factuur, een tekst onderaan en of er een betaal-QR op komt) vul je in onder *Instellingen → Zakelijk → Bedrijfsgegevens*, je
 **logo** (PNG of JPEG, maximaal 2 MB) onder *Instellingen → Zakelijk → Logo*. Per bestelling vul je ook het **klantnummer** en een
 **Betreft**-regel in (leeg: “Bestelling” met het nummer).
@@ -328,8 +327,8 @@ License) staat in `backend/app/fonts/` met zijn licentie; ontbreekt het, dan val
 - **Zonder sjabloon** gebruikt de app de ingebouwde PDF hierboven.
 - **Word (`.docx`)**: zet velden tussen dubbele accolades in je document (kop, voet en tabellen werken ook). Eén tabelrij met
   `{{regel.omschrijving}}`, `{{regel.aantal}}`, `{{regel.bedrag_excl}}`, `{{regel.bedrag_incl}}`, `{{regel.btw}}` (ook `{{regel.prijs}}`
-  per stuk, `{{regel.totaal}}` en `{{regel.nr}}`) wordt voor elke regel van de bestelling herhaald; een sjabloon zonder zo'n rij wordt bij het uploaden geweigerd. Je krijgt een Word-bestand
-  terug (de app zet het niet om naar PDF). Een veld dat niet bestaat blijft zichtbaar in de factuur staan, zodat je een typefout ziet.
+  per stuk, `{{regel.totaal}}` en `{{regel.nr}}`) wordt voor elke regel van de bestelling herhaald; een sjabloon zonder zo'n rij wordt bij het uploaden geweigerd. De factuur is altijd een PDF: de app zet
+  het Word-bestand met LibreOffice (zit in de Docker-image) om, met de lettertypen die op de server staan (Open Sans zit erbij; een ander lettertype in je sjabloon wordt vervangen als het ontbreekt, controleer dat in de PDF). Een veld dat niet bestaat blijft zichtbaar in de factuur staan, zodat je een typefout ziet.
   `{{logo}}` en `{{betaal_qr}}` worden afbeeldingen (je logo en de betaal-QR; zonder logo of IBAN verdwijnt de tekst). *Voorbeeldsjabloon
   downloaden* geeft een Word-bestand in dezelfde layout als de ingebouwde factuur, om mee te beginnen; het gebruikt Open Sans (Word
   neemt een ander lettertype waar het ontbreekt).
@@ -348,15 +347,15 @@ postcode en plaats, land onder elkaar), `bedrijf.naam`, `bedrijf.adres`, `bedrij
 `bedrijf.email`, `bedrijf.telefoon`, `bedrijf.website`, `bedrijf.kvk`, `bedrijf.btw_nummer`, `bedrijf.iban`, `bedrijf.bic`,
 `bedrijf.tekst`, `totaal_excl`, `btw_totaal`, `totaal`, `btw_overzicht` (per tarief, labels en bedragen samen), `btw_labels` en
 `btw_bedragen` (dezelfde regels apart, om in twee kolommen te zetten), `betaaltekst` (bedrag, vervaldatum en factuurnummer) en de
-regelvelden hierboven. Het sjabloonbestand en het logo staan, net als elke upload, onder `UPLOAD_DIR`; ze worden met de rest meegenomen in de
-back-up van de app. Word- en PDF-bestanden worden als onbetrouwbaar behandeld: grootte en uitgepakte grootte zijn begrensd, Word
+regelvelden hierboven. Het sjabloonbestand, het logo en de gemaakte factuur-PDF’s staan in de **database** (niet onder `UPLOAD_DIR`), dus ze blijven bestaan als je de container opnieuw bouwt of de uploads-map kwijtraakt; ze worden met de rest meegenomen in de
+back-up van de app. Een sjabloon of logo van een eerdere versie (nog als bestand onder `UPLOAD_DIR`) wordt de eerste keer dat het gebruikt wordt in de database gezet; is dat bestand al weg, upload het dan één keer opnieuw. Word- en PDF-bestanden worden als onbetrouwbaar behandeld: grootte en uitgepakte grootte zijn begrensd, Word
 wordt gelezen met `python-docx` (zonder XML-entiteiten) en PDF alleen met `pypdf`; er wordt niets uitgevoerd.
 
 ## Back-up in de app
 
 *Instellingen → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`):
 je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, filamentrollen,
-berekeningen (met hun nummers), bestellingen met hun factuurnummers, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
+berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
 mailen of bewaren mag de app niet kunnen openen. Na herstellen op een lege installatie log je dus gewoon in met je passkey.
 

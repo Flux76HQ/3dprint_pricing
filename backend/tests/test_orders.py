@@ -18,9 +18,30 @@ def line(description="Vaas", quantity=1, unit_price="12.10", vat_pct="21", **ext
     return {"description": description, "quantity": quantity, "unit_price": unit_price, "vat_pct": vat_pct, **extra}
 
 
+CUSTOMER_KEYS = {"customer_name": "name", "customer_number": "number", "address": "address", "postal_code": "postal_code", "city": "city",
+                 "country": "country", "email": "email", "phone": "phone"}
+
+
+def customer(owner, **extra):
+    """A customer: without arguments the usual one (number K9999, made once), with arguments a new one (its number is the next free one
+    unless given)."""
+    body = {"name": "Jan Jansen", "number": "K9999", "address": "Kerkstraat 1", "postal_code": "1234 AB", "city": "Utrecht", "country": "Nederland",
+            "email": "jan@example.nl", "phone": ""}
+    if extra:
+        body = {**body, "number": "", **extra}
+    else:
+        found = [c for c in owner.get("/api/customers?q=K9999").get_json() if c["number"] == "K9999"]
+        if found:
+            return found[0]
+    res = owner.post("/api/customers", json=body, headers=H)
+    assert res.status_code == 201, res.get_json()
+    return res.get_json()
+
+
 def new_order(owner, lines=None, **extra):
-    body = {"customer_name": "Jan Jansen", "customer_number": "K9999", "subject": "Rack-houders voor oktober", "address": "Kerkstraat 1", "postal_code": "1234 AB", "city": "Utrecht", "country": "Nederland",
-            "email": "jan@example.nl", "order_date": "2026-10-01", "delivery_date": "2026-10-15",
+    own = {CUSTOMER_KEYS[key]: extra.pop(key) for key in list(extra) if key in CUSTOMER_KEYS}
+    customer_id = extra.pop("customer_id", None) or customer(owner, **own)["id"]
+    body = {"customer_id": customer_id, "subject": "Rack-houders voor oktober", "order_date": "2026-10-01", "delivery_date": "2026-10-15",
             "lines": [line()] if lines is None else lines, **extra}
     res = owner.post("/api/orders", json=body, headers=H)
     assert res.status_code == 201, res.get_json()
@@ -34,6 +55,32 @@ def business(owner, **extra):
     res = owner.put("/api/preferences", json={"business": body}, headers=H)
     assert res.status_code == 200, res.get_json()
     return res.get_json()["business"]
+
+
+KEPT = []                                                  # the Word files that were handed to the converter
+
+
+@pytest.fixture(autouse=True)
+def fake_libreoffice(monkeypatch):
+    """The Word invoice goes through LibreOffice in real life; here the Word file is kept for the test to read and a one-page PDF stands in."""
+    KEPT.clear()
+    buf = io.BytesIO()
+    pdf = canvas.Canvas(buf)
+    pdf.drawString(72, 700, "PDF van het Word-sjabloon")
+    pdf.save()
+
+    def convert(content):
+        KEPT.append(content)
+        return buf.getvalue()
+    monkeypatch.setattr(invoice_docs, "docx_to_pdf", convert)
+    return convert
+
+
+def word(owner, url):
+    """Make the invoice and return the Word file that was turned into the PDF."""
+    res = post(owner, url)
+    assert res.status_code == 200 and res.mimetype == "application/pdf", res.get_data(as_text=True)
+    return KEPT[-1]
 
 
 def pdf_text(content: bytes) -> str:
@@ -93,19 +140,20 @@ def test_the_totals_endpoint_gives_what_saving_will_store(owner):
 # --- validation -----------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("change", [
-    {"customer_name": ""}, {"status": "klaar"}, {"order_date": "morgen"}, {"delivery_date": "31-12-2026"}, {"email": "geen-adres"},
+    {"customer_id": ""}, {"customer_id": "niet-een-uuid"}, {"customer_id": "00000000-0000-0000-0000-000000000000"}, {"customer_id": None},
+    {"status": "klaar"}, {"order_date": "morgen"}, {"delivery_date": "31-12-2026"},
     {"lines": "veel"}, {"lines": [line(quantity=0)]}, {"lines": [line(quantity=1.5)]}, {"lines": [line(quantity="x")]},
     {"lines": [line(unit_price="-1")]}, {"lines": [line(unit_price="abc")]}, {"lines": [line(vat_pct="101")]},
     {"lines": [line(description="")]}, {"lines": [line(project_id="niet-een-uuid")]}, {"lines": [line()] * 201},
-    {"customer_name": "x" * 121},
+    {"subject": "x" * 201},
 ])
 def test_an_order_that_makes_no_sense_is_refused(owner, change):
-    body = {"customer_name": "Jan", "order_date": "2026-10-01", "lines": [line()], **change}
+    body = {"customer_id": customer(owner)["id"], "order_date": "2026-10-01", "lines": [line()], **change}
     assert owner.post("/api/orders", json=body, headers=H).status_code == 400
 
 
-def test_an_order_may_start_without_lines_and_with_only_a_name(owner):
-    order = owner.post("/api/orders", json={"customer_name": "Jan"}, headers=H).get_json()
+def test_an_order_may_start_without_lines_and_with_only_a_customer(owner):
+    order = owner.post("/api/orders", json={"customer_id": customer(owner)["id"]}, headers=H).get_json()
     assert order["lines"] == [] and order["totals"]["total"] == "0.00" and order["status"] == "nieuw"
     assert order["order_date"] == date.today().isoformat() and order["number"] == 1
 
@@ -154,7 +202,7 @@ def test_the_list_filters_by_status_and_searches_by_name_number_and_city(owner):
 
 def test_an_order_can_be_edited_and_deleted(owner):
     order = new_order(owner)
-    body = {**order, "customer_name": "Piet", "lines": [line("Nieuw", 4, "2.50", "0")]}
+    body = {**order, "customer_id": customer(owner, name="Piet")["id"], "lines": [line("Nieuw", 4, "2.50", "0")]}
     saved = owner.put(f"/api/orders/{order['id']}", json=body, headers=H).get_json()
     assert saved["customer_name"] == "Piet" and [l["description"] for l in saved["lines"]] == ["Nieuw"] and saved["totals"]["total"] == "10.00"
     assert owner.delete(f"/api/orders/{order['id']}", headers=H).status_code == 200
@@ -251,6 +299,43 @@ def test_rendering_the_invoice_number_template():
     assert n.uses_year("{JJ}{N}") and not n.uses_year("F{NN}")
 
 
+def test_the_invoice_is_kept_as_a_pdf_and_can_be_downloaded_again_as_it_was(owner, app):
+    business(owner)
+    order = new_order(owner)
+    assert owner.get(f"/api/orders/{order['id']}").get_json()["has_invoice_pdf"] is False
+    assert owner.get(f"/api/orders/{order['id']}/invoice").status_code == 404
+    made = post(owner, f"/api/orders/{order['id']}/invoice")
+    assert made.status_code == 200 and made.mimetype == "application/pdf" and made.data.startswith(b"%PDF")
+    assert owner.get(f"/api/orders/{order['id']}").get_json()["has_invoice_pdf"] is True
+    kept = owner.get(f"/api/orders/{order['id']}/invoice")
+    assert kept.status_code == 200 and kept.mimetype == "application/pdf" and kept.data == made.data
+    assert f'Factuur-{date.today().year}-0001.pdf' in kept.headers["Content-Disposition"]
+    owner.put(f"/api/customers/{order['customer_id']}", json={**customer(owner), "name": "Piet Pietersen"}, headers=H)
+    owner.put(f"/api/orders/{order['id']}", json=order, headers=H)
+    assert owner.get(f"/api/orders/{order['id']}/invoice").data == made.data                       # a change does not touch the kept one
+    again = post(owner, f"/api/orders/{order['id']}/invoice")
+    assert "Piet Pietersen" in pdf_text(again.data) and owner.get(f"/api/orders/{order['id']}/invoice").data == again.data
+    assert "Factuur-" in again.headers["Content-Disposition"] and f"{date.today().year}-0001" in pdf_text(again.data)
+    assert owner.delete(f"/api/orders/{order['id']}", headers=H).status_code == 200
+    with app.extensions["pool"].connection() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM invoice_pdfs").fetchone()["n"] == 0        # gone with its order
+
+
+def test_a_word_template_that_cannot_be_turned_into_a_pdf_leaves_no_invoice_number_behind(owner, app, monkeypatch, fake_libreoffice):
+    business(owner)
+    upload(owner, "sjabloon.docx", owner.get("/api/invoice-template/sample").data)
+    order = new_order(owner)
+
+    def broken(content):
+        raise invoice_docs.InvoiceError("invoice.err_convert")
+    monkeypatch.setattr(invoice_docs, "docx_to_pdf", broken)
+    res = post(owner, f"/api/orders/{order['id']}/invoice")
+    assert res.status_code == 422 and "PDF" in res.get_json()["error"]
+    assert owner.get(f"/api/orders/{order['id']}").get_json()["invoice_number"] is None and owner.get(f"/api/orders/{order['id']}/invoice").status_code == 404
+    monkeypatch.setattr(invoice_docs, "docx_to_pdf", fake_libreoffice)                    # the converter works again
+    assert f"{date.today().year}-0001" in post(owner, f"/api/orders/{order['id']}/invoice").headers["Content-Disposition"]      # the number was not used up
+
+
 def test_the_invoice_date_can_be_changed_once_there_is_an_invoice(owner):
     order = new_order(owner)
     owner.put(f"/api/orders/{order['id']}", json={**order, "invoice_date": "2026-01-01"}, headers=H)
@@ -341,7 +426,7 @@ def test_every_placeholder_that_is_offered_is_actually_filled_in(owner):
     template = make_docx(paragraphs=["{{%s}}" % n for n in plain], rows=[["{{%s}}" % n for n in invoice_docs.PLACEHOLDERS if n.startswith("regel.")]])
     assert upload(owner, "alles.docx", template).status_code == 201
     order = new_order(owner, [line("Rack", 2, "12.10", "21")], notes="Graag in doos")
-    text = docx_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
+    text = docx_text(word(owner, f"/api/orders/{order['id']}/invoice"))
     assert "{{" not in text and "Graag in doos" in text and "NL001234567B01" in text and "Nederland" in text and "jan@example.nl" in text
 
 
@@ -352,20 +437,21 @@ def test_an_order_is_filled_into_the_sample_template_with_one_row_per_line(owner
     assert res.status_code == 201 and res.get_json()["template"]["kind"] == "docx" and res.get_json()["template"]["filename"] == "mijn factuur.docx"
     order = new_order(owner, [line("Rack-houder", 2, "12.10", "21"), line("Verzending", 1, "5.00", "0")])
     made = post(owner, f"/api/orders/{order['id']}/invoice")
-    assert made.status_code == 200 and "wordprocessingml" in made.mimetype
+    assert made.status_code == 200 and made.mimetype == "application/pdf" and made.data.startswith(b"%PDF")      # a PDF, from the Word file
     year = date.today().year
-    assert f'Factuur-{year}-0001.docx' in made.headers["Content-Disposition"]
-    text = docx_text(made.data)
+    assert f'Factuur-{year}-0001.pdf' in made.headers["Content-Disposition"]
+    docx_bytes = KEPT[-1]
+    text = docx_text(docx_bytes)
     assert "{{" not in text
     for expected in ("Flux76 Prints", "Industrieweg 5", "KVK-nummer: 12345678", "IBAN: NL91ABNA0417164300", "BIC: ABNANL2A", "Website: flux76.nl",
                      f"Factuur: {year}-0001", "Betreft: Rack-houders voor oktober", "Klantnummer: K9999", "Jan Jansen", "Kerkstraat 1", "1234 AB Utrecht",
                      "Rack-houder", "Verzending", "€ 20,00", "€ 24,20", "€ 5,00", "21% Btw", "Totaalbedrag incl. btw", "€ 29,20", "€ 25,00",
                      "Btw hoog (21%)", "€ 4,20", "Gelieve dit bedrag van € 29,20"):
         assert expected in text, expected
-    table = lines_table(made.data)
+    table = lines_table(docx_bytes)
     assert [row.cells[0].text for row in table.rows] == ["Aantal", "2", "1"]                       # header + one row per line
     assert [row.cells[1].text for row in table.rows][1:] == ["Rack-houder", "Verzending"]
-    assert len(Document(io.BytesIO(made.data)).inline_shapes) == 1                                      # the payment QR; there is no logo yet
+    assert len(Document(io.BytesIO(docx_bytes)).inline_shapes) == 1                                     # the payment QR; there is no logo yet
 
 
 def make_docx(paragraphs=(), rows=(), runs=None):
@@ -390,14 +476,14 @@ def test_a_placeholder_that_word_split_over_several_runs_is_still_filled_in(owne
     template = make_docx(runs=["Aan: {{kl", "ant.na", "am}} te ", "{{klant.plaats}}"], rows=[["{{regel.omschrijving}}", "{{regel.totaal}}"]])
     assert upload(owner, "t.docx", template).status_code == 201
     order = new_order(owner)
-    text = docx_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
+    text = docx_text(word(owner, f"/api/orders/{order['id']}/invoice"))
     assert "Aan: Jan Jansen te Utrecht" in text
 
 
 def test_a_placeholder_that_does_not_exist_is_left_visible_so_a_typo_shows(owner):
     template = make_docx(paragraphs=["{{klant.naam}} / {{klant.nmaa}}"], rows=[["{{regel.omschrijving}}"]])
     assert upload(owner, "t.docx", template).status_code == 201
-    text = docx_text(post(owner, f"/api/orders/{new_order(owner)['id']}/invoice").data)
+    text = docx_text(word(owner, f"/api/orders/{new_order(owner)['id']}/invoice"))
     assert "Jan Jansen / {{klant.nmaa}}" in text
 
 
@@ -417,8 +503,7 @@ def test_a_header_and_footer_are_filled_in_too(owner):
     doc.save(out)
     business(owner)
     assert upload(owner, "t.docx", out.getvalue()).status_code == 201
-    made = post(owner, f"/api/orders/{new_order(owner)['id']}/invoice").data
-    doc = Document(io.BytesIO(made))
+    doc = Document(io.BytesIO(word(owner, f"/api/orders/{new_order(owner)['id']}/invoice")))
     assert doc.sections[0].header.paragraphs[0].text == "Kop Flux76 Prints"
     assert doc.sections[0].footer.paragraphs[0].text == f"Voet {date.today().year}-0001"
 
@@ -495,15 +580,50 @@ def test_a_template_that_unpacks_to_far_too_much_is_refused(owner):
     assert upload(owner, "bom.docx", out.getvalue()).status_code == 400
 
 
-def test_a_new_template_replaces_the_old_one_and_its_file(owner, app):
-    from pathlib import Path
+def test_a_new_template_replaces_the_old_one(owner, app):
     upload(owner, "een.pdf", letter_paper("EEN"))
-    folder = Path(app.config["APP_CONFIG"].upload_dir)
-    first = {p.name for p in folder.glob("invoice-template-*")}
-    upload(owner, "twee.pdf", letter_paper("TWEE"))
-    second = {p.name for p in folder.glob("invoice-template-*")}
-    assert len(first) == len(second) == 1 and first != second
+    two = letter_paper("TWEE")
+    upload(owner, "twee.pdf", two)
     assert owner.get("/api/invoice-template").get_json()["template"]["filename"] == "twee.pdf"
+    assert owner.get("/api/invoice-template/download").data == two
+
+
+def test_the_template_and_the_logo_live_in_the_database_not_in_the_uploads_folder(owner, app):
+    """So they are still there when the container is rebuilt without its uploads volume."""
+    import shutil
+    from pathlib import Path
+    paper, png = letter_paper("BLIJFT"), picture()
+    upload(owner, "p.pdf", paper)
+    upload_logo(owner, "logo.png", png)
+    folder = Path(app.config["APP_CONFIG"].upload_dir)
+    assert not folder.exists() or list(folder.iterdir()) == []
+    shutil.rmtree(folder, ignore_errors=True)
+    assert owner.get("/api/invoice-template/download").data == paper and owner.get("/api/invoice-logo/file").data == png
+    business(owner)
+    assert "BLIJFT" in pdf_text(post(owner, f"/api/orders/{new_order(owner)['id']}/invoice").data)
+    with app.extensions["pool"].connection() as conn:
+        rows = conn.execute("SELECT (SELECT count(*) FROM invoice_template WHERE content IS NOT NULL AND stored_name IS NULL) AS t, "
+                            "(SELECT count(*) FROM invoice_logo WHERE content IS NOT NULL AND stored_name IS NULL) AS l").fetchone()
+    assert (rows["t"], rows["l"]) == (1, 1)
+
+
+def test_a_template_and_a_logo_from_an_earlier_release_are_moved_into_the_database(owner, app):
+    from pathlib import Path
+    paper, png = letter_paper("OUD"), picture()
+    upload(owner, "p.pdf", paper)
+    upload_logo(owner, "logo.png", png)
+    folder = Path(app.config["APP_CONFIG"].upload_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "invoice-template-old.pdf").write_bytes(paper)
+    (folder / "invoice-logo-old.png").write_bytes(png)
+    with app.extensions["pool"].connection() as conn:                                   # the way an earlier release left them
+        conn.execute("UPDATE invoice_template SET content = NULL, stored_name = 'invoice-template-old.pdf'")
+        conn.execute("UPDATE invoice_logo SET content = NULL, stored_name = 'invoice-logo-old.png'")
+    assert owner.get("/api/invoice-template/download").data == paper and owner.get("/api/invoice-logo/file").data == png
+    assert list(folder.iterdir()) == []                                                  # moved, not copied
+    with app.extensions["pool"].connection() as conn:
+        assert conn.execute("SELECT content IS NOT NULL AS ok FROM invoice_template").fetchone()["ok"]
+        assert conn.execute("SELECT content IS NOT NULL AS ok FROM invoice_logo").fetchone()["ok"]
 
 
 def test_the_template_can_be_downloaded_and_removed_to_return_to_the_built_in_layout(owner, app):
@@ -514,16 +634,14 @@ def test_the_template_can_be_downloaded_and_removed_to_return_to_the_built_in_la
     assert owner.delete("/api/invoice-template", headers=H).status_code == 200
     assert owner.get("/api/invoice-template").get_json()["template"] is None
     assert owner.get("/api/invoice-template/download").status_code == 404
-    assert list(Path(app.config["APP_CONFIG"].upload_dir).glob("invoice-template-*")) == []
     business(owner)
     assert "Industrieweg 5" in pdf_text(post(owner, f"/api/orders/{new_order(owner)['id']}/invoice").data)
 
 
 def test_a_template_file_that_went_missing_is_said_so(owner, app):
-    from pathlib import Path
     upload(owner, "p.pdf", letter_paper())
-    for path in Path(app.config["APP_CONFIG"].upload_dir).glob("invoice-template-*"):
-        path.unlink()
+    with app.extensions["pool"].connection() as conn:                                   # an earlier release's row whose file is gone
+        conn.execute("UPDATE invoice_template SET content = NULL, stored_name = 'invoice-template-weg.pdf'")
     made = post(owner, f"/api/orders/{new_order(owner)['id']}/invoice")
     assert made.status_code == 422 and "opnieuw" in made.get_json()["error"]
 
@@ -563,10 +681,9 @@ def test_three_lines_of_99_cents_share_the_cents_of_the_group(owner):
 def test_an_order_keeps_its_customer_number_and_subject(owner):
     order = new_order(owner)
     assert (order["customer_number"], order["subject"]) == ("K9999", "Rack-houders voor oktober")
-    bare = owner.post("/api/orders", json={"customer_name": "Piet"}, headers=H).get_json()
-    assert (bare["customer_number"], bare["subject"]) == ("", "")
-    for bad in ({"customer_number": "x" * 41}, {"subject": "x" * 201}):
-        assert owner.post("/api/orders", json={"customer_name": "Piet", **bad}, headers=H).status_code == 400
+    bare = owner.post("/api/orders", json={"customer_id": customer(owner)["id"]}, headers=H).get_json()
+    assert (bare["customer_number"], bare["subject"]) == ("K9999", "")
+    assert owner.post("/api/orders", json={"customer_id": customer(owner)["id"], "subject": "x" * 201}, headers=H).status_code == 400
 
 
 def test_the_company_details_have_a_website_a_bic_and_a_qr_switch(owner):
@@ -623,7 +740,6 @@ def upload_logo(owner, name, content):
 
 
 def test_a_logo_can_be_uploaded_looked_at_replaced_and_removed(owner, app):
-    from pathlib import Path
     assert owner.get("/api/invoice-logo").get_json() == {"logo": None} and owner.get("/api/invoice-logo/file").status_code == 404
     png = picture()
     res = upload_logo(owner, "mijn logo.png", png)
@@ -634,10 +750,9 @@ def test_a_logo_can_be_uploaded_looked_at_replaced_and_removed(owner, app):
     jpeg = picture((300, 100), "JPEG")
     assert upload_logo(owner, "logo.jpg", jpeg).get_json()["logo"]["kind"] == "jpeg"
     assert owner.get("/api/invoice-logo/file").mimetype == "image/jpeg"
-    folder = Path(app.config["APP_CONFIG"].upload_dir)
-    assert len(list(folder.glob("invoice-logo-*"))) == 1                                                 # the replaced file is gone
+    assert owner.get("/api/invoice-logo/file").data == jpeg                                              # the new one replaced the old one
     assert owner.delete("/api/invoice-logo", headers=H).status_code == 200
-    assert owner.get("/api/invoice-logo").get_json() == {"logo": None} and list(folder.glob("invoice-logo-*")) == []
+    assert owner.get("/api/invoice-logo").get_json() == {"logo": None} and owner.get("/api/invoice-logo/file").status_code == 404
 
 
 @pytest.mark.parametrize("name, content", [
@@ -680,9 +795,9 @@ def test_the_logo_and_the_qr_become_pictures_in_a_word_template(owner):
     business(owner)
     upload(owner, "sjabloon.docx", owner.get("/api/invoice-template/sample").data)
     order = new_order(owner)
-    assert len(Document(io.BytesIO(post(owner, f"/api/orders/{order['id']}/invoice").data)).inline_shapes) == 1
+    assert len(Document(io.BytesIO(word(owner, f"/api/orders/{order['id']}/invoice"))).inline_shapes) == 1
     upload_logo(owner, "logo.png", picture((900, 300)))
-    made = Document(io.BytesIO(post(owner, f"/api/orders/{order['id']}/invoice").data))
+    made = Document(io.BytesIO(word(owner, f"/api/orders/{order['id']}/invoice")))
     shapes = made.inline_shapes
     assert len(shapes) == 2
     widths = sorted(round(s.width.cm, 1) for s in shapes)
@@ -692,5 +807,38 @@ def test_the_logo_and_the_qr_become_pictures_in_a_word_template(owner):
 def test_a_picture_placeholder_without_a_picture_just_disappears(owner):
     business(owner, iban="")
     upload(owner, "sjabloon.docx", owner.get("/api/invoice-template/sample").data)
-    made = post(owner, f"/api/orders/{new_order(owner)['id']}/invoice").data
+    made = word(owner, f"/api/orders/{new_order(owner)['id']}/invoice")
     assert "{{" not in docx_text(made) and len(Document(io.BytesIO(made)).inline_shapes) == 0
+
+
+# --- Word to PDF (the real function, with a stand-in for LibreOffice) -------------------------------------------------
+
+def fake_soffice(tmp_path, body):
+    script = tmp_path / "soffice"
+    script.write_text("#!/bin/sh\n" + body)
+    script.chmod(0o755)
+    return str(script)
+
+
+def test_the_word_file_is_converted_by_the_program_named_in_soffice_bin(tmp_path, monkeypatch):
+    monkeypatch.undo()                                                           # the real docx_to_pdf, not the stand-in
+    program = fake_soffice(tmp_path, 'for last; do :; done\ncp "$last" /dev/null\nprintf "%%PDF-1.4 fake" > "$(dirname "$last")/factuur.pdf"\n')
+    monkeypatch.setenv("SOFFICE_BIN", program)
+    assert invoice_docs.docx_to_pdf(b"PK word").startswith(b"%PDF-1.4")
+
+
+@pytest.mark.parametrize("body", ["exit 1\n", "true\n", 'printf "geen pdf" > "$(dirname "$(eval echo \\${$#})")/factuur.pdf"\n'])
+def test_a_converter_that_fails_or_makes_no_pdf_is_an_error(tmp_path, monkeypatch, body):
+    monkeypatch.undo()
+    monkeypatch.setenv("SOFFICE_BIN", fake_soffice(tmp_path, body))
+    with pytest.raises(invoice_docs.InvoiceError) as caught:
+        invoice_docs.docx_to_pdf(b"PK word")
+    assert caught.value.key == "invoice.err_convert"
+
+
+def test_without_a_converter_the_error_says_so(monkeypatch):
+    monkeypatch.undo()
+    monkeypatch.setenv("SOFFICE_BIN", "bestaat-niet-xyz")
+    with pytest.raises(invoice_docs.InvoiceError) as caught:
+        invoice_docs.docx_to_pdf(b"PK word")
+    assert caught.value.key == "invoice.err_no_converter"

@@ -1,5 +1,6 @@
 import { api, downloadFile } from './api.js';
 import { formatDate, t } from './i18n.js';
+import { customerFields, customerLines, emptyCustomer } from './customers.js';
 import { setDirty } from './updates.js';
 import { confirmDialog, enhanceDialog, eur, field, h, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
 
@@ -80,9 +81,9 @@ const str = (v) => (v == null ? '' : String(v));
 
 function fromSaved(order) {
   return {
-    id: order.id, number: order.number, status: order.status, order_date: order.order_date, delivery_date: str(order.delivery_date),
+    id: order.id, number: order.number, customer_id: order.customer_id, status: order.status, order_date: order.order_date, delivery_date: str(order.delivery_date),
     customer_name: order.customer_name, customer_number: order.customer_number, subject: order.subject, address: order.address, postal_code: order.postal_code, city: order.city, country: order.country,
-    email: order.email, phone: order.phone, notes: order.notes, invoice_number: order.invoice_number, invoice_date: str(order.invoice_date),
+    email: order.email, phone: order.phone, notes: order.notes, invoice_number: order.invoice_number, invoice_date: str(order.invoice_date), has_invoice_pdf: !!order.has_invoice_pdf,
     lines: order.lines.map((l) => ({ project_id: l.project_id, project_number: l.project_number, description: l.description,
       quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)) })),
   };
@@ -99,8 +100,8 @@ export function orderEditorView(id, navigate, ctx = { prefs: {} }) {
 function buildEditor(order, navigate, ctx) {
   const defaultVat = str(ctx.prefs.vat_pct ?? '21');
   const state = order ? fromSaved(order) : {
-    id: null, number: null, status: 'nieuw', order_date: today(), delivery_date: '', customer_name: '', customer_number: '', subject: '', address: '', postal_code: '', city: '',
-    country: '', email: '', phone: '', notes: '', invoice_number: null, invoice_date: '', lines: [],
+    id: null, number: null, customer_id: null, status: 'nieuw', order_date: today(), delivery_date: '', customer_name: '', customer_number: '', subject: '', address: '', postal_code: '', city: '',
+    country: '', email: '', phone: '', notes: '', invoice_number: null, invoice_date: '', has_invoice_pdf: false, lines: [],
   };
   let result = null;
   let dirty = false;
@@ -109,14 +110,13 @@ function buildEditor(order, navigate, ctx) {
   const calcError = h('p', { class: 'error', role: 'alert', hidden: true });
   const linesBox = h('div', { class: 'lines' });
   const invoiceBox = h('div', { class: 'stack' });
+  const customerBox = h('div', { class: 'stack' });
   const statusBox = h('div', { class: 'chips', role: 'group', 'aria-label': t('orders.status') });
   const lineTotals = [];
 
   const payload = () => ({
-    status: state.status, order_date: state.order_date, delivery_date: state.delivery_date || null, customer_name: state.customer_name.trim(),
-    customer_number: state.customer_number.trim(), subject: state.subject.trim(),
-    address: state.address, postal_code: state.postal_code, city: state.city, country: state.country, email: state.email.trim(), phone: state.phone,
-    notes: state.notes, invoice_date: state.invoice_date || null,
+    customer_id: state.customer_id, status: state.status, order_date: state.order_date, delivery_date: state.delivery_date || null,
+    subject: state.subject.trim(), notes: state.notes, invoice_date: state.invoice_date || null,
     lines: state.lines.map((l) => ({ project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity),
       unit_price: parseNum(l.unit_price), vat_pct: parseNum(l.vat_pct) })),
   });
@@ -209,6 +209,74 @@ function buildEditor(order, navigate, ctx) {
     search.focus();
   }
 
+  // --- customer ----------------------------------------------------------------------
+  // An order has a customer: chosen from the customers there are, or made on the spot. The details are shown here; they live with the customer.
+  function drawCustomer() {
+    const parts = [];
+    if (state.customer_id) {
+      parts.push(h('div', { class: 'customer-block' },
+        h('p', {}, h('strong', {}, state.customer_name), ' ', h('span', { class: 'badge' }, t('customers.number_n', { number: state.customer_number }))),
+        ...customerLines(state).map((line) => h('p', { class: 'muted' }, line))));
+    } else parts.push(h('p', { class: 'muted' }, t('customers.none_selected')));
+    parts.push(h('div', { class: 'row' },
+      h('button', { class: `btn small${state.customer_id ? '' : ' primary'}`, type: 'button', id: 'pick-customer', onclick: pickCustomer },
+        state.customer_id ? t('customers.change') : t('customers.pick')),
+      state.customer_id ? h('a', { class: 'btn small', href: `#/klanten/${state.customer_id}` }, t('customers.edit')) : null));
+    customerBox.replaceChildren(...parts);
+  }
+
+  function chooseCustomer(c) {
+    Object.assign(state, { customer_id: c.id, customer_name: c.name, customer_number: c.number, address: c.address, postal_code: c.postal_code,
+      city: c.city, country: c.country, email: c.email, phone: c.phone });
+    touch();
+    drawCustomer();
+  }
+
+  async function pickCustomer() {
+    let customers;
+    try { customers = await api('GET', '/api/customers'); } catch (e) { toast(e.message, 'error'); return; }
+    const body = h('div', { class: 'stack' });
+    const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' }, body));
+    const done = (c) => { chooseCustomer(c); dialog.requestClose(); };
+
+    function drawCreate() {
+      const draft = emptyCustomer();
+      const failure = h('p', { class: 'error', role: 'alert', hidden: true });
+      body.replaceChildren(h('h2', {}, t('customers.create')), ...customerFields(draft), failure,
+        h('div', { class: 'row end' },
+          customers.length ? h('button', { class: 'btn', type: 'button', onclick: drawPick }, t('customers.back_to_list')) : h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
+          h('button', { class: 'btn primary', type: 'button', id: 'create-customer', onclick: async () => {
+            if (!draft.name.trim()) { failure.textContent = t('customers.name_required'); failure.hidden = false; return; }
+            try {
+              done(await api('POST', '/api/customers', { ...draft, number: draft.number.trim(), name: draft.name.trim(), email: draft.email.trim() }));
+            } catch (e) { failure.textContent = e.message; failure.hidden = false; }
+          } }, t('customers.create_and_choose'))));
+    }
+
+    function drawPick() {
+      const results = h('ul', { class: 'plain-list picker', 'aria-live': 'polite' });
+      const search = h('input', { type: 'text', autocomplete: 'off', placeholder: t('customers.search_ph'), 'aria-label': t('customers.search') });
+      const matches = (c, q) => !q || [c.name, c.number, c.city, c.email].some((v) => String(v || '').toLowerCase().includes(q.toLowerCase()));
+      const draw = () => {
+        const found = customers.filter((c) => matches(c, search.value.trim()));
+        results.replaceChildren(...(found.length ? found.map((c) => h('li', {}, h('button', { class: 'btn picker-item', type: 'button', onclick: () => done(c) },
+          h('span', { class: 'badge' }, c.number), h('span', { class: 'grow' }, c.name), h('span', { class: 'muted' }, c.city || '')))) : [h('li', { class: 'muted' }, t('customers.no_match'))]));
+      };
+      search.addEventListener('input', draw);
+      body.replaceChildren(h('h2', {}, t('customers.pick')), h('p', { class: 'muted' }, t('customers.pick_hint')), field(t('customers.search'), search), results,
+        h('div', { class: 'row end' },
+          h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
+          h('button', { class: 'btn primary', type: 'button', id: 'new-customer', onclick: drawCreate }, icon('plus'), h('span', {}, t('customers.create')))));
+      draw();
+      search.focus();
+    }
+
+    dialog.addEventListener('close', () => dialog.remove());
+    document.body.append(dialog);
+    (customers.length ? drawPick : drawCreate)();
+    dialog.showModal();
+  }
+
   // --- status, invoice, save -------------------------------------------------------------
   function drawStatus() {
     statusBox.replaceChildren(...STATUSES.map((s) => h('button', { type: 'button', class: 'seg', 'aria-pressed': String(state.status === s), onclick: async () => {
@@ -225,6 +293,7 @@ function buildEditor(order, navigate, ctx) {
     STATUSES.map((s) => h('option', { value: s, selected: s === state.status }, statusLabel(s))));
 
   async function save() {
+    if (!state.customer_id) { toast(t('customers.choose_one'), 'error'); return null; }
     try {
       const body = payload();
       const saved = state.id ? await api('PUT', `/api/orders/${state.id}`, body) : await api('POST', '/api/orders', body);
@@ -248,8 +317,16 @@ function buildEditor(order, navigate, ctx) {
       const fresh = await api('GET', `/api/orders/${state.id}`);
       state.invoice_number = fresh.invoice_number;
       state.invoice_date = str(fresh.invoice_date);
+      state.has_invoice_pdf = !!fresh.has_invoice_pdf;
       drawInvoice();
       toast(t('orders.invoice_made', { name }));
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function downloadInvoice() {
+    try {
+      const { blob, name } = await downloadFile(`/api/orders/${state.id}/invoice`);       // the PDF as it was kept
+      saveBlob(blob, name);
     } catch (e) { toast(e.message, 'error'); }
   }
 
@@ -261,12 +338,17 @@ function buildEditor(order, navigate, ctx) {
     } else parts.push(h('p', { class: 'muted' }, state.id ? t('orders.no_invoice') : t('orders.save_first')));
     parts.push(h('button', { class: 'btn primary', type: 'button', disabled: !state.id || !state.lines.length, onclick: makeInvoice, id: 'make-invoice' },
       icon('clipboard'), h('span', {}, state.invoice_number ? t('orders.invoice_again') : t('orders.make_invoice'))));
+    if (state.has_invoice_pdf) {
+      parts.push(h('button', { class: 'btn', type: 'button', onclick: downloadInvoice, id: 'download-invoice' }, t('orders.download_invoice')),
+        h('p', { class: 'hint' }, t('orders.invoice_kept_hint')));
+    }
     invoiceBox.replaceChildren(...parts);
   }
 
   drawStatus();
   drawLines();
   drawInvoice();
+  drawCustomer();
   recalc();
   return h('div', { class: 'editor' },
     h('header', { class: 'page-head' },
@@ -280,18 +362,7 @@ function buildEditor(order, navigate, ctx) {
             field(t('orders.delivery_date'), dateInput('delivery_date')),
             field(t('orders.status'), statusSelect)),
           field(t('orders.subject'), textInput('subject', { maxlength: 200, placeholder: t('orders.subject_ph') }), t('orders.subject_hint'))),
-        h('div', { class: 'glass card stack' }, h('h2', {}, t('orders.customer')),
-          h('div', { class: 'two' },
-            field(t('orders.customer_name'), textInput('customer_name', { required: true, maxlength: 120, autocomplete: 'name' })),
-            field(t('orders.customer_number'), textInput('customer_number', { maxlength: 40, autocomplete: 'off' }))),
-          field(t('orders.address'), textInput('address', { maxlength: 200, autocomplete: 'street-address' })),
-          h('div', { class: 'two' },
-            field(t('orders.postal_code'), textInput('postal_code', { maxlength: 20, autocomplete: 'postal-code' })),
-            field(t('orders.city'), textInput('city', { maxlength: 100, autocomplete: 'address-level2' }))),
-          field(t('orders.country'), textInput('country', { maxlength: 60, autocomplete: 'country-name' })),
-          h('div', { class: 'two even' },
-            field(t('orders.email'), textInput('email', { type: 'email', maxlength: 200, autocomplete: 'email', inputmode: 'email' })),
-            field(t('orders.phone'), textInput('phone', { type: 'tel', maxlength: 40, autocomplete: 'tel', inputmode: 'tel' })))),
+        h('div', { class: 'glass card stack' }, h('h2', {}, t('orders.customer')), customerBox),
         h('div', { class: 'glass card' }, h('h2', {}, t('orders.models')), h('p', { class: 'muted' }, t('orders.models_hint')), linesBox,
           h('datalist', { id: 'order-vat-presets' }, ['0', '9', '21'].map((v) => h('option', { value: v }))),
           h('div', { class: 'row' },

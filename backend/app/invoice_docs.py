@@ -13,7 +13,11 @@ Everything uploaded is untrusted: size and unpacked size are capped, Word files 
 entities) and PDFs are only read by pypdf, never executed.
 """
 import copy
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import zipfile
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -586,3 +590,32 @@ def render_invoice(order: dict, lines: list, totals: dict, business: dict, templ
         return (render_docx(template["content"], mapping, rows, images),
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx")
     return render_pdf(order, lines, totals, mapping, rows, business, lang, template, logo, images), "application/pdf", "pdf"
+
+
+# --- Word to PDF ----------------------------------------------------------------------------------------------------
+
+CONVERT_TIMEOUT_S = 120
+
+
+def docx_to_pdf(content: bytes) -> bytes:
+    """The Word invoice as a PDF, made by LibreOffice (`SOFFICE_BIN`, default `soffice`; it is in the Docker image). Every call has its own
+    profile folder, so two invoices made at the same moment do not trip over each other."""
+    binary = shutil.which(os.environ.get("SOFFICE_BIN", "soffice"))
+    if binary is None:
+        raise InvoiceError("invoice.err_no_converter")
+    with tempfile.TemporaryDirectory(prefix="invoice-") as work:
+        source = Path(work) / "factuur.docx"
+        source.write_bytes(content)
+        command = [binary, "--headless", "--norestore", "--nolockcheck", "--nodefault", "--nofirststartwizard",
+                   f"-env:UserInstallation={(Path(work) / 'profile').as_uri()}", "--convert-to", "pdf:writer_pdf_Export",
+                   "--outdir", work, str(source)]
+        try:
+            subprocess.run(command, cwd=work, env={**os.environ, "HOME": work}, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=CONVERT_TIMEOUT_S, check=True)
+        except (subprocess.SubprocessError, OSError):
+            raise InvoiceError("invoice.err_convert") from None
+        result = Path(work) / "factuur.pdf"
+        pdf = result.read_bytes() if result.is_file() else b""
+    if not pdf.startswith(b"%PDF"):
+        raise InvoiceError("invoice.err_convert")
+    return pdf

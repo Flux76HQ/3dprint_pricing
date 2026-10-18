@@ -7,6 +7,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# LibreOffice turns the Word invoice template into the PDF invoice (headless, no screen); the fonts are the ones the sample template
+# uses (Open Sans, vendored with its licence) so the PDF looks like the Word file. `fontconfig` lets LibreOffice find them.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libreoffice-writer-nogui fontconfig fonts-liberation2 \
+    && rm -rf /var/lib/apt/lists/*
+COPY backend/app/fonts/OpenSans-Regular.ttf backend/app/fonts/OpenSans-Bold.ttf /usr/local/share/fonts/opensans/
+RUN fc-cache -f
+
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 

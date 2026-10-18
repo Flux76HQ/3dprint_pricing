@@ -20,7 +20,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import invoice_docs, invoice_logo, invoice_template, orders, printfile
+from . import customers, invoice_docs, invoice_logo, invoice_template, orders, printfile
 from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized
@@ -64,7 +64,12 @@ def export():
             doc[key] = [_serialise(r) for r in rows]
         rows = conn.execute(f"SELECT {', '.join(PROJECT_COLUMNS)} FROM projects ORDER BY created_at, id").fetchall()
         doc["projects"] = [_serialise(r) for r in rows]
+        doc["customers"] = [_serialise(r) for r in conn.execute(
+            f"SELECT id, {', '.join(customers.FIELDS)}, created_at, updated_at FROM customers ORDER BY created_at, id").fetchall()]
         doc["orders"] = _export_orders(conn)
+        doc["invoice_pdfs"] = [{"order_id": str(r["order_id"]), "invoice_number": r["invoice_number"],
+                                "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
+                               for r in conn.execute("SELECT order_id, invoice_number, content FROM invoice_pdfs ORDER BY created_at, order_id").fetchall()]
         try:
             template = invoice_template.load(conn)
         except ApiError:                                             # the file went missing: the rest of the backup is still worth having
@@ -91,7 +96,8 @@ def export():
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
-ORDER_COLUMNS = ("id", "number", "invoice_number", "invoice_date", "created_at", "updated_at", *orders.ORDER_FIELDS)
+MAX_INVOICE_PDF_BYTES = 10 * 1024 * 1024
+ORDER_COLUMNS = ("id", "number", "customer_id", "invoice_number", "invoice_date", "created_at", "updated_at", *orders.ORDER_FIELDS)
 
 
 def _export_orders(conn) -> list:
@@ -197,6 +203,8 @@ def _parse(doc) -> dict:
     _number_projects(projects, doc)
     plan["projects"] = projects
     plan["orders"] = _parse_orders(doc)
+    plan["customers"] = _parse_customers(doc, plan["orders"])
+    plan["invoice_pdfs"] = _parse_invoice_pdfs(doc.get("invoice_pdfs"), plan["orders"])
     plan["template"] = _parse_template(doc.get("invoice_template"))
     plan["logo"] = _parse_logo(doc.get("invoice_logo"))
     return plan
@@ -239,11 +247,79 @@ def _parse_orders(doc: dict) -> list:
             if invoice:
                 invoices.add(invoice)
             parsed.append({"id": _uuid(row.get("id") or uuid.uuid4(), "orders"), "number": number, "values": values, "invoice_number": invoice,
+                           "customer_id": _uuid(row["customer_id"], "orders") if row.get("customer_id") else None,
                            "invoice_date": values["invoice_date"] if invoice else None, "created_at": _when(row.get("created_at")),
                            "updated_at": _when(row.get("updated_at"))})
         except (ApiError, Localized) as exc:
             raise _row_error("orders", n, exc) from None
     return parsed
+
+
+def _parse_customers(doc: dict, parsed_orders: list) -> list:
+    """The customers of the file. An order that names no (known) customer, as in a file from before customers existed, gets one made
+    from the details it carries: one per name + customer number, with the next free whole number where that number is empty or taken."""
+    out, by_id, numbers = [], {}, set()
+    for n, row in enumerate(_rows(doc, "customers"), 1):
+        try:
+            if not isinstance(row, dict):
+                raise Localized("backup.bad_row_type")
+            values = customers.validated_customer(row)
+            cid = _uuid(row.get("id"), "customers")
+            if not values["number"] or values["number"].lower() in numbers or cid in by_id:
+                raise Localized("backup.bad_number")
+            numbers.add(values["number"].lower())
+            item = {"id": cid, "values": values, "created_at": _when(row.get("created_at")), "updated_at": _when(row.get("updated_at"))}
+            by_id[cid] = item
+            out.append(item)
+        except (ApiError, Localized) as exc:
+            raise _row_error("customers", n, exc) from None
+    made, free = {}, 1
+    for order in parsed_orders:
+        if order["customer_id"] in by_id:
+            continue
+        v = order["values"]
+        key = (v["customer_name"].lower(), v["customer_number"].lower())
+        if key not in made:
+            number = v["customer_number"]
+            while not number or number.lower() in numbers:
+                number, free = str(free), free + 1
+            numbers.add(number.lower())
+            cid = uuid.uuid4()
+            item = {"id": cid, "created_at": None, "updated_at": None, "values": {
+                "number": number, "name": v["customer_name"], "address": v["address"], "postal_code": v["postal_code"], "city": v["city"],
+                "country": v["country"], "email": v["email"], "phone": v["phone"], "notes": ""}}
+            made[key] = cid
+            out.append(item)
+        order["customer_id"] = made[key]
+        order["values"]["customer_number"] = next(c["values"]["number"] for c in out if c["id"] == made[key])
+    return out
+
+
+def _parse_invoice_pdfs(entries, parsed_orders: list) -> list:
+    """The kept invoice PDFs that belong to an order (with that invoice number) of this file; any other one is let go."""
+    if not entries:
+        return []
+    if not isinstance(entries, list):
+        raise _row_error("invoice_pdfs", 1, Localized("backup.bad_row_type"))
+    numbers = {o["id"]: o["invoice_number"] for o in parsed_orders if o["invoice_number"]}
+    out, seen = [], set()
+    for n, entry in enumerate(entries, 1):
+        try:
+            if not isinstance(entry, dict):
+                raise Localized("backup.bad_row_type")
+            order_id = _uuid(entry.get("order_id"), "invoice_pdfs")
+            try:
+                content = base64.b64decode(str(entry.get("content_b64", "")), validate=True)
+            except (binascii.Error, ValueError):
+                raise Localized("backup.bad_file") from None
+            if not content.startswith(b"%PDF") or len(content) > MAX_INVOICE_PDF_BYTES:
+                raise Localized("backup.bad_file")
+        except (ApiError, Localized) as exc:
+            raise _row_error("invoice_pdfs", n, exc) from None
+        if numbers.get(order_id) and numbers[order_id] == entry.get("invoice_number") and order_id not in seen:
+            seen.add(order_id)
+            out.append({"order_id": order_id, "invoice_number": numbers[order_id], "content": content})
+    return out
 
 
 def _parse_logo(entry):
@@ -319,7 +395,7 @@ def _summary(plan: dict) -> dict:
     return {"printers": len(plan["sections"]["printers"][1]), "tariffs": len(plan["sections"]["tariffs"][1]),
             "packaging": len(plan["sections"]["packaging"][1]), "spools": len(plan["sections"]["spools"][1]),
             "projects": len(plan["projects"]), "files": len(plan["files"]), "preferences": len(plan["preferences"]),
-            "orders": len(plan["orders"]), "template": 1 if plan["template"] else 0, "logo": 1 if plan["logo"] else 0}
+            "orders": len(plan["orders"]), "customers": len(plan["customers"]), "template": 1 if plan["template"] else 0, "logo": 1 if plan["logo"] else 0}
 
 
 def _insert(conn, table: str, values: dict) -> None:
@@ -331,7 +407,8 @@ def _insert(conn, table: str, values: dict) -> None:
 def _restore_orders(conn, items: list) -> None:
     for item in items:
         v = item["values"]
-        columns = {"id": item["id"], "number": item["number"], "invoice_number": item["invoice_number"], "invoice_date": item["invoice_date"],
+        columns = {"id": item["id"], "number": item["number"], "customer_id": item["customer_id"], "invoice_number": item["invoice_number"],
+                   "invoice_date": item["invoice_date"],
                    **{f: v[f] for f in orders.ORDER_FIELDS}}
         for key in ("created_at", "updated_at"):
             if item[key]:
@@ -366,17 +443,16 @@ def restore():
         with pool().connection() as conn:
             conn.execute("DELETE FROM projects")
             conn.execute("DELETE FROM orders")
+            conn.execute("DELETE FROM customers")
             conn.execute("DELETE FROM invoice_counters")
-            replaced = conn.execute("DELETE FROM invoice_template RETURNING stored_name").fetchone()
-            if replaced:
-                old_files.append(replaced["stored_name"])
-            replaced_logo = conn.execute("DELETE FROM invoice_logo RETURNING stored_name").fetchone()
-            if replaced_logo:
-                old_files.append(replaced_logo["stored_name"])
+            for table in ("invoice_template", "invoice_logo"):
+                replaced = conn.execute(f"DELETE FROM {table} RETURNING stored_name").fetchone()
+                if replaced and replaced["stored_name"]:                       # a file an earlier release left under UPLOAD_DIR
+                    old_files.append(replaced["stored_name"])
             for table in ("filament_spools", "packaging_items", "energy_tariffs", "printers"):
                 conn.execute(f"DELETE FROM {table}")
             if plan["files"]:
-                old_files = [r["stored_name"] for r in conn.execute("DELETE FROM print_files RETURNING stored_name").fetchall()]
+                old_files += [r["stored_name"] for r in conn.execute("DELETE FROM print_files RETURNING stored_name").fetchall()]
                 for item in plan["files"]:
                     stored = f"{uuid.uuid4().hex}.{item['kind']}"
                     (upload_dir / stored).write_bytes(item["content"])
@@ -404,18 +480,19 @@ def restore():
                     values["updated_at"] = item["updated_at"] or item["created_at"]
                 _insert(conn, "projects", values)
             conn.execute(f"ALTER SEQUENCE project_number_seq RESTART WITH {max((p['number'] for p in plan['projects']), default=0) + 1}")
+            for c in plan["customers"]:
+                _insert(conn, "customers", {"id": c["id"], **c["values"], **({"created_at": c["created_at"]} if c["created_at"] else {}),
+                                            **({"updated_at": c["updated_at"]} if c["updated_at"] else {})})
             _restore_orders(conn, plan["orders"])
+            for pdf in plan["invoice_pdfs"]:
+                conn.execute("INSERT INTO invoice_pdfs (order_id, invoice_number, content, size_bytes) VALUES (%s, %s, %s, %s)",
+                             (pdf["order_id"], pdf["invoice_number"], pdf["content"], len(pdf["content"])))
             if plan["template"]:
                 t = plan["template"]
-                stored = invoice_template.store_file(t["content"], t["kind"])
-                written.append(Path(config().upload_dir) / stored)
-                invoice_template.replace(conn, filename=t["filename"], kind=t["kind"], content=t["content"], stored_name=stored,
-                                         top=t["top"], bottom=t["bottom"])
+                invoice_template.replace(conn, filename=t["filename"], kind=t["kind"], content=t["content"], top=t["top"], bottom=t["bottom"])
             if plan["logo"]:
                 lg = plan["logo"]
-                stored = invoice_logo.store_file(lg["content"], lg["kind"])
-                written.append(Path(config().upload_dir) / stored)
-                invoice_logo.replace(conn, filename=lg["filename"], kind=lg["kind"], content=lg["content"], stored_name=stored, width=lg["width"], height=lg["height"])
+                invoice_logo.replace(conn, filename=lg["filename"], kind=lg["kind"], content=lg["content"], width=lg["width"], height=lg["height"])
             conn.execute("UPDATE users SET preferences = %s::jsonb WHERE id = %s", (json.dumps(plan["preferences"]), g.user_id))
     except Exception:
         for path in written:                                          # nothing was swapped in: take the new files out again

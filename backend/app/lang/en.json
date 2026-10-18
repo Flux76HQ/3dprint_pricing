@@ -269,5 +269,14 @@
  "wa.uv": "User presence and verification are both required.",
  "err.invoice_number_format": "Invoice number: use exactly one running number ({{NNNN}}), optionally the year ({{JJJJ}}, {{YYYY}}, {{JJ}} or {{YY}}), with only letters, digits, spaces and . _ / - around it (40 characters at most).",
  "invoice.number_exhausted": "No free invoice number can be found with this template.",
- "f.invoice_number_format": "Invoice number"
+ "f.invoice_number_format": "Invoice number",
+ "invoice.err_no_converter": "There is no program to turn the Word template into a PDF (LibreOffice). The Docker install has it; otherwise use a PDF template or the standard design.",
+ "invoice.err_convert": "The Word template could not be turned into a PDF. Try again or check the template.",
+ "invoice.err_no_pdf": "No invoice PDF has been made for this order yet.",
+ "backup.s.invoice_pdfs": "Invoice PDFs",
+ "err.order_customer": "Choose a customer for this order, or create a new one.",
+ "err.customer_not_found": "Customer not found.",
+ "err.customer_number_taken": "Customer number {number} is already in use.",
+ "err.customer_in_use": "This customer still has {n} order(s) and cannot be deleted.",
+ "backup.s.customers": "Customers"
 }

@@ -226,7 +226,7 @@ function backupCard() {
       const when = s.created_at ? formatDateTime(s.created_at, { dateStyle: 'medium', timeStyle: 'short' }) : '?';
       const files = s.files ? t('backup.with_files', { n: s.files }) : '';
       if (!(await confirmDialog(t('backup.confirm', { when, printers: s.printers, tariffs: s.tariffs, packaging: s.packaging,
-        spools: s.spools, projects: s.projects, orders: s.orders || 0, files }), t('backup.restore_now')))) return;
+        spools: s.spools, projects: s.projects, orders: s.orders || 0, customers: s.customers || 0, files }), t('backup.restore_now')))) return;
       await api('POST', '/api/backup/restore', doc);
       toast(t('backup.restored'));
       setTimeout(() => window.location.reload(), 600);                                      // settings and language may have changed
