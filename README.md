@@ -14,6 +14,10 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
   slicer-data) leest de app het volume en **schat** het gewicht (volume × dichtheid × effectieve vulling);
   de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast kun je een **link** naar het model
   bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
+- **Bestellingen** — een bestelling van een klant met meerdere prints: besteldatum, leverdatum, naam en adres, een lijst met
+  modellen (zoek een berekening op **nummer** of naam; elke berekening heeft een nummer, `#12`), aantallen en de totaalprijs. Per
+  bestelling maak je een **factuur** en zet je de status op *nieuw*, *verwerkt*, *verstuurd* of *afgehandeld*. Zie *Bestellingen en
+  facturen* hieronder.
 - **Filament** — je rollen met prijs per rol, gewicht, diameter, print- en bedtemperatuur en wat er nog over is;
   de **barcode** bewaar je als identifier: scan hem met de camera van je telefoon (of een barcodescanner, die typt
   gewoon in het veld). Een bekende barcode wordt gemeld en de gegevens van de vorige rol worden meteen ingevuld (wat je zelf al
@@ -272,18 +276,60 @@ bestand `manifest.webmanifest` (naam van de snelkoppelingen) is niet vertaald.
 Escape of Annuleren. Zou je daarmee iets kwijtraken (een half ingevuld formulier, een niet afgemaakte wachtwoord-installatie,
 back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestiging.
 
+## Bestellingen en facturen
+
+**Bestellingen** (menu *Bestellingen*): *Nieuwe bestelling* vraagt de besteldatum en leverdatum, de gegevens van de klant (naam,
+adres, postcode, plaats, land, e-mail, telefoon) en de modellen. Bij *Model toevoegen* zoek je een berekening op nummer (`2`, `#2`)
+of op een deel van de naam; kies je hem nog eens, dan gaat het aantal omhoog. De prijs per stuk is de verkoopprijs **incl. btw** uit
+de berekening zoals die er op dat moment uit zag; hij wordt gekopieerd en is per regel aan te passen, een latere wijziging van de
+berekening verandert een bestelling dus niet. Met *Eigen regel toevoegen* komt er een regel bij die niet bij een berekening hoort
+(bijvoorbeeld verzending). De **totalen rekent de server uit** (`backend/app/orders.py`, nooit de browser): de btw wordt per tarief
+uit de som van de regels gehaald, zodat wat de klant betaalt precies de som van de regels is. In de lijst filter je op status
+en zoek je op naam, plaats, bestelnummer of factuurnummer; de status zet je daar met één keuzelijst, of in de bestelling zelf.
+
+**Facturen**: *Factuur genereren* maakt de factuur van de bestelling en downloadt hem. De eerste keer krijgt de factuur een
+nummer (`JJJJ-0001`, per jaar doorgeteld, nooit tweemaal uitgegeven) en een factuurdatum (vandaag, daarna aan te passen);
+daarna levert dezelfde knop (*Factuur opnieuw downloaden*) hetzelfde nummer met wat de bestelling nu zegt, dus een bestelling
+bewerken en de factuur opnieuw downloaden kan altijd. Een factuur heeft zijn eigen bestand niet: hij wordt elke keer uit de
+bestelling gemaakt. Gegevens van je bedrijf (naam, adres, KvK, btw-nummer, IBAN, betaaltermijn, taal van de factuur en een
+tekst onderaan) vul je in onder *Instellingen → Bedrijfsgegevens*.
+
+**Sjabloon** (*Instellingen → Factuursjabloon*, maximaal 5 MB, één tegelijk; een nieuw bestand vervangt het vorige):
+
+- **Zonder sjabloon** gebruikt de app een ingebouwde PDF met je bedrijfsgegevens bovenaan.
+- **Word (`.docx`)**: zet velden tussen dubbele accolades in je document (kop, voet en tabellen werken ook). Eén tabelrij met
+  `{{regel.omschrijving}}`, `{{regel.aantal}}`, `{{regel.prijs}}`, `{{regel.btw}}` en `{{regel.totaal}}` (en `{{regel.nr}}`) wordt voor
+  elke regel van de bestelling herhaald; een sjabloon zonder zo'n rij wordt bij het uploaden geweigerd. Je krijgt een Word-bestand
+  terug (de app zet het niet om naar PDF). Een veld dat niet bestaat blijft zichtbaar in de factuur staan, zodat je een typefout ziet.
+  *Voorbeeldsjabloon downloaden* geeft een Word-bestand om mee te beginnen.
+- **PDF als briefpapier**: de eerste pagina van je PDF blijft zoals hij is (logo, bedrijfsgegevens) en de factuur wordt erop gezet,
+  tussen de marges boven en onder die je bij het uploaden opgeeft (standaard 55 en 25 mm; later aan te passen met *Marges
+  opslaan*). De bedrijfsgegevens uit de instellingen worden dan niet nog eens afgedrukt. Een lange bestelling loopt door op een
+  tweede pagina op hetzelfde briefpapier.
+
+Beschikbare velden (ook te zien onder *Beschikbare velden* bij het sjabloon): `factuurnummer`, `factuurdatum`, `vervaldatum`,
+`bestelnummer`, `besteldatum`, `leverdatum`, `opmerking` (de notities van de bestelling), `klant.naam`, `klant.adres`,
+`klant.postcode`, `klant.plaats`, `klant.postcode_plaats`, `klant.land`, `klant.email`, `klant.telefoon`, `klant.adresblok` (naam, adres,
+postcode en plaats, land onder elkaar), `bedrijf.naam`, `bedrijf.adres`, `bedrijf.postcode`, `bedrijf.plaats`, `bedrijf.land`,
+`bedrijf.email`, `bedrijf.telefoon`, `bedrijf.kvk`, `bedrijf.btw_nummer`, `bedrijf.iban`, `bedrijf.tekst`, `totaal_excl`, `btw_totaal`,
+`totaal`, `btw_overzicht` (per tarief), `betaaltekst` (de betaalinstructie met bedrag, vervaldatum, IBAN en factuurnummer) en de
+regelvelden hierboven. Het sjabloonbestand staat, net als elke upload, onder `UPLOAD_DIR`; het wordt met de rest meegenomen in de
+back-up van de app. Word- en PDF-bestanden worden als onbetrouwbaar behandeld: grootte en uitgepakte grootte zijn begrensd, Word
+wordt gelezen met `python-docx` (zonder XML-entiteiten) en PDF alleen met `pypdf`; er wordt niets uitgevoerd.
+
 ## Back-up in de app
 
 *Instellingen → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`):
-je instellingen (thema, taal, btw, afronding, stille uren…), printers, energietarieven, verpakkingen, filamentrollen en
-berekeningen, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
+je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, filamentrollen,
+berekeningen (met hun nummers), bestellingen met hun factuurnummers en het factuursjabloon, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
 mailen of bewaren mag de app niet kunnen openen. Na herstellen op een lege installatie log je dus gewoon in met je passkey.
 
 *Herstellen uit back-up…* kiest zo'n bestand, controleert het eerst helemaal (met dezelfde regels als handmatig invoeren; de
 berekeningen worden opnieuw uitgerekend, een aangepast totaal in het bestand telt dus niet, en printbestanden worden opnieuw
 gelezen en tegen hun controlesom gehouden) en laat zien wat er terugkomt. Pas na jouw bevestiging **vervangt** het alles wat er
-nu staat, in één keer: lukt iets niet, dan verandert er niets. Een bestand uit een nieuwere versie van de app wordt geweigerd.
+nu staat, in één keer: lukt iets niet, dan verandert er niets. Een bestand uit een nieuwere versie van de app wordt geweigerd; een back-up van een oudere versie (zonder bestellingen) werkt
+nog steeds en laat de bestellingen dan leeg. Het volgende bestel- en factuurnummer gaat door na de hoogste uit de back-up.
 Zo'n back-up past binnen `MAX_UPLOAD_MB` (standaard 50 MB); met printbestanden kan dat te klein zijn, verhoog het dan in `.env`.
 Een volledige kopie van de database (`pg_dump`) en de map met uploads blijft de manier voor een back-up van de hele server, zie
 *Back-up en herstel* (onder Beheer) hierboven.

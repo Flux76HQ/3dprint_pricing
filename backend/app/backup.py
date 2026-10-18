@@ -20,7 +20,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import printfile
+from . import invoice_docs, invoice_template, orders, printfile
 from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized
@@ -28,11 +28,11 @@ from .i18n import L, Localized
 bp = Blueprint("backup", __name__, url_prefix="/api/backup")
 
 FORMAT = "printpricing-backup"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2          # 2: orders, the invoice template and calculation numbers; a file of version 1 still restores
 MAX_ROWS = 20_000
 # (key in the file, key in api.RESOURCES) -- the order is the order of insertion
 SECTIONS = (("printers", "printers"), ("tariffs", "tariffs"), ("packaging", "packaging"), ("spools", "spools"))
-PROJECT_COLUMNS = ("id", "name", "notes", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
+PROJECT_COLUMNS = ("id", "number", "name", "notes", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
                    "file_id", "stock_booked_at", "created_at", "updated_at")
 
 
@@ -64,6 +64,15 @@ def export():
             doc[key] = [_serialise(r) for r in rows]
         rows = conn.execute(f"SELECT {', '.join(PROJECT_COLUMNS)} FROM projects ORDER BY created_at, id").fetchall()
         doc["projects"] = [_serialise(r) for r in rows]
+        doc["orders"] = _export_orders(conn)
+        try:
+            template = invoice_template.load(conn)
+        except ApiError:                                             # the file went missing: the rest of the backup is still worth having
+            template = None
+        if template:
+            doc["invoice_template"] = {"filename": template["filename"], "kind": template["kind"], "margin_top_mm": template["margin_top_mm"],
+                                       "margin_bottom_mm": template["margin_bottom_mm"],
+                                       "content_b64": base64.b64encode(template["content"]).decode("ascii")}
         if include_files:
             files = []
             for row in conn.execute("SELECT * FROM print_files ORDER BY created_at, id").fetchall():
@@ -77,6 +86,21 @@ def export():
     name = f"printpricing-backup-{datetime.now().strftime('%Y-%m-%d')}.json"
     return Response(json.dumps(doc, ensure_ascii=False), mimetype="application/json",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+ORDER_COLUMNS = ("id", "number", "invoice_number", "invoice_date", "created_at", "updated_at", *orders.ORDER_FIELDS)
+
+
+def _export_orders(conn) -> list:
+    out = []
+    rows = conn.execute(f"SELECT {', '.join(ORDER_COLUMNS)} FROM orders ORDER BY number").fetchall()
+    lines = orders._lines_of(conn, [r["id"] for r in rows])
+    for row in rows:
+        item = _serialise(row)
+        item["lines"] = [_serialise({k: line[k] for k in ("project_id", "project_number", "description", "quantity", "unit_price", "vat_pct")})
+                         for line in lines[row["id"]]]
+        out.append(item)
+    return out
 
 
 # --- restore ----------------------------------------------------------------------------------------------------
@@ -167,8 +191,77 @@ def _parse(doc) -> dict:
                              "created_at": _when(row.get("created_at")), "updated_at": _when(row.get("updated_at"))})
         except (ApiError, Localized) as exc:
             raise _row_error("projects", n, exc) from None
+    _number_projects(projects, doc)
     plan["projects"] = projects
+    plan["orders"] = _parse_orders(doc)
+    plan["template"] = _parse_template(doc.get("invoice_template"))
     return plan
+
+
+def _positive_int(value):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1 or value > 2_000_000_000:
+        return None
+    return value
+
+
+def _number_projects(projects: list, doc: dict) -> None:
+    """Calculations keep their numbers; one without (a version 1 file) gets the next free one, in the order of the file."""
+    given = [_positive_int(row.get("number")) if isinstance(row, dict) else None for row in doc.get("projects", [])]
+    used = [n for n in given if n]
+    if len(used) != len(set(used)):
+        raise _row_error("projects", 1, Localized("backup.bad_number"))
+    free = max(used, default=0)
+    for project, number in zip(projects, given):
+        if number is None:
+            free += 1
+            number = free
+        project["number"] = number
+
+
+def _parse_orders(doc: dict) -> list:
+    parsed, numbers, invoices = [], set(), set()
+    for n, row in enumerate(_rows(doc, "orders"), 1):
+        try:
+            if not isinstance(row, dict):
+                raise Localized("backup.bad_row_type")
+            values = orders.validated_order(row)
+            for line, raw in zip(values["lines"], row.get("lines", [])):
+                line["project_number"] = _positive_int(raw.get("project_number")) if isinstance(raw, dict) else None
+            number = _positive_int(row.get("number"))
+            invoice = row.get("invoice_number") or None
+            if number is None or number in numbers or (invoice is not None and (not isinstance(invoice, str) or len(invoice) > 40 or invoice in invoices)):
+                raise Localized("backup.bad_number")
+            numbers.add(number)
+            if invoice:
+                invoices.add(invoice)
+            parsed.append({"id": _uuid(row.get("id") or uuid.uuid4(), "orders"), "number": number, "values": values, "invoice_number": invoice,
+                           "invoice_date": values["invoice_date"] if invoice else None, "created_at": _when(row.get("created_at")),
+                           "updated_at": _when(row.get("updated_at"))})
+        except (ApiError, Localized) as exc:
+            raise _row_error("orders", n, exc) from None
+    return parsed
+
+
+def _parse_template(entry):
+    if entry in (None, {}):
+        return None
+    try:
+        if not isinstance(entry, dict) or entry.get("kind") not in ("docx", "pdf"):
+            raise Localized("backup.bad_row_type")
+        try:
+            content = base64.b64decode(str(entry.get("content_b64", "")), validate=True)
+        except (binascii.Error, ValueError):
+            raise Localized("backup.bad_file") from None
+        try:
+            invoice_template.validate(entry["kind"], content)
+        except invoice_docs.InvoiceError as exc:
+            raise Localized(exc.key, **exc.params) from None
+        margins = [invoice_template._margin(label, entry.get(key), default) for label, key, default in
+                   (("f.margin_top", "margin_top_mm", invoice_template.DEFAULT_TOP_MM), ("f.margin_bottom", "margin_bottom_mm", invoice_template.DEFAULT_BOTTOM_MM))]
+        return {"filename": invoice_template.clean_filename(entry.get("filename"), entry["kind"]), "kind": entry["kind"], "content": content,
+                "top": margins[0], "bottom": margins[1]}
+    except (ApiError, Localized) as exc:
+        raise _row_error("template", 1, exc) from None
 
 
 def _parse_file(entry) -> dict:
@@ -202,13 +295,35 @@ def _parse_file(entry) -> dict:
 def _summary(plan: dict) -> dict:
     return {"printers": len(plan["sections"]["printers"][1]), "tariffs": len(plan["sections"]["tariffs"][1]),
             "packaging": len(plan["sections"]["packaging"][1]), "spools": len(plan["sections"]["spools"][1]),
-            "projects": len(plan["projects"]), "files": len(plan["files"]), "preferences": len(plan["preferences"])}
+            "projects": len(plan["projects"]), "files": len(plan["files"]), "preferences": len(plan["preferences"]),
+            "orders": len(plan["orders"]), "template": 1 if plan["template"] else 0}
 
 
 def _insert(conn, table: str, values: dict) -> None:
     columns = list(values)
     conn.execute(f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join(['%s'] * len(columns))})",
                  tuple(values.values()))
+
+
+def _restore_orders(conn, items: list) -> None:
+    for item in items:
+        v = item["values"]
+        columns = {"id": item["id"], "number": item["number"], "invoice_number": item["invoice_number"], "invoice_date": item["invoice_date"],
+                   **{f: v[f] for f in orders.ORDER_FIELDS}}
+        for key in ("created_at", "updated_at"):
+            if item[key]:
+                columns[key] = item[key]
+        _insert(conn, "orders", columns)
+        orders._write_lines(conn, item["id"], v["lines"])
+    conn.execute(f"ALTER SEQUENCE order_number_seq RESTART WITH {max((i['number'] for i in items), default=0) + 1}")
+    counters: dict[int, int] = {}
+    for item in items:                                              # the next invoice number carries on after the highest one restored
+        found = re.fullmatch(r"(\d{4})-(\d+)", item["invoice_number"] or "")
+        if found:
+            year, last = int(found.group(1)), int(found.group(2))
+            counters[year] = max(counters.get(year, 0), last)
+    for year, last in counters.items():
+        conn.execute("INSERT INTO invoice_counters (year, last) VALUES (%s, %s)", (year, last))
 
 
 @bp.post("/restore")
@@ -227,6 +342,11 @@ def restore():
     try:
         with pool().connection() as conn:
             conn.execute("DELETE FROM projects")
+            conn.execute("DELETE FROM orders")
+            conn.execute("DELETE FROM invoice_counters")
+            replaced = conn.execute("DELETE FROM invoice_template RETURNING stored_name").fetchone()
+            if replaced:
+                old_files.append(replaced["stored_name"])
             for table in ("filament_spools", "packaging_items", "energy_tariffs", "printers"):
                 conn.execute(f"DELETE FROM {table}")
             if plan["files"]:
@@ -249,7 +369,7 @@ def restore():
             for item in plan["projects"]:
                 f = item["fields"]
                 file_id = f["file_id"] if f["file_id"] in existing_files else None     # a file that is not here is let go
-                values = {"id": item["id"], "name": f["name"], "notes": f["notes"], "margin_pct": f["margin_pct"],
+                values = {"id": item["id"], "number": item["number"], "name": f["name"], "notes": f["notes"], "margin_pct": f["margin_pct"],
                           "vat_pct": f["vat_pct"], "price_rounding": f["price_rounding"], "data": json.dumps(f["data"]),
                           "totals": json.dumps(f["totals"]), "source_url": f["source_url"], "file_id": file_id,
                           "stock_booked_at": item["stock_booked_at"]}
@@ -257,6 +377,14 @@ def restore():
                     values["created_at"] = item["created_at"]
                     values["updated_at"] = item["updated_at"] or item["created_at"]
                 _insert(conn, "projects", values)
+            conn.execute(f"ALTER SEQUENCE project_number_seq RESTART WITH {max((p['number'] for p in plan['projects']), default=0) + 1}")
+            _restore_orders(conn, plan["orders"])
+            if plan["template"]:
+                t = plan["template"]
+                stored = invoice_template.store_file(t["content"], t["kind"])
+                written.append(Path(config().upload_dir) / stored)
+                invoice_template.replace(conn, filename=t["filename"], kind=t["kind"], content=t["content"], stored_name=stored,
+                                         top=t["top"], bottom=t["bottom"])
             conn.execute("UPDATE users SET preferences = %s::jsonb WHERE id = %s", (json.dumps(plan["preferences"]), g.user_id))
     except Exception:
         for path in written:                                          # nothing was swapped in: take the new files out again

@@ -58,6 +58,11 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   final check, since the 3MF/slice_info layout is the slicer's, not ours.
 - Uploads live under `UPLOAD_DIR` (`/data/uploads`, mounted from `DATA_PATH/app`), never in the
   image. Stored names are generated; the original filename is only a download name.
+- Orders (`backend/app/orders.py`) keep the price per piece *including* VAT, copied from the calculation when the line is made, and
+  work out the totals on the server per VAT rate (`compute_totals`); the browser only displays them. An invoice number
+  (`YYYY-NNNN`, `invoice_counters`) is claimed atomically once per order and never reused. Invoice templates (`invoice_docs.py`,
+  `invoice_template.py`) are untrusted uploads like print files: capped in size and unpacked size, parsed only by `python-docx` / `pypdf`,
+  stored under `UPLOAD_DIR`, and part of the backup together with orders and calculation numbers.
 - Third-party browser code is vendored under `frontend/vendor/` (unmodified, with its licence and a
   README saying how to update), never loaded from a CDN: the CSP only allows scripts from this origin.
   Currently only ZXing, for barcode scanning where the browser has no `BarcodeDetector`.

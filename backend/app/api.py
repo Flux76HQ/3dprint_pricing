@@ -344,7 +344,28 @@ def validated_preferences(body: dict) -> dict:
         prefs["sidebar_collapsed"] = boolean("f.sidebar")(body["sidebar_collapsed"])
     if "low_stock" in body:
         prefs["low_stock"] = _validated_low_stock(body["low_stock"])
+    if "business" in body:
+        prefs["business"] = _validated_business(body["business"])
     return prefs
+
+
+BUSINESS_TEXT = (("name", "f.company_name", 120), ("address", "f.address", 200), ("postal_code", "f.postal_code", 20),
+                 ("city", "f.city", 100), ("country", "f.country", 60), ("email", "f.email", 200), ("phone", "f.phone", 40),
+                 ("kvk", "f.kvk", 30), ("vat_id", "f.vat_id", 30), ("iban", "f.iban", 40), ("note", "f.invoice_note", 500))
+
+
+def _validated_business(value) -> dict:
+    """The company details that go on an invoice: texts, the days to pay in and the language of the invoice."""
+    if not isinstance(value, dict):
+        raise ApiError(400, "err.business")
+    out = {key: text(label, required=False, max_len=limit)(value.get(key)) for key, label, limit in BUSINESS_TEXT}
+    days = optional_int("f.payment_days", minimum=0, maximum=365)(value.get("payment_days", 14))
+    out["payment_days"] = 14 if days is None else days
+    language = value.get("invoice_language", "nl")
+    if language not in LANGUAGES:
+        raise ApiError(400, "err.language")
+    out["invoice_language"] = language
+    return out
 
 
 def _validated_low_stock(value) -> dict:
@@ -409,7 +430,7 @@ def _project_row(row):
 @bp.get("/projects")
 def list_projects():
     with pool().connection() as conn:
-        rows = conn.execute("SELECT id, name, margin_pct, vat_pct, price_rounding, totals, stock_booked_at, updated_at "
+        rows = conn.execute("SELECT id, number, name, margin_pct, vat_pct, price_rounding, totals, stock_booked_at, updated_at "
                             "FROM projects ORDER BY updated_at DESC").fetchall()
     return jsonify([_project_row(r) for r in rows])
 

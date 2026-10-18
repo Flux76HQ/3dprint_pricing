@@ -1,10 +1,10 @@
-import { api, confirmWithPasskey, createPasskey, downloadFile } from './api.js';
+import { api, confirmWithPasskey, createPasskey, downloadFile, upload } from './api.js';
 import { iosSteps, installState, onInstallChange, promptInstall } from './install.js';
 import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
 import { passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, pushSupport, thisDeviceFingerprint } from './push.js';
-import { confirmDialog, field, h, icon, numberInput, switchRow, toast, versionLabel } from './ui.js';
+import { confirmDialog, field, h, icon, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
 
 // [value, label key]: labels are looked up when drawn, so they follow the language.
@@ -221,7 +221,7 @@ function backupCard() {
       const when = s.created_at ? formatDateTime(s.created_at, { dateStyle: 'medium', timeStyle: 'short' }) : '?';
       const files = s.files ? t('backup.with_files', { n: s.files }) : '';
       if (!(await confirmDialog(t('backup.confirm', { when, printers: s.printers, tariffs: s.tariffs, packaging: s.packaging,
-        spools: s.spools, projects: s.projects, files }), t('backup.restore_now')))) return;
+        spools: s.spools, projects: s.projects, orders: s.orders || 0, files }), t('backup.restore_now')))) return;
       await api('POST', '/api/backup/restore', doc);
       toast(t('backup.restored'));
       setTimeout(() => window.location.reload(), 600);                                      // settings and language may have changed
@@ -238,6 +238,93 @@ function backupCard() {
       h('button', { class: 'btn', type: 'button', onclick: () => picker.click() }, t('backup.restore')), picker),
     status,
     h('p', { class: 'muted' }, t('backup.not_included')));
+}
+
+// The company details that go on an invoice. Each field is saved when it is left; `ctx.prefs` is read at that moment, never copied.
+const COMPANY_TEXT = [['name', 'company.name'], ['address', 'company.address'], ['postal_code', 'company.postal_code'], ['city', 'company.city'],
+  ['country', 'company.country'], ['email', 'company.email'], ['phone', 'company.phone'], ['kvk', 'company.kvk'], ['vat_id', 'company.vat_id'],
+  ['iban', 'company.iban']];
+
+function companyCard(ctx) {
+  const current = () => ({ payment_days: 14, invoice_language: 'nl', ...(ctx.prefs.business || {}) });
+  const save = async (key, el, value) => {
+    if (!(await ctx.setPrefs({ business: { ...current(), [key]: value } }))) el.value = current()[key] ?? '';      // refused: show what is saved
+  };
+  const text = ([key, label], attrs = {}) => {
+    const input = h('input', { type: 'text', value: current()[key] ?? '', autocomplete: 'off', ...attrs, onchange: () => save(key, input, input.value.trim()) });
+    return field(t(label), input);
+  };
+  const days = h('input', { type: 'text', inputmode: 'numeric', value: current().payment_days, autocomplete: 'off',
+    onchange: () => save('payment_days', days, /^\d+$/.test(days.value.trim()) ? Number(days.value.trim()) : days.value.trim()) });
+  const language = h('select', { onchange: () => save('invoice_language', language, language.value) },
+    [['nl', 'Nederlands'], ['en', 'English']].map(([v, l]) => h('option', { value: v, selected: current().invoice_language === v }, l)));
+  const note = h('textarea', { rows: 3, maxlength: 500, onchange: () => save('note', note, note.value.trim()) }, current().note || '');
+  const by = Object.fromEntries(COMPANY_TEXT.map((f) => [f[0], f]));
+  return h('div', { class: 'glass card stack' }, h('h2', {}, t('company.title')), h('p', { class: 'muted' }, t('company.hint')),
+    text(by.name), text(by.address),
+    h('div', { class: 'two' }, text(by.postal_code), text(by.city)),
+    text(by.country),
+    h('div', { class: 'two even' }, text(by.email, { type: 'email', inputmode: 'email' }), text(by.phone, { type: 'tel', inputmode: 'tel' })),
+    h('div', { class: 'two even' }, text(by.kvk), text(by.vat_id)),
+    text(by.iban),
+    h('div', { class: 'two even' }, field(t('company.payment_days'), days), field(t('company.language'), language)),
+    field(t('company.note'), note, t('company.note_hint')));
+}
+
+// The invoice template: a Word file with {{placeholders}} or a PDF used as letter paper. The invoice is made from it (or, without one,
+// from the built-in layout) when an order asks for it.
+function invoiceTemplateCard() {
+  const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
+  let lastError = '';
+
+  async function draw() {
+    let info;
+    try { info = await api('GET', '/api/invoice-template'); } catch (e) { body.replaceChildren(h('p', { class: 'error' }, e.message)); return; }
+    const tpl = info.template;
+    const top = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', value: tpl ? tpl.margin_top_mm : info.defaults.margin_top_mm });
+    const bottom = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', value: tpl ? tpl.margin_bottom_mm : info.defaults.margin_bottom_mm });
+    const status = h('p', { class: 'error', role: 'alert', hidden: !lastError }, lastError);
+    const file = h('input', { type: 'file', accept: '.docx,.pdf', 'aria-label': t('invoice_tpl.choose'), onchange: async () => {
+      const chosen = file.files[0];
+      if (!chosen) return;
+      const form = new FormData();
+      form.append('file', chosen);
+      form.append('margin_top_mm', top.value.trim());
+      form.append('margin_bottom_mm', bottom.value.trim());
+      try { await upload('/api/invoice-template', form); lastError = ''; toast(t('invoice_tpl.saved')); } catch (e) { lastError = e.message; }
+      draw();
+    } });
+    const margins = h('div', { class: 'two even' }, field(t('invoice_tpl.margin_top'), top), field(t('invoice_tpl.margin_bottom'), bottom));
+    const download = async (path) => {
+      try { const { blob, name } = await downloadFile(path); saveBlob(blob, name); } catch (e) { toast(e.message, 'error'); }
+    };
+    body.replaceChildren(
+      tpl ? h('div', { class: 'list-row' },
+        h('div', {}, h('strong', {}, tpl.filename), h('p', { class: 'muted' }, `${tpl.kind === 'docx' ? t('invoice_tpl.word') : t('invoice_tpl.pdf')} · ${formatDate(tpl.uploaded_at, { dateStyle: 'medium' })}`)),
+        h('div', { class: 'row' },
+          h('button', { class: 'btn small', type: 'button', onclick: () => download('/api/invoice-template/download') }, t('invoice_tpl.download')),
+          h('button', { class: 'btn small danger', type: 'button', onclick: async () => {
+            if (!(await confirmDialog(t('invoice_tpl.remove_confirm'), t('common.delete')))) return;
+            try { await api('DELETE', '/api/invoice-template'); lastError = ''; draw(); } catch (e) { toast(e.message, 'error'); }
+          } }, t('common.delete'))))
+        : h('p', { class: 'muted' }, t('invoice_tpl.none')),
+      h('p', {}, t('invoice_tpl.intro_word')), h('p', {}, t('invoice_tpl.intro_pdf')),
+      h('div', { class: 'row' }, h('button', { class: 'btn small', type: 'button', onclick: () => download('/api/invoice-template/sample') }, t('invoice_tpl.sample'))),
+      field(tpl ? t('invoice_tpl.replace') : t('invoice_tpl.choose'), file, t('invoice_tpl.file_hint')),
+      margins, h('p', { class: 'hint' }, t('invoice_tpl.margin_hint')),
+      ...(tpl && tpl.kind === 'pdf' ? [h('div', { class: 'row' }, h('button', { class: 'btn small', type: 'button', onclick: async () => {
+        try {
+          await api('PATCH', '/api/invoice-template', { margin_top_mm: top.value.trim(), margin_bottom_mm: bottom.value.trim() });
+          lastError = ''; toast(t('common.saved')); draw();
+        } catch (e) { toast(e.message, 'error'); }
+      } }, t('invoice_tpl.save_margins')))] : []),                       // not `null`: replaceChildren would write the word "null"
+      status,
+      h('details', {}, h('summary', {}, t('invoice_tpl.fields')),
+        h('p', { class: 'muted' }, t('invoice_tpl.fields_hint')),
+        h('p', {}, h('code', {}, info.placeholders.map((name) => `{{${name}}}`).join('  ')))));
+  }
+  draw();
+  return h('div', { class: 'glass card stack' }, h('h2', {}, t('invoice_tpl.title')), body);
 }
 
 export function settingsView(ctx) {
@@ -341,6 +428,7 @@ export function settingsView(ctx) {
         field(t('business.rounding'), h('select', { onchange: (e) => setPrefs({ price_rounding: e.target.value }) },
           ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (ctx.prefs.price_rounding || 'none') === v }, t(l)))))),
       h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
+    companyCard(ctx), invoiceTemplateCard(),
     installCard(), notificationsCard(ctx), updatesCard(),
     h('div', { class: 'glass card stack' }, h('h2', {}, t('security.title')),
       h('p', { class: 'muted' }, t('security.hint')),

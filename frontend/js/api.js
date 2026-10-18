@@ -39,10 +39,10 @@ export async function upload(path, formData) {
   return data;
 }
 
-/** Fetches a file the server sends as an attachment. Resolves { blob, name }. */
-export async function downloadFile(path) {
+/** Fetches a file the server sends as an attachment (a POST when making it changes something). Resolves { blob, name }. */
+export async function downloadFile(path, { method = 'GET' } = {}) {
   let res;
-  try { res = await fetch(path, { credentials: 'same-origin', headers: langHeader() }); } catch { throw new ApiError(0, t('api.no_connection')); }
+  try { res = await fetch(path, { method, credentials: 'same-origin', headers: langHeader() }); } catch { throw new ApiError(0, t('api.no_connection')); }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new ApiError(res.status, data.error || t('api.error_status', { status: res.status }));

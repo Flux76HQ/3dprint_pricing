@@ -31,6 +31,7 @@ const ICONS = {
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l3 3"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  clipboard: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/>',
 };
 
 export function icon(name) {
@@ -53,6 +54,16 @@ export function parseNum(value) {
   if (typeof value === 'number') return value;
   const n = parseFloat(String(value ?? '').trim().replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Hands a downloaded file to the user, as a link click on a temporary address. */
+export function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = h('a', { href: url, download: name });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 export function toast(message, kind = 'info') {

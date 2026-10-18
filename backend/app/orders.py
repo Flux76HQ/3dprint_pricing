@@ -1,0 +1,282 @@
+"""Orders: a customer's order of several prints, and the invoice made from it.
+
+The prices on an order line are the price per piece including VAT, copied from a calculation when the line is made (or typed for
+a line of its own); the totals are worked out here, never in the browser: per VAT rate the VAT is taken out of the sum of the
+lines, so what the customer pays is exactly the sum of what the lines say.
+"""
+import uuid
+from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
+
+from flask import Blueprint, Response, g, jsonify, request
+
+from . import invoice_docs, invoice_template
+from .api import _serialise, number, text
+from .http import ApiError, json_body, login_required, pool
+from .i18n import L
+
+bp = Blueprint("orders", __name__, url_prefix="/api/orders")
+
+STATUSES = ("nieuw", "verwerkt", "verstuurd", "afgehandeld")
+MAX_LINES = 200
+CENT = Decimal("0.01")
+
+
+@bp.before_request
+@login_required
+def _guard():
+    """Every route here needs a session."""
+
+
+# --- totals -----------------------------------------------------------------------------------------------------
+
+def _money(value: Decimal) -> Decimal:
+    return value.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def compute_totals(lines: list) -> dict:
+    """The line totals and, per VAT rate, what is net, what is VAT and what is gross. Amounts are strings with two decimals."""
+    gross_by_rate: dict[Decimal, Decimal] = {}
+    line_totals = []
+    for line in lines:
+        total = _money(Decimal(line["quantity"]) * Decimal(line["unit_price"]))
+        line_totals.append(total)
+        rate = Decimal(line["vat_pct"]).quantize(CENT)
+        gross_by_rate[rate] = gross_by_rate.get(rate, Decimal(0)) + total
+    vat_rows, net_sum, vat_sum, gross_sum = [], Decimal(0), Decimal(0), Decimal(0)
+    for rate in sorted(gross_by_rate):
+        gross = gross_by_rate[rate]
+        vat = _money(gross - gross / (1 + rate / 100)) if rate > 0 else _money(Decimal(0))
+        vat_rows.append({"pct": format(rate.normalize(), "f"), "net": str(gross - vat), "vat": str(vat), "gross": str(gross)})
+        net_sum, vat_sum, gross_sum = net_sum + gross - vat, vat_sum + vat, gross_sum + gross
+    return {"line_totals": [str(t) for t in line_totals], "vat": vat_rows,
+            "total_excl": str(_money(net_sum)), "total_vat": str(_money(vat_sum)), "total": str(_money(gross_sum))}
+
+
+# --- validation (also used by restoring a backup) -----------------------------------------------------------------
+
+def _date(label: str, value, *, required: bool):
+    if value in (None, ""):
+        if required:
+            raise ApiError(400, "err.required", label=L(label))
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        raise ApiError(400, "err.bad_date", label=L(label)) from None
+
+
+def _line(raw, n: int) -> dict:
+    if not isinstance(raw, dict):
+        raise ApiError(400, "err.order_line", n=n)
+    try:
+        quantity = Decimal(str(raw.get("quantity")))
+    except ArithmeticError:
+        raise ApiError(400, "err.order_quantity", n=n) from None
+    if not quantity.is_finite() or quantity != quantity.to_integral_value() or not 1 <= quantity <= 100_000:
+        raise ApiError(400, "err.order_quantity", n=n)
+    project_id = raw.get("project_id") or None
+    if project_id is not None:
+        try:
+            project_id = uuid.UUID(str(project_id))
+        except ValueError:
+            raise ApiError(400, "err.order_line", n=n) from None
+    return {"project_id": project_id, "project_number": None, "description": text("f.description", max_len=200)(raw.get("description")),
+            "quantity": int(quantity), "unit_price": _money(number("f.unit_price")(raw.get("unit_price"))),
+            "vat_pct": _money(number("f.vat", maximum=100)(raw.get("vat_pct", 0)))}
+
+
+def validated_order(body: dict) -> dict:
+    """The order in `body` as it will be stored; raises ApiError for a bad value."""
+    status = body.get("status", "nieuw")
+    if status not in STATUSES:
+        raise ApiError(400, "err.order_status")
+    email = text("f.email", required=False, max_len=200)(body.get("email"))
+    if email and "@" not in email:
+        raise ApiError(400, "err.bad_email")
+    raw_lines = body.get("lines", [])
+    if not isinstance(raw_lines, list) or len(raw_lines) > MAX_LINES:
+        raise ApiError(400, "err.order_lines", max=MAX_LINES)
+    return {
+        "status": status,
+        "order_date": _date("f.order_date", body.get("order_date") or date.today().isoformat(), required=True),
+        "delivery_date": _date("f.delivery_date", body.get("delivery_date"), required=False),
+        "customer_name": text("f.customer_name")(body.get("customer_name")),
+        "address": text("f.address", required=False, max_len=200)(body.get("address")),
+        "postal_code": text("f.postal_code", required=False, max_len=20)(body.get("postal_code")),
+        "city": text("f.city", required=False, max_len=100)(body.get("city")),
+        "country": text("f.country", required=False, max_len=60)(body.get("country")),
+        "email": email,
+        "phone": text("f.phone", required=False, max_len=40)(body.get("phone")),
+        "notes": text("f.notes", required=False, max_len=2000)(body.get("notes")),
+        "invoice_date": _date("f.invoice_date", body.get("invoice_date"), required=False),
+        "lines": [_line(raw, n) for n, raw in enumerate(raw_lines, 1)],
+    }
+
+
+# --- storage ----------------------------------------------------------------------------------------------------
+
+ORDER_FIELDS = ("status", "order_date", "delivery_date", "customer_name", "address", "postal_code", "city", "country",
+                "email", "phone", "notes")
+
+
+def _write_lines(conn, order_id, lines: list) -> None:
+    known = {r["id"]: r["number"] for r in conn.execute("SELECT id, number FROM projects").fetchall()}
+    for position, line in enumerate(lines):
+        project_id = line["project_id"] if line["project_id"] in known else None   # a calculation that is gone is let go
+        conn.execute(
+            "INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (order_id, position, project_id, known.get(project_id) if project_id else line.get("project_number"),
+             line["description"], line["quantity"], line["unit_price"], line["vat_pct"]))
+
+
+def _lines_of(conn, order_ids: list) -> dict:
+    by_order: dict = {oid: [] for oid in order_ids}
+    if order_ids:
+        rows = conn.execute("SELECT * FROM order_lines WHERE order_id = ANY(%s) ORDER BY order_id, position", (order_ids,)).fetchall()
+        for row in rows:
+            by_order[row["order_id"]].append(row)
+    return by_order
+
+
+def _present(order: dict, lines: list) -> dict:
+    totals = compute_totals(lines)
+    out = _serialise(order)
+    out["lines"] = [{**_serialise({k: v for k, v in line.items() if k not in ("order_id",)}), "line_total": totals["line_totals"][i]}
+                    for i, line in enumerate(lines)]
+    out["totals"] = totals
+    return out
+
+
+def _fetch(conn, order_id, *, lock: bool = False):
+    order = conn.execute(f"SELECT * FROM orders WHERE id = %s{' FOR UPDATE' if lock else ''}", (order_id,)).fetchone()
+    if order is None:
+        raise ApiError(404, "err.order_not_found")
+    return order, _lines_of(conn, [order_id])[order_id]
+
+
+# --- API --------------------------------------------------------------------------------------------------------
+
+@bp.get("")
+def list_orders():
+    status = request.args.get("status", "")
+    query = (request.args.get("q") or "").strip()
+    where, params = [], []
+    if status:
+        if status not in STATUSES:
+            raise ApiError(400, "err.order_status")
+        where.append("status = %s")
+        params.append(status)
+    if query:
+        like = f"%{query.replace('%', '').replace('_', '')}%"
+        where.append("(customer_name ILIKE %s OR city ILIKE %s OR number::text = %s OR invoice_number ILIKE %s)")
+        params += [like, like, query.lstrip("#"), like]
+    sql = "SELECT * FROM orders" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY order_date DESC, number DESC"
+    with pool().connection() as conn:
+        orders = conn.execute(sql, params).fetchall()
+        lines = _lines_of(conn, [o["id"] for o in orders])
+    out = []
+    for order in orders:
+        totals = compute_totals(lines[order["id"]])
+        item = _serialise({k: order[k] for k in ("id", "number", "status", "order_date", "delivery_date", "customer_name", "city",
+                                                  "invoice_number", "invoice_date", "updated_at")})
+        item.update(line_count=len(lines[order["id"]]), total=totals["total"])
+        out.append(item)
+    return jsonify(out)
+
+
+@bp.post("/totals")
+def totals():
+    """The totals of lines that are being edited, so the screen shows what the server will store."""
+    raw = json_body().get("lines", [])
+    if not isinstance(raw, list) or len(raw) > MAX_LINES:
+        raise ApiError(400, "err.order_lines", max=MAX_LINES)
+    return jsonify(compute_totals([_line(line, n) for n, line in enumerate(raw, 1)]))
+
+
+@bp.post("")
+def create_order():
+    values = validated_order(json_body())
+    with pool().connection() as conn:
+        order = conn.execute(f"INSERT INTO orders ({', '.join(ORDER_FIELDS)}) VALUES ({', '.join(['%s'] * len(ORDER_FIELDS))}) RETURNING *",
+                             tuple(values[f] for f in ORDER_FIELDS)).fetchone()     # an invoice date only exists once there is an invoice
+        _write_lines(conn, order["id"], values["lines"])
+        order, lines = _fetch(conn, order["id"])
+    return jsonify(_present(order, lines)), 201
+
+
+@bp.get("/<uuid:order_id>")
+def get_order(order_id):
+    with pool().connection() as conn:
+        order, lines = _fetch(conn, order_id)
+    return jsonify(_present(order, lines))
+
+
+@bp.put("/<uuid:order_id>")
+def update_order(order_id):
+    values = validated_order(json_body())
+    with pool().connection() as conn:
+        current, _ = _fetch(conn, order_id, lock=True)
+        sets = ", ".join(f"{f} = %s" for f in ORDER_FIELDS)
+        invoice_date = values["invoice_date"] if current["invoice_number"] else None
+        conn.execute(f"UPDATE orders SET {sets}, invoice_date = COALESCE(%s, invoice_date), updated_at = now() WHERE id = %s",
+                     (*[values[f] for f in ORDER_FIELDS], invoice_date, order_id))
+        conn.execute("DELETE FROM order_lines WHERE order_id = %s", (order_id,))
+        _write_lines(conn, order_id, values["lines"])
+        order, lines = _fetch(conn, order_id)
+    return jsonify(_present(order, lines))
+
+
+@bp.patch("/<uuid:order_id>/status")
+def set_status(order_id):
+    status = json_body().get("status")
+    if status not in STATUSES:
+        raise ApiError(400, "err.order_status")
+    with pool().connection() as conn:
+        row = conn.execute("UPDATE orders SET status = %s, updated_at = now() WHERE id = %s RETURNING id", (status, order_id)).fetchone()
+    if row is None:
+        raise ApiError(404, "err.order_not_found")
+    return jsonify({"ok": True, "status": status})
+
+
+@bp.delete("/<uuid:order_id>")
+def delete_order(order_id):
+    with pool().connection() as conn:
+        row = conn.execute("DELETE FROM orders WHERE id = %s RETURNING id", (order_id,)).fetchone()
+    if row is None:
+        raise ApiError(404, "err.order_not_found")
+    return jsonify({"ok": True})
+
+
+# --- the invoice ------------------------------------------------------------------------------------------------
+
+def _claim_invoice_number(conn, year: int) -> str:
+    """The next number of this year, claimed atomically (two requests never get the same one)."""
+    last = conn.execute("INSERT INTO invoice_counters (year, last) VALUES (%s, 1) ON CONFLICT (year) DO UPDATE "
+                        "SET last = invoice_counters.last + 1 RETURNING last", (year,)).fetchone()["last"]
+    return f"{year}-{last:04d}"
+
+
+@bp.post("/<uuid:order_id>/invoice")
+def make_invoice(order_id):
+    """The invoice of this order as a file: the first time it gets its number and date, after that the same ones, with
+    whatever the order says now. A Word template gives a Word file, a PDF template or none gives a PDF."""
+    with pool().connection() as conn:
+        order, lines = _fetch(conn, order_id, lock=True)
+        if not lines:
+            raise ApiError(409, "invoice.no_lines")
+        if not order["invoice_number"]:
+            today = date.today()
+            invoice_date = order["invoice_date"] or today
+            order = conn.execute("UPDATE orders SET invoice_number = %s, invoice_date = %s, updated_at = now() WHERE id = %s RETURNING *",
+                                 (_claim_invoice_number(conn, invoice_date.year), invoice_date, order_id)).fetchone()
+        prefs = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()
+        business = ((prefs or {}).get("preferences") or {}).get("business") or {}
+        template = invoice_template.load(conn)
+        try:
+            content, mimetype, extension = invoice_docs.render_invoice(order, lines, compute_totals(lines), business, template)
+        except invoice_docs.InvoiceError as exc:
+            raise ApiError(422, exc.key, **exc.params) from None
+    return Response(content, mimetype=mimetype, headers={
+        "Content-Disposition": f'attachment; filename="Factuur-{order["invoice_number"]}.{extension}"'})
