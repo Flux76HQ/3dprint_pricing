@@ -94,8 +94,8 @@ function currentRoute() {
 function pageContent({ page, id }) {
   switch (page) {
     case 'berekeningen':
-      if (id) return projectEditorView(id === 'nieuw' ? null : id, navigate, { get prefs() { return prefs; }, setPrefs });
-      return projectListView({ get prefs() { return prefs; }, setPrefs });
+      if (id) return projectEditorView(id === 'nieuw' ? null : id, navigate, { get prefs() { return prefs; }, setPrefs, get aiImages() { return session.aiImages; } });
+      return projectListView({ get prefs() { return prefs; }, setPrefs, get aiImages() { return session.aiImages; } });
     case 'bestellingen':
       if (id) return orderEditorView(id === 'nieuw' ? null : id, navigate, { get prefs() { return prefs; } });
       return orderListView();
@@ -110,7 +110,7 @@ function pageContent({ page, id }) {
           h('h3', {}, navIcon(ic, false), t(label))))),
         h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: logout }, icon('logout'), h('span', {}, t('session.logout')))));
     case 'instellingen':
-      return settingsView({ get prefs() { return prefs; }, setPrefs, setLanguage: chooseLanguage, user: session.user, highlightPasskey: flags.recovered }, id);
+      return settingsView({ get prefs() { return prefs; }, setPrefs, setLanguage: chooseLanguage, user: session.user, highlightPasskey: flags.recovered, get aiImages() { return session.aiImages; } }, id);
     default: return h('p', {}, t('nav.not_found'));
   }
 }
@@ -174,7 +174,7 @@ async function start() {
     root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen/beveiliging'); start(); }, { passwordLogin: status.password_login, onLanguage: chooseLanguage }));
     return;
   }
-  session = { user: status.user };
+  session = { user: status.user, aiImages: !!status.ai_images };
   appVersion = BUILD;
   if (!updatesStarted) { updatesStarted = true; initUpdates(BUILD); }
   try { prefs = await api('GET', '/api/preferences'); applyPrefs(); } catch { /* defaults */ }

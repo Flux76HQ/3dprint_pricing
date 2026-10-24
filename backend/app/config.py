@@ -19,6 +19,11 @@ def _required(name: str) -> str:
     return value
 
 
+def _flag(name: str) -> bool:
+    """A switch in .env: only TRUE (any case), 1 or yes turns it on; empty, unset or anything else is off."""
+    return os.environ.get(name, "").strip().lower() in ("true", "1", "yes")
+
+
 @dataclass(frozen=True)
 class Config:
     database_url: str
@@ -35,6 +40,7 @@ class Config:
     vapid_public_key: str = ""
     vapid_private_key: str = ""
     vapid_subject: str = ""
+    ai_images_enabled: bool = False
 
     @property
     def push_configured(self) -> bool:
@@ -61,4 +67,5 @@ def load_config() -> Config:
         vapid_public_key=os.environ.get("VAPID_PUBLIC_KEY", "").strip(),
         vapid_private_key=os.environ.get("VAPID_PRIVATE_KEY", "").strip(),
         vapid_subject=os.environ.get("VAPID_SUBJECT", "").strip() or f"mailto:admin@{_required('RP_ID')}",
+        ai_images_enabled=_flag("AI_IMAGES_ENABLED"),
     )

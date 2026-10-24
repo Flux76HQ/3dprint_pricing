@@ -20,7 +20,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import customers, invoice_docs, invoice_logo, invoice_template, orders, printfile
+from . import ai_images, customers, invoice_docs, invoice_logo, invoice_template, orders, printfile
 from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized
@@ -28,11 +28,12 @@ from .i18n import L, Localized
 bp = Blueprint("backup", __name__, url_prefix="/api/backup")
 
 FORMAT = "printpricing-backup"
-FORMAT_VERSION = 2          # 2: orders, the invoice template and calculation numbers; a file of version 1 still restores
+FORMAT_VERSION = 3          # 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
+                            # numbers. A file of an older version still restores
 MAX_ROWS = 20_000
 # (key in the file, key in api.RESOURCES) -- the order is the order of insertion
 SECTIONS = (("printers", "printers"), ("tariffs", "tariffs"), ("packaging", "packaging"), ("spools", "spools"))
-PROJECT_COLUMNS = ("id", "number", "name", "notes", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
+PROJECT_COLUMNS = ("id", "number", "name", "notes", "object_description", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
                    "file_id", "stock_booked_at", "created_at", "updated_at")
 
 
@@ -74,6 +75,14 @@ def export():
             template = invoice_template.load(conn)
         except ApiError:                                             # the file went missing: the rest of the backup is still worth having
             template = None
+        doc["project_images"] = [
+            {"project_id": str(r["project_id"]), "kind": r["kind"], "variant": r["variant"], "is_cover": r["is_cover"],
+             "created_at": r["created_at"].isoformat(), "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
+            for r in conn.execute("SELECT project_id, kind, variant, is_cover, created_at, content FROM project_images "
+                                  "ORDER BY created_at, id").fetchall()]
+        ai = conn.execute("SELECT model, quality FROM ai_image_settings").fetchone()      # never the API key
+        if ai:
+            doc["ai_image_settings"] = {"model": ai["model"], "quality": ai["quality"]}
         logo = invoice_logo.load(conn)
         if logo:
             doc["invoice_logo"] = {"filename": logo["filename"], "kind": logo["kind"], "content_b64": base64.b64encode(logo["content"]).decode("ascii")}
@@ -202,6 +211,8 @@ def _parse(doc) -> dict:
             raise _row_error("projects", n, exc) from None
     _number_projects(projects, doc)
     plan["projects"] = projects
+    plan["project_images"] = _parse_project_images(doc.get("project_images"), {p["id"] for p in projects})
+    plan["ai_settings"] = _parse_ai_settings(doc.get("ai_image_settings"))
     plan["orders"] = _parse_orders(doc)
     plan["customers"] = _parse_customers(doc, plan["orders"])
     plan["invoice_pdfs"] = _parse_invoice_pdfs(doc.get("invoice_pdfs"), plan["orders"])
@@ -322,6 +333,49 @@ def _parse_invoice_pdfs(entries, parsed_orders: list) -> list:
     return out
 
 
+def _parse_project_images(entries, project_ids: set) -> list:
+    if entries in (None, []):
+        return []
+    if not isinstance(entries, list) or len(entries) > MAX_ROWS:
+        raise _row_error("project_images", 1, Localized("backup.bad_section", section=L("backup.s.project_images")))
+    items, covers, sources = [], set(), set()
+    for n, entry in enumerate(entries, 1):
+        try:
+            if not isinstance(entry, dict) or entry.get("kind") not in ("source", "generated"):
+                raise Localized("backup.bad_row_type")
+            project_id = _uuid(entry.get("project_id"), "project_images")
+            if project_id not in project_ids:
+                raise Localized("backup.bad_row_type")
+            variant = entry.get("variant")
+            if entry["kind"] == "generated" and variant not in ai_images.VARIANTS:
+                raise Localized("backup.bad_row_type")
+            try:
+                content = base64.b64decode(str(entry.get("content_b64", "")), validate=True)
+            except (binascii.Error, ValueError):
+                raise Localized("backup.bad_file") from None
+            content, width, height = ai_images._clean(content)                      # read again, never taken on trust from the file
+            is_cover = entry.get("is_cover") is True and project_id not in covers
+            if entry["kind"] == "source":
+                if project_id in sources:
+                    raise Localized("backup.bad_row_type")
+                sources.add(project_id)
+            if is_cover:
+                covers.add(project_id)
+            items.append({"project_id": project_id, "kind": entry["kind"], "variant": variant if entry["kind"] == "generated" else None,
+                          "is_cover": is_cover, "created_at": _when(entry.get("created_at")), "content": content, "width": width, "height": height})
+        except (ApiError, Localized) as exc:
+            raise _row_error("project_images", n, exc) from None
+    return items
+
+
+def _parse_ai_settings(entry):
+    if entry in (None, {}):
+        return None
+    if not isinstance(entry, dict) or entry.get("quality") not in ai_images.QUALITIES or not ai_images.MODEL.match(str(entry.get("model", ""))):
+        raise _row_error("ai_image_settings", 1, Localized("backup.bad_row_type"))
+    return {"model": entry["model"], "quality": entry["quality"]}
+
+
 def _parse_logo(entry):
     if entry in (None, {}):
         return None
@@ -395,7 +449,8 @@ def _summary(plan: dict) -> dict:
     return {"printers": len(plan["sections"]["printers"][1]), "tariffs": len(plan["sections"]["tariffs"][1]),
             "packaging": len(plan["sections"]["packaging"][1]), "spools": len(plan["sections"]["spools"][1]),
             "projects": len(plan["projects"]), "files": len(plan["files"]), "preferences": len(plan["preferences"]),
-            "orders": len(plan["orders"]), "customers": len(plan["customers"]), "template": 1 if plan["template"] else 0, "logo": 1 if plan["logo"] else 0}
+            "orders": len(plan["orders"]), "customers": len(plan["customers"]), "template": 1 if plan["template"] else 0, "logo": 1 if plan["logo"] else 0,
+            "images": len(plan["project_images"])}
 
 
 def _insert(conn, table: str, values: dict) -> None:
@@ -471,7 +526,8 @@ def restore():
             for item in plan["projects"]:
                 f = item["fields"]
                 file_id = f["file_id"] if f["file_id"] in existing_files else None     # a file that is not here is let go
-                values = {"id": item["id"], "number": item["number"], "name": f["name"], "notes": f["notes"], "margin_pct": f["margin_pct"],
+                values = {"id": item["id"], "number": item["number"], "name": f["name"], "notes": f["notes"], "object_description": f["object_description"],
+                          "margin_pct": f["margin_pct"],
                           "vat_pct": f["vat_pct"], "price_rounding": f["price_rounding"], "data": json.dumps(f["data"]),
                           "totals": json.dumps(f["totals"]), "source_url": f["source_url"], "file_id": file_id,
                           "stock_booked_at": item["stock_booked_at"]}
@@ -479,6 +535,16 @@ def restore():
                     values["created_at"] = item["created_at"]
                     values["updated_at"] = item["updated_at"] or item["created_at"]
                 _insert(conn, "projects", values)
+            for img in plan["project_images"]:
+                conn.execute("INSERT INTO project_images (project_id, kind, variant, mime, content, width_px, height_px, is_cover"
+                             + (", created_at" if img["created_at"] else "") + ") VALUES (%s, %s, %s, 'image/jpeg', %s, %s, %s, %s"
+                             + (", %s" if img["created_at"] else "") + ")",
+                             (img["project_id"], img["kind"], img["variant"], img["content"], img["width"], img["height"], img["is_cover"],
+                              *([img["created_at"]] if img["created_at"] else [])))
+            if plan["ai_settings"]:                                 # model and quality only; the API key stays where it is
+                conn.execute("INSERT INTO ai_image_settings (id, model, quality) VALUES (true, %s, %s) "
+                             "ON CONFLICT (id) DO UPDATE SET model = EXCLUDED.model, quality = EXCLUDED.quality, updated_at = now()",
+                             (plan["ai_settings"]["model"], plan["ai_settings"]["quality"]))
             conn.execute(f"ALTER SEQUENCE project_number_seq RESTART WITH {max((p['number'] for p in plan['projects']), default=0) + 1}")
             for c in plan["customers"]:
                 _insert(conn, "customers", {"id": c["id"], **c["values"], **({"created_at": c["created_at"]} if c["created_at"] else {}),

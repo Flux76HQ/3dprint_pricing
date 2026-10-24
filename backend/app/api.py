@@ -459,7 +459,8 @@ def _project_row(row):
 @bp.get("/projects")
 def list_projects():
     with pool().connection() as conn:
-        rows = conn.execute("SELECT id, number, name, margin_pct, vat_pct, price_rounding, totals, stock_booked_at, updated_at "
+        rows = conn.execute("SELECT id, number, name, margin_pct, vat_pct, price_rounding, totals, stock_booked_at, updated_at, "
+                            "(SELECT i.id FROM project_images i WHERE i.project_id = projects.id AND i.is_cover) AS cover_image_id "
                             "FROM projects ORDER BY updated_at DESC").fetchall()
     return jsonify([_project_row(r) for r in rows])
 
@@ -491,13 +492,14 @@ def _project_fields(body):
             if conn.execute("SELECT 1 FROM print_files WHERE id = %s", (file_id,)).fetchone() is None:
                 raise ApiError(400, "err.file_gone")
     notes = text("f.notes", required=False, max_len=2000)(body.get("notes"))
+    object_description = text("f.object_description", required=False, max_len=500)(body.get("object_description"))
     margin = number("f.margin", maximum=1000)(body.get("margin_pct", 0))
     vat = number("f.vat", maximum=100)(body.get("vat_pct", 0))
     rounding = body.get("price_rounding", "none")
     if rounding not in ROUNDINGS:
         raise ApiError(400, "err.rounding")
     data, totals = _calc({"data": body.get("data"), "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding})
-    return {"name": name, "notes": notes, "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding, "data": data,
+    return {"name": name, "notes": notes, "object_description": object_description, "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding, "data": data,
             "totals": totals, "source_url": source_url, "file_id": file_id}
 
 
@@ -506,9 +508,9 @@ def create_project():
     f = _project_fields(json_body())
     with pool().connection() as conn:
         row = conn.execute(
-            "INSERT INTO projects (name, notes, margin_pct, vat_pct, price_rounding, data, totals, source_url, "
-            "file_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-            (f["name"], f["notes"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
+            "INSERT INTO projects (name, notes, object_description, margin_pct, vat_pct, price_rounding, data, totals, source_url, "
+            "file_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
              json.dumps(f["totals"]), f["source_url"], f["file_id"])).fetchone()
     return jsonify(_project_row(row)), 201
 
@@ -518,9 +520,9 @@ def update_project(project_id):
     f = _project_fields(json_body())
     with pool().connection() as conn:
         row = conn.execute(
-            "UPDATE projects SET name=%s, notes=%s, margin_pct=%s, vat_pct=%s, price_rounding=%s, data=%s, "
+            "UPDATE projects SET name=%s, notes=%s, object_description=%s, margin_pct=%s, vat_pct=%s, price_rounding=%s, data=%s, "
             "totals=%s, source_url=%s, file_id=%s, updated_at=now() WHERE id=%s RETURNING *",
-            (f["name"], f["notes"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
+            (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
              json.dumps(f["totals"]), f["source_url"], f["file_id"], project_id)).fetchone()
     if row is None:
         raise ApiError(404, "err.calc_not_found")

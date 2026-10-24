@@ -218,7 +218,8 @@ def status():
             user = {"id": str(row["id"]), "display_name": row["display_name"]} if row else None
         password_login = conn.execute("SELECT EXISTS (SELECT 1 FROM password_credentials WHERE enabled) AS e").fetchone()["e"]
     return jsonify({"onboarded": onboarded, "authenticated": user is not None, "user": user,
-                    "rp_id": config().rp_id, "password_login": password_login})
+                    "rp_id": config().rp_id, "password_login": password_login,
+                    "ai_images": config().ai_images_enabled})
 
 
 @bp.post("/onboarding/options")
