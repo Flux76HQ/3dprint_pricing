@@ -437,6 +437,8 @@ select.status { width: auto; min-height: 44px; }
   .line.order.calc { grid-template-columns: 4.5rem 5.5rem minmax(6rem, 1fr) 5rem 6rem auto; }
   .line.order.calc > :first-child { grid-column: 1 / -1; }
 }
+.input-row { display: flex; gap: 8px; align-items: center; }
+.input-row input { flex: 1; min-width: 0; }
 .line.order > .hint { grid-column: 1 / -1; margin: 0; }
 .picker { display: grid; gap: 8px; max-height: 50vh; overflow-y: auto; margin: 12px 0; }
 .picker-item { width: 100%; justify-content: flex-start; text-align: left; gap: 10px; }

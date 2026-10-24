@@ -185,8 +185,13 @@ function buildEditor(order, navigate, ctx) {
       if (calculated) { lineUnits[i] = unit; marginHints[i] = hint; }
       const optional = h('label', { class: 'check' },
         h('input', { type: 'checkbox', checked: !!l.optional, onchange: (e) => { l.optional = e.target.checked; touch(); } }), t('orders.optional'));
+      // the model's own line (not one of its accessories) can be brought up to date with the calculation it was made from
+      const sync = l.project_id && !l.optional
+        ? h('button', { class: 'btn small icon-only sync-line', type: 'button', title: t('orders.sync'), 'aria-label': t('orders.sync_line', { name: l.description || `#${l.project_number}` }),
+          onclick: (e) => syncLine(l, e.currentTarget) }, icon('sync'))
+        : null;
       return h('div', { class: `line order${calculated ? ' calc' : ''}` },
-        h('div', { class: 'field' }, h('label', { for: inputId }, t('orders.description'), ' ', badge), input, optional),
+        h('div', { class: 'field' }, h('label', { for: inputId }, t('orders.description'), ' ', badge), sync ? h('div', { class: 'input-row' }, input, sync) : input, optional),
         field(t('orders.quantity'), numberInput(l.quantity, (v) => { l.quantity = v; touch(); }, { inputmode: 'numeric' })),
         calculated ? field(t('orders.margin'), numberInput(l.margin_pct, (v) => { l.margin_pct = v; touch(); }, { class: 'private' })) : null,
         calculated ? h('div', { class: 'field cost-field' }, h('span', { class: 'lbl' }, t('orders.unit_price_calc')), unit)
@@ -215,6 +220,56 @@ function buildEditor(order, navigate, ctx) {
         description: whole ? x.label : `${x.label} (${fmt(qty)} ${UNIT_SHORT[x.unit] || x.unit})`,
         cost_price: String(whole ? price : x.cost), margin_pct: '0', vat_pct: str(Number(p.vat_pct)) };
     })];
+  }
+
+  // The model's line keeps the cost price its calculation had when it was added; this fetches the calculation as it is now and takes its cost
+  // price again (the margin, VAT and quantity of the line are the order's own and stay). A line from before the cost price was kept gets
+  // the calculation's cost price and margin, so the server can price it from then on. Saving the order stores it.
+  async function syncLine(l, button) {
+    button.disabled = true;
+    try {
+      const fresh = modelLines(await api('GET', `/api/projects/${l.project_id}`))[0];
+      if (l.cost_price != null && Number(l.cost_price) === Number(fresh.cost_price)) { toast(t('orders.sync_current')); return; }
+      l.cost_price = fresh.cost_price;
+      if (!String(l.margin_pct ?? '').trim()) l.margin_pct = fresh.margin_pct;
+      touch(); drawLines();
+      toast(t('orders.sync_done', { cost: eur(fresh.cost_price) }));
+    } catch (e) { toast(e.message, 'error'); } finally { button.disabled = false; }
+  }
+
+  // Loose accessories from the accessory list (cables, chargers), without a calculation: an optional line at cost price, which the
+  // invoice lists apart from the products. Choosing the same one again adds one more of it.
+  async function pickAccessory() {
+    let items;
+    try { items = (await api('GET', '/api/accessories')).filter((a) => !a.archived); } catch (e) { toast(e.message, 'error'); return; }
+    const results = h('ul', { class: 'plain-list picker', 'aria-live': 'polite' });
+    const added = new Map();
+    const search = h('input', { type: 'text', autocomplete: 'off', placeholder: t('orders.search_accessories_ph'), 'aria-label': t('orders.search_accessories') });
+    const per = (a) => (a.unit === 'stuks' ? '' : ` / ${a.unit === 'g' ? 'kg' : a.unit}`);
+    const describe = (a) => (a.unit === 'stuks' ? a.name : t('orders.accessory_per', { name: a.name, unit: a.unit === 'g' ? 'kg' : a.unit }));
+    const draw = () => {
+      const q = search.value.trim().toLowerCase();
+      const found = items.filter((a) => !q || a.name.toLowerCase().includes(q));
+      results.replaceChildren(...(found.length ? found.map((a) => h('li', {}, h('button', { class: 'btn picker-item', type: 'button', onclick: () => {
+        const existing = state.lines.find((l) => !l.project_id && l.optional && l.description === describe(a) && Number(l.cost_price) === Number(a.price));
+        if (existing) existing.quantity = String(Math.floor(parseNum(existing.quantity)) + 1);
+        else state.lines.push({ project_id: null, project_number: null, optional: true, description: describe(a), quantity: '1', unit_price: '', cost_price: str(Number(a.price)),
+          margin_pct: '0', vat_pct: defaultVat });
+        added.set(a.id, (added.get(a.id) || 0) + 1);
+        touch(); drawLines(); draw();
+      } }, h('span', { class: 'grow' }, a.name), added.has(a.id) ? h('span', { class: 'muted' }, `+${added.get(a.id)}`) : null,
+      h('strong', {}, `${eur(a.price)}${per(a)}`)))) : [h('li', { class: 'muted' }, items.length ? t('orders.no_accessories_match') : t('orders.no_accessories'))]));
+    };
+    search.addEventListener('input', draw);
+    const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
+      h('h2', {}, t('orders.add_accessory')), h('p', { class: 'muted' }, t('orders.add_accessory_hint')),
+      field(t('orders.search_accessories'), search), results,
+      h('div', { class: 'row end' }, h('button', { class: 'btn primary', type: 'button', onclick: () => dialog.requestClose() }, t('orders.done')))));
+    dialog.addEventListener('close', () => dialog.remove());
+    document.body.append(dialog);
+    draw();
+    dialog.showModal();
+    search.focus();
   }
 
   // The calculations to choose from: find one by its number or part of its name; picking adds a line (again: one more of it).
@@ -410,6 +465,7 @@ function buildEditor(order, navigate, ctx) {
           h('datalist', { id: 'order-vat-presets' }, ['0', '9', '21'].map((v) => h('option', { value: v }))),
           h('div', { class: 'row' },
             h('button', { class: 'btn primary small', type: 'button', id: 'add-model', onclick: pickModel }, icon('plus'), h('span', {}, t('orders.add_model'))),
+            h('button', { class: 'btn small', type: 'button', id: 'add-accessory', onclick: pickAccessory }, icon('plus'), h('span', {}, t('orders.add_accessory'))),
             h('button', { class: 'btn small', type: 'button', onclick: () => {
               state.lines.push({ project_id: null, project_number: null, optional: false, description: '', quantity: '1', unit_price: '', cost_price: null, margin_pct: '', vat_pct: defaultVat });
               touch(); drawLines();
