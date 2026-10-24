@@ -156,6 +156,8 @@ python scripts/setup_hooks.py
 cd backend && PYTHONPATH=. python -m pytest -q
 ```
 
+De screenshots hierboven komen uit een demo-instance: na een wijziging die een scherm anders laat uitzien draai je `pip install playwright && python scripts/generate_screenshots.py` en commit je de bijgewerkte afbeeldingen in `docs/assets/`.
+
 ## Privacy & beveiliging
 
 - Alles staat op je eigen server: geen account bij ons, geen analytics en geen tracking.
