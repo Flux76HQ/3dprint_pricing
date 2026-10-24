@@ -7,13 +7,23 @@ from pathlib import Path
 import pytest
 import requests
 
-from tests.bambu_invoices import FILAMENT, invoice_pdf
+from app import bambu_store
+from tests.bambu_invoices import FILAMENT, Reply as ShopReply, Shop, invoice_pdf
 from tests.test_auth_api import H
 from tests.test_domain_api import make, owner  # noqa: F401  (fixture)
 
 NL = {"X-Lang": "nl"}
 GREY = {"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Grijs", "filament_id": "10103",
         "sku": "A00-D0-1.75-1000-SPLFREE", "refill": True, "roll_weight_g": 1000, "diameter_mm": "1.75", "price": "19.32"}
+
+
+@pytest.fixture(autouse=True)
+def shop(monkeypatch):
+    """The Bambu Lab web shop is never reached from a test: this is a stand-in with the variants of the synthetic invoice."""
+    bambu_store._cache.clear()
+    fake = Shop()
+    monkeypatch.setattr(requests, "get", fake.get)
+    return fake
 
 
 def library(owner):
@@ -122,13 +132,13 @@ def test_an_invoice_is_read_and_checked_against_the_library_without_writing_anyt
     assert res.status_code == 200
     invoice = res.get_json()
     assert [bool(line["library_id"]) for line in invoice["lines"]] == [True, False, False]       # the grey one is known by its SKU
-    assert invoice["order_number"] == "EN000000000000000001" and invoice["rolls_on_shelf"] == 0 and "warning" not in invoice
+    assert invoice["order_number"] == "EN000000000000000001" and invoice["rolls_on_shelf"] == 0 and invoice["warnings"] == []
     assert len(library(owner)) == 1 and owner.get("/api/spools").get_json() == []
 
 
 def test_an_invoice_whose_lines_do_not_add_up_carries_a_warning(owner):
     invoice = upload(owner, invoice_pdf(total="99.00")).get_json()
-    assert "99.00" in invoice["warning"]
+    assert len(invoice["warnings"]) == 1 and "99.00" in invoice["warnings"][0]
 
 
 @pytest.mark.parametrize("content, fragment", [(b"nope", "geen PDF"), (invoice_pdf(bambu=False), "geen Bambu Lab-factuur")])
@@ -172,7 +182,7 @@ def test_rolls_can_be_added_without_adding_the_filament_to_the_library(owner):
 
 def test_a_roll_from_an_invoice_takes_over_the_notification_of_its_kind(owner):
     owner.post("/api/spools", json={"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Rood", "roll_weight_g": 1000,
-                                    "price": 1, "remaining_g": 100, "notify_low": True}, headers=H)
+                                    "price": 1, "remaining_g": 100, "notify_low": True, "barcode": "43000000000004"}, headers=H)   # one kind: same barcode
     red = lines_of(owner)[1]
     red["rolls"] = 1
     owner.post("/api/filament-library/invoice/apply", json={"lines": [red]}, headers=H)
@@ -271,3 +281,45 @@ def test_the_shared_library_file_in_the_repository_is_a_valid_library_without_pr
     assert all("price" not in row for row in doc["filaments"])               # prices differ per shop and per day
     res = owner.post("/api/filament-library/import", json=doc, headers=H).get_json()
     assert res["added"] == len(doc["filaments"]) > 0 and res["updated"] == 0
+
+
+# --- the web shop's ID as barcode ----------------------------------------------------------------------------------
+
+def test_the_preview_carries_the_shops_id_of_each_line_as_its_barcode(owner, shop):
+    lines = upload(owner, invoice_pdf()).get_json()["lines"]
+    assert [line["barcode"] for line in lines] == ["43000000000001", "43000000000004", "43992833229019"]    # refill, with spool, matte refill
+    assert {url.split("/")[2] for url, _ in shop.calls} == {"eu.store.bambulab.com"}
+
+
+def test_applying_stores_the_barcode_on_the_filament_and_on_its_rolls(owner):
+    lines = lines_of(owner)
+    for line in lines:
+        line["rolls"] = 1
+    owner.post("/api/filament-library/invoice/apply", json={"order_number": "EN1", "lines": lines}, headers=H)
+    assert {e["colour"]: e["barcode"] for e in library(owner)} == {"Grijs": "43000000000001", "Rood": "43000000000004", "Pruim": "43992833229019"}
+    assert {r["colour"]: r["barcode"] for r in owner.get("/api/spools").get_json()} == {"Grijs": "43000000000001", "Rood": "43000000000004", "Pruim": "43992833229019"}
+    found = owner.get("/api/spools/lookup?barcode=43992833229019").get_json()["spool"]        # a roll with that number is known at once
+    assert found["colour"] == "Pruim"
+
+
+def test_a_known_filament_without_a_barcode_gets_one_but_one_that_has_one_keeps_it(owner):
+    make(owner, "/api/filament-library", GREY)
+    make(owner, "/api/filament-library", {**GREY, "sku": "A00-R0-1.75-1000-SPL", "colour": "Rood", "refill": False, "filament_id": "10200", "barcode": "mine"})
+    lines = lines_of(owner)
+    owner.post("/api/filament-library/invoice/apply", json={"lines": lines}, headers=H)
+    assert {e["colour"]: e["barcode"] for e in library(owner)}["Grijs"] == "43000000000001"
+    assert {e["colour"]: e["barcode"] for e in library(owner)}["Rood"] == "mine"
+
+
+def test_without_the_shop_the_import_still_works_and_says_so(owner, monkeypatch):
+    monkeypatch.setattr(requests, "get", lambda *a, **k: (_ for _ in ()).throw(requests.ConnectionError("down")))
+    invoice = upload(owner, invoice_pdf()).get_json()
+    assert [line["barcode"] for line in invoice["lines"]] == ["", "", ""] and "Bambu Lab" in invoice["warnings"][0]
+    lines = invoice["lines"]
+    assert owner.post("/api/filament-library/invoice/apply", json={"lines": lines}, headers=H).get_json()["added"] == 3
+
+
+def test_a_line_the_shop_does_not_know_is_counted_in_a_warning(owner, shop):
+    shop.pages.pop("https://eu.store.bambulab.com/nl/products/pla-matte")
+    invoice = upload(owner, invoice_pdf()).get_json()
+    assert invoice["lines"][2]["barcode"] == "" and "1 regel" in invoice["warnings"][0]

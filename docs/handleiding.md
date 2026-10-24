@@ -420,8 +420,15 @@ Drie manieren om de bibliotheek te vullen zonder te typen:
   haakjes achter de kleur), de SKU, het gewicht en de diameter (uit de SKU), of het een bijvulling is (SKU eindigt op `FREE`) en de prijzen. Op de factuur
   staat de prijs **incl. btw** en de korting per regel; de app rekent om naar excl. btw: de *richtprijs* (de lijstprijs) en wat je werkelijk **betaalde** per rol. Per regel kies
   je of het filament in de bibliotheek komt en **hoeveel rollen in de voorraad** komen, tegen de betaalde prijs; die rollen krijgen de factuur in hun notitie. Een filament dat al in de
-  bibliotheek staat (zelfde SKU) houdt zijn eigen gegevens en krijgt alleen de nieuwe richtprijs. Staan er van de factuur al rollen in de voorraad, dan staat het aantal
+  bibliotheek staat (zelfde SKU) houdt zijn eigen gegevens en krijgt alleen de nieuwe richtprijs (en een barcode, als het er nog geen had). Staan er van de factuur al rollen in de voorraad, dan staat het aantal
   op 0 en zegt de app dat. Regels die geen filament zijn worden overgeslagen en genoemd; kloppen de regels niet met het factuurtotaal, dan staat er een waarschuwing. Andere webshops dan Bambu Lab worden niet herkend.
+
+  **Barcode uit de webshop.** Bij het inlezen zoekt de server elk filament op in de Bambu Lab-webshop en neemt het **ID uit de productaddress** over als *barcode*
+  (`…/nl/products/pla-matte?id=43992833229019`: `43992833229019`). Dat is het nummer van één kleur, als bijvulling of met spoel, in één gewicht. De pagina’s van de webshop vermelden
+  hun varianten als JSON-LD; een regel van de factuur wordt gevonden op zijn filament-ID tussen haakjes, bijvulling of spoel, en gewicht. Het zijn de ID’s van de **EU-webshop**
+  (`eu.store.bambulab.com`): stuurt de webshop de server door naar de winkel van een andere regio (waar de ID’s anders zijn) of is hij niet bereikbaar, dan wordt er niets opgeslagen en staat er een
+  waarschuwing; de import werkt dan gewoon door zonder barcodes. Er wordt alleen die ene host benaderd, nooit een adres uit een verzoek. De barcode komt in de bibliotheek en op de nieuwe rollen. Let op:
+  rollen met een barcode vormen in de voorraad één soort per barcode; een rol die je eerder zonder barcode invoerde, is dus een andere soort dan een rol uit de factuur.
 - **Exporteren en importeren (JSON).** *Exporteren (JSON)* downloadt de bibliotheek (`printpricing-filaments-JJJJ-MM-DD.json`, zonder id’s, met getallen als getallen,
   dus ook met de hand te bewerken). *Importeren (JSON)* leest zo’n bestand, controleert het helemaal met dezelfde regels als handmatig invoeren (één fout regel stopt alles en
   noemt het regelnummer) en laat eerst zien hoeveel nieuw, bijgewerkt en ongewijzigd is. Een filament wordt herkend aan zijn SKU, anders zijn barcode, anders zijn filament-ID, anders

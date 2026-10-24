@@ -12,7 +12,7 @@ from decimal import Decimal
 import requests
 from flask import Blueprint, Response, jsonify, request
 
-from . import bambu_invoice
+from . import bambu_invoice, bambu_store
 from .api import RESOURCES, _share_notify, _validated, number, optional_int, stock_changed
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import Localized, tr
@@ -211,12 +211,20 @@ def read_invoice():
         if invoice["order_number"]:
             rolls = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE position(%s in notes) > 0",
                                  (invoice["order_number"],)).fetchone()["n"]
-    for line in invoice["lines"]:
+    store = bambu_store.lookup(invoice["lines"])                    # the Bambu Lab web shop's ID of each line: what the owner uses as barcode
+    warnings = []
+    for n, line in enumerate(invoice["lines"]):
         match = known.get(identity(line))
         line["library_id"] = str(match["id"]) if match else None
+        line["barcode"] = store["ids"].get(n, "")
     invoice["rolls_on_shelf"] = rolls                    # rolls already made from this very invoice: importing it twice doubles the shelf
     if invoice["total"] is not None and invoice["total"] != invoice["lines_total"]:
-        invoice["warning"] = tr("bambu.warn_total", lines=invoice["lines_total"], invoice=invoice["total"])
+        warnings.append(tr("bambu.warn_total", lines=invoice["lines_total"], invoice=invoice["total"]))
+    if not store["reachable"]:
+        warnings.append(tr("bambu.warn_store"))
+    elif invoice["lines"] and len(store["ids"]) < len(invoice["lines"]):
+        warnings.append(tr("bambu.warn_store_missing", n=len(invoice["lines"]) - len(store["ids"])))
+    invoice["warnings"] = warnings
     return jsonify(invoice)
 
 

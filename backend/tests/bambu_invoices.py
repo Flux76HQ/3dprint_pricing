@@ -43,3 +43,50 @@ def invoice_pdf(items=None, *, total=None, bambu=True, encrypt=None) -> bytes:
     items = FILAMENT if items is None else items
     total = total or f"{sum(float(i[8]) for i in items):.2f}"
     return pdf_of(lines_of(items, total, bambu=bambu), encrypt=encrypt)
+
+
+# --- the web shop ------------------------------------------------------------------------------------------------
+
+# store ID (the `id=` of the product address) of each variant of the synthetic invoice, per product page
+STORE_PAGES = {
+    "pla-basic-filament": [("43000000000001", "PLA Basic - Gray (10103) / Refill / 1kg"), ("43000000000002", "PLA Basic - Gray (10103) / Filament with spool / 1kg"),
+                           ("43000000000003", "PLA Basic - Red (10200) / Refill / 1kg"), ("43000000000004", "PLA Basic - Red (10200) / Filament with spool / 1kg")],
+    "pla-matte": [("43992833229019", "PLA Matte - Plum (11204) / Refill / 1kg"), ("43992833229020", "PLA Matte - Plum (11204) / Filament with spool / 1kg")],
+}
+
+
+def store_page(variants) -> bytes:
+    """A product page as the shop serves it: the variants as JSON-LD in `<script id="product-jsonld">`, among much else."""
+    import json
+    group = {"@context": "https://schema.org/", "@type": "ProductGroup", "name": "x",
+             "hasVariant": [{"@type": "Product", "sku": sku, "name": name} for sku, name in variants]}
+    return f'<html><body><div>shop</div><script id="product-jsonld" type="application/ld+json">{json.dumps(group)}</script></body></html>'.encode()
+
+
+class Reply:
+    """What `requests.get(...)` gives, as a context manager."""
+
+    def __init__(self, body=b"", status=200, headers=None):
+        self.body, self.status_code, self.headers = body, status, headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def iter_content(self, size):
+        yield self.body
+
+
+class Shop:
+    """A stand-in for the Bambu Lab web shop (and nothing else): `pages` maps an address to a Reply, every other address is a 404.
+    The calls are remembered, so a test can see which hosts were contacted."""
+
+    def __init__(self, pages=None):
+        self.pages = {f"https://eu.store.bambulab.com/nl/products/{slug}": Reply(store_page(v)) for slug, v in (pages or STORE_PAGES).items()}
+        self.calls = []
+
+    def get(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return self.pages.get(url, Reply(status=404))
