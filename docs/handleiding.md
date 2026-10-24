@@ -13,7 +13,7 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
   te downloaden. Uit een **gesliced 3MF** (Bambu Studio / Orca, “Export plate sliced file”) leest de app de
   echte **gram per filament** en **printtijd**. Die worden standaard **automatisch** verwerkt in de berekening (uit te
   zetten): filamentregels met de prijs van de passende rol, printtijd naar boven op hele uren, en een printerregel
-  met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik. Uit een **STL** (of een 3MF zonder
+  met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik. Bevat het bestand meerdere platen, dan kies je in het menu *Plaat* één plaat of *Alle platen*: dan worden uren en gram van alle platen bij elkaar opgeteld (hetzelfde filament telt als één regel). Uit een **STL** (of een 3MF zonder
   slicer-data) leest de app het volume en **schat** het gewicht (volume × dichtheid × effectieve vulling);
   de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast kun je een **link** naar het model
   bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
