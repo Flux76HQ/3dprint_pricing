@@ -596,6 +596,7 @@
  "passkey.already_here": "This passkey is already on this device.",
  "passkey.cancelled": "The passkey prompt was cancelled or expired.",
  "passkey.default_name": "Passkey",
+ "passkey.extension_hint": "Do you use a password manager such as Enpass or Bitwarden? Turn off its passkey feature for this site for now (or open the app in a private window) and try again.",
  "passkey.failed": "Passkey failed: {message}",
  "passkey.https_only": "Passkeys only work over https (or http://localhost). Open the app through your https address.",
  "passkey.last_used": "last used {date}",
