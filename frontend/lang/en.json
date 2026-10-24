@@ -679,5 +679,7 @@
  "appearance.glass": "Glass effect",
  "appearance.glass_hint": "0 is opaque, higher is more see-through and blurred.",
  "appearance.glass_value": "{n}%",
- "appearance.nav_style": "Style"
+ "appearance.nav_style": "Style",
+ "appearance.nav_auto": "Automatic",
+ "appearance.nav_auto_hint": "Follows the device: an Android device gets the Android bar, everything else the iOS-like one. Now: {style}."
 }
