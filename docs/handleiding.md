@@ -96,6 +96,7 @@ verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.
 | `SESSION_HOURS` | Levensduur van een sessie (standaard 24) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Sleutelpaar voor push-meldingen (`python scripts/generate_vapid.py`); leeg = meldingen uit. De private sleutel is geheim; een ander paar maakt bestaande aanmeldingen onbruikbaar |
 | `VAPID_SUBJECT` | Contactadres voor de pushdiensten (`mailto:…` of https-url); leeg = `mailto:admin@<RP_ID>` |
+| `AI_IMAGES_ENABLED` | `TRUE` toont de optionele functie *AI-afbeeldingen* (zie [AI-afbeeldingen](#ai-afbeeldingen-optioneel)); alles anders, of leeg, laat haar uit. Standaard `FALSE` |
 | `PROXY_HOPS` | Aantal reverse proxies ervoor (vertrouwt `X-Forwarded-*`) |
 | `WEB_CONCURRENCY` | Aantal Gunicorn-workers (standaard 2) |
 | `APP_IMAGE` | Te draaien image (standaard `ghcr.io/flux76hq/3dprint_pricing:latest`) |
@@ -221,7 +222,7 @@ docker compose exec -T db psql -U "$POSTGRES_USER" "$POSTGRES_DB" < backup-2026-
 `pg_dump` bevat **niet** de geüploade STL/3MF-bestanden: die staan in `DATA_PATH/app/uploads`. Back die map ook
 op (`tar czf uploads.tgz "$DATA_PATH/app"`), of stop de stack en kopieer heel `DATA_PATH` (dat is dan alles in één
 keer). Een berekening zonder terugkomend bestand blijft werken; alleen “Downloaden” geeft dan een melding.
-De back-up bevat je passkey-publieke sleutels en gehashte herstelcodes, geen geheimen. Bewaar `.env` apart (in je wachtwoordmanager): zonder `SESSION_SECRET` log je gewoon opnieuw
+De back-up bevat je passkey-publieke sleutels en gehashte herstelcodes, geen geheimen (ook de OpenAI-sleutel van de optionele AI-afbeeldingen niet). Bewaar `.env` apart (in je wachtwoordmanager): zonder `SESSION_SECRET` log je gewoon opnieuw
 in, maar `RP_ID` moet gelijk blijven.
 
 ### Runtime-architectuur
@@ -298,6 +299,28 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 *Uitloggen* staat onderaan de zijbalk (op een telefoon onderaan *Meer*). *Zakelijk* verbergt alleen dat onderdeel van de instellingen; het menu
 *Bestellingen* blijft gewoon zichtbaar. Een onderdeel dat niet getoond wordt (bijvoorbeeld *Zakelijk* terwijl het uit staat) valt terug op
 *Algemeen*.
+
+## AI-afbeeldingen (optioneel)
+
+Uit een foto van een print laat de app met OpenAI **GPT Image** een paar realistische productafbeeldingen maken (geen 3D-render), om bij de
+berekening te bewaren of als foto voor een webshop of marktplaats te downloaden. De functie bestaat alleen als `AI_IMAGES_ENABLED=TRUE` in
+`.env` staat (daarna `docker compose up -d`): zonder die waarde geven de routes `/api/ai-images/…` en `/api/projects/<id>/images…` een 404 en
+zie je in de app niets. De server beslist, niet de browser.
+
+1. **API-sleutel**: *Instellingen → AI-afbeeldingen*. Maak een sleutel op platform.openai.com (het account moet bij het afbeeldingsmodel kunnen
+   en tegoed hebben). De sleutel wordt versleuteld in de database bewaard (met een sleutel afgeleid van `SESSION_SECRET`) en nooit meer getoond,
+   alleen de laatste vier tekens. Wijzig je `SESSION_SECRET`, dan is de sleutel niet meer leesbaar en voer je hem opnieuw in. *Verbinding testen*
+   controleert sleutel en model. Het model (standaard `gpt-image-2`) en de kwaliteit (laag/gemiddeld/hoog; hoger kost meer) zijn instelbaar.
+2. **Omschrijving**: elke berekening heeft een veld *Omschrijving van het object* (bijvoorbeeld “plantenbak voor op een vensterbank”). Daarmee kiest het
+   model een passende achtergrond. Dit veld staat altijd in de berekening, ook als de functie uit staat, en zit in de back-up.
+3. **Maken**: open een opgeslagen berekening, kaart *Productafbeeldingen*: upload een foto van het object (JPEG, PNG of WebP, maximaal 8 MB; hij wordt
+   opnieuw opgeslagen en tot 2048 px verkleind, zonder metadata) en kies *Afbeeldingen maken*. Er worden vier varianten gemaakt, een voor een: vierkant 1:1,
+   liggend 3:2, staand 2:3 en een studiofoto met neutrale achtergrond. Elke afbeelding kost API-tegoed bij OpenAI; de app vraagt eerst bevestiging,
+   begrenst het aantal per uur en bewaart er hooguit 12 per berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met
+   berekeningen) of verwijderen.
+
+De foto en de gemaakte afbeeldingen staan in de database (tabel `project_images`) en zitten in de back-up; de API-sleutel zit er bewust niet in. De foto en
+je omschrijving gaan naar OpenAI; wat daar mee gebeurt volgt hun voorwaarden.
 
 ## Bestellingen en facturen
 

@@ -79,7 +79,7 @@ def test_the_download_is_a_json_attachment_with_every_section(owner):
     res = backup(owner)
     assert "attachment" in res.headers["Content-Disposition"] and res.headers["Content-Disposition"].endswith('.json"')
     doc = res.get_json()
-    assert doc["format"] == "printpricing-backup" and doc["format_version"] == 2 and doc["app_version"]
+    assert doc["format"] == "printpricing-backup" and doc["format_version"] == 3 and doc["app_version"]
     assert [len(doc[k]) for k in ("printers", "tariffs", "packaging", "spools", "projects")] == [1, 1, 1, 2, 1]
     assert doc["preferences"]["theme"] == "dark" and doc["includes_files"] is False and "files" not in doc
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import api, auth, backup, customers, files, invoice_logo, invoice_template, orders, password_api, push, push_api
+from . import ai_images, api, auth, backup, customers, files, invoice_logo, invoice_template, orders, password_api, push, push_api
 from .config import Config, load_config
 from .db import make_pool
 from .http import ApiError, error_response
@@ -79,6 +79,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     app.register_blueprint(invoice_logo.bp)
     app.register_blueprint(push_api.bp)
     app.register_blueprint(password_api.bp)
+    app.register_blueprint(ai_images.bp)
     app.register_error_handler(ApiError, error_response)
 
     if cfg.push_configured and not app.testing and os.environ.get("PUSH_WORKER", "on") != "off":
