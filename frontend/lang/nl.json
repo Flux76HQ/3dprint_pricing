@@ -404,7 +404,7 @@
  "notify.to": "Tot",
  "notify.ttl": "Een melding blijft maximaal {hours} uur wachten als je toestel uit staat.",
  "notify.unsupported": "Deze browser ondersteunt geen meldingen.",
- "orders.accessory_per": "{name} (per {unit})",
+ "orders.accessory_per": "{name} (prijs per {unit})",
  "orders.add_accessory": "Accessoire toevoegen",
  "orders.add_accessory_hint": "Kies een accessoire uit je lijst (kabel, lader...). Het komt als optionele regel tegen inkoopprijs op de bestelling. Kies je er een nogmaals, dan gaat het aantal omhoog.",
  "orders.add_free_line": "Eigen regel toevoegen",

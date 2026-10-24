@@ -404,7 +404,7 @@
  "notify.to": "To",
  "notify.ttl": "A notification waits at most {hours} hours if your device is off.",
  "notify.unsupported": "This browser does not support notifications.",
- "orders.accessory_per": "{name} (per {unit})",
+ "orders.accessory_per": "{name} (price per {unit})",
  "orders.add_accessory": "Add accessory",
  "orders.add_accessory_hint": "Choose an accessory from your list (cable, charger...). It is added to the order as an optional line at cost price. Choose one again and the quantity goes up.",
  "orders.add_free_line": "Add a line of your own",
