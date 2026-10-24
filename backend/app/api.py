@@ -216,10 +216,14 @@ def _register(path, table, fields, order):
         return jsonify([_serialise(r) for r in rows])
 
     def create():
-        values = _validated(fields, json_body(), partial=False)
+        body = json_body()
+        values = _validated(fields, body, partial=False)
         cols = ", ".join(values)
         marks = ", ".join(["%s"] * len(values))
         with pool().connection() as conn:
+            if table == "filament_library":
+                from . import filament_library                  # imported here: that module imports this one
+                filament_library.before_create(conn, values)     # refuses a filament that is already in the library
             if values.get("is_default"):
                 conn.execute(f"UPDATE {table} SET is_default = false")
             elif table == "energy_tariffs" and not conn.execute("SELECT 1 FROM energy_tariffs").fetchone():
@@ -229,6 +233,9 @@ def _register(path, table, fields, order):
                                tuple(values.values())).fetchone()
             if table == "filament_spools":
                 row = _share_notify(conn, row, explicit="notify_low" in values, creating=True)
+                if body.get("add_to_library") is True:          # a roll typed in by hand may also be put in the library, if it is not there yet
+                    from . import filament_library              # imported here: that module imports this one
+                    filament_library.add_roll(conn, row)
         if table == "filament_spools":
             stock_changed()
         return jsonify(_serialise(row)), 201
@@ -239,6 +246,9 @@ def _register(path, table, fields, order):
             raise ApiError(400, "err.nothing_to_change")
         sets = ", ".join(f"{k} = %s" for k in values)
         with pool().connection() as conn:
+            if table == "filament_library":
+                from . import filament_library
+                filament_library.before_update(conn, item_id, values)
             if values.get("is_default"):
                 conn.execute(f"UPDATE {table} SET is_default = false")
             row = conn.execute(f"UPDATE {table} SET {sets} WHERE id = %s RETURNING *",

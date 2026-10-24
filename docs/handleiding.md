@@ -417,26 +417,33 @@ Drie manieren om de bibliotheek te vullen zonder te typen:
 
 - **Bambu Lab-factuur importeren.** Kies de PDF-factuur uit de Bambu Lab-webshop. De app leest hem (alleen met `pypdf`, met een grens aan grootte en aantal
   pagina’s) en laat eerst zien wat erin staat: per filamentregel het merk, materiaal en type (*PLA* + *Basic*), de kleur, het filament-ID (het nummer tussen
-  haakjes achter de kleur), de SKU, het gewicht en de diameter (uit de SKU), of het een bijvulling is (SKU eindigt op `FREE`) en de prijzen. Op de factuur
-  staat de prijs **incl. btw** en de korting per regel; de app rekent om naar excl. btw: de *richtprijs* (de lijstprijs) en wat je werkelijk **betaalde** per rol. Per regel kies
-  je of het filament in de bibliotheek komt en **hoeveel rollen in de voorraad** komen, tegen de betaalde prijs; die rollen krijgen de factuur in hun notitie. Een filament dat al in de
-  bibliotheek staat (zelfde SKU) houdt zijn eigen gegevens en krijgt alleen de nieuwe richtprijs (en een barcode, als het er nog geen had). Staan er van de factuur al rollen in de voorraad, dan staat het aantal
-  op 0 en zegt de app dat. Regels die geen filament zijn worden overgeslagen en genoemd; kloppen de regels niet met het factuurtotaal, dan staat er een waarschuwing. Andere webshops dan Bambu Lab worden niet herkend.
+  haakjes achter de kleur), de SKU, het gewicht en de diameter (uit de SKU), of het een bijvulling is (SKU eindigt op `FREE`), de **richtprijs** (de lijstprijs; op de
+  factuur staat hij incl. btw, de app rekent om naar excl. btw; een korting is een actie en geen prijs) en de barcode. Per regel kies je of het filament in de bibliotheek komt. **De voorraad verandert
+  hier nooit**: de bibliotheek is een losstaande lijst van de filamenten die bestaan, geen lijst van wat je hebt. Een filament dat er al staat krijgt de nieuwe richtprijs en
+  wat het nog mist (SKU, filament-ID, barcode), maar zijn eigen gegevens worden nooit overschreven. Regels die geen filament zijn worden overgeslagen en genoemd; kloppen de regels niet met het factuurtotaal, dan staat er een waarschuwing. Andere webshops dan Bambu Lab worden niet herkend.
 
   **Barcode uit de webshop.** Bij het inlezen zoekt de server elk filament op in de Bambu Lab-webshop en neemt het **ID uit de productaddress** over als *barcode*
   (`…/nl/products/pla-matte?id=43992833229019`: `43992833229019`). Dat is het nummer van één kleur, als bijvulling of met spoel, in één gewicht. De pagina’s van de webshop vermelden
   hun varianten als JSON-LD; een regel van de factuur wordt gevonden op zijn filament-ID tussen haakjes, bijvulling of spoel, en gewicht. Het zijn de ID’s van de **EU-webshop**
   (`eu.store.bambulab.com`): stuurt de webshop de server door naar de winkel van een andere regio (waar de ID’s anders zijn) of is hij niet bereikbaar, dan wordt er niets opgeslagen en staat er een
-  waarschuwing; de import werkt dan gewoon door zonder barcodes. Er wordt alleen die ene host benaderd, nooit een adres uit een verzoek. De barcode komt in de bibliotheek en op de nieuwe rollen. Let op:
-  rollen met een barcode vormen in de voorraad één soort per barcode; een rol die je eerder zonder barcode invoerde, is dus een andere soort dan een rol uit de factuur.
+  waarschuwing; de import werkt dan gewoon door zonder barcodes. Er wordt alleen die ene host benaderd, nooit een adres uit een verzoek. Let op: rollen met een barcode vormen in de voorraad één soort per
+  barcode; een rol die je eerder zonder barcode invoerde, is dus een andere soort dan een rol met die barcode.
 - **Exporteren en importeren (JSON).** *Exporteren (JSON)* downloadt de bibliotheek (`printpricing-filaments-JJJJ-MM-DD.json`, zonder id’s, met getallen als getallen,
   dus ook met de hand te bewerken). *Importeren (JSON)* leest zo’n bestand, controleert het helemaal met dezelfde regels als handmatig invoeren (één fout regel stopt alles en
-  noemt het regelnummer) en laat eerst zien hoeveel nieuw, bijgewerkt en ongewijzigd is. Een filament wordt herkend aan zijn SKU, anders zijn barcode, anders zijn filament-ID, anders
-  merk, materiaal, type, kleur en bijvulling. Wat het bestand voor een bekend filament vermeldt, wordt overschreven; wat het niet vermeldt blijft, en er wordt **nooit iets verwijderd**.
+  noemt het regelnummer) en laat eerst zien hoeveel nieuw, bijgewerkt en ongewijzigd is. Wat het bestand voor een bekend filament vermeldt, wordt overschreven; wat het niet vermeldt blijft, en er wordt **nooit iets verwijderd**. Zou een regel een filament een kopie van een ander maken, dan stopt de import met dat regelnummer.
 - **Synchroniseren.** De knop *Synchroniseren* haalt de gedeelde bibliotheek op van GitHub en voegt op dezelfde manier toe en werkt bij (eerst een bevestiging met de aantallen). De
   **server** haalt het bestand op, niet de browser. Het adres staat in `FILAMENT_LIBRARY_URL` (standaard `library/filaments.json` van deze repository): alleen `https` op
   `raw.githubusercontent.com` of `gist.githubusercontent.com`, een doorverwijzing wordt niet gevolgd, het bestand mag hoogstens 2 MB zijn en het adres komt nooit uit een verzoek. Leeg zet de
   knop uit. De container moet GitHub kunnen bereiken; lukt dat niet, dan zegt de app dat de bron niet bereikbaar is.
+
+**Nooit hetzelfde filament twee keer.** Eén regel bepaalt wanneer twee filamenten *hetzelfde* zijn: ze delen de **SKU**, of de **barcode**, of het **filament-ID** (bijvulling en met spoel
+hebben hetzelfde ID, dus tellen die apart), of merk, materiaal, type, kleur, gewicht, diameter en bijvulling (hoofdletters en spaties tellen niet). Handmatig toevoegen, wijzigen, importeren,
+synchroniseren, de factuur, een nieuwe rol en het terugzetten van een back-up gaan er allemaal doorheen: een kopie wordt geweigerd (*Dit filament staat al in de bibliotheek*), en schrijven
+gebeurt onder een slot, zodat twee verzoeken tegelijk er niet toch twee van maken. Twee dubbele vermeldingen die er al stonden (uit een oudere versie) blijven bewerkbaar; alleen een *nieuwe* overeenkomst wordt geweigerd.
+
+**Een rol met de hand toevoegen.** Onder *Filament → Nieuwe rol* staat de keuze *Ook aan de bibliotheek toevoegen* (standaard aan, alleen bij een nieuwe rol). Staat het filament er nog niet in, dan komt het erin met wat de rol
+over het filament zegt (merk, type, materiaal, kleur, kleurcode, barcode, gewicht, diameter, temperaturen; niet de prijs of wat er nog over is). Staat het er al in, dan krijgt dat filament wat het nog mist (een barcode, een kleurcode,
+temperaturen), zonder iets te overschrijven. Dezelfde barcode is hetzelfde filament; zonder barcode dezelfde naam, hetzelfde gewicht en dezelfde diameter. Past de rol bij meer dan één vermelding (bijvulling én met spoel), dan blijft de bibliotheek ongemoeid.
 
 De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg bij herstellen).
 
