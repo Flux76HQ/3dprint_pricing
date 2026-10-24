@@ -66,7 +66,8 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - Margin and rounding are decided per order, not in the calculation (the calculation editor saves `price_rounding` as `none`; the account preference `price_rounding` is
   only the default for new orders). An order has `price_rounding`; a line made from a calculation keeps that calculation's cost price (excl. VAT) and has its own
   `margin_pct`, and its price per piece is derived on the server by `calc.price_from_cost` (the same code the calculation uses), never in the browser. A line without a
-  cost price (a free line, or one from before migration 0017) keeps its typed price.
+  cost price (a free line, or one from before migration 0017) keeps its typed price. A loose accessory (picked from `accessory_items` in the order editor, no calculation) is an `optional` line with its cost price and margin 0; the sync button
+  next to a model line re-reads the calculation's cost price in the browser (`modelLines`, the same rule that added it) and only changes the line's `cost_price`, never its margin, VAT or quantity.
 - Orders (`backend/app/orders.py`) keep the price per piece *including* VAT (derived as above, or copied/typed when the line has no cost price), and
   work out the totals on the server per VAT rate (`compute_totals`); the browser only displays them. An invoice number
   (a template in the business preferences, default `{JJJJ}-{NNNN}`, see `invoice_numbers.py`; counted per year in `invoice_counters`, or under year 0 when the template has no year) is claimed atomically once per order and never reused. Invoice templates (`invoice_docs.py`,
