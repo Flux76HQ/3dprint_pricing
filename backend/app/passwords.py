@@ -127,15 +127,18 @@ def _derive(session_secret: str, info: bytes) -> bytes:
     return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=info).derive(session_secret.encode())
 
 
-def seal(session_secret: str, secret: bytes) -> bytes:
-    """Encrypt the TOTP secret for storage. It has to be recoverable, so it cannot be hashed."""
-    key = base64.urlsafe_b64encode(_derive(session_secret, b"printpricing/mfa-secret/v1"))
+MFA_SECRET_INFO = b"printpricing/mfa-secret/v1"
+
+
+def seal(session_secret: str, secret: bytes, info: bytes = MFA_SECRET_INFO) -> bytes:
+    """Encrypt a secret for storage (the TOTP secret; the OpenAI key passes its own `info`). It has to be recoverable, so it cannot be hashed."""
+    key = base64.urlsafe_b64encode(_derive(session_secret, info))
     return Fernet(key).encrypt(secret)
 
 
-def unseal(session_secret: str, token: bytes) -> "bytes | None":
+def unseal(session_secret: str, token: bytes, info: bytes = MFA_SECRET_INFO) -> "bytes | None":
     """None when the key changed (SESSION_SECRET was rotated): password login then fails closed."""
-    key = base64.urlsafe_b64encode(_derive(session_secret, b"printpricing/mfa-secret/v1"))
+    key = base64.urlsafe_b64encode(_derive(session_secret, info))
     try:
         return Fernet(key).decrypt(bytes(token))
     except InvalidToken:

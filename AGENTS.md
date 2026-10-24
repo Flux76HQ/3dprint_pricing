@@ -65,12 +65,16 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - Margin and rounding are decided per order, not in the calculation (the calculation editor saves `price_rounding` as `none`; the account preference `price_rounding` is
   only the default for new orders). An order has `price_rounding`; a line made from a calculation keeps that calculation's cost price (excl. VAT) and has its own
   `margin_pct`, and its price per piece is derived on the server by `calc.price_from_cost` (the same code the calculation uses), never in the browser. A line without a
-  cost price (a free line, or one from before migration 0016) keeps its typed price.
+  cost price (a free line, or one from before migration 0017) keeps its typed price.
 - Orders (`backend/app/orders.py`) keep the price per piece *including* VAT (derived as above, or copied/typed when the line has no cost price), and
   work out the totals on the server per VAT rate (`compute_totals`); the browser only displays them. An invoice number
   (a template in the business preferences, default `{JJJJ}-{NNNN}`, see `invoice_numbers.py`; counted per year in `invoice_counters`, or under year 0 when the template has no year) is claimed atomically once per order and never reused. Invoice templates (`invoice_docs.py`,
   `invoice_template.py`) are untrusted uploads like print files: capped in size and unpacked size, parsed only by `python-docx` / `pypdf`,
   stored under `UPLOAD_DIR`, and part of the backup together with orders and calculation numbers. The invoice logo (`invoice_logo.py`) is an upload too (PNG/JPEG only, size and pixel caps). Template, logo and the made invoice PDFs (`invoice_pdfs`) are stored as `bytea` in the database, never as files under `UPLOAD_DIR` (a rebuilt container without its volume must not lose them); the invoice is always a PDF, a Word template is converted with LibreOffice (`docx_to_pdf`, `SOFFICE_BIN`, installed in the image). The built-in invoice follows the owner's example layout (`invoice_docs.py`); the payment QR is a SEPA/EPC code, not an iDEAL link, unless the owner sets an own https payment link (`invoice_qr_link`, fields from `invoice_docs.LINK_FIELDS`, validated on save and on restore) and it is off when `invoice_qr` is false; Open Sans lives in `backend/app/fonts/` with its licence.
+- AI product images (`backend/app/ai_images.py`, `frontend/js/ai-images.js`) are optional and exist only with `AI_IMAGES_ENABLED=TRUE`: the flag is checked on the server for every route
+  (404 when off) and the browser only follows `ai_images` in `/api/auth/status`. The OpenAI key is typed under Settings, kept sealed with `passwords.seal` (own `info` label) and never returned or
+  put in a backup (`test_backup.py` and `test_ai_images.py` assert it); photos and results are re-encoded and live in the database (`project_images`), not under `UPLOAD_DIR`. One picture per
+  request (gunicorn's timeout), the host is fixed, and `test_ai_images.py` mocks `requests.request`: never call OpenAI from a test.
 - Third-party browser code is vendored under `frontend/vendor/` (unmodified, with its licence and a
   README saying how to update), never loaded from a CDN: the CSP only allows scripts from this origin.
   Currently only ZXing, for barcode scanning where the browser has no `BarcodeDetector`.
@@ -134,6 +138,13 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - Give a new feature its own worktree and its own agent session.
 - Check for an existing open PR before opening a new one; never push without a PR; never add
   commits to a branch whose PR is already merged — rebase and open a new one.
+- Keep a branch current with `python scripts/update_branch.py`, not a hand-made `git merge origin/main`: it merges main and
+  settles the conflicts that are only bookkeeping (`VERSION` becomes main's version plus the same part bump this branch made, a
+  migration whose number main took meanwhile is renumbered, a screenshot in `docs/assets/` becomes main's). Run it before the first
+  push of a new branch, before opening the PR, and whenever the PR turns "dirty"; anything it leaves in conflict is a real one.
+  `test_migrations.py` fails on a duplicate or missing migration number, which git would not notice.
+- Make a conflict less likely to start with: keep a PR to what it needs, do not reflow or reformat lines you are not changing, add
+  language keys at their alphabetical place, and regenerate the screenshots only when a screen changed.
 - Carry your own PR to merge: watch it, drive failing checks green, merge at all green without
   asking again.
 
@@ -174,6 +185,7 @@ same commit. `agent-instructions-lint` checks this.
 ## 8. Commit checklist
 
 - [ ] Non-doc changes to protected paths include a version bump.
+- [ ] The branch is current with main (`python scripts/update_branch.py`).
 - [ ] No secrets or `.env` files are staged.
 - [ ] The operational guide (`docs/handleiding.md`) is updated when run/deploy/backup behaviour changed.
 - [ ] `README.md` and `README.nl.md` stay in sync (same sections, same order, same screenshots from `docs/assets/`).

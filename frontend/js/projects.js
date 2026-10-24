@@ -1,3 +1,4 @@
+import { coverUrl, productImagesCard } from './ai-images.js';
 import { api, upload } from './api.js';
 import { formatDate, t } from './i18n.js';
 import { setDirty } from './updates.js';
@@ -18,7 +19,8 @@ export function projectListView(ctx) {
     }
     list.replaceChildren(...items.map((p) => h('a', { class: 'glass card item link-card', href: `#/berekeningen/${p.id}` },
       h('div', { class: 'item-head' },
-        h('div', {}, h('h3', {}, h('span', { class: 'badge' }, `#${p.number}`), ' ', p.name,
+        ctx.aiImages && p.cover_image_id ? h('img', { class: 'cover-thumb', src: coverUrl(p.cover_image_id), alt: '', loading: 'lazy' }) : null,
+        h('div', { class: 'grow' }, h('h3', {}, h('span', { class: 'badge' }, `#${p.number}`), ' ', p.name,
           p.stock_booked_at ? h('span', { class: 'badge' }, t('calc.stock_booked')) : null),
         h('p', { class: 'muted' }, dateFmt(p.updated_at)))),
       h('dl', { class: 'stats' },
@@ -48,7 +50,7 @@ function fromSaved(project) {
   const d = project.data || {};
   const str = (v) => (v == null ? '' : String(v));
   return {
-    id: project.id, number: project.number, name: project.name, notes: project.notes, margin_pct: str(project.margin_pct),
+    id: project.id, number: project.number, name: project.name, notes: project.notes, object_description: project.object_description || '', margin_pct: str(project.margin_pct),
     file_id: project.file_id || null, source_url: project.source_url || '',
     vat_pct: str(project.vat_pct),
     stock_booked_at: project.stock_booked_at,
@@ -75,7 +77,7 @@ export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: asy
 
 function buildEditor({ spools, printers, tariffs, packaging, project, navigate, ctx }) {
   const state = project ? fromSaved(project) : {
-    id: null, name: '', notes: '', margin_pct: '0', stock_booked_at: null, file_id: null, source_url: '',
+    id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, file_id: null, source_url: '',
     vat_pct: ctx.prefs.vat_pct ?? '21',
     filament: [blankFilament()], parts: [], depreciation: [], energy: [],
   };
@@ -92,7 +94,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
   const sections = h('div', { class: 'stack' });
 
   const payload = () => ({
-    name: state.name, notes: state.notes, margin_pct: parseNum(state.margin_pct),
+    name: state.name, notes: state.notes, object_description: state.object_description, margin_pct: parseNum(state.margin_pct),
     vat_pct: parseNum(state.vat_pct), price_rounding: 'none',      // rounding is decided per order
     file_id: state.file_id, source_url: state.source_url.trim(),
     data: {
@@ -441,6 +443,8 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
   const vatInput = numberInput(state.vat_pct, bind(state, 'vat_pct'), { list: 'vat-presets' });
   const vatPresets = h('datalist', { id: 'vat-presets' }, ['0', '9', '21'].map((v) => h('option', { value: v })));
   const notes = h('textarea', { rows: 2, oninput: (e) => bind(state, 'notes')(e.target.value) }, state.notes || '');
+  const objectDescription = h('textarea', { rows: 2, maxlength: 500, placeholder: t('calc.object_description_ph'),
+    oninput: (e) => bind(state, 'object_description')(e.target.value) }, state.object_description || '');
   const canBook = state.id && !state.stock_booked_at && state.filament.some((r) => r.spool_id);
 
   redraw();
@@ -458,8 +462,10 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
             field(t('calc.margin_field'), marginInput, t('calc.margin_hint')),
             field(t('calc.vat_field'), vatInput, t('calc.vat_hint'))),
           vatPresets,
-          field(t('common.notes'), notes)),
+          field(t('common.notes'), notes),
+          field(t('calc.object_description'), objectDescription, t('calc.object_description_hint'))),
         fileBox,
+        ctx.aiImages && state.id ? productImagesCard(state.id, () => state.object_description) : null,
         sections),
       h('aside', { class: 'glass card summary', 'aria-label': t('calc.cost_price') },
         h('div', { class: 'row between' }, h('h2', {}, t('calc.cost_price')), blurToggle(ctx)), totals, calcError,
