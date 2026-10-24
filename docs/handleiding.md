@@ -90,7 +90,7 @@ verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.
 | Variabele | Betekenis |
 |---|---|
 | `WEB_PORT` | Poort van de app; compose publiceert en de app luistert op deze ene waarde |
-| `DATA_PATH` | Map op de host voor de PostgreSQL-data (`postgres/`) en geüploade bestanden (`app/`); blijft bestaan bij herbouwen |
+| `DATA_PATH` | Map op de host voor alle data: de database (`postgres/`) en de geüploade bestanden (`uploads/`); blijft bestaan bij herbouwen en updaten. Zie *Waar de data staat* |
 | `MAX_UPLOAD_MB` | Grootste STL/3MF-upload in MB (standaard 50) |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Database; gebruik een wachtwoord met alleen letters en cijfers |
 | `RP_ID` | Domein waarop de app draait, zonder schema of poort; passkeys zijn eraan gebonden |
@@ -200,10 +200,31 @@ geïnstalleerd; dan start de testsuite een tijdelijke cluster. Zie [`AGENTS.md`]
 - `GET /readyz` — proces draait **en** de database antwoordt (503 anders).
 - `GET /api/version` — draaiende versie.
 
+### Waar de data staat
+Alles staat in **één map op de host**, `DATA_PATH` (op een server bijvoorbeeld `/data`):
+
+```
+/data/postgres   de database (PostgreSQL)
+/data/uploads    de geüploade STL/3MF-bestanden
+/data/backups    de dumps die `scripts/update.sh` maakt
+```
+
+Het zijn gewone mappen, **geen Docker-volumes**: `docker compose down -v`, een `docker system prune --volumes`, opnieuw bouwen en updaten raken ze niet (een test, `test_deploy_layout.py`, laat
+de CI falen als de compose-file ooit een volume voor de data gebruikt). De app-container ziet `DATA_PATH` als `/data`; de database-container mount alleen `DATA_PATH/postgres`.
+**Gebruik een absoluut pad.** Een relatief pad als `./data` is relatief aan de plek waar een tool de stack start; een hulpmiddel dat bij elke deploy een verse checkout maakt, zou dan met een lege database beginnen. Start de app-container zonder
+`/data`-mount, dan zegt hij dat bij het opstarten (*WARNING: /data is not a mounted folder*), want de uploads verdwijnen dan met de container.
+
+**Overstappen van oudere versies.** Tot en met 0.26.10 stonden de uploads in `DATA_PATH/app/uploads`. Bij de eerste start na de update verplaatst de container ze zelf naar `DATA_PATH/uploads` (ook de bestanden met een spatie of punt in de naam; een bestand dat daar al
+staat wordt nooit overschreven, het oude blijft dan staan, en de lege map `app/` verdwijnt). De database bleef al in `DATA_PATH/postgres`, dus daar verandert niets. Zorg dat `DATA_PATH` in `.env` naar dezelfde map wijst als voorheen.
+
 ### Deploy en update
 ```bash
+sh scripts/update.sh        # maakt eerst een dump in DATA_PATH/backups en doet dan pull + up
+# of met de hand:
 docker compose pull && docker compose up -d
 ```
+`scripts/update.sh` bewaart de database als `DATA_PATH/backups/pre-update-JJJJ-MM-DD-UUMMSS.sql.gz` voordat er iets wordt vervangen; mislukt of is die dump leeg, dan stopt de update. Die dumps staan in dezelfde map als de data die ze beschermen:
+kopieer ze nu en dan van de server af. Terugzetten: zie *Back-up en herstel*.
 CI publiceert bij elke merge naar `main` `:latest`, en `:X.Y.Z` plus een GitHub Release (met notities) wanneer
 `VERSION` een nieuwe versie heeft. Een versie-image wordt nooit overschreven. Migraties draaien bij het opstarten
 vóór de server verkeer krijgt; de container stopt als een migratie faalt of een toegepaste migratie is gewijzigd.
@@ -224,15 +245,15 @@ docker compose exec -T db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup-$(
 # herstel (op een lege database, app gestopt)
 docker compose exec -T db psql -U "$POSTGRES_USER" "$POSTGRES_DB" < backup-2026-01-01.sql
 ```
-`pg_dump` bevat **niet** de geüploade STL/3MF-bestanden: die staan in `DATA_PATH/app/uploads`. Back die map ook
-op (`tar czf uploads.tgz "$DATA_PATH/app"`), of stop de stack en kopieer heel `DATA_PATH` (dat is dan alles in één
+`pg_dump` bevat **niet** de geüploade STL/3MF-bestanden: die staan in `DATA_PATH/uploads`. Back die map ook
+op (`tar czf uploads.tgz "$DATA_PATH/uploads"`), of stop de stack en kopieer heel `DATA_PATH` (dat is dan alles in één
 keer). Een berekening zonder terugkomend bestand blijft werken; alleen “Downloaden” geeft dan een melding.
 De back-up bevat je passkey-publieke sleutels en gehashte herstelcodes, geen geheimen (ook de OpenAI-sleutel van de optionele AI-afbeeldingen niet). Bewaar `.env` apart (in je wachtwoordmanager): zonder `SESSION_SECRET` log je gewoon opnieuw
 in, maar `RP_ID` moet gelijk blijven.
 
 ### Runtime-architectuur
 Eén app-container (Gunicorn serveert API **en** de statische PWA) + één PostgreSQL-17-container. Data: PostgreSQL in
-`DATA_PATH/postgres` en geüploade printbestanden in `DATA_PATH/app/uploads` (de database bewaart per bestand de metadata
+`DATA_PATH/postgres` en geüploade printbestanden in `DATA_PATH/uploads` (de database bewaart per bestand de metadata
 en wat eruit is gelezen). Bestanden die nooit aan een berekening zijn gekoppeld worden na een dag opgeruimd.
 De container start als root om de rechten van de gemounte map te zetten en draait daarna als gebruiker `app`.
 

@@ -111,7 +111,7 @@ Set in `.env`; the file `.env.example` documents each value.
 | Variable | Required | Default | Description |
 |---|:---:|---|---|
 | `WEB_PORT` | ✅ | - | Port of the app; compose publishes it and the app listens on it |
-| `DATA_PATH` | ✅ | - | Host folder for the PostgreSQL data (`postgres/`) and uploaded files (`app/`) |
+| `DATA_PATH` | ✅ | - | Host folder for all data: the database (`postgres/`) and the uploaded files (`uploads/`). Plain folders, not Docker volumes; use an absolute path on a server (e.g. `/data`) |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | ✅ | - | The database; use letters and digits only in the password |
 | `RP_ID` | ✅ | - | Domain the app runs on, without scheme or port. Passkeys are bound to it |
 | `RP_ORIGINS` | ✅ | - | Full origin(s), comma separated, for example `https://print.example.com` |

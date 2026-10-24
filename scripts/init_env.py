@@ -22,7 +22,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=6080, help="web port (WEB_PORT)")
     parser.add_argument("--domain", help="public domain for passkeys, e.g. print.example.com (uses https)")
-    parser.add_argument("--data-path", default="./data")
+    parser.add_argument("--data-path", default="./data", help="folder for the database (postgres/) and the uploads (uploads/); use an absolute path such as /data on a server")
     args = parser.parse_args()
 
     target = ROOT / ".env"
