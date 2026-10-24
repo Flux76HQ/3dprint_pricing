@@ -133,6 +133,7 @@
  "f.city": "Plaats",
  "f.colour": "Kleur",
  "f.company_name": "Bedrijfsnaam",
+ "f.cost_price": "Kostprijs (excl. btw)",
  "f.country": "Land",
  "f.customer_name": "Naam",
  "f.customer_number": "Klantnummer",

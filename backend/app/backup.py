@@ -115,7 +115,7 @@ def _export_orders(conn) -> list:
     lines = orders._lines_of(conn, [r["id"] for r in rows])
     for row in rows:
         item = _serialise(row)
-        item["lines"] = [_serialise({k: line[k] for k in ("project_id", "project_number", "description", "quantity", "unit_price", "vat_pct")})
+        item["lines"] = [_serialise({k: line[k] for k in ("project_id", "project_number", "description", "quantity", "unit_price", "vat_pct", "cost_price", "margin_pct")})
                          for line in lines[row["id"]]]
         out.append(item)
     return out

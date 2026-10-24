@@ -43,7 +43,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   (`whole_hours` in `calc.py`); this is a business rule, not a display choice, so it lives in the
   calculator and not in the frontend. VAT is charged on the selling price (cost + margin); purchase
   prices are entered excl. VAT. With a price rounding, the VAT-inclusive price is authoritative:
-  round up, take the VAT out, and the margin becomes a minimum (the loop in `calculate` exists
+  round up, take the VAT out, and the margin becomes a minimum (the loop in `calc.price_from_cost` exists
   because cent-rounding the VAT can otherwise land a cent under that minimum).
 - A saved project stores the prices as they were when saved (`projects.data`). Do not make a
   project read live prices from spools, printers or tariffs: that rewrites history.
@@ -62,7 +62,11 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - The screenshots in `docs/assets/` (shown by `README.md` and `README.nl.md`) are generated, never edited by hand: `python scripts/generate_screenshots.py` (needs `playwright` and `pillow`; `CHROMIUM_PATH` if the browser is elsewhere) starts a throwaway app on a scratch database with Dutch demo data and re-takes them as desktop, iPhone (iOS-style bar) and Android (Android-style bar) frames. Re-run it, and commit the PNGs, when a change alters how a screen looks; it never touches a real installation.
 - Navigation icons are the Material Design Icons (`frontend/js/mdi.js`, licence in `frontend/vendor/mdi/`); the bottom bar has two styles (`html[data-nav]`: `ios` floating glass: the slider value 0-100 is turned into plain `--nav-alpha` / `--nav-blur` values by `applyNavGlass` (`ui.js`, mirrored in `theme-boot.js`) because Safari drops a `backdrop-filter` or colour that has `calc()` / `color-mix()` around a variable, or `android`), both set from the account preferences `navbar_style` (`auto` = the device's: `theme-boot.js` sets `data-platform` before the first paint, `navStyle()` in `ui.js` resolves it) / `navbar_glass` and cached for `theme-boot.js`.
 - Customers (`backend/app/customers.py`, migration 0014) own the klantnummer (unique, case-insensitive; empty = next free whole number, claimed under an advisory lock). An order always has a `customer_id` (required by the API) and keeps a copy of the customer's details; saving the order or editing the customer refreshes that copy, except in orders that already have an invoice number. A customer with orders cannot be deleted. Backups carry customers; an older file without them gets customers derived from its orders.
-- Orders (`backend/app/orders.py`) keep the price per piece *including* VAT, copied from the calculation when the line is made, and
+- Margin and rounding are decided per order, not in the calculation (the calculation editor saves `price_rounding` as `none`; the account preference `price_rounding` is
+  only the default for new orders). An order has `price_rounding`; a line made from a calculation keeps that calculation's cost price (excl. VAT) and has its own
+  `margin_pct`, and its price per piece is derived on the server by `calc.price_from_cost` (the same code the calculation uses), never in the browser. A line without a
+  cost price (a free line, or one from before migration 0017) keeps its typed price.
+- Orders (`backend/app/orders.py`) keep the price per piece *including* VAT (derived as above, or copied/typed when the line has no cost price), and
   work out the totals on the server per VAT rate (`compute_totals`); the browser only displays them. An invoice number
   (a template in the business preferences, default `{JJJJ}-{NNNN}`, see `invoice_numbers.py`; counted per year in `invoice_counters`, or under year 0 when the template has no year) is claimed atomically once per order and never reused. Invoice templates (`invoice_docs.py`,
   `invoice_template.py`) are untrusted uploads like print files: capped in size and unpacked size, parsed only by `python-docx` / `pypdf`,
@@ -97,11 +101,16 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 ## 2. Versioning discipline
 
 - Version source of truth is the `VERSION` file (`MAJOR.MINOR.PATCH`).
-- Changes touching runtime/build/deploy/CI surfaces **must** bump it.
+- **A pull request never changes `VERSION`.** Two pull requests that each raise it collide as soon as the other one merges, so the
+  pipeline raises it after the merge: the `docker` workflow runs `scripts/bump_version.py` on every push to `main`, commits the new
+  number (`Release X.Y.Z`) and builds the image from that commit. `enforce-version-bump` fails a pull request that touches `VERSION`.
+- A merge that changed protected paths raises the **patch** number; put the label `version:minor` or `version:major` on the pull
+  request to raise that part instead. A merge of documentation only (`*.md`, `*.txt`) keeps the number.
 - Protected paths: `backend/`, `frontend/`, `deploy/`, `scripts/`, `.github/workflows/`,
-  `.github/copilot-instructions.md`, `Dockerfile`, `docker-compose.yml`, `docker-compose.build.yml`, `.env.example`.
-- Documentation-only edits (`*.md`, `*.txt`) are exempt.
-- Bump with `python scripts/bump_version.py` (patch by default).
+  `.github/copilot-instructions.md`, `Dockerfile`, `docker-compose.yml`, `docker-compose.build.yml`, `.env.example`
+  (`scripts/check_version_bump.py` holds the list).
+- The workflow needs to push to `main`: github-actions must be allowed to bypass the branch protection, if there is any. Without it
+  the bump fails before anything is published, with the reason in the log.
 
 ## 3. Local enforcement and CI controls
 
@@ -111,8 +120,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 
   | Job name | What it checks |
   |---|---|
-  | `enforce-version-bump` | protected paths changed without a higher `VERSION` |
-  | `enforce-version-bump-on-merge` | the same, at merge, against the previous tip of `main` |
+  | `enforce-version-bump` | the pull request changed `VERSION` (it is raised after the merge, not in the pull request) |
   | `agent-instructions-lint` | that this file stays canonical and unduplicated |
   | `backend-tests` | calculator, WebAuthn, migrations, API; fails if any test was skipped |
   | `frontend-syntax` | every frontend module parses, checked as an ES module (a copy named `.mjs`: `node --check` on a `.js` file that uses `import` reports nothing, even for a broken one); the manifest is valid JSON |
@@ -136,6 +144,13 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - Give a new feature its own worktree and its own agent session.
 - Check for an existing open PR before opening a new one; never push without a PR; never add
   commits to a branch whose PR is already merged — rebase and open a new one.
+- Keep a branch current with `python scripts/update_branch.py`, not a hand-made `git merge origin/main`: it merges main and
+  settles the conflicts that are only bookkeeping (a migration whose number main took meanwhile is renumbered, a screenshot in
+  `docs/assets/` becomes main's, a stray `VERSION` change becomes main's). Run it before the first
+  push of a new branch, before opening the PR, and whenever the PR turns "dirty"; anything it leaves in conflict is a real one.
+  `test_migrations.py` fails on a duplicate or missing migration number, which git would not notice.
+- Make a conflict less likely to start with: keep a PR to what it needs, do not reflow or reformat lines you are not changing, add
+  language keys at their alphabetical place, and regenerate the screenshots only when a screen changed.
 - Carry your own PR to merge: watch it, drive failing checks green, merge at all green without
   asking again.
 
@@ -175,7 +190,8 @@ same commit. `agent-instructions-lint` checks this.
 
 ## 8. Commit checklist
 
-- [ ] Non-doc changes to protected paths include a version bump.
+- [ ] `VERSION` is untouched (main raises it after the merge; label `version:minor` / `version:major` if it must not be a patch).
+- [ ] The branch is current with main (`python scripts/update_branch.py`).
 - [ ] No secrets or `.env` files are staged.
 - [ ] The operational guide (`docs/handleiding.md`) is updated when run/deploy/backup behaviour changed.
 - [ ] `README.md` and `README.nl.md` stay in sync (same sections, same order, same screenshots from `docs/assets/`).

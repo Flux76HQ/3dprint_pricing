@@ -133,6 +133,7 @@
  "f.city": "City",
  "f.colour": "Colour",
  "f.company_name": "Company name",
+ "f.cost_price": "Cost price (excl. VAT)",
  "f.country": "Country",
  "f.customer_name": "Name",
  "f.customer_number": "Customer number",

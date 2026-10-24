@@ -11,7 +11,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template
+from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template
 from .api import _serialise, number, text
 from .http import ApiError, json_body, login_required, pool
 from .i18n import L
@@ -92,7 +92,9 @@ def _date(label: str, value, *, required: bool):
         raise ApiError(400, "err.bad_date", label=L(label)) from None
 
 
-def _line(raw, n: int) -> dict:
+def _line(raw, n: int, rounding: str = "none") -> dict:
+    """One order line. With a `cost_price` the price per piece is worked out here from the cost price, the line's own margin, the VAT
+    and the order's rounding; without one the typed `unit_price` is kept."""
     if not isinstance(raw, dict):
         raise ApiError(400, "err.order_line", n=n)
     try:
@@ -107,9 +109,25 @@ def _line(raw, n: int) -> dict:
             project_id = uuid.UUID(str(project_id))
         except ValueError:
             raise ApiError(400, "err.order_line", n=n) from None
+    vat_pct = _money(number("f.vat", maximum=100)(raw.get("vat_pct", 0)))
+    cost_price = margin_pct = effective = None
+    if raw.get("cost_price") not in (None, ""):
+        cost_price = _money(number("f.cost_price")(raw["cost_price"]))
+        margin_pct = _money(number("f.margin", maximum=1000)(raw.get("margin_pct") or 0))
+        price = calc.price_from_cost(cost_price, margin_pct, vat_pct, rounding)
+        unit_price, effective = price["sell_price_incl_vat"], str(price["margin_pct_effective"])
+    else:
+        unit_price = _money(number("f.unit_price")(raw.get("unit_price")))
     return {"project_id": project_id, "project_number": None, "description": text("f.description", max_len=200)(raw.get("description")),
-            "quantity": int(quantity), "unit_price": _money(number("f.unit_price")(raw.get("unit_price"))),
-            "vat_pct": _money(number("f.vat", maximum=100)(raw.get("vat_pct", 0)))}
+            "quantity": int(quantity), "unit_price": unit_price, "vat_pct": vat_pct, "cost_price": cost_price, "margin_pct": margin_pct,
+            "margin_pct_effective": effective}
+
+
+def _rounding(value) -> str:
+    value = value or "none"
+    if value not in calc.ROUNDINGS:
+        raise ApiError(400, "err.rounding")
+    return value
 
 
 def validated_order(body: dict) -> dict:
@@ -123,8 +141,10 @@ def validated_order(body: dict) -> dict:
     raw_lines = body.get("lines", [])
     if not isinstance(raw_lines, list) or len(raw_lines) > MAX_LINES:
         raise ApiError(400, "err.order_lines", max=MAX_LINES)
+    rounding = _rounding(body.get("price_rounding"))
     return {
         "status": status,
+        "price_rounding": rounding,
         "order_date": _date("f.order_date", body.get("order_date") or date.today().isoformat(), required=True),
         "delivery_date": _date("f.delivery_date", body.get("delivery_date"), required=False),
         "customer_name": text("f.customer_name")(body.get("customer_name")),
@@ -138,13 +158,13 @@ def validated_order(body: dict) -> dict:
         "phone": text("f.phone", required=False, max_len=40)(body.get("phone")),
         "notes": text("f.notes", required=False, max_len=2000)(body.get("notes")),
         "invoice_date": _date("f.invoice_date", body.get("invoice_date"), required=False),
-        "lines": [_line(raw, n) for n, raw in enumerate(raw_lines, 1)],
+        "lines": [_line(raw, n, rounding) for n, raw in enumerate(raw_lines, 1)],
     }
 
 
 # --- storage ----------------------------------------------------------------------------------------------------
 
-ORDER_FIELDS = ("status", "order_date", "delivery_date", "customer_name", "customer_number", "subject", "address", "postal_code", "city",
+ORDER_FIELDS = ("price_rounding", "status", "order_date", "delivery_date", "customer_name", "customer_number", "subject", "address", "postal_code", "city",
                 "country", "email", "phone", "notes")
 
 
@@ -153,10 +173,10 @@ def _write_lines(conn, order_id, lines: list) -> None:
     for position, line in enumerate(lines):
         project_id = line["project_id"] if line["project_id"] in known else None   # a calculation that is gone is let go
         conn.execute(
-            "INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            "INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, "
+            "cost_price, margin_pct) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (order_id, position, project_id, known.get(project_id) if project_id else line.get("project_number"),
-             line["description"], line["quantity"], line["unit_price"], line["vat_pct"]))
+             line["description"], line["quantity"], line["unit_price"], line["vat_pct"], line.get("cost_price"), line.get("margin_pct")))
 
 
 def _lines_of(conn, order_ids: list) -> dict:
@@ -168,10 +188,18 @@ def _lines_of(conn, order_ids: list) -> dict:
     return by_order
 
 
+def _effective_margin(line: dict, rounding: str):
+    """The margin a line really makes (rounding can lift it above the one typed), or None for a line with a price of its own."""
+    if line["cost_price"] is None:
+        return None
+    return str(calc.price_from_cost(line["cost_price"], line["margin_pct"], line["vat_pct"], rounding)["margin_pct_effective"])
+
+
 def _present(order: dict, lines: list) -> dict:
     totals = compute_totals(lines)
     out = _serialise(order)
-    out["lines"] = [{**_serialise({k: v for k, v in line.items() if k not in ("order_id",)}), "line_total": totals["line_totals"][i]}
+    out["lines"] = [{**_serialise({k: v for k, v in line.items() if k not in ("order_id",)}), "line_total": totals["line_totals"][i],
+                     "margin_pct_effective": _effective_margin(line, order["price_rounding"])}
                     for i, line in enumerate(lines)]
     out["totals"] = totals
     return out
@@ -221,11 +249,14 @@ def list_orders():
 
 @bp.post("/totals")
 def totals():
-    """The totals of lines that are being edited, so the screen shows what the server will store."""
-    raw = json_body().get("lines", [])
+    """The prices and totals of lines that are being edited, so the screen shows what the server will store."""
+    body = json_body()
+    raw = body.get("lines", [])
     if not isinstance(raw, list) or len(raw) > MAX_LINES:
         raise ApiError(400, "err.order_lines", max=MAX_LINES)
-    return jsonify(compute_totals([_line(line, n) for n, line in enumerate(raw, 1)]))
+    rounding = _rounding(body.get("price_rounding"))
+    lines = [_line(line, n, rounding) for n, line in enumerate(raw, 1)]
+    return jsonify({**compute_totals(lines), "priced_lines": [{"unit_price": str(l["unit_price"]), "margin_pct_effective": l["margin_pct_effective"]} for l in lines]})
 
 
 def _order_with_customer(conn, body: dict) -> dict:

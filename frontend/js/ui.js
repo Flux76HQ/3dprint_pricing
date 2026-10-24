@@ -85,6 +85,10 @@ export function fmt(value, digits = 2) {
 }
 
 // Accept both "26,99" and "26.99": people type what their keyboard has.
+// Rounding of a price incl. VAT: [value sent to the server, label key]. Chosen per order; the settings hold the default for new orders.
+export const ROUNDINGS = [['none', 'rounding.none'], ['0.05', 'rounding.5c'], ['0.10', 'rounding.10c'], ['0.50', 'rounding.50c'],
+  ['1.00', 'rounding.1e'], ['5.00', 'rounding.5e'], ['x.95', 'rounding.95'], ['x.99', 'rounding.99']];
+
 export function parseNum(value) {
   if (typeof value === 'number') return value;
   const n = parseFloat(String(value ?? '').trim().replace(',', '.'));

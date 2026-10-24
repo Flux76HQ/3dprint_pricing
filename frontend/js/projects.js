@@ -5,8 +5,6 @@ import { setDirty } from './updates.js';
 import { blurToggle, confirmDialog, eur, field, fill, fmt, h, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
 
 // [value sent to the server, label key]
-const ROUNDINGS = [['none', 'rounding.none'], ['0.05', 'rounding.5c'], ['0.10', 'rounding.10c'], ['0.50', 'rounding.50c'],
-  ['1.00', 'rounding.1e'], ['5.00', 'rounding.5e'], ['x.95', 'rounding.95'], ['x.99', 'rounding.99']];
 const UNITS = [['stuks', 'unit.pieces'], ['m', 'unit.meter'], ['g', 'unit.gram']];
 const dateFmt = (value) => formatDate(value, { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -55,7 +53,7 @@ function fromSaved(project) {
   return {
     id: project.id, number: project.number, name: project.name, notes: project.notes, object_description: project.object_description || '', margin_pct: str(project.margin_pct),
     file_id: project.file_id || null, source_url: project.source_url || '',
-    vat_pct: str(project.vat_pct), price_rounding: project.price_rounding || 'none',
+    vat_pct: str(project.vat_pct),
     stock_booked_at: project.stock_booked_at,
     filament: (d.filament || []).map((r) => ({ spool_id: r.spool_id || '', label: str(r.label), grams: str(r.grams), price_per_kg: str(r.price_per_kg) })),
     parts: (d.parts || []).map((r) => ({ group: r.group || 'onderdeel', packaging_id: r.packaging_id || '', label: str(r.label), quantity: str(r.quantity), unit: r.unit || 'stuks', unit_price: str(r.unit_price) })),
@@ -81,7 +79,7 @@ export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: asy
 function buildEditor({ spools, printers, tariffs, packaging, project, navigate, ctx }) {
   const state = project ? fromSaved(project) : {
     id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, file_id: null, source_url: '',
-    vat_pct: ctx.prefs.vat_pct ?? '21', price_rounding: ctx.prefs.price_rounding || 'none',
+    vat_pct: ctx.prefs.vat_pct ?? '21',
     filament: [blankFilament()], parts: [], depreciation: [], energy: [],
   };
   let printHours = '1';
@@ -93,13 +91,12 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
 
   const costEls = { filament: [], parts: [], depreciation: [], energy: [] };
   const totals = h('dl', { class: 'totals' });
-  const roundNote = h('p', { class: 'hint', role: 'status', hidden: true });
   const calcError = h('p', { class: 'error', role: 'alert', hidden: true });
   const sections = h('div', { class: 'stack' });
 
   const payload = () => ({
     name: state.name, notes: state.notes, object_description: state.object_description, margin_pct: parseNum(state.margin_pct),
-    vat_pct: parseNum(state.vat_pct), price_rounding: state.price_rounding,
+    vat_pct: parseNum(state.vat_pct), price_rounding: 'none',      // rounding is decided per order
     file_id: state.file_id, source_url: state.source_url.trim(),
     data: {
       filament: state.filament.map((r) => ({ spool_id: r.spool_id || null, label: r.label, grams: parseNum(r.grams), price_per_kg: parseNum(r.price_per_kg) })),
@@ -129,9 +126,6 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
       ...(hasMargin ? cost(t('calc.margin', { pct: fmt(result.margin_pct_effective) }), result.margin_amount) : []),
       ...(hasMargin || hasVat ? row(t('calc.sell_excl'), result.sell_price, 'sub') : []),
       ...(hasVat ? [...row(t('calc.vat', { pct: fmt(result.vat_pct) }), result.vat_amount), ...row(t('calc.sell_incl_vat'), result.sell_price_incl_vat, 'grand')] : []));
-    const lifted = result.rounding !== 'none' && Number(result.margin_pct_effective) > Number(result.margin_pct) + 0.004;
-    roundNote.textContent = lifted ? t('calc.margin_lifted', { from: fmt(result.margin_pct), to: fmt(result.margin_pct_effective) }) : '';
-    roundNote.hidden = !lifted;
     for (const key of Object.keys(costEls)) {
       costEls[key].forEach((el, i) => {
         if (el && result[key][i]) {
@@ -449,7 +443,6 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
   const marginInput = numberInput(state.margin_pct, bind(state, 'margin_pct'), { class: 'private' });
   const vatInput = numberInput(state.vat_pct, bind(state, 'vat_pct'), { list: 'vat-presets' });
   const vatPresets = h('datalist', { id: 'vat-presets' }, ['0', '9', '21'].map((v) => h('option', { value: v })));
-  const roundingSelect = select(ROUNDINGS.map(([v, k]) => [v, t(k)]), state.price_rounding, (v) => { state.price_rounding = v; touch(); });
   const notes = h('textarea', { rows: 2, oninput: (e) => bind(state, 'notes')(e.target.value) }, state.notes || '');
   const objectDescription = h('textarea', { rows: 2, maxlength: 500, placeholder: t('calc.object_description_ph'),
     oninput: (e) => bind(state, 'object_description')(e.target.value) }, state.object_description || '');
@@ -466,10 +459,9 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
       h('div', { class: 'stack' },
         h('div', { class: 'glass card stack' },
           field(t('calc.project'), nameInput),
-          h('div', { class: 'three' },
+          h('div', { class: 'two even' },
             field(t('calc.margin_field'), marginInput, t('calc.margin_hint')),
-            field(t('calc.vat_field'), vatInput, t('calc.vat_hint')),
-            field(t('calc.rounding'), roundingSelect, t('calc.rounding_hint'))),
+            field(t('calc.vat_field'), vatInput, t('calc.vat_hint'))),
           vatPresets,
           field(t('common.notes'), notes),
           field(t('calc.object_description'), objectDescription, t('calc.object_description_hint'))),
@@ -477,7 +469,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
         ctx.aiImages && state.id ? productImagesCard(state.id, () => state.object_description) : null,
         sections),
       h('aside', { class: 'glass card summary', 'aria-label': t('calc.cost_price') },
-        h('div', { class: 'row between' }, h('h2', {}, t('calc.cost_price')), blurToggle(ctx)), totals, roundNote, calcError,
+        h('div', { class: 'row between' }, h('h2', {}, t('calc.cost_price')), blurToggle(ctx)), totals, calcError,
         h('div', { class: 'stack' },
           h('button', { class: 'btn primary', type: 'button', onclick: () => save(false) }, t('common.save')),
           state.id ? h('button', { class: 'btn', type: 'button', onclick: () => save(true) }, t('calc.save_copy')) : null,

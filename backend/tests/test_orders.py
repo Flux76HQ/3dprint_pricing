@@ -133,7 +133,7 @@ def test_lines_with_the_same_rate_are_added_up_before_the_vat_is_taken_out(owner
 def test_the_totals_endpoint_gives_what_saving_will_store(owner):
     lines = [line("A", 3, "4.99", "21"), line("B", 1, "20.00", "9")]
     shown = post(owner, "/api/orders/totals", {"lines": lines}).get_json()
-    assert shown == new_order(owner, lines)["totals"]
+    assert {k: v for k, v in shown.items() if k != "priced_lines"} == new_order(owner, lines)["totals"]
     assert post(owner, "/api/orders/totals", {"lines": [line(quantity=0)]}).status_code == 400
 
 
@@ -897,3 +897,63 @@ def test_a_word_template_without_a_qr_loses_the_placeholder_and_keeps_the_rest(o
     upload(owner, "sjabloon.docx", owner.get("/api/invoice-template/sample").data)
     made = word(owner, f"/api/orders/{new_order(owner)['id']}/invoice")
     assert "{{" not in docx_text(made) and len(Document(io.BytesIO(made)).inline_shapes) == 0
+
+
+# --- margin per line and rounding per order --------------------------------------------------------------------------
+
+def calculated(description="Vaas", cost_price="10.00", margin_pct="50", quantity=1, vat_pct="21", **extra):
+    return {"description": description, "quantity": quantity, "cost_price": cost_price, "margin_pct": margin_pct, "vat_pct": vat_pct, **extra}
+
+
+def test_a_line_with_a_cost_price_gets_its_price_from_its_own_margin(owner):
+    order = new_order(owner, [calculated(margin_pct="50"), calculated("Dop", margin_pct="100")])
+    # 10,00 + 50% = 15,00 excl. -> 18,15 incl. 21%; 10,00 + 100% = 20,00 -> 24,20
+    assert [l["unit_price"] for l in order["lines"]] == ["18.15", "24.20"]
+    assert [l["margin_pct"] for l in order["lines"]] == ["50.00", "100.00"]
+    assert order["totals"]["total"] == "42.35"
+
+
+def test_the_rounding_is_the_orders_and_the_margin_becomes_a_minimum(owner):
+    order = new_order(owner, [calculated(margin_pct="50")], price_rounding="1.00")
+    line_ = order["lines"][0]
+    assert order["price_rounding"] == "1.00"
+    assert line_["unit_price"] == "19.00"                       # 18,15 rounded up to a whole euro
+    assert Decimal(line_["margin_pct_effective"]) > Decimal(line_["margin_pct"])
+    ending = new_order(owner, [calculated(margin_pct="50")], price_rounding="x.95")
+    assert ending["lines"][0]["unit_price"] == "18.95"
+
+
+def test_changing_the_rounding_or_the_margin_reprices_the_line_but_not_a_free_one(owner):
+    order = new_order(owner, [calculated(margin_pct="50"), line("Eigen regel", unit_price="7.77")])
+    body = {"customer_id": order["customer_id"], "price_rounding": "5.00",
+            "lines": [calculated(margin_pct="50"), line("Eigen regel", unit_price="7.77")]}
+    saved = owner.put(f"/api/orders/{order['id']}", json=body, headers=H).get_json()
+    assert [l["unit_price"] for l in saved["lines"]] == ["20.00", "7.77"]
+    body["lines"][0]["margin_pct"] = "0"
+    saved = owner.put(f"/api/orders/{order['id']}", json=body, headers=H).get_json()
+    assert saved["lines"][0]["unit_price"] == "15.00"           # 10,00 + 21% = 12,10, up to 5 euros
+    assert saved["lines"][1]["unit_price"] == "7.77" and saved["lines"][1]["cost_price"] is None
+    assert owner.get(f"/api/orders/{order['id']}").get_json()["price_rounding"] == "5.00"
+
+
+def test_the_totals_endpoint_returns_the_prices_the_server_will_store(owner):
+    res = owner.post("/api/orders/totals", json={"price_rounding": "1.00", "lines": [calculated(quantity=2), line("Eigen", unit_price="1.00")]}, headers=H)
+    assert res.status_code == 200, res.get_json()
+    body = res.get_json()
+    assert [l["unit_price"] for l in body["priced_lines"]] == ["19.00", "1.00"]
+    assert body["priced_lines"][1]["margin_pct_effective"] is None
+    assert body["total"] == "39.00"
+
+
+def test_a_bad_rounding_or_margin_is_refused(owner):
+    customer_id = customer(owner)["id"]
+    for extra in ({"price_rounding": "7.77"}, {"lines": [calculated(margin_pct="-1")]}, {"lines": [calculated(margin_pct="abc")]},
+                  {"lines": [calculated(cost_price="-5")]}):
+        res = owner.post("/api/orders", json={"customer_id": customer_id, "lines": [line()], **extra}, headers=H)
+        assert res.status_code == 400, extra
+
+
+def test_an_order_without_rounding_keeps_its_old_behaviour(owner):
+    order = new_order(owner)
+    assert order["price_rounding"] == "none"
+    assert order["lines"][0]["cost_price"] is None and order["lines"][0]["margin_pct_effective"] is None

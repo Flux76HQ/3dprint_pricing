@@ -2,7 +2,7 @@ import { api, downloadFile } from './api.js';
 import { formatDate, t } from './i18n.js';
 import { customerFields, customerLines, emptyCustomer } from './customers.js';
 import { setDirty } from './updates.js';
-import { confirmDialog, enhanceDialog, eur, field, fill, h, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
+import { ROUNDINGS, confirmDialog, enhanceDialog, eur, field, fill, h, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
 
 // The stages of an order, in order. The words come from the language files.
 export const STATUSES = ['nieuw', 'verwerkt', 'verstuurd', 'afgehandeld'];
@@ -79,14 +79,17 @@ export function orderListView() {
 // --- editor ---------------------------------------------------------------------
 
 const str = (v) => (v == null ? '' : String(v));
+const fmtPct = (v) => Number(v).toLocaleString(document.documentElement.lang || undefined, { maximumFractionDigits: 2 });
 
 function fromSaved(order) {
   return {
-    id: order.id, number: order.number, customer_id: order.customer_id, status: order.status, order_date: order.order_date, delivery_date: str(order.delivery_date),
+    id: order.id, number: order.number, customer_id: order.customer_id, status: order.status, price_rounding: order.price_rounding || 'none', order_date: order.order_date, delivery_date: str(order.delivery_date),
     customer_name: order.customer_name, customer_number: order.customer_number, subject: order.subject, address: order.address, postal_code: order.postal_code, city: order.city, country: order.country,
     email: order.email, phone: order.phone, notes: order.notes, invoice_number: order.invoice_number, invoice_date: str(order.invoice_date), has_invoice_pdf: !!order.has_invoice_pdf,
     lines: order.lines.map((l) => ({ project_id: l.project_id, project_number: l.project_number, description: l.description,
-      quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)) })),
+      quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)),
+      // a line made from a calculation has a cost price and its own margin; the server works out its price
+      cost_price: l.cost_price == null ? null : str(l.cost_price), margin_pct: l.margin_pct == null ? '' : str(Number(l.margin_pct)) })),
   };
 }
 
@@ -101,7 +104,7 @@ export function orderEditorView(id, navigate, ctx = { prefs: {} }) {
 function buildEditor(order, navigate, ctx) {
   const defaultVat = str(ctx.prefs.vat_pct ?? '21');
   const state = order ? fromSaved(order) : {
-    id: null, number: null, customer_id: null, status: 'nieuw', order_date: today(), delivery_date: '', customer_name: '', customer_number: '', subject: '', address: '', postal_code: '', city: '',
+    id: null, number: null, customer_id: null, status: 'nieuw', price_rounding: ctx.prefs.price_rounding || 'none', order_date: today(), delivery_date: '', customer_name: '', customer_number: '', subject: '', address: '', postal_code: '', city: '',
     country: '', email: '', phone: '', notes: '', invoice_number: null, invoice_date: '', has_invoice_pdf: false, lines: [],
   };
   let result = null;
@@ -114,18 +117,22 @@ function buildEditor(order, navigate, ctx) {
   const customerBox = h('div', { class: 'stack' });
   const statusBox = h('div', { class: 'chips', role: 'group', 'aria-label': t('orders.status') });
   const lineTotals = [];
+  const lineUnits = [];
+  const marginHints = [];
 
   const payload = () => ({
-    customer_id: state.customer_id, status: state.status, order_date: state.order_date, delivery_date: state.delivery_date || null,
+    customer_id: state.customer_id, status: state.status, price_rounding: state.price_rounding, order_date: state.order_date, delivery_date: state.delivery_date || null,
     subject: state.subject.trim(), notes: state.notes, invoice_date: state.invoice_date || null,
-    lines: state.lines.map((l) => ({ project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity),
-      unit_price: parseNum(l.unit_price), vat_pct: parseNum(l.vat_pct) })),
+    lines: state.lines.map((l) => ({ project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity), vat_pct: parseNum(l.vat_pct),
+      ...(l.cost_price == null ? { unit_price: parseNum(l.unit_price) } : { cost_price: parseNum(l.cost_price), margin_pct: parseNum(l.margin_pct) }) })),
   });
 
-  // The totals are the server's: it takes the VAT out per rate, and what is shown here is what an invoice will say.
+  // The prices and totals are the server's: it works out the price of a calculated line, takes the VAT out per rate, and what is shown here
+  // is what an invoice will say.
   async function recalc() {
     try {
-      result = await api('POST', '/api/orders/totals', { lines: payload().lines });
+      const { lines, price_rounding } = payload();
+      result = await api('POST', '/api/orders/totals', { lines, price_rounding });
       calcError.hidden = true;
       renderTotals();
     } catch (e) { calcError.textContent = e.message; calcError.hidden = false; }
@@ -148,13 +155,19 @@ function buildEditor(order, navigate, ctx) {
       ...(vatRows.length ? [...row(t('orders.total_excl'), result.total_excl), ...vatRows.flatMap((r) => row(t('orders.vat_row', { pct: r.pct }), r.vat))] : []),
       ...row(vatRows.length ? t('orders.total_incl') : t('orders.total'), result.total, 'grand'));
     lineTotals.forEach((el, i) => { if (el && result.line_totals[i] != null) el.textContent = eur(result.line_totals[i]); });
+    lineUnits.forEach((el, i) => { if (el && result.priced_lines[i]) el.textContent = eur(result.priced_lines[i].unit_price); });
+    marginHints.forEach((el, i) => {                                 // rounding can lift the margin above the one typed
+      const effective = result.priced_lines[i]?.margin_pct_effective;
+      const lifted = el && effective != null && Number(effective) > parseNum(state.lines[i].margin_pct) + 0.004;
+      if (el) { el.textContent = lifted ? t('orders.margin_lifted', { to: fmtPct(effective) }) : ''; el.hidden = !lifted; }
+    });
   }
 
   // --- lines -------------------------------------------------------------------------
   const removeBtn = (label, onClick) => h('button', { class: 'btn small danger icon-only', type: 'button', 'aria-label': label, onclick: onClick }, icon('trash'));
 
   function drawLines() {
-    lineTotals.length = 0;
+    lineTotals.length = lineUnits.length = marginHints.length = 0;
     if (!state.lines.length) { linesBox.replaceChildren(h('p', { class: 'muted' }, t('orders.no_lines'))); renderTotals(); return; }
     linesBox.replaceChildren(...state.lines.map((l, i) => {
       const input = h('input', { type: 'text', value: l.description, maxlength: 200, oninput: (e) => { l.description = e.target.value; touch(); } });
@@ -166,13 +179,20 @@ function buildEditor(order, navigate, ctx) {
         : null;
       const total = h('output', { class: 'cost' }, '—');
       lineTotals[i] = total;
-      return h('div', { class: 'line order' },
+      const calculated = l.cost_price != null;
+      const unit = h('output', { class: 'cost' }, '—');
+      const hint = h('p', { class: 'hint private', role: 'status', hidden: true });
+      if (calculated) { lineUnits[i] = unit; marginHints[i] = hint; }
+      return h('div', { class: `line order${calculated ? ' calc' : ''}` },
         h('div', { class: 'field' }, h('label', { for: inputId }, t('orders.description'), ' ', badge), input),
         field(t('orders.quantity'), numberInput(l.quantity, (v) => { l.quantity = v; touch(); }, { inputmode: 'numeric' })),
-        field(t('orders.unit_price'), numberInput(l.unit_price, (v) => { l.unit_price = v; touch(); })),
+        calculated ? field(t('orders.margin'), numberInput(l.margin_pct, (v) => { l.margin_pct = v; touch(); }, { class: 'private' })) : null,
+        calculated ? h('div', { class: 'field cost-field' }, h('span', { class: 'lbl' }, t('orders.unit_price_calc')), unit)
+          : field(t('orders.unit_price'), numberInput(l.unit_price, (v) => { l.unit_price = v; touch(); })),
         field(t('orders.vat'), numberInput(l.vat_pct, (v) => { l.vat_pct = v; touch(); }, { list: 'order-vat-presets' })),
         h('div', { class: 'field cost-field' }, h('span', { class: 'lbl' }, t('orders.line_total')), total),
-        removeBtn(t('orders.remove_line'), () => { state.lines.splice(i, 1); touch(); drawLines(); }));
+        removeBtn(t('orders.remove_line'), () => { state.lines.splice(i, 1); touch(); drawLines(); }),
+        calculated ? hint : null);
     }));
     renderTotals();
   }
@@ -190,8 +210,8 @@ function buildEditor(order, navigate, ctx) {
       results.replaceChildren(...(found.length ? found.map((p) => h('li', {}, h('button', { class: 'btn picker-item', type: 'button', onclick: () => {
         const existing = state.lines.find((l) => l.project_id === p.id);
         if (existing) existing.quantity = String(Math.floor(parseNum(existing.quantity)) + 1);
-        else state.lines.push({ project_id: p.id, project_number: p.number, description: p.name, quantity: '1',
-          unit_price: str(p.totals.sell_price_incl_vat), vat_pct: str(Number(p.vat_pct)) });
+        else state.lines.push({ project_id: p.id, project_number: p.number, description: p.name, quantity: '1', unit_price: '',
+          cost_price: str(p.totals.cost_price), margin_pct: str(Number(p.margin_pct)), vat_pct: str(Number(p.vat_pct)) });
         added.set(p.id, (added.get(p.id) || 0) + 1);
         touch(); drawLines(); draw();
       } }, h('span', { class: 'badge' }, `#${p.number}`), h('span', { class: 'grow' }, p.name),
@@ -364,12 +384,15 @@ function buildEditor(order, navigate, ctx) {
             field(t('orders.status'), statusSelect)),
           field(t('orders.subject'), textInput('subject', { maxlength: 200, placeholder: t('orders.subject_ph') }), t('orders.subject_hint'))),
         h('div', { class: 'glass card stack' }, h('h2', {}, t('orders.customer')), customerBox),
-        h('div', { class: 'glass card' }, h('h2', {}, t('orders.models')), h('p', { class: 'muted' }, t('orders.models_hint')), linesBox,
+        h('div', { class: 'glass card stack' }, h('h2', {}, t('orders.models')), h('p', { class: 'muted' }, t('orders.models_hint')),
+          field(t('orders.rounding'), h('select', { onchange: (e) => { state.price_rounding = e.target.value; touch(); } },
+            ROUNDINGS.map(([v, k]) => h('option', { value: v, selected: state.price_rounding === v }, t(k)))), t('orders.rounding_hint')),
+          linesBox,
           h('datalist', { id: 'order-vat-presets' }, ['0', '9', '21'].map((v) => h('option', { value: v }))),
           h('div', { class: 'row' },
             h('button', { class: 'btn primary small', type: 'button', id: 'add-model', onclick: pickModel }, icon('plus'), h('span', {}, t('orders.add_model'))),
             h('button', { class: 'btn small', type: 'button', onclick: () => {
-              state.lines.push({ project_id: null, project_number: null, description: '', quantity: '1', unit_price: '', vat_pct: defaultVat });
+              state.lines.push({ project_id: null, project_number: null, description: '', quantity: '1', unit_price: '', cost_price: null, margin_pct: '', vat_pct: defaultVat });
               touch(); drawLines();
             } }, icon('plus'), h('span', {}, t('orders.add_free_line'))))),
         h('div', { class: 'glass card' }, field(t('orders.notes'), h('textarea', { rows: 3, maxlength: 2000, oninput: (e) => bind('notes')(e.target.value) }, state.notes || ''), t('orders.notes_hint')))),
