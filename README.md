@@ -58,7 +58,7 @@ Selling 3D prints means knowing what each one costs: filament by the gram, machi
 
 ## Features
 
-- **Cost price in seconds**: filament, parts, accessories (cables, chargers), packaging, printer depreciation and energy add up to a cost price, with an optional margin for a recommended selling price. Every line is rounded to the cent first, so the lines on screen add up to the total.
+- **Cost price in seconds**: filament, parts, accessories (cables, chargers), printer depreciation and energy add up to a cost price, with an optional margin for a recommended selling price. Every line is rounded to the cent first, so the lines on screen add up to the total.
 - **Straight from the slicer**: attach a `.3mf` or `.stl` file. A sliced 3MF (Bambu Studio / Orca) gives the real grams per filament and the print time, which go into the calculation automatically; an STL gives a weight estimate.
 - **Filament library and invoice import**: keep the specs of the filaments you buy (brand, type, colour, supplier filament ID, weight, diameter, temperatures) in a library, so a new roll fills itself in. Read a Bambu Lab invoice (PDF) to add the filaments, and the rolls, in one go; export and import the library as JSON, or sync it from GitHub.
 - **Filament stock with barcode scanning**: your rolls with price, remaining weight, colour and temperatures, grouped per kind. Scan a barcode with your phone camera and a known roll fills itself in. Get a notification when a kind is nearly out, and book the usage of a calculation off the stock with one click.

@@ -237,33 +237,41 @@ function buildEditor(order, navigate, ctx) {
     } catch (e) { toast(e.message, 'error'); } finally { button.disabled = false; }
   }
 
-  // Loose accessories from the accessory list (cables, chargers), without a calculation: an optional line at cost price, which the
-  // invoice lists apart from the products. Choosing the same one again adds one more of it.
-  async function pickAccessory() {
+  // Loose items from a price list, without a calculation: an accessory (cable, charger) is an optional line, which the invoice lists apart
+  // from the products; packaging material (box, tape, filler) is a normal line, because it is billed with the order. Both are at cost price
+  // with margin 0. Choosing the same one again adds one more of it.
+  const CATALOGUES = {
+    accessory: { path: '/api/accessories', optional: true, per: 'orders.accessory_per', title: 'orders.add_accessory', hint: 'orders.add_accessory_hint',
+      search: 'orders.search_accessories', placeholder: 'orders.search_accessories_ph', none: 'orders.no_accessories', noMatch: 'orders.no_accessories_match' },
+    packaging: { path: '/api/packaging', optional: false, per: 'orders.packaging_per', title: 'orders.add_packaging', hint: 'orders.add_packaging_hint',
+      search: 'orders.search_packaging', placeholder: 'orders.search_packaging_ph', none: 'orders.no_packaging', noMatch: 'orders.no_packaging_match' },
+  };
+  async function pickItem(kind) {
+    const c = CATALOGUES[kind];
     let items;
-    try { items = (await api('GET', '/api/accessories')).filter((a) => !a.archived); } catch (e) { toast(e.message, 'error'); return; }
+    try { items = (await api('GET', c.path)).filter((a) => !a.archived); } catch (e) { toast(e.message, 'error'); return; }
     const results = h('ul', { class: 'plain-list picker', 'aria-live': 'polite' });
     const added = new Map();
-    const search = h('input', { type: 'text', autocomplete: 'off', placeholder: t('orders.search_accessories_ph'), 'aria-label': t('orders.search_accessories') });
-    const per = (a) => (a.unit === 'stuks' ? '' : ` / ${a.unit === 'g' ? 'kg' : a.unit}`);
-    const describe = (a) => (a.unit === 'stuks' ? a.name : t('orders.accessory_per', { name: a.name, unit: a.unit === 'g' ? 'kg' : a.unit }));
+    const search = h('input', { type: 'text', autocomplete: 'off', placeholder: t(c.placeholder), 'aria-label': t(c.search) });
+    const per = (a) => (a.unit === 'stuks' || !a.unit ? '' : ` / ${a.unit === 'g' ? 'kg' : a.unit}`);
+    const describe = (a) => (a.unit === 'stuks' || !a.unit ? a.name : t(c.per, { name: a.name, unit: a.unit === 'g' ? 'kg' : a.unit }));
     const draw = () => {
       const q = search.value.trim().toLowerCase();
       const found = items.filter((a) => !q || a.name.toLowerCase().includes(q));
       results.replaceChildren(...(found.length ? found.map((a) => h('li', {}, h('button', { class: 'btn picker-item', type: 'button', onclick: () => {
-        const existing = state.lines.find((l) => !l.project_id && l.optional && l.description === describe(a) && Number(l.cost_price) === Number(a.price));
+        const existing = state.lines.find((l) => !l.project_id && !!l.optional === c.optional && l.description === describe(a) && Number(l.cost_price) === Number(a.price));
         if (existing) existing.quantity = String(Math.floor(parseNum(existing.quantity)) + 1);
-        else state.lines.push({ project_id: null, project_number: null, optional: true, description: describe(a), quantity: '1', unit_price: '', cost_price: str(Number(a.price)),
+        else state.lines.push({ project_id: null, project_number: null, optional: c.optional, description: describe(a), quantity: '1', unit_price: '', cost_price: str(Number(a.price)),
           margin_pct: '0', vat_pct: defaultVat });
         added.set(a.id, (added.get(a.id) || 0) + 1);
         touch(); drawLines(); draw();
       } }, h('span', { class: 'grow' }, a.name), added.has(a.id) ? h('span', { class: 'muted' }, `+${added.get(a.id)}`) : null,
-      h('strong', {}, `${eur(a.price)}${per(a)}`)))) : [h('li', { class: 'muted' }, items.length ? t('orders.no_accessories_match') : t('orders.no_accessories'))]));
+      h('strong', {}, `${eur(a.price)}${per(a)}`)))) : [h('li', { class: 'muted' }, items.length ? t(c.noMatch) : t(c.none))]));
     };
     search.addEventListener('input', draw);
     const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
-      h('h2', {}, t('orders.add_accessory')), h('p', { class: 'muted' }, t('orders.add_accessory_hint')),
-      field(t('orders.search_accessories'), search), results,
+      h('h2', {}, t(c.title)), h('p', { class: 'muted' }, t(c.hint)),
+      field(t(c.search), search), results,
       h('div', { class: 'row end' }, h('button', { class: 'btn primary', type: 'button', onclick: () => dialog.requestClose() }, t('orders.done')))));
     dialog.addEventListener('close', () => dialog.remove());
     document.body.append(dialog);
@@ -465,7 +473,8 @@ function buildEditor(order, navigate, ctx) {
           h('datalist', { id: 'order-vat-presets' }, ['0', '9', '21'].map((v) => h('option', { value: v }))),
           h('div', { class: 'row' },
             h('button', { class: 'btn primary small', type: 'button', id: 'add-model', onclick: pickModel }, icon('plus'), h('span', {}, t('orders.add_model'))),
-            h('button', { class: 'btn small', type: 'button', id: 'add-accessory', onclick: pickAccessory }, icon('plus'), h('span', {}, t('orders.add_accessory'))),
+            h('button', { class: 'btn small', type: 'button', id: 'add-accessory', onclick: () => pickItem('accessory') }, icon('plus'), h('span', {}, t('orders.add_accessory'))),
+            h('button', { class: 'btn small', type: 'button', id: 'add-packaging', onclick: () => pickItem('packaging') }, icon('plus'), h('span', {}, t('orders.add_packaging'))),
             h('button', { class: 'btn small', type: 'button', onclick: () => {
               state.lines.push({ project_id: null, project_number: null, optional: false, description: '', quantity: '1', unit_price: '', cost_price: null, margin_pct: '', vat_pct: defaultVat });
               touch(); drawLines();

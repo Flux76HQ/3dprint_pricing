@@ -121,7 +121,7 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
     totals.replaceChildren(
       ...cost(t('calc.filament'), s.filament), ...cost(t('calc.parts'), s.parts), ...cost(t('calc.charger'), s.charger),
       ...cost(t('calc.sub_parts'), s.parts_and_charger, 'sub'),
-      ...cost(t('calc.packaging'), s.packaging),
+      ...(Number(s.packaging) > 0 ? cost(t('calc.packaging'), s.packaging) : []),
       ...cost(t('calc.depreciation'), s.depreciation), ...cost(t('calc.energy'), s.energy),
       ...cost(t('calc.sub_energy'), s.energy_and_depreciation, 'sub'),
       ...cost(t('calc.total_cost'), result.cost_price, 'grand'),
@@ -209,7 +209,7 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
     oplader: { items: accessories, key: 'accessory_id', label: 'calc.accessory' },
   };
 
-  function partsSection(group, title, hint) {
+  function partsSection(group, title, hint, canAdd = true) {
     const { items, key, label } = catalogues[group];
     const known = (r) => (r[key] && items.some((p) => p.id === r[key]) ? r[key] : '');
     const rows = state.parts.map((r, i) => (r.group !== group ? null : h('div', { class: 'line parts pack' },
@@ -226,7 +226,7 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
       costCell('parts', i),
       removeBtn(t('calc.remove_line'), () => { state.parts.splice(i, 1); touch(); redraw(); }))));
     return section(title, hint, rows,
-      h('button', { class: 'btn small', type: 'button', onclick: () => { state.parts.push(blankPart(group)); redraw(); } }, icon('plus'), h('span', {}, t('calc.add_line'))));
+      canAdd ? h('button', { class: 'btn small', type: 'button', onclick: () => { state.parts.push(blankPart(group)); redraw(); } }, icon('plus'), h('span', {}, t('calc.add_line'))) : null);
   }
 
   function printSection() {
@@ -278,13 +278,12 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
 
   function redraw() {
     costEls.parts = [];
-    sections.replaceChildren(
+    fill(sections,
       filamentSection(),
       partsSection('onderdeel', t('calc.other_parts'), parts.length ? t('calc.other_parts_hint') : t('calc.parts_tip')),
       partsSection('oplader', t('calc.charger_title'), accessories.length ? t('calc.charger_hint') : t('calc.accessories_tip')),
-      partsSection('verpakking', t('calc.packaging_title'), packaging.length
-        ? t('calc.packaging_hint')
-        : t('calc.packaging_tip')),
+      // Packaging is added on the order now; a calculation saved with packaging keeps it (and its cost) until the lines are removed.
+      state.parts.some((r) => r.group === 'verpakking') ? partsSection('verpakking', t('calc.packaging_title'), t('calc.packaging_hint'), false) : null,
       printSection());
     renderTotals();
   }

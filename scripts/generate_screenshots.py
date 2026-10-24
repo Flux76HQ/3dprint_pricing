@@ -181,26 +181,23 @@ def seed(api):
     def part(group, label, qty, unit, price, packaging=None, **link):
         return {"group": group, "packaging_id": packaging["id"] if packaging else "", "label": label, "quantity": str(qty), "unit": unit, "unit_price": str(price), **link}
 
-    def packed(key, qty=1, unit="stuks"):
-        return part("verpakking", pack[key]["name"], qty, unit, pack[key]["price"], pack[key])
-
     def calc(name, fils, hours, printer_key, parts, margin="120", url=""):
         return api("POST", "/api/projects", {
             "name": name, "notes": "", "margin_pct": margin, "vat_pct": "21", "source_url": url,
             "data": {"filament": fils, "parts": parts, "print": {"depreciation": [dep(printer_key, hours)], "energy": [energy(printer_key, hours)]}}})
 
-    calc("Telefoonstandaard Hexa", [fil("zwart", "PLA Basic Zwart", 38)], 2.4, "p1s", [packed("s"), packed("w")], url="https://makerworld.com/nl/models/123456")
-    calc("Bloempot Gyroïde (medium)", [fil("groen", "PolyTerra Salie", 112)], 5.2, "p1s", [packed("m"), packed("f"), packed("w")], margin="150")
-    calc("Kabelhouder bureau (set van 4)", [fil("wit", "PLA Basic Wit", 46)], 3.1, "a1", [packed("s"), packed("w")], margin="140")
+    calc("Telefoonstandaard Hexa", [fil("zwart", "PLA Basic Zwart", 38)], 2.4, "p1s", [], url="https://makerworld.com/nl/models/123456")
+    calc("Bloempot Gyroïde (medium)", [fil("groen", "PolyTerra Salie", 112)], 5.2, "p1s", [], margin="150")
+    calc("Kabelhouder bureau (set van 4)", [fil("wit", "PLA Basic Wit", 46)], 3.1, "a1", [], margin="140")
     calc("Sleutelhanger Vos", [fil("rood", "PLA Matte Rood", 9), fil("wit", "PLA Basic Wit", 3)], 0.9, "a1",
-         [part("onderdeel", "Sleutelring", 1, "stuks", "0.15"), packed("w")], margin="250")
-    calc("Vaas Silk Goud", [fil("goud", "PLA Silk Goud", 164)], 7.8, "x1", [packed("m"), packed("f", 2, "m"), packed("w")], margin="130")
+         [part("onderdeel", "Sleutelring", 1, "stuks", "0.15")], margin="250")
+    calc("Vaas Silk Goud", [fil("goud", "PLA Silk Goud", 164)], 7.8, "x1", [], margin="130")
     # The one the screenshots open: several lines per section, and a model link so the file box is filled in.
     calc("Raspberry Pi 5 behuizing", [fil("zwart", "PLA Basic Zwart", 58), fil("blauw", "PLA Basic Blauw", 6)], 4.4, "p1s",
          [part("onderdeel", "M2.5 schroeven", 4, "stuks", "0.06", part_id=extra["schroef"]["id"]),
-          part("oplader", "USB-C kabel", 1, "stuks", "1.40", accessory_id=extra["kabel"]["id"]), packed("s"), packed("w")],
+          part("oplader", "USB-C kabel", 1, "stuks", "1.40", accessory_id=extra["kabel"]["id"])],
          margin="110", url="https://makerworld.com/nl/models/987654")
-    calc("Fietsbel-houder (TPU)", [fil("tpu", "TPU 95A Geel", 21)], 1.6, "a1", [packed("s")], margin="200")
+    calc("Fietsbel-houder (TPU)", [fil("tpu", "TPU 95A Geel", 21)], 1.6, "a1", [], margin="200")
 
     projects = {p["name"]: p for p in api("GET", "/api/projects")}
     people = [
@@ -223,10 +220,15 @@ def seed(api):
         return {"project_id": project["id"], "description": description or name, "quantity": qty, "vat_pct": "21",
                 "cost_price": project["totals"]["cost_price"], "margin_pct": project["margin_pct"] if margin is None else margin}
 
+    def packaging(key, qty=1):
+        """Packaging material on an order: a normal line at cost price (margin 0)."""
+        return {"project_id": None, "description": pack[key]["name"], "quantity": qty, "vat_pct": "21",
+                "cost_price": pack[key]["price"], "margin_pct": "0"}
+
     # Margin per line and rounding per order: a regular customer gets a lower margin, a café a price ending in ,95.
     orders = [
-        ("Studio Bloem", "nieuw", -1, 6, "Plantenbakken voor de winkel", "x.95", [line("Bloempot Gyroïde (medium)", 12, margin="110"), line("Vaas Silk Goud", 4)]),
-        ("Fam. Janssen", "verwerkt", -3, 3, "Telefoonstandaards", "0.50", [line("Telefoonstandaard Hexa", 3)]),
+        ("Studio Bloem", "nieuw", -1, 6, "Plantenbakken voor de winkel", "x.95", [line("Bloempot Gyroïde (medium)", 12, margin="110"), line("Vaas Silk Goud", 4), packaging("m", 2), packaging("f", 3), packaging("w")]),
+        ("Fam. Janssen", "verwerkt", -3, 3, "Telefoonstandaards", "0.50", [line("Telefoonstandaard Hexa", 3), packaging("s"), packaging("w")]),
         ("Café 't Hoekje", "verstuurd", -6, -1, "Menukaarthouders", "x.95", [line("Kabelhouder bureau (set van 4)", 6, "Menukaarthouder (set van 4)")]),
         ("De Vries Installatie", "afgehandeld", -14, -8, "Behuizingen Raspberry Pi 5", "1.00", [line("Raspberry Pi 5 behuizing", 20, margin="90")]),
         ("Lotte Smit", "afgehandeld", -20, -15, "Sleutelhangers", "x.99", [line("Sleutelhanger Vos", 8), line("Fietsbel-houder (TPU)", 2)]),

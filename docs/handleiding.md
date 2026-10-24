@@ -6,7 +6,7 @@
 Zelf-gehoste PWA om de **kostprijs van 3D-prints** uit te rekenen en de voorraad en tarieven bij
 te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (geen wachtwoord).
 
-- **3D Modellen** (menu; voorheen *Berekeningen*) — de berekening per model: filament, onderdelen, accessoires (kabels/laders), **verpakkingsmateriaal**, printerafschrijving en
+- **3D Modellen** (menu; voorheen *Berekeningen*) — de berekening per model: filament, onderdelen, accessoires (kabels/laders), printerafschrijving en
   energie → totale kostprijs, optioneel met marge voor een adviesverkoopprijs. Opgeslagen berekeningen
   bewaren de prijzen van het moment van opslaan.
 - **Printbestand koppelen** — upload een `.3mf` of `.stl` bij een berekening; het bestand blijft bewaard en is later
@@ -30,8 +30,9 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
   **voorraad per soort**: de rollen die je nog hebt met hun gewicht, het totaal per soort en per materiaal (een soort is
   één barcode, of merk + materiaal + kleur). Merk (bijvoorbeeld *Bambu Lab*) en **type** (*Matte*, *Basic*, *Silk*) zijn aparte velden; een bestaande rol houdt wat in het merkveld stond en het type is leeg tot je het invult. Pas je bij een rol met barcode merk, type, materiaal, kleur, gewicht, diameter of temperaturen aan, dan vraagt de app bij het opslaan of de andere rollen met dezelfde barcode ook bijgewerkt moeten worden (alleen wat je veranderde; prijs, wat er nog over is en notities zijn per rol en blijven staan). Je kunt de lijst en de voorraad filteren op **soort** (materiaal), **merk** en **type**; elke keuzelijst past zich aan de vorige keuzes aan. Verbruik van een berekening kun je met één klik van de voorraad afboeken.
   Het menu *Filament* heeft twee onderdelen: **Voorraad** (de soorten als tegels met een spoel-icoon in de kleur van de rol: twee naast elkaar op een telefoon, meer op een breder scherm, hooguit drie rijen met een chevron voor de rest) en **Rollen** (de rolinfo met sorteerknoppen bovenaan: naam, materiaal, resterend, prijs per kg, nieuwste; tik nog eens om om te draaien). De kleur kies je per rol (*Kleur van de rol*); kies je niets, dan wordt hij uit de naam geraden (*zwart*, *Red*, …). Het icoon is in de stijl van de Material Design-iconen getekend, want die hebben geen filamentspoel.
-- **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. In een berekening kies je er
-  per product een uit de lijst (of vul je een regel zelf in); de prijs wordt in de berekening bewaard.
+- **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. Verpakking hoort bij de **bestelling**, niet bij het model: met
+  *Verpakking toevoegen* in de bestelling kies je er een uit de lijst (zie *Verpakking op een bestelling*). Een berekening die al verpakking bevatte, houdt die
+  (en de kosten ervan) tot je de regel verwijdert; nieuwe verpakking kun je er niet meer aan toevoegen.
 - **Onderdelen** — twee lijsten onder één menu. **Onderdelen** zijn extra onderdelen zoals kabeltjes, connectoren en chips;
   **Accessoires** zijn kabels en laders die bij een product horen. Elk item heeft een prijs per eenheid (per stuk, per meter
   of per kg). In een berekening kies je ze per product uit de lijst bij *Andere onderdelen* of *Accessoires* (of vul je een
@@ -40,7 +41,7 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
 - **Energie** — tarieven per kWh, met een standaardtarief.
 - Licht/donker/systeem, eigen accentkleur, installeerbaar op je beginscherm.
 
-De kostprijs volgt de spreadsheet: `filament + onderdelen + accessoires + verpakking + afschrijving + energie`, elke
+De kostprijs volgt de spreadsheet: `filament + onderdelen + accessoires + afschrijving + energie` (plus de verpakking van een oudere berekening die er nog in staat), elke
 regel op hele centen afgerond vóór het optellen. **Machinetijd (afschrijving en stroom) wordt altijd naar boven
 afgerond op hele uren**: 3,06 uur rekent als 4 uur.
 
@@ -353,6 +354,8 @@ uit de som van de regels gehaald, zodat wat de klant betaalt precies de som van 
 en zoek je op naam, klantnummer, plaats, bestelnummer of factuurnummer; de status zet je daar met één keuzelijst, of in de bestelling zelf.
 
 **Losse accessoires op een bestelling**: met *Accessoire toevoegen* kies je een accessoire uit je lijst (*Onderdelen → Accessoires*, gearchiveerde staan er niet bij) en komt het als optionele regel tegen inkoopprijs (marge 0, aanpasbaar) op de bestelling, ook zonder berekening. Kies je hetzelfde nog eens, dan gaat het aantal omhoog. Een accessoire per meter of per kg krijgt dat achter de omschrijving.
+
+**Verpakking op een bestelling**: met *Verpakking toevoegen* kies je verpakkingsmateriaal uit je lijst (*Verpakking*, gearchiveerde staan er niet bij) en komt het als gewone regel (niet optioneel) tegen inkoopprijs (marge 0, aanpasbaar) op de bestelling, zodat het in het totaal en op de factuur zit. Kies je hetzelfde nog eens, dan gaat het aantal omhoog. Wat je per bestelling nodig hebt (één doos voor drie modellen) bepaal je dus zelf, in plaats van per model.
 
 **Accessoires op een bestelling**: kies je een berekening die accessoires (kabels, laders) heeft, dan komt het model op één regel en elke accessoire op een eigen regel, aangevinkt als *Optioneel (accessoire)* en tegen **inkoopprijs** (marge 0; de btw en afronding van de bestelling gelden wel). Het model houdt de rest van de kostprijs en de marge. Zo'n regel kun je aanpassen of weghalen als de klant hem niet wil, en je kunt elke regel zelf als optioneel markeren. Optionele regels tellen gewoon mee in het totaal, maar de factuur zet ze **apart onder het kopje *Accessoires (optioneel)*** na de andere regels, want het product werkt ook zonder. In een Word-sjabloon, waar één rij voor elke regel wordt herhaald, staat achter de omschrijving *(optioneel)*.
 
