@@ -318,8 +318,19 @@ zie je in de app niets. De server beslist, niet de browser.
    liggend 3:2, staand 2:3 en een studiofoto met neutrale achtergrond. Elke afbeelding kost API-tegoed bij OpenAI; de app vraagt eerst bevestiging,
    begrenst het aantal per uur en bewaart er hooguit 12 per berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met
    berekeningen) of verwijderen.
+4. **Op de achtergrond**: het maken gebeurt op de server, niet in je browser. Een draaiende cirkel en grijze plekhouders in de vorm van de komende afbeelding laten de
+   voortgang zien (“1 van 4 klaar”); je kunt de pagina verlaten of de browser sluiten, het maken gaat door. In de lijst met berekeningen staat intussen een
+   *Afbeeldingen worden gemaakt*-label, en terug in de berekening zie je de voortgang of het resultaat. Per berekening loopt er één reeks tegelijk. Zakt de server
+   er tussendoor uit (herstart), dan geeft de app een afbeelding die ruim vijf minuten niet verder kwam op als *onderbroken* en kun je het opnieuw proberen. Wat niet
+   lukte staat onder de kaart, met een knop naar het logboek. Een probleem met sleutel, tegoed of model stopt de rest van de reeks meteen; een time-out of
+   inhoudsfilter niet.
+5. **Logboek**: *Instellingen → AI-afbeeldingen* heeft onder de sleutel een *Logboek* met wat er gebeurde: foto geüpload, reeks in de wachtrij, afbeelding gestart en
+   klaar (met de duur), een gewijzigde sleutel of gewijzigde instellingen, en elke fout met de melding en wat OpenAI zelf zei (bijvoorbeeld `HTTP 429
+   insufficient_quota`). Stukjes die op een sleutel lijken worden eruit gehaald. De nieuwste regel staat bovenaan, het logboek ververst zichzelf, de laatste 500 regels blijven
+   bewaard en het is leeg te maken. Het logboek en de voortgang zitten niet in de back-up.
 
-De foto en de gemaakte afbeeldingen staan in de database (tabel `project_images`) en zitten in de back-up; de API-sleutel zit er bewust niet in. De foto en
+De foto en de gemaakte afbeeldingen staan in de database (tabel `project_images`) en zitten in de back-up; de API-sleutel zit er bewust niet in. De wachtrij en het logboek
+(`ai_image_jobs`, `ai_image_log`) beschrijven lopend werk en geschiedenis en zitten er niet in. De foto en
 je omschrijving gaan naar OpenAI; wat daar mee gebeurt volgt hun voorwaarden.
 
 ## Bestellingen en facturen

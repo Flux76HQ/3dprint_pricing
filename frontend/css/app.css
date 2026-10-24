@@ -459,6 +459,29 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .ai-tile { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .ai-tile img { width: 100%; height: auto; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: #fff; }
 .ai-tile figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* Busy: a spinner, and a frame in the shape of the picture to come that pulses */
+.spinner { flex: none; width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 3px solid var(--rand); border-top-color: var(--accent); animation: ai-spin .8s linear infinite; }
+.spinner.small { width: 12px; height: 12px; border-width: 2px; }
+.ai-progress { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--rand); border-radius: var(--radius-sm); }
+.ai-progress p { margin: 2px 0 0; }
+.ai-skeleton { width: 100%; display: grid; place-items: center; border-radius: var(--radius-sm); border: 1px dashed var(--rand); background: var(--rand); animation: ai-pulse 1.6s ease-in-out infinite; }
+.ai-skeleton.v-square, .ai-skeleton.v-studio { aspect-ratio: 1 / 1; }
+.ai-skeleton.v-landscape { aspect-ratio: 3 / 2; }
+.ai-skeleton.v-portrait { aspect-ratio: 2 / 3; }
+.ai-tile.pending figcaption { flex-direction: column; align-items: flex-start; gap: 0; }
+.badge.ai-busy { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; }
+.ai-failed ul { margin: 0; padding-left: 18px; }
+.ai-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.ai-log-row { display: grid; grid-template-columns: auto auto 1fr; gap: 4px 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--rand); }
+.ai-log-row time { color: var(--muted, inherit); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.log-level { font-size: .75rem; font-weight: 650; text-transform: uppercase; letter-spacing: .03em; }
+.log-level.error { color: var(--danger); }
+.ai-log-text { min-width: 0; overflow-wrap: anywhere; }
+.ai-log-detail { display: block; margin-top: 2px; font-size: .8rem; opacity: .8; }
+@media (max-width: 560px) { .ai-log-row { grid-template-columns: auto 1fr; } .ai-log-text { grid-column: 1 / -1; } }
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+@keyframes ai-pulse { 0%, 100% { opacity: .45; } 50% { opacity: .9; } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } .ai-skeleton { animation: none; } }
 .logo-preview { max-width: 220px; max-height: 80px; object-fit: contain; padding: 6px; border: 1px solid var(--rand); border-radius: var(--radius-sm); background: #fff; }
 
 /* Filament: the stock as tiles (two side by side on a phone, more when there is room), the roll icon and the sort buttons */

@@ -1,4 +1,4 @@
-import { coverUrl, productImagesCard } from './ai-images.js';
+import { busyBadge, coverUrl, productImagesCard } from './ai-images.js';
 import { api, upload } from './api.js';
 import { formatDate, t } from './i18n.js';
 import { setDirty } from './updates.js';
@@ -21,7 +21,8 @@ export function projectListView(ctx) {
       h('div', { class: 'item-head' },
         ctx.aiImages && p.cover_image_id ? h('img', { class: 'cover-thumb', src: coverUrl(p.cover_image_id), alt: '', loading: 'lazy' }) : null,
         h('div', { class: 'grow' }, h('h3', {}, h('span', { class: 'badge' }, `#${p.number}`), ' ', p.name,
-          p.stock_booked_at ? h('span', { class: 'badge' }, t('calc.stock_booked')) : null),
+          p.stock_booked_at ? h('span', { class: 'badge' }, t('calc.stock_booked')) : null,
+          ctx.aiImages && p.ai_busy ? busyBadge() : null),
         h('p', { class: 'muted' }, dateFmt(p.updated_at)))),
       h('dl', { class: 'stats' },
         h('div', {}, h('dt', {}, t('calc.cost_price')), h('dd', { class: 'private' }, eur(p.totals.cost_price))),

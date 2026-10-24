@@ -74,7 +74,9 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - AI product images (`backend/app/ai_images.py`, `frontend/js/ai-images.js`) are optional and exist only with `AI_IMAGES_ENABLED=TRUE`: the flag is checked on the server for every route
   (404 when off) and the browser only follows `ai_images` in `/api/auth/status`. The OpenAI key is typed under Settings, kept sealed with `passwords.seal` (own `info` label) and never returned or
   put in a backup (`test_backup.py` and `test_ai_images.py` assert it); photos and results are re-encoded and live in the database (`project_images`), not under `UPLOAD_DIR`. One picture per
-  request (gunicorn's timeout), the host is fixed, and `test_ai_images.py` mocks `requests.request`: never call OpenAI from a test.
+  picture, made by a background thread of the web worker that took the request (`ai_image_jobs` is the state the browser polls, so leaving the page stops nothing; a job that has not moved for 5 minutes is
+  failed as interrupted when it is next read), every event and error goes to `ai_image_log` (message key + parameters, worded when read; text from OpenAI is scrubbed of anything key-like and cut short; never the key),
+  neither is in a backup. The host is fixed, and `test_ai_images.py` mocks `requests.request` and runs the thread on the spot: never call OpenAI from a test. A frontend child that may be `null` goes through `fill()`, not a bare `replaceChildren`.
 - Third-party browser code is vendored under `frontend/vendor/` (unmodified, with its licence and a
   README saying how to update), never loaded from a CDN: the CSP only allows scripts from this origin.
   Currently only ZXing, for barcode scanning where the browser has no `BarcodeDetector`.
