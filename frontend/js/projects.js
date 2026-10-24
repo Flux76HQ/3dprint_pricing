@@ -1,7 +1,7 @@
 import { api, upload } from './api.js';
 import { formatDate, t } from './i18n.js';
 import { setDirty } from './updates.js';
-import { blurToggle, confirmDialog, eur, field, fmt, h, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
+import { blurToggle, confirmDialog, eur, field, fill, fmt, h, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
 
 // [value sent to the server, label key]
 const ROUNDINGS = [['none', 'rounding.none'], ['0.05', 'rounding.5c'], ['0.10', 'rounding.10c'], ['0.50', 'rounding.50c'],
@@ -430,7 +430,7 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
       }
     }
     parts.push(field(t('file.link'), url, t('file.link_hint')), link);
-    fileBox.replaceChildren(...parts);
+    fill(fileBox, ...parts);
   }
 
   if (state.file_id) {
