@@ -64,6 +64,7 @@ PLACEHOLDERS = (
     "bedrijf.website", "bedrijf.kvk", "bedrijf.btw_nummer", "bedrijf.iban", "bedrijf.bic", "bedrijf.tekst",
     "totaal_excl", "btw_totaal", "totaal", "btw_overzicht", "btw_labels", "btw_bedragen", "betaaltekst",
     "regel.nr", "regel.omschrijving", "regel.aantal", "regel.prijs", "regel.btw", "regel.bedrag_excl", "regel.bedrag_incl", "regel.totaal",
+    "regel.optioneel",
 )
 
 
@@ -190,7 +191,8 @@ def line_mappings(lines: list, totals: dict, lang: str) -> list:
     return [{"regel.nr": str(i), "regel.omschrijving": line["description"], "regel.aantal": str(line["quantity"]),
              "regel.prijs": money(line["unit_price"], lang), "regel.btw": f"{format(Decimal(line['vat_pct']).normalize(), 'f')}%",
              "regel.bedrag_excl": money(totals["line_net"][i - 1], lang), "regel.bedrag_incl": money(totals["line_totals"][i - 1], lang),
-             "regel.totaal": money(totals["line_totals"][i - 1], lang)}
+             "regel.totaal": money(totals["line_totals"][i - 1], lang),
+             "regel.optioneel": translate(lang, "invoice.optional") if line.get("optional") else ""}
             for i, line in enumerate(lines, 1)]
 
 
@@ -547,8 +549,13 @@ def _story(order, lines, totals, mapping, rows, lang, width, images):
 
     qty, excl, incl = 39.0, 80.0, 94.5
     data = [[_p(t("invoice.col_qty"), small), _p(t("invoice.col_desc"), small), _p(t("invoice.col_excl"), right_small), _p(t("invoice.col_incl"), right_small)]]
+    headings = []
     for i, row in enumerate(rows):
         pct = row["regel.btw"]
+        if row.get("heading"):
+            headings.append(i + 1)
+            data.append(["", _p(row["regel.omschrijving"], ParagraphStyle("heading", parent=base, fontName=bold)), "", ""])
+            continue
         data.append([_p(row["regel.aantal"], base), _p(row["regel.omschrijving"], base), _p(row["regel.bedrag_excl"], right),
                      [_p(row["regel.bedrag_incl"], right), _p(t("invoice.vat_label", pct=pct.rstrip("%")), right_small)]])
     table = Table(data, colWidths=[qty, full - qty - excl - incl, excl, incl], repeatRows=1)
@@ -556,6 +563,7 @@ def _story(order, lines, totals, mapping, rows, lang, width, images):
              ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4), ("TOPPADDING", (0, 0), (-1, 0), 0),
              ("BOTTOMPADDING", (0, 0), (-1, 0), 4), ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.black),
              ("LINEBELOW", (0, -1), (-1, -1), 0.6, colors.black)]
+    style += [("TOPPADDING", (0, i), (-1, i), 12) for i in headings]      # a little air above the heading of the optional lines
     table.setStyle(TableStyle(style))
     story.append(table)
 
@@ -621,6 +629,19 @@ def render_invoice(order: dict, lines: list, totals: dict, business: dict, templ
     mapping = build_mapping(order, totals, business, lang)
     rows = line_mappings(lines, totals, lang)
     images = images_for(order, totals, business, logo)
+    # Optional lines (accessories) are listed apart: the built-in layout puts a heading above them; in a Word template, whose one row is
+    # repeated for every line, each of them says "optioneel" itself (and `{{regel.optioneel}}` is there for a template that wants its own place).
+    if template and template["kind"] == "docx":
+        for row in rows:
+            if row["regel.optioneel"]:
+                row["regel.omschrijving"] = f"{row['regel.omschrijving']} ({row['regel.optioneel']})"
+    else:
+        first = next((i for i, row in enumerate(rows) if row["regel.optioneel"]), None)
+        if first is not None:
+            heading = {key: "" for key in rows[0]}
+            heading["regel.omschrijving"] = translate(lang, "invoice.optional_heading")
+            heading["heading"] = "1"
+            rows.insert(first, heading)
     if template and template["kind"] == "docx":
         return (render_docx(template["content"], mapping, rows, images),
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx")

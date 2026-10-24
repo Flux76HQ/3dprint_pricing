@@ -351,6 +351,8 @@ door de server uitgerekend; een latere wijziging van de berekening verandert een
 uit de som van de regels gehaald, zodat wat de klant betaalt precies de som van de regels is. In de lijst filter je op status
 en zoek je op naam, klantnummer, plaats, bestelnummer of factuurnummer; de status zet je daar met één keuzelijst, of in de bestelling zelf.
 
+**Accessoires op een bestelling**: kies je een berekening die accessoires (kabels, laders) heeft, dan komt het model op één regel en elke accessoire op een eigen regel, aangevinkt als *Optioneel (accessoire)* en tegen **inkoopprijs** (marge 0; de btw en afronding van de bestelling gelden wel). Het model houdt de rest van de kostprijs en de marge. Zo'n regel kun je aanpassen of weghalen als de klant hem niet wil, en je kunt elke regel zelf als optioneel markeren. Optionele regels tellen gewoon mee in het totaal, maar de factuur zet ze **apart onder het kopje *Accessoires (optioneel)*** na de andere regels, want het product werkt ook zonder. In een Word-sjabloon, waar één rij voor elke regel wordt herhaald, staat achter de omschrijving *(optioneel)*.
+
 **Facturen**: *Factuur genereren (PDF)* maakt de factuur van de bestelling als **PDF**, bewaart hem op de server en downloadt hem. De eerste keer krijgt de factuur een
 nummer (`JJJJ-0001`, per jaar doorgeteld, nooit tweemaal uitgegeven) en een factuurdatum (vandaag, daarna aan te passen);
 daarna maakt dezelfde knop (*Factuur opnieuw genereren*) hem opnieuw met hetzelfde nummer en wat de bestelling nu zegt, en vervangt de bewaarde PDF. *Factuur downloaden (PDF)* geeft de bewaarde PDF zoals hij gemaakt is, zonder opnieuw te genereren. De PDF’s staan in de database (en in de back-up van de app). Gegevens van je bedrijf (naam, adres, telefoon, e-mail, website, KvK, btw-nummer, IBAN en BIC, betaaltermijn, taal
@@ -373,7 +375,7 @@ License) staat in `backend/app/fonts/` met zijn licentie; ontbreekt het, dan val
 - **Zonder sjabloon** gebruikt de app de ingebouwde PDF hierboven.
 - **Word (`.docx`)**: zet velden tussen dubbele accolades in je document (kop, voet en tabellen werken ook). Eén tabelrij met
   `{{regel.omschrijving}}`, `{{regel.aantal}}`, `{{regel.bedrag_excl}}`, `{{regel.bedrag_incl}}`, `{{regel.btw}}` (ook `{{regel.prijs}}`
-  per stuk, `{{regel.totaal}}` en `{{regel.nr}}`) wordt voor elke regel van de bestelling herhaald; een sjabloon zonder zo'n rij wordt bij het uploaden geweigerd. De factuur is altijd een PDF: de app zet
+  per stuk, `{{regel.totaal}}`, `{{regel.nr}}` en `{{regel.optioneel}}`, dat *optioneel* zegt bij een accessoire en anders leeg is) wordt voor elke regel van de bestelling herhaald; een sjabloon zonder zo'n rij wordt bij het uploaden geweigerd. De factuur is altijd een PDF: de app zet
   het Word-bestand met LibreOffice (zit in de Docker-image) om, met de lettertypen die op de server staan (Open Sans zit erbij; een ander lettertype in je sjabloon wordt vervangen als het ontbreekt, controleer dat in de PDF). Een veld dat niet bestaat blijft zichtbaar in de factuur staan, zodat je een typefout ziet.
   `{{logo}}` en `{{betaal_qr}}` worden afbeeldingen (je logo en de betaal-QR; zonder logo of IBAN verdwijnt de tekst). *Voorbeeldsjabloon
   downloaden* geeft een Word-bestand in dezelfde layout als de ingebouwde factuur, om mee te beginnen; het gebruikt Open Sans (Word

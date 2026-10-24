@@ -2,7 +2,7 @@ import { api, downloadFile } from './api.js';
 import { formatDate, t } from './i18n.js';
 import { customerFields, customerLines, emptyCustomer } from './customers.js';
 import { setDirty } from './updates.js';
-import { ROUNDINGS, confirmDialog, enhanceDialog, eur, field, fill, h, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
+import { ROUNDINGS, confirmDialog, enhanceDialog, eur, field, fill, fmt, h, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
 
 // The stages of an order, in order. The words come from the language files.
 export const STATUSES = ['nieuw', 'verwerkt', 'verstuurd', 'afgehandeld'];
@@ -87,7 +87,7 @@ function fromSaved(order) {
     customer_name: order.customer_name, customer_number: order.customer_number, subject: order.subject, address: order.address, postal_code: order.postal_code, city: order.city, country: order.country,
     email: order.email, phone: order.phone, notes: order.notes, invoice_number: order.invoice_number, invoice_date: str(order.invoice_date), has_invoice_pdf: !!order.has_invoice_pdf,
     lines: order.lines.map((l) => ({ project_id: l.project_id, project_number: l.project_number, description: l.description,
-      quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)),
+      quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)), optional: !!l.optional,
       // a line made from a calculation has a cost price and its own margin; the server works out its price
       cost_price: l.cost_price == null ? null : str(l.cost_price), margin_pct: l.margin_pct == null ? '' : str(Number(l.margin_pct)) })),
   };
@@ -123,7 +123,7 @@ function buildEditor(order, navigate, ctx) {
   const payload = () => ({
     customer_id: state.customer_id, status: state.status, price_rounding: state.price_rounding, order_date: state.order_date, delivery_date: state.delivery_date || null,
     subject: state.subject.trim(), notes: state.notes, invoice_date: state.invoice_date || null,
-    lines: state.lines.map((l) => ({ project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity), vat_pct: parseNum(l.vat_pct),
+    lines: state.lines.map((l) => ({ project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity), vat_pct: parseNum(l.vat_pct), optional: !!l.optional,
       ...(l.cost_price == null ? { unit_price: parseNum(l.unit_price) } : { cost_price: parseNum(l.cost_price), margin_pct: parseNum(l.margin_pct) }) })),
   });
 
@@ -183,8 +183,10 @@ function buildEditor(order, navigate, ctx) {
       const unit = h('output', { class: 'cost' }, '—');
       const hint = h('p', { class: 'hint private', role: 'status', hidden: true });
       if (calculated) { lineUnits[i] = unit; marginHints[i] = hint; }
+      const optional = h('label', { class: 'check' },
+        h('input', { type: 'checkbox', checked: !!l.optional, onchange: (e) => { l.optional = e.target.checked; touch(); } }), t('orders.optional'));
       return h('div', { class: `line order${calculated ? ' calc' : ''}` },
-        h('div', { class: 'field' }, h('label', { for: inputId }, t('orders.description'), ' ', badge), input),
+        h('div', { class: 'field' }, h('label', { for: inputId }, t('orders.description'), ' ', badge), input, optional),
         field(t('orders.quantity'), numberInput(l.quantity, (v) => { l.quantity = v; touch(); }, { inputmode: 'numeric' })),
         calculated ? field(t('orders.margin'), numberInput(l.margin_pct, (v) => { l.margin_pct = v; touch(); }, { class: 'private' })) : null,
         calculated ? h('div', { class: 'field cost-field' }, h('span', { class: 'lbl' }, t('orders.unit_price_calc')), unit)
@@ -195,6 +197,24 @@ function buildEditor(order, navigate, ctx) {
         calculated ? hint : null);
     }));
     renderTotals();
+  }
+
+  // The lines a calculation adds to an order: the model itself, and the accessories of the calculation (cables, chargers) as lines of their
+  // own that the invoice lists apart, because the product works without them. They are priced at what they cost; the model's line keeps
+  // the rest of the cost price and the margin.
+  const UNIT_SHORT = { stuks: t('unit.pieces'), m: 'm', g: 'g' };
+  function modelLines(p) {
+    const extras = (p.totals.parts || []).filter((x) => x.group === 'oplader' && Number(x.cost) > 0);
+    const modelCost = Math.round((Number(p.totals.cost_price) - Number(p.totals.subtotals.charger || 0)) * 100) / 100;
+    const model = { project_id: p.id, project_number: p.number, description: p.name, quantity: '1', unit_price: '', optional: false,
+      cost_price: String(extras.length ? modelCost : p.totals.cost_price), margin_pct: str(Number(p.margin_pct)), vat_pct: str(Number(p.vat_pct)) };
+    return [model, ...extras.map((x) => {
+      const qty = Number(x.quantity), price = Number(x.unit_price);
+      const whole = x.unit === 'stuks' && Number.isInteger(qty) && qty >= 1 && qty <= 100000 && Math.round(price * 100) / 100 === price;
+      return { project_id: p.id, project_number: p.number, optional: true, quantity: whole ? String(qty) : '1', unit_price: '',
+        description: whole ? x.label : `${x.label} (${fmt(qty)} ${UNIT_SHORT[x.unit] || x.unit})`,
+        cost_price: String(whole ? price : x.cost), margin_pct: '0', vat_pct: str(Number(p.vat_pct)) };
+    })];
   }
 
   // The calculations to choose from: find one by its number or part of its name; picking adds a line (again: one more of it).
@@ -208,10 +228,9 @@ function buildEditor(order, navigate, ctx) {
     const draw = () => {
       const found = projects.filter((p) => matches(p, search.value.trim()));
       results.replaceChildren(...(found.length ? found.map((p) => h('li', {}, h('button', { class: 'btn picker-item', type: 'button', onclick: () => {
-        const existing = state.lines.find((l) => l.project_id === p.id);
+        const existing = state.lines.find((l) => l.project_id === p.id && !l.optional);
         if (existing) existing.quantity = String(Math.floor(parseNum(existing.quantity)) + 1);
-        else state.lines.push({ project_id: p.id, project_number: p.number, description: p.name, quantity: '1', unit_price: '',
-          cost_price: str(p.totals.cost_price), margin_pct: str(Number(p.margin_pct)), vat_pct: str(Number(p.vat_pct)) });
+        else state.lines.push(...modelLines(p));
         added.set(p.id, (added.get(p.id) || 0) + 1);
         touch(); drawLines(); draw();
       } }, h('span', { class: 'badge' }, `#${p.number}`), h('span', { class: 'grow' }, p.name),
@@ -392,7 +411,7 @@ function buildEditor(order, navigate, ctx) {
           h('div', { class: 'row' },
             h('button', { class: 'btn primary small', type: 'button', id: 'add-model', onclick: pickModel }, icon('plus'), h('span', {}, t('orders.add_model'))),
             h('button', { class: 'btn small', type: 'button', onclick: () => {
-              state.lines.push({ project_id: null, project_number: null, description: '', quantity: '1', unit_price: '', cost_price: null, margin_pct: '', vat_pct: defaultVat });
+              state.lines.push({ project_id: null, project_number: null, optional: false, description: '', quantity: '1', unit_price: '', cost_price: null, margin_pct: '', vat_pct: defaultVat });
               touch(); drawLines();
             } }, icon('plus'), h('span', {}, t('orders.add_free_line'))))),
         h('div', { class: 'glass card' }, field(t('orders.notes'), h('textarea', { rows: 3, maxlength: 2000, oninput: (e) => bind('notes')(e.target.value) }, state.notes || ''), t('orders.notes_hint')))),
