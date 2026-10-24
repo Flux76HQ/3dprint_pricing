@@ -1,5 +1,6 @@
 import { aiLogCard, aiSettingsCard } from './ai-images.js';
 import { api, confirmWithPasskey, createPasskey, downloadFile, upload } from './api.js';
+import { filamentLibraryCards } from './filament-library.js';
 import { iosSteps, installState, onInstallChange, promptInstall } from './install.js';
 import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
@@ -224,7 +225,7 @@ function backupCard() {
       const { summary: s } = await api('POST', '/api/backup/restore?dry_run=1', doc);       // checked first, nothing changes yet
       const when = s.created_at ? formatDateTime(s.created_at, { dateStyle: 'medium', timeStyle: 'short' }) : '?';
       const files = s.files ? t('backup.with_files', { n: s.files }) : '';
-      if (!(await confirmDialog(t('backup.confirm', { when, printers: s.printers, tariffs: s.tariffs, packaging: s.packaging, parts: s.parts || 0, accessories: s.accessories || 0,
+      if (!(await confirmDialog(t('backup.confirm', { when, printers: s.printers, tariffs: s.tariffs, packaging: s.packaging, parts: s.parts || 0, accessories: s.accessories || 0, library: s.library || 0,
         spools: s.spools, projects: s.projects, orders: s.orders || 0, customers: s.customers || 0, files }), t('backup.restore_now')))) return;
       await api('POST', '/api/backup/restore', doc);
       toast(t('backup.restored'));
@@ -385,7 +386,7 @@ function invoiceTemplateCard() {
 
 // The parts of the settings, in the order of the sub menu: [route, label key]. "Zakelijk" is only there when it is switched on.
 const SECTIONS = [['algemeen', 'settings.tab_general'], ['weergave', 'settings.tab_appearance'], ['beveiliging', 'settings.tab_security'],
-  ['zakelijk', 'settings.tab_business'], ['notificaties', 'settings.tab_notifications'], ['ai', 'settings.tab_ai'], ['backup', 'settings.tab_backup']];
+  ['zakelijk', 'settings.tab_business'], ['filamenten', 'settings.tab_filaments'], ['notificaties', 'settings.tab_notifications'], ['ai', 'settings.tab_ai'], ['backup', 'settings.tab_backup']];
 
 export function settingsView(ctx, requested) {
   const { setPrefs, user, highlightPasskey } = ctx;
@@ -530,6 +531,7 @@ export function settingsView(ctx, requested) {
             ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (ctx.prefs.price_rounding || 'none') === v }, t(l)))))),
         h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
       companyCard(ctx), qrCard(ctx), invoiceLogoCard(), invoiceTemplateCard()],
+    filamenten: () => filamentLibraryCards(),
     notificaties: () => notificationsCards(ctx),
     ai: () => [aiSettingsCard(), aiLogCard()],
     backup: () => [backupCard()],

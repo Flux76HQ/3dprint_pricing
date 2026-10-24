@@ -1,5 +1,5 @@
 """Backup and restore of everything the owner has entered: settings, printers, electricity tariffs, packaging, parts, accessories,
-filament rolls and calculations (optionally the uploaded print files too).
+the filament library, filament rolls and calculations (optionally the uploaded print files too).
 
 What is *not* in a backup, on purpose: passkeys, recovery codes, the password and its authenticator secret, and
 notification subscriptions. They are credentials or belong to one device; a file that can be mailed around must not
@@ -28,12 +28,12 @@ from .i18n import L, Localized
 bp = Blueprint("backup", __name__, url_prefix="/api/backup")
 
 FORMAT = "printpricing-backup"
-FORMAT_VERSION = 4          # 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
+FORMAT_VERSION = 5          # 5: the filament library; 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
                             # numbers. A file of an older version still restores
 MAX_ROWS = 20_000
 # (key in the file, key in api.RESOURCES) -- the order is the order of insertion
 SECTIONS = (("printers", "printers"), ("tariffs", "tariffs"), ("packaging", "packaging"), ("parts", "parts"),
-            ("accessories", "accessories"), ("spools", "spools"))
+            ("accessories", "accessories"), ("filament_library", "filament-library"), ("spools", "spools"))
 PROJECT_COLUMNS = ("id", "number", "name", "notes", "object_description", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
                    "file_id", "stock_booked_at", "created_at", "updated_at")
 
@@ -450,6 +450,7 @@ def _summary(plan: dict) -> dict:
     return {"printers": len(plan["sections"]["printers"][1]), "tariffs": len(plan["sections"]["tariffs"][1]),
             "packaging": len(plan["sections"]["packaging"][1]),
             "parts": len(plan["sections"]["parts"][1]), "accessories": len(plan["sections"]["accessories"][1]), "spools": len(plan["sections"]["spools"][1]),
+            "library": len(plan["sections"]["filament_library"][1]),
             "projects": len(plan["projects"]), "files": len(plan["files"]), "preferences": len(plan["preferences"]),
             "orders": len(plan["orders"]), "customers": len(plan["customers"]), "template": 1 if plan["template"] else 0, "logo": 1 if plan["logo"] else 0,
             "images": len(plan["project_images"])}
@@ -506,7 +507,7 @@ def restore():
                 replaced = conn.execute(f"DELETE FROM {table} RETURNING stored_name").fetchone()
                 if replaced and replaced["stored_name"]:                       # a file an earlier release left under UPLOAD_DIR
                     old_files.append(replaced["stored_name"])
-            for table in ("filament_spools", "packaging_items", "part_items", "accessory_items", "energy_tariffs", "printers"):
+            for table in ("filament_spools", "filament_library", "packaging_items", "part_items", "accessory_items", "energy_tariffs", "printers"):
                 conn.execute(f"DELETE FROM {table}")
             if plan["files"]:
                 old_files += [r["stored_name"] for r in conn.execute("DELETE FROM print_files RETURNING stored_name").fetchall()]

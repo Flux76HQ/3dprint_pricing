@@ -1,0 +1,116 @@
+{
+ "format": "printpricing-filament-library",
+ "format_version": 1,
+ "filaments": [
+  {
+   "brand": "Bambu Lab",
+   "material": "PLA",
+   "product_type": "Basic",
+   "colour": "Bamboegroen",
+   "filament_id": "10501",
+   "sku": "A00-G6-1.75-1000-SPLFREE",
+   "refill": true,
+   "roll_weight_g": 1000.0,
+   "diameter_mm": 1.75
+  },
+  {
+   "brand": "Bambu Lab",
+   "material": "PLA",
+   "product_type": "Basic",
+   "colour": "Cyaan",
+   "filament_id": "10603",
+   "sku": "A00-B8-1.75-1000-SPL",
+   "refill": false,
+   "roll_weight_g": 1000.0,
+   "diameter_mm": 1.75
+  },
+  {
+   "brand": "Bambu Lab",
+   "material": "PLA",
+   "product_type": "Basic",
+   "colour": "Geel",
+   "filament_id": "10400",
+   "sku": "A00-Y0-1.75-1000-SPLFREE",
+   "refill": true,
+   "roll_weight_g": 1000.0,
+   "diameter_mm": 1.75
+  },
+  {
+   "brand": "Bambu Lab",
+   "material": "PLA",
+   "product_type": "Basic",
+   "colour": "Grijs",
+   "filament_id": "10103",
+   "sku": "A00-D0-1.75-1000-SPLFREE",
+   "refill": true,
+   "roll_weight_g": 1000.0,
+   "diameter_mm": 1.75
+  },
+  {
+   "brand": "Bambu Lab",
+   "material": "PLA",
+   "product_type": "Basic",
+   "colour": "Lichtgrijs",
+   "filament_id": "10104",
+   "sku": "A00-D2-1.75-1000-SPLFREE",
+   "refill": true,
+   "roll_weight_g": 1000.0,
+   "diameter_mm": 1.75
+  },
+  {
+   "brand": "Bambu Lab",
+   "material": "PLA",
+   "product_type": "Basic",
+   "colour": "Paars",
+   "filament_id": "10700",
+   "sku": "A00-P5-1.75-1000-SPLFREE",
+   "refill": true,
+   "roll_weight_g": 1000.0,
+   "diameter_mm": 1.75
+  },
+  {
+   "brand": "Bambu Lab",
+   "material": "PLA",
+   "product_type": "Basic",
+   "colour": "Pompoenoranje",
+   "filament_id": "10301",
+   "sku": "A00-A1-1.75-1000-SPLFREE",
+   "refill": true,
+   "roll_weight_g": 1000.0,
+   "diameter_mm": 1.75
+  },
+  {
+   "brand": "Bambu Lab",
+   "material": "PLA",
+   "product_type": "Basic",
+   "colour": "Rood",
+   "filament_id": "10200",
+   "sku": "A00-R0-1.75-1000-SPL",
+   "refill": false,
+   "roll_weight_g": 1000.0,
+   "diameter_mm": 1.75
+  },
+  {
+   "brand": "Bambu Lab",
+   "material": "PLA",
+   "product_type": "Basic",
+   "colour": "Zonnebloemgeel",
+   "filament_id": "10402",
+   "sku": "A00-Y2-1.75-1000-SPL",
+   "refill": false,
+   "roll_weight_g": 1000.0,
+   "diameter_mm": 1.75
+  },
+  {
+   "brand": "Bambu Lab",
+   "material": "PLA",
+   "product_type": "Matte",
+   "colour": "Pruim",
+   "filament_id": "11204",
+   "sku": "A01-R3-1.75-1000-SPLFREE",
+   "refill": true,
+   "roll_weight_g": 1000.0,
+   "diameter_mm": 1.75
+  }
+ ]
+}

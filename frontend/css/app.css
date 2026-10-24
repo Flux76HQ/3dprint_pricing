@@ -233,6 +233,9 @@ input[type=text], input[type=password], input[type=email], input[type=tel], sele
   border-radius: var(--radius-sm); padding: 8px 12px; min-height: 44px; width: 100%; }
 input[type=color] { width: 44px; height: 44px; border: 1px solid var(--rand); border-radius: 50%; padding: 2px; background: var(--surface-field); cursor: pointer; }
 textarea { resize: vertical; }
+.roll-count { width: 7.5rem; }
+.hint.breakable { overflow-wrap: anywhere; }
+.roll-count input { text-align: center; }
 .check { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
 .check input { width: 22px; height: 22px; accent-color: var(--accent); }
 output.cost { font-weight: 650; font-variant-numeric: tabular-nums; min-height: 44px; display: flex; align-items: center; }

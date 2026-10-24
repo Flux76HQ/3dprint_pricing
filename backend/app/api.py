@@ -60,6 +60,15 @@ def optional_int(label, *, minimum, maximum):
     return check
 
 
+def optional_number(label, *, maximum=10_000_000):
+    """A number, or None when left empty (stored as NULL)."""
+    check = number(label, maximum=maximum)
+
+    def optional(value):
+        return None if value is None or str(value).strip() == "" else check(value)
+    return optional
+
+
 def colour_hex(label):
     """A colour as #rrggbb (stored in lower case), or empty for none."""
     def check(value):
@@ -120,6 +129,23 @@ RESOURCES = {
         "notes": text("f.notes", required=False, max_len=1000),
         "archived": boolean("f.archived"),
     }, "name"),
+    "filament-library": ("filament_library", {
+        "brand": text("f.brand"),
+        "product_type": text("f.type", required=False, max_len=60),
+        "material": text("f.material", required=False, max_len=40),
+        "colour": text("f.colour", required=False, max_len=40),
+        "colour_hex": colour_hex("f.colour_hex"),
+        "filament_id": text("f.filament_id", required=False, max_len=20),
+        "sku": text("f.sku", required=False, max_len=60),
+        "barcode": text("f.barcode", required=False, max_len=100),
+        "refill": boolean("f.refill"),
+        "roll_weight_g": number("f.roll_weight", strict=True),
+        "diameter_mm": number("f.diameter", strict=True, maximum=5),
+        "print_temp_c": optional_int("f.print_temp", minimum=0, maximum=500),
+        "bed_temp_c": optional_int("f.bed_temp", minimum=0, maximum=200),
+        "price": optional_number("f.roll_price"),
+        "notes": text("f.notes", required=False, max_len=1000),
+    }, "lower(brand), lower(material), lower(product_type), lower(colour)"),
     "spools": ("filament_spools", {
         "brand": text("f.brand"),
         "product_type": text("f.type", required=False, max_len=60),
@@ -139,7 +165,7 @@ RESOURCES = {
     }, "brand, colour"),
 }
 OPTIONAL = {"notes", "archived", "unit", "is_default", "material", "colour", "colour_hex", "product_type", "power_kw", "barcode", "diameter_mm",
-            "print_temp_c", "bed_temp_c", "notify_low"}
+            "print_temp_c", "bed_temp_c", "notify_low", "filament_id", "sku", "refill"}
 
 
 def _serialise(row: dict) -> dict:

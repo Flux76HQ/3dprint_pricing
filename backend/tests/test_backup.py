@@ -31,6 +31,9 @@ def fill(owner):
     box = make(owner, "/api/packaging", {"name": "Doos 20x15", "price": "0.45"})
     part = make(owner, "/api/parts", {"name": "JST-connector", "price": "0.12", "unit": "stuks", "notes": "2-pins"})
     cable = make(owner, "/api/accessories", {"name": "USB-C-kabel", "price": "1.80", "unit": "m"})
+    make(owner, "/api/filament-library", {"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Grijs", "filament_id": "10103",
+                                          "sku": "A00-D0-1.75-1000-SPLFREE", "refill": True, "roll_weight_g": 1000, "diameter_mm": "1.75",
+                                          "print_temp_c": 220, "price": "19.32"})
     spool = make(owner, "/api/spools", {"brand": "Bambu Lab", "product_type": "Matte", "material": "PLA", "colour": "Black",
                                          "roll_weight_g": 1000, "price": "19.99", "remaining_g": 640, "barcode": "6975337030001",
                                          "print_temp_c": 220, "colour_hex": "#222222", "notes": "kast"})
@@ -56,7 +59,7 @@ def snapshot(client):
     return {"printers": keep(client.get("/api/printers").get_json()), "tariffs": keep(client.get("/api/tariffs").get_json()),
             "packaging": keep(client.get("/api/packaging").get_json()), "parts": keep(client.get("/api/parts").get_json()),
             "accessories": keep(client.get("/api/accessories").get_json()), "spools": keep(client.get("/api/spools").get_json()),
-            "projects": keep(client.get("/api/projects").get_json()), "preferences": client.get("/api/preferences").get_json()}
+            "library": keep(client.get("/api/filament-library").get_json()), "projects": keep(client.get("/api/projects").get_json()), "preferences": client.get("/api/preferences").get_json()}
 
 
 def backup(client, files=False):
@@ -66,7 +69,7 @@ def backup(client, files=False):
 
 
 def wipe(client):
-    for path in ("projects", "spools", "packaging", "parts", "accessories", "printers", "tariffs"):
+    for path in ("projects", "spools", "filament-library", "packaging", "parts", "accessories", "printers", "tariffs"):
         for row in client.get(f"/api/{path}").get_json():
             client.delete(f"/api/{path}/{row['id']}", headers=H)
     client.put("/api/preferences", json={"theme": "light", "language": "nl", "blur_costs": False}, headers=H)
@@ -84,8 +87,8 @@ def test_the_download_is_a_json_attachment_with_every_section(owner):
     res = backup(owner)
     assert "attachment" in res.headers["Content-Disposition"] and res.headers["Content-Disposition"].endswith('.json"')
     doc = res.get_json()
-    assert doc["format"] == "printpricing-backup" and doc["format_version"] == 4 and doc["app_version"]
-    assert [len(doc[k]) for k in ("printers", "tariffs", "packaging", "parts", "accessories", "spools", "projects")] == [1, 1, 1, 1, 1, 2, 1]
+    assert doc["format"] == "printpricing-backup" and doc["format_version"] == 5 and doc["app_version"]
+    assert [len(doc[k]) for k in ("printers", "tariffs", "packaging", "parts", "accessories", "filament_library", "spools", "projects")] == [1, 1, 1, 1, 1, 1, 2, 1]
     assert doc["preferences"]["theme"] == "dark" and doc["includes_files"] is False and "files" not in doc
 
 
@@ -414,6 +417,15 @@ def test_a_backup_from_before_parts_and_accessories_still_restores_and_leaves_th
     assert owner.post("/api/backup/restore", json=old, headers=H).status_code == 200
     assert owner.get("/api/parts").get_json() == [] and owner.get("/api/accessories").get_json() == []
     assert len(owner.get("/api/packaging").get_json()) == 1
+
+
+def test_a_backup_from_before_the_filament_library_still_restores_and_leaves_it_empty(owner):
+    fill(owner)
+    old = backup(owner).get_json()
+    old.pop("filament_library")
+    old["format_version"] = 4
+    assert owner.post("/api/backup/restore", json=old, headers=H).status_code == 200
+    assert owner.get("/api/filament-library").get_json() == [] and len(owner.get("/api/spools").get_json()) == 2
 
 
 def test_a_part_with_an_unknown_unit_names_its_section_and_changes_nothing(owner):
