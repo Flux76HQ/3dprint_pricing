@@ -1,3 +1,4 @@
+import { aiSettingsCard } from './ai-images.js';
 import { api, confirmWithPasskey, createPasskey, downloadFile, upload } from './api.js';
 import { iosSteps, installState, onInstallChange, promptInstall } from './install.js';
 import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
@@ -386,12 +387,12 @@ function invoiceTemplateCard() {
 
 // The parts of the settings, in the order of the sub menu: [route, label key]. "Zakelijk" is only there when it is switched on.
 const SECTIONS = [['algemeen', 'settings.tab_general'], ['weergave', 'settings.tab_appearance'], ['beveiliging', 'settings.tab_security'],
-  ['zakelijk', 'settings.tab_business'], ['notificaties', 'settings.tab_notifications'], ['backup', 'settings.tab_backup']];
+  ['zakelijk', 'settings.tab_business'], ['notificaties', 'settings.tab_notifications'], ['ai', 'settings.tab_ai'], ['backup', 'settings.tab_backup']];
 
 export function settingsView(ctx, requested) {
   const { setPrefs, user, highlightPasskey } = ctx;
   const businessOn = () => !!ctx.prefs.business_mode;
-  const shown = () => SECTIONS.filter(([key]) => key !== 'zakelijk' || businessOn());
+  const shown = () => SECTIONS.filter(([key]) => (key !== 'zakelijk' || businessOn()) && (key !== 'ai' || ctx.aiImages));   // "AI-afbeeldingen" only when .env switches it on
   const section = shown().some(([key]) => key === requested) ? requested : 'algemeen';
   // The address says what is shown: a part that is not there (Business while it is off) must not stay in the URL, or clicking its tab later would change nothing.
   if (requested && requested !== section) history.replaceState(null, '', `#/instellingen/${section}`);
@@ -532,6 +533,7 @@ export function settingsView(ctx, requested) {
         h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
       companyCard(ctx), qrCard(ctx), invoiceLogoCard(), invoiceTemplateCard()],
     notificaties: () => notificationsCards(ctx),
+    ai: () => [aiSettingsCard()],
     backup: () => [backupCard()],
   };
   return h('section', { class: 'page' },

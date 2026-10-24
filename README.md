@@ -121,6 +121,7 @@ Set in `.env`; the file `.env.example` documents each value.
 | `MAX_UPLOAD_MB` | ❌ | `50` | Largest STL/3MF upload in MB |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | ❌ | empty | Key pair for push notifications (`python scripts/generate_vapid.py`); empty means notifications are off |
 | `VAPID_SUBJECT` | ❌ | `mailto:admin@<RP_ID>` | Contact address for the push services |
+| `AI_IMAGES_ENABLED` | ❌ | `FALSE` | Set to `TRUE` to show the optional *AI images* feature (product pictures from a photo, made with OpenAI GPT Image). The API key is entered in the app under Settings, not in `.env` |
 | `PROXY_HOPS` | ❌ | `0` | Number of reverse proxies in front of the app |
 | `WEB_CONCURRENCY` | ❌ | `2` | Number of Gunicorn workers |
 | `APP_IMAGE` | ❌ | `ghcr.io/flux76hq/3dprint_pricing:latest` | The image to run |
