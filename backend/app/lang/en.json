@@ -36,7 +36,7 @@
  "auth.bad_passkey_data": "Invalid passkey data.",
  "auth.bad_recovery": "This recovery code is not valid.",
  "auth.bad_request": "Invalid request.",
- "auth.bad_setup_code": "The setup code is incorrect.",
+ "auth.bad_setup_code": "The setup code is incorrect. You can find it as SETUP_CODE in the .env file on your server.",
  "auth.challenge_expired": "The request has expired or was already used. Try again.",
  "auth.cred_id_mismatch": "Passkey refused: credential id does not match.",
  "auth.last_passkey": "You cannot delete your last passkey.",

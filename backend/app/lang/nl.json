@@ -36,7 +36,7 @@
  "auth.bad_passkey_data": "Ongeldige passkey-gegevens.",
  "auth.bad_recovery": "Deze herstelcode is niet geldig.",
  "auth.bad_request": "Ongeldige aanvraag.",
- "auth.bad_setup_code": "De setupcode klopt niet.",
+ "auth.bad_setup_code": "De setupcode klopt niet. Je vindt hem als SETUP_CODE in het .env-bestand op je server.",
  "auth.challenge_expired": "De aanvraag is verlopen of al gebruikt. Probeer het opnieuw.",
  "auth.cred_id_mismatch": "Passkey geweigerd: credential-id komt niet overeen.",
  "auth.last_passkey": "Je laatste passkey kun je niet verwijderen.",

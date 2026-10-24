@@ -290,6 +290,11 @@ output.cost { font-weight: 650; font-variant-numeric: tabular-nums; min-height: 
 .brand { display: flex; gap: 12px; align-items: center; }
 .brand h1 { font-size: 1.3rem; margin: 0; }
 .brand p { margin: 0; }
+.setup-help { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--surface-field);
+  border: 1px solid var(--rand); border-radius: var(--radius-sm); font-size: .9rem; }
+.setup-help h3 { margin: 0; font-size: .95rem; }
+.setup-help p { margin: 0; }
+.setup-help ol { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 4px; }
 .codes { list-style: none; margin: 0; padding: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;
   background: var(--surface-field); border: 1px solid var(--rand); border-radius: var(--radius-sm); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.05rem; letter-spacing: .04em; }
 

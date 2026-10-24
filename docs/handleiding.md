@@ -78,7 +78,11 @@ Handmatig kan ook: `cp .env.example .env` en de waarden invullen.
 
 Open daarna het adres en doorloop de **onboarding**:
 
-1. Vul de **setupcode** in (`SETUP_CODE` uit `.env`; `init_env.py` toont hem) en je naam.
+1. Vul de **setupcode** en je naam in.
+   - *Wat is het?* Een korte eenmalige code die bewijst dat jij de eigenaar bent, zodat niet de eerste bezoeker de app overneemt.
+   - *Waar staat hij?* Op de server, in het bestand `.env` naast `docker-compose.yml`, op de regel `SETUP_CODE=…`. Alles achter het is-teken is de code. `init_env.py` toonde hem na het aanmaken; opnieuw tonen kan met `grep SETUP_CODE .env`.
+   - *Waar vul je hem in?* In het veld **Setupcode** op het eerste scherm van de app (dat scherm legt het ook uit), samen met je naam. Je hebt hem alleen voor deze eerste keer nodig.
+   - Heb je `SETUP_CODE` in `.env` aangepast terwijl de app al draaide? Voer `docker compose up -d` uit, zodat de app de nieuwe waarde leest.
 2. Maak je **passkey** aan (vingerafdruk, gezicht of apparaatcode).
 3. **Bewaar de 8 herstelcodes** — ze worden één keer getoond en werken elk één keer.
 

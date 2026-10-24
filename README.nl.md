@@ -98,7 +98,7 @@ docker compose up -d
 
 Open daarna het adres en doorloop de onboarding:
 
-1. Vul de **setupcode** in (`SETUP_CODE` uit `.env`) en je naam.
+1. Vul de **setupcode** en je naam in. De setupcode is de waarde achter `SETUP_CODE=` in het `.env`-bestand op je server (`init_env.py` toonde hem ook; `grep SETUP_CODE .env` toont hem opnieuw). Typ of plak hem in het veld *Setupcode* van het eerste scherm; je hebt hem alleen voor deze eerste keer nodig, daarna log je in met je passkey. Het onboarding-scherm legt dit ook uit.
 2. Maak je **passkey** aan (vingerafdruk, gezicht of apparaatcode).
 3. **Bewaar de 8 herstelcodes.** Ze worden één keer getoond en werken elk één keer.
 
