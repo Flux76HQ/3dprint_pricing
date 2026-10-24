@@ -326,4 +326,3 @@ def delete_image(image_id):
         _image_row(conn, image_id)
         conn.execute("DELETE FROM project_images WHERE id = %s", (image_id,))
     return jsonify({"ok": True})
-
