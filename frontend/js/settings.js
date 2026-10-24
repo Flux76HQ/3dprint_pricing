@@ -5,7 +5,7 @@ import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
 import { passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, pushSupport, thisDeviceFingerprint } from './push.js';
-import { applyNavGlass, confirmDialog, field, h, icon, navStyle, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
+import { applyNavGlass, confirmDialog, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
 
 // [value, label key]: labels are looked up when drawn, so they follow the language.
@@ -149,7 +149,7 @@ function notificationsCards(ctx) {
         h('p', { class: 'muted' }, t('notify.ttl', { hours: cfg.ttl_hours })));
     }
     rows.push(connectionCheck(), await devicesList(draw));
-    body.replaceChildren(...rows);
+    fill(body, ...rows);
   }
   // Can the server reach the push services at all? Shows which step fails, so "notifications do not arrive" has an answer.
   function connectionCheck() {
@@ -313,7 +313,7 @@ function invoiceLogoCard() {
       try { await upload('/api/invoice-logo', form); lastError = ''; toast(t('logo.saved')); } catch (e) { lastError = e.message; }
       draw();
     } });
-    body.replaceChildren(
+    fill(body,
       h('p', { class: 'muted' }, t('logo.intro')),
       logo ? h('div', { class: 'list-row' },
         h('img', { class: 'logo-preview', src: `/api/invoice-logo/file?v=${encodeURIComponent(logo.uploaded_at)}`, alt: t('logo.alt') }),
@@ -356,7 +356,7 @@ function invoiceTemplateCard() {
     const download = async (path) => {
       try { const { blob, name } = await downloadFile(path); saveBlob(blob, name); } catch (e) { toast(e.message, 'error'); }
     };
-    body.replaceChildren(
+    fill(body,
       tpl ? h('div', { class: 'list-row' },
         h('div', {}, h('strong', {}, tpl.filename), h('p', { class: 'muted' }, `${tpl.kind === 'docx' ? t('invoice_tpl.word') : t('invoice_tpl.pdf')} · ${formatDate(tpl.uploaded_at, { dateStyle: 'medium' })}`)),
         h('div', { class: 'row' },
@@ -418,7 +418,7 @@ export function settingsView(ctx, requested) {
     const slider = h('input', { type: 'range', id: 'nav-glass', min: 0, max: 100, step: 1, value: glass, 'aria-labelledby': 'nav-glass-label',
       oninput: (e) => { shown.textContent = t('appearance.glass_value', { n: e.target.value }); applyNavGlass(Number(e.target.value)); },
       onchange: (e) => setPrefs({ navbar_glass: Number(e.target.value) }) });
-    navBox.replaceChildren(
+    fill(navBox,
       h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.nav_style')), h('p', { class: 'muted' }, t('appearance.nav_hint')),
         h('p', { class: 'muted' }, chosen === 'auto' ? t('appearance.nav_auto_hint', { style: t(style === 'ios' ? 'appearance.nav_ios' : 'appearance.nav_android') }) : t(style === 'ios' ? 'appearance.nav_ios_hint' : 'appearance.nav_android_hint'))), choice),
       style === 'ios'
@@ -478,7 +478,7 @@ export function settingsView(ctx, requested) {
     try {
       const { credentials, recovery_codes_remaining: remaining } = await api('GET', '/api/auth/credentials');
       if (!keepCodes) codesBox.replaceChildren();
-      security.replaceChildren(
+      fill(security,
         h('ul', { class: 'plain-list' }, credentials.map((c) => h('li', { class: 'list-row' },
           h('div', {}, h('strong', {}, c.label),
             h('p', { class: 'muted' }, t('passkey.added_on', { date: formatDate(c.created_at) }) +

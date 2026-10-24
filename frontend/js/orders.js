@@ -2,7 +2,7 @@ import { api, downloadFile } from './api.js';
 import { formatDate, t } from './i18n.js';
 import { customerFields, customerLines, emptyCustomer } from './customers.js';
 import { setDirty } from './updates.js';
-import { confirmDialog, enhanceDialog, eur, field, h, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
+import { confirmDialog, enhanceDialog, eur, field, fill, h, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
 
 // The stages of an order, in order. The words come from the language files.
 export const STATUSES = ['nieuw', 'verwerkt', 'verstuurd', 'afgehandeld'];
@@ -223,7 +223,7 @@ function buildEditor(order, navigate, ctx) {
       h('button', { class: `btn small${state.customer_id ? '' : ' primary'}`, type: 'button', id: 'pick-customer', onclick: pickCustomer },
         state.customer_id ? t('customers.change') : t('customers.pick')),
       state.customer_id ? h('a', { class: 'btn small', href: `#/klanten/${state.customer_id}` }, t('customers.edit')) : null));
-    customerBox.replaceChildren(...parts);
+    fill(customerBox, ...parts);
   }
 
   function chooseCustomer(c) {
@@ -343,7 +343,7 @@ function buildEditor(order, navigate, ctx) {
       parts.push(h('button', { class: 'btn', type: 'button', onclick: downloadInvoice, id: 'download-invoice' }, t('orders.download_invoice')),
         h('p', { class: 'hint' }, t('orders.invoice_kept_hint')));
     }
-    invoiceBox.replaceChildren(...parts);
+    fill(invoiceBox, ...parts);
   }
 
   drawStatus();

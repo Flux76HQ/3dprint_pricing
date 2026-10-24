@@ -16,6 +16,12 @@ export function h(tag, attrs = {}, ...children) {
   return el;
 }
 
+// Replaces what is in `el`. Unlike a bare `el.replaceChildren(...)`, a null/undefined/false child (the unused branch of a
+// condition) is dropped: the DOM would turn it into the text "null".
+export function fill(el, ...children) {
+  el.replaceChildren(...children.flat(Infinity).filter((c) => c != null && c !== false));
+}
+
 const ICONS = {
   calculator: '<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M8.5 7.5h7M9 12h.01M12 12h.01M15 12h.01M9 16h.01M12 16h.01M15 16h.01"/>',
   spool: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3"/><path d="M12 3.5v5.5M12 15v5.5"/>',
