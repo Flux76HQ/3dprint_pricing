@@ -62,6 +62,13 @@ export function navStyle(prefs) {
   return document.documentElement.getAttribute('data-platform') === 'android' ? 'android' : 'ios';
 }
 
+/** The glass of the floating bar (0 = solid ... 100 = the clearest) as plain CSS values: the tint's opacity and the blur. */
+export function applyNavGlass(glass, el = document.documentElement) {
+  const g = Number.isInteger(glass) ? Math.min(100, Math.max(0, glass)) : 60;
+  el.style.setProperty('--nav-alpha', (1 - g * 0.0085).toFixed(3));
+  el.style.setProperty('--nav-blur', `${(10 + g * 0.3).toFixed(1)}px`);
+}
+
 /** The icon of a destination in the navigation: filled while it is the page you are on, as an outline otherwise (when there is one). */
 export const navIcon = (name, active) => icon(!active && MDI[`${name}-outline`] ? `${name}-outline` : name);
 

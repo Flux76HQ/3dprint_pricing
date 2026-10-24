@@ -4,7 +4,7 @@ import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
 import { passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, pushSupport, thisDeviceFingerprint } from './push.js';
-import { confirmDialog, field, h, icon, navStyle, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
+import { applyNavGlass, confirmDialog, field, h, icon, navStyle, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
 
 // [value, label key]: labels are looked up when drawn, so they follow the language.
@@ -415,7 +415,7 @@ export function settingsView(ctx, requested) {
         onclick: async () => { await setPrefs({ navbar_style: value }); drawNav(); } }, t(label))));
     const shown = h('output', { for: 'nav-glass' }, t('appearance.glass_value', { n: glass }));
     const slider = h('input', { type: 'range', id: 'nav-glass', min: 0, max: 100, step: 1, value: glass, 'aria-labelledby': 'nav-glass-label',
-      oninput: (e) => { shown.textContent = t('appearance.glass_value', { n: e.target.value }); document.documentElement.style.setProperty('--nav-glass', e.target.value); },
+      oninput: (e) => { shown.textContent = t('appearance.glass_value', { n: e.target.value }); applyNavGlass(Number(e.target.value)); },
       onchange: (e) => setPrefs({ navbar_glass: Number(e.target.value) }) });
     navBox.replaceChildren(
       h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.nav_style')), h('p', { class: 'muted' }, t('appearance.nav_hint')),
