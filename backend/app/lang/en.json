@@ -65,6 +65,8 @@
  "bambu.err_not_bambu": "This does not look like a Bambu Lab invoice. Other web shops are not recognised (yet).",
  "bambu.err_not_pdf": "This is not a PDF file.",
  "bambu.err_pages": "This PDF has too many pages (at most {n}).",
+ "bambu.err_product": "This product is not (or no longer) in the Bambu Lab web shop.",
+ "bambu.err_store": "The Bambu Lab (EU) web shop could not be consulted. Try again later or fill in the details yourself.",
  "bambu.err_too_big": "This file is too large (at most {mb} MB).",
  "bambu.err_unreadable": "This invoice cannot be read. Use the PDF as Bambu Lab sends it.",
  "bambu.warn_store": "The Bambu Lab (EU) web shop could not be consulted, so no barcodes were looked up. You can fill them in yourself later.",

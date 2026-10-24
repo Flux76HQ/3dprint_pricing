@@ -39,7 +39,7 @@ function resources() {
       barcode: '', diameter_mm: '1.75', print_temp_c: '', bed_temp_c: '', notify_low: false, notes: '', add_to_library: true },
     fields: [
       { key: 'barcode', label: t('filament.barcode'), type: 'barcode', hint: t('filament.barcode_hint') },
-      { key: 'brand', label: t('filament.brand'), type: 'text', required: true, placeholder: t('filament.brand_ph') },
+      { key: 'brand', label: t('filament.brand'), type: 'brand', required: true },
       { key: 'product_type', label: t('filament.type'), type: 'text', placeholder: t('filament.type_ph'), hint: t('filament.type_hint') },
       { key: 'material', label: t('filament.material'), type: 'text', placeholder: t('filament.material_ph') },
       { key: 'colour', label: t('filament.colour'), type: 'text', placeholder: t('filament.colour_ph') },
@@ -306,7 +306,7 @@ export function openForm(config, item, reload) {
         for (const key of CARRIED) {
           if (dirty.has(key)) continue;
           values[key] = spool[key] ?? '';
-          if (els[key]) { if (els[key].setColour) els[key].setColour(values[key]); else els[key].value = values[key]; }
+          if (els[key]) { if (els[key].setValue) els[key].setValue(values[key]); else els[key].value = values[key]; }
         }
         if (!dirty.has('notify_low')) {                 // the setting belongs to the kind, so a new roll starts with it
           values.notify_low = !!spool.notify_low;
@@ -330,6 +330,7 @@ export function openForm(config, item, reload) {
       // Hardware scanners end with Enter: look it up instead of submitting the form half-filled.
       onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); lookup(); } } });
     els[f.key] = input;
+    input.lookup = lookup;                                           // the Bambu Lab pick fills the barcode and then looks the roll up too
     const scan = h('button', { class: 'btn', type: 'button', onclick: async () => {
       const code = await scanBarcode();
       if (code) { input.value = code; values[f.key] = code; lookup(); }
@@ -347,11 +348,107 @@ export function openForm(config, item, reload) {
       oninput: (e) => { values[f.key] = e.target.value; dirty.add(f.key); show(); } });
     const show = () => { note.textContent = values[f.key] ? values[f.key] : t('filament.colour_auto'); auto.hidden = !values[f.key]; };
     const auto = h('button', { class: 'btn small', type: 'button', onclick: () => { values[f.key] = ''; dirty.add(f.key); input.value = guess(); show(); } }, t('filament.colour_reset'));
-    input.setColour = (hex) => { values[f.key] = hex || ''; input.value = hex || guess(); show(); };
+    input.setValue = (hex) => { values[f.key] = hex || ''; input.value = hex || guess(); show(); };
     els[f.key] = input;
     show();
     return h('div', { class: 'field' }, h('label', { for: id }, f.label), h('div', { class: 'row colour-row' }, input, note, auto),
       f.hint ? h('p', { class: 'hint' }, f.hint) : null);
+  }
+
+  // Fill a field from outside (the library, the Bambu Lab shop): its value, the widget, and a mark that it is no longer to be overwritten.
+  const put = (key, value) => {
+    values[key] = value;
+    dirty.add(key);
+    if (!els[key]) return;
+    if (els[key].setValue) els[key].setValue(value); else els[key].value = value;
+  };
+  const fresh = config.id === 'filament' && !item;
+  const libraryRows = fresh ? api('GET', '/api/filament-library').catch(() => []) : Promise.resolve([]);   // a convenience: the form works without it
+  const fromShop = { filament_id: '', refill: null };          // what the Bambu Lab shop says about the filament that a roll does not hold
+
+  // The brand: a pull-down of the brands there are (on rolls and in the library), and "New brand..." for one that is not there yet. For Bambu Lab
+  // a new roll can be picked by product and colour from the Bambu Lab web shop, which fills in the rest.
+  function brandField(f) {
+    const id = 'f-brand';
+    const NEW = '__new__';
+    const select = h('select', { id, required: true });
+    const typed = h('input', { type: 'text', autocomplete: 'off', placeholder: t('brand.new_ph'), 'aria-label': t('brand.new'), hidden: true,
+      oninput: (e) => { values[f.key] = e.target.value; dirty.add(f.key); showPanel(); } });
+    const option = (name) => h('option', { value: name }, name);
+    const ensure = (name) => {                                      // the option of this brand (any case), added when there is none
+      const found = [...select.options].find((o) => o.value !== NEW && norm(o.value) === norm(name));
+      if (found) return found;
+      const added = option(name);
+      select.insertBefore(added, select.querySelector(`option[value="${NEW}"]`));
+      return added;
+    };
+    select.append(h('option', { value: '' }, t('brand.pick')), h('option', { value: NEW }, t('brand.new')));
+    if (values[f.key]) ensure(values[f.key]);
+    select.value = values[f.key] ? ensure(values[f.key]).value : '';
+    Promise.all([api('GET', '/api/spools').catch(() => []), libraryRows]).then(([rolls, entries]) => {
+      const names = new Map([['bambu lab', 'Bambu Lab']]);
+      for (const row of [...rolls, ...entries]) if (norm(row.brand) && !names.has(norm(row.brand))) names.set(norm(row.brand), String(row.brand).trim());
+      const keep = select.value;
+      for (const name of [...names.values()].sort((a, b) => a.localeCompare(b, getLanguage()))) ensure(name);
+      select.value = keep;
+    });
+    select.addEventListener('change', () => {
+      dirty.add(f.key);
+      typed.hidden = select.value !== NEW;
+      values[f.key] = select.value === NEW ? typed.value : select.value;
+      if (select.value === NEW) typed.focus();
+      showPanel();
+    });
+
+    // Bambu Lab: product, then colour. A colour of the shop brings its store ID (the barcode), filament ID, refill or spool, weight and diameter.
+    const placeholder = (key) => h('option', { value: '' }, t(key));
+    const product = h('select', { id: 'f-bambu-product', 'aria-label': t('bambu.product') }, placeholder('bambu.pick_product'));
+    const colour = h('select', { id: 'f-bambu-colour', 'aria-label': t('bambu.colour'), disabled: true }, placeholder('bambu.pick_colour'));
+    const status = h('p', { class: 'hint', role: 'status' });
+    const panel = h('div', { class: 'notice stack', hidden: true }, h('strong', {}, t('bambu.pick_title')),
+      h('p', { class: 'hint' }, t('bambu.pick_hint')), h('div', { class: 'two even' }, product, colour), status);
+    let colours = [];
+    let loaded = false;
+    async function showPanel() {
+      panel.hidden = !(fresh && norm(values[f.key]) === 'bambu lab');
+      if (panel.hidden || loaded) return;
+      loaded = true;
+      try {
+        product.append(...(await api('GET', '/api/bambu/products')).map((p) => h('option', { value: p.slug }, p.name)));
+      } catch (e) { loaded = false; status.textContent = e.message; }
+    }
+    product.addEventListener('change', async () => {
+      colours = [];
+      colour.replaceChildren(placeholder('bambu.pick_colour'));
+      colour.disabled = true;
+      status.textContent = '';
+      if (!product.value) return;
+      status.textContent = t('bambu.loading');
+      try {
+        colours = (await api('GET', `/api/bambu/products/${encodeURIComponent(product.value)}`)).colours;
+        colour.append(...colours.map((c, i) => h('option', { value: String(i) },
+          `${c.colour} (${c.filament_id}) · ${c.refill ? t('library.refill_short') : t('bambu.spool')} · ${fmt(c.roll_weight_g / 1000)} kg`)));
+        colour.disabled = false;
+        status.textContent = '';
+      } catch (e) { status.textContent = e.message; }          // the shop cannot be reached: the form is filled in by hand
+    });
+    colour.addEventListener('change', async () => {
+      const c = colours[Number(colour.value)];
+      if (!c) return;
+      for (const [key, value] of [['brand', 'Bambu Lab'], ['product_type', c.product_type], ['material', c.material], ['colour', c.colour], ['colour_hex', ''],
+        ['roll_weight_g', String(c.roll_weight_g)], ['remaining_g', String(c.roll_weight_g)], ['diameter_mm', String(c.diameter_mm)], ['barcode', c.id]]) put(key, value);
+      fromShop.filament_id = c.filament_id;
+      fromShop.refill = c.refill;
+      // What the shop does not say (temperatures, price) comes from the library when it knows this filament, then from an earlier roll with this barcode.
+      const same = (e) => norm(e.material) === norm(c.material) && norm(e.product_type) === norm(c.product_type);
+      const entry = (await libraryRows).find((e) => e.barcode === c.id) || (await libraryRows).find((e) => e.filament_id === c.filament_id && e.refill === c.refill && same(e));
+      for (const key of ['print_temp_c', 'bed_temp_c', 'price']) if (entry && entry[key] != null) put(key, entry[key]);
+      await els.barcode?.lookup?.();
+      status.textContent = [t('bambu.filled', { name: `${c.product} · ${c.colour}` }), values.print_temp_c ? '' : t('bambu.no_temps')].filter(Boolean).join(' ');
+    });
+    select.setValue = (name) => { select.value = name ? ensure(name).value : ''; typed.hidden = true; showPanel(); };
+    showPanel();
+    return h('div', { class: 'field' }, h('label', { for: id }, f.label), select, typed, panel);
   }
 
   // A new roll can start from the filament library: one pick fills in everything the library knows about that filament.
@@ -361,12 +458,6 @@ export function openForm(config, item, reload) {
     const box = h('div', { class: 'field', hidden: true }, h('label', { for: 'f-library' }, t('library.pick')), select,
       h('p', { class: 'hint', id: 'f-library-hint' }, t('library.pick_hint')));
     let entries = [];
-    const put = (key, value) => {
-      values[key] = value;
-      dirty.add(key);
-      if (!els[key]) return;
-      if (els[key].setColour) els[key].setColour(value); else els[key].value = value;
-    };
     select.addEventListener('change', () => {
       const entry = entries.find((e) => e.id === select.value);
       if (!entry) return;
@@ -376,8 +467,10 @@ export function openForm(config, item, reload) {
         put(key, value);
       }
       put('remaining_g', entry.roll_weight_g);                     // a new roll starts full
+      fromShop.filament_id = entry.filament_id || '';              // what the library knows about the filament goes back to it with the roll
+      fromShop.refill = entry.filament_id ? !!entry.refill : null;
     });
-    api('GET', '/api/filament-library').then((rows) => {
+    libraryRows.then((rows) => {
       entries = rows;
       if (!rows.length) return;
       const groups = new Map();
@@ -389,12 +482,13 @@ export function openForm(config, item, reload) {
       }
       select.append(h('option', { value: '' }, t('library.pick_none')), ...groups.values());
       box.hidden = false;
-    }).catch(() => { /* the library is a convenience: the form works without it */ });
+    });
     return box;
   }
 
   const inputs = config.fields.map((f) => {
     if (f.type === 'barcode') return barcodeField(f);
+    if (f.type === 'brand') return brandField(f);
     if (f.type === 'color') return colourField(f);
     if (f.type === 'checkbox') {
       const box = h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: !!values[f.key],
@@ -428,6 +522,7 @@ export function openForm(config, item, reload) {
       e.preventDefault();
       try {
         const payload = toPayload(config, values);
+        if (fresh && fromShop.filament_id) payload.library = { filament_id: fromShop.filament_id, refill: fromShop.refill };      // for "also add to the library"
         let passOn = [];
         if (item) {
           passOn = await askToPassOn(config, item, payload);
@@ -442,7 +537,7 @@ export function openForm(config, item, reload) {
       } catch (err) { error.textContent = err.message; error.hidden = false; }
     } },
     h('h2', {}, item ? t(`${config.id}.edit`) : t(`${config.id}.new`)),
-    config.id === 'filament' && !item ? libraryPicker() : null,
+    fresh ? libraryPicker() : null,
     ...inputs, ...datalists, error,
     h('div', { class: 'row end' },
       h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),

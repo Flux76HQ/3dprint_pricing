@@ -55,10 +55,13 @@ STORE_PAGES = {
 }
 
 
-def store_page(variants) -> bytes:
+STORE_NAMES = {"pla-basic-filament": "PLA Basic", "pla-matte": "PLA Matte"}          # the name of the product group on each page
+
+
+def store_page(variants, name="x") -> bytes:
     """A product page as the shop serves it: the variants as JSON-LD in `<script id="product-jsonld">`, among much else."""
     import json
-    group = {"@context": "https://schema.org/", "@type": "ProductGroup", "name": "x",
+    group = {"@context": "https://schema.org/", "@type": "ProductGroup", "name": name,
              "hasVariant": [{"@type": "Product", "sku": sku, "name": name} for sku, name in variants]}
     return f'<html><body><div>shop</div><script id="product-jsonld" type="application/ld+json">{json.dumps(group)}</script></body></html>'.encode()
 
@@ -84,7 +87,7 @@ class Shop:
     The calls are remembered, so a test can see which hosts were contacted."""
 
     def __init__(self, pages=None):
-        self.pages = {f"https://eu.store.bambulab.com/nl/products/{slug}": Reply(store_page(v)) for slug, v in (pages or STORE_PAGES).items()}
+        self.pages = {f"https://eu.store.bambulab.com/nl/products/{slug}": Reply(store_page(v, STORE_NAMES.get(slug, "x"))) for slug, v in (pages or STORE_PAGES).items()}
         self.calls = []
 
     def get(self, url, **kwargs):
