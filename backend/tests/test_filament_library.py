@@ -7,13 +7,23 @@ from pathlib import Path
 import pytest
 import requests
 
-from tests.bambu_invoices import FILAMENT, invoice_pdf
+from app import bambu_store
+from tests.bambu_invoices import FILAMENT, Reply as ShopReply, Shop, invoice_pdf
 from tests.test_auth_api import H
 from tests.test_domain_api import make, owner  # noqa: F401  (fixture)
 
 NL = {"X-Lang": "nl"}
 GREY = {"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Grijs", "filament_id": "10103",
         "sku": "A00-D0-1.75-1000-SPLFREE", "refill": True, "roll_weight_g": 1000, "diameter_mm": "1.75", "price": "19.32"}
+
+
+@pytest.fixture(autouse=True)
+def shop(monkeypatch):
+    """The Bambu Lab web shop is never reached from a test: this is a stand-in with the variants of the synthetic invoice."""
+    bambu_store._cache.clear()
+    fake = Shop()
+    monkeypatch.setattr(requests, "get", fake.get)
+    return fake
 
 
 def library(owner):
@@ -122,13 +132,13 @@ def test_an_invoice_is_read_and_checked_against_the_library_without_writing_anyt
     assert res.status_code == 200
     invoice = res.get_json()
     assert [bool(line["library_id"]) for line in invoice["lines"]] == [True, False, False]       # the grey one is known by its SKU
-    assert invoice["order_number"] == "EN000000000000000001" and invoice["rolls_on_shelf"] == 0 and "warning" not in invoice
+    assert invoice["order_number"] == "EN000000000000000001" and invoice["warnings"] == []
     assert len(library(owner)) == 1 and owner.get("/api/spools").get_json() == []
 
 
 def test_an_invoice_whose_lines_do_not_add_up_carries_a_warning(owner):
     invoice = upload(owner, invoice_pdf(total="99.00")).get_json()
-    assert "99.00" in invoice["warning"]
+    assert len(invoice["warnings"]) == 1 and "99.00" in invoice["warnings"][0]
 
 
 @pytest.mark.parametrize("content, fragment", [(b"nope", "geen PDF"), (invoice_pdf(bambu=False), "geen Bambu Lab-factuur")])
@@ -138,18 +148,18 @@ def test_a_file_that_is_no_bambu_invoice_is_refused_with_a_reason(owner, content
     assert owner.post("/api/filament-library/invoice", headers=H).status_code == 400            # no file at all
 
 
-def test_applying_an_invoice_adds_the_filaments_and_the_rolls_at_the_price_that_was_paid(owner):
+def test_applying_an_invoice_fills_the_library_and_leaves_the_shelf_alone(owner):
+    owner.post("/api/spools", json={"brand": "Mijn", "roll_weight_g": 1000, "price": 5, "remaining_g": 300}, headers=H)
     lines = lines_of(owner)
     for line in lines:
-        line["rolls"] = line["quantity"]
+        line["rolls"], line["paid_price"] = 5, "1.00"                 # what an older screen may still send: never acted on
     res = owner.post("/api/filament-library/invoice/apply", json={"order_number": "EN000000000000000001", "lines": lines}, headers=H).get_json()
-    assert (res["added"], res["updated"], res["rolls"]) == (3, 0, 4)
+    assert (res["added"], res["updated"], res["unchanged"]) == (3, 0, 0) and "rolls" not in res
     entries = {e["colour"]: e for e in library(owner)}
     assert entries["Rood"]["price"] == "21.84" and entries["Rood"]["filament_id"] == "10200" and entries["Grijs"]["refill"] is True
-    rolls = [r for r in owner.get("/api/spools").get_json() if r["colour"] == "Rood"]
-    assert len(rolls) == 2 and {r["price"] for r in rolls} == {"10.26"} and {r["remaining_g"] for r in rolls} == {"1000.0"}
-    assert all("EN000000000000000001" in r["notes"] for r in rolls)
-    assert upload(owner, invoice_pdf()).get_json()["rolls_on_shelf"] == 4                         # the invoice is known to be on the shelf now
+    assert [r["brand"] for r in owner.get("/api/spools").get_json()] == ["Mijn"]            # not one roll was made from the invoice
+    assert owner.get("/api/spools/stock").get_json()["groups"][0]["remaining_g"] == "300.0"
+
 
 
 def test_applying_to_a_known_filament_only_brings_the_new_price_and_keeps_what_you_entered(owner):
@@ -157,31 +167,13 @@ def test_applying_to_a_known_filament_only_brings_the_new_price_and_keeps_what_y
     grey = lines_of(owner)[0]
     grey["colour"], grey["colour_hex"] = "Gris", "#000000"                                        # the invoice must not rename or recolour it
     res = owner.post("/api/filament-library/invoice/apply", json={"lines": [grey]}, headers=H).get_json()
-    assert (res["added"], res["updated"], res["rolls"]) == (0, 1, 0)
+    assert (res["added"], res["updated"], res["unchanged"]) == (0, 1, 0)
     [row] = library(owner)
     assert row["id"] == mine["id"] and row["price"] == "19.32"
     assert (row["colour"], row["colour_hex"], row["print_temp_c"], row["notes"]) == ("Grijs", "#aaaaaa", 215, "mijn")
 
 
-def test_rolls_can_be_added_without_adding_the_filament_to_the_library(owner):
-    red = lines_of(owner)[1]
-    red.update(add_to_library=False, rolls=1)
-    assert owner.post("/api/filament-library/invoice/apply", json={"lines": [red]}, headers=H).get_json()["rolls"] == 1
-    assert library(owner) == [] and len(owner.get("/api/spools").get_json()) == 1
-
-
-def test_a_roll_from_an_invoice_takes_over_the_notification_of_its_kind(owner):
-    owner.post("/api/spools", json={"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Rood", "roll_weight_g": 1000,
-                                    "price": 1, "remaining_g": 100, "notify_low": True}, headers=H)
-    red = lines_of(owner)[1]
-    red["rolls"] = 1
-    owner.post("/api/filament-library/invoice/apply", json={"lines": [red]}, headers=H)
-    assert [r["notify_low"] for r in owner.get("/api/spools").get_json()] == [True, True]
-
-
-@pytest.mark.parametrize("body", [{}, {"lines": []}, {"lines": ["x"]}, {"lines": [{"brand": "x", "roll_weight_g": 0}]},
-                                  {"lines": [{"brand": "x", "roll_weight_g": 1000, "rolls": 100, "paid_price": 1}]},
-                                  {"lines": [{"brand": "x", "roll_weight_g": 1000, "rolls": 1, "paid_price": "-1"}]}])
+@pytest.mark.parametrize("body", [{}, {"lines": []}, {"lines": ["x"]}, {"lines": [{"brand": "x", "roll_weight_g": 0}]}])
 def test_a_bad_apply_is_refused_and_changes_nothing(owner, body):
     assert owner.post("/api/filament-library/invoice/apply", json=body, headers=H).status_code == 400
     assert library(owner) == [] and owner.get("/api/spools").get_json() == []
@@ -265,9 +257,210 @@ def test_only_an_https_github_raw_address_is_accepted_in_the_configuration(monke
     assert _library_url() == ""
 
 
-def test_the_shared_library_file_in_the_repository_is_a_valid_library_without_prices(owner):
+def test_the_shared_library_file_in_the_repository_is_a_valid_library(owner):
     path = Path(__file__).resolve().parents[2] / "library" / "filaments.json"
     doc = json.loads(path.read_text(encoding="utf-8"))
-    assert all("price" not in row for row in doc["filaments"])               # prices differ per shop and per day
     res = owner.post("/api/filament-library/import", json=doc, headers=H).get_json()
     assert res["added"] == len(doc["filaments"]) > 0 and res["updated"] == 0
+
+
+# --- the web shop's ID as barcode ----------------------------------------------------------------------------------
+
+def test_the_preview_carries_the_shops_id_of_each_line_as_its_barcode(owner, shop):
+    lines = upload(owner, invoice_pdf()).get_json()["lines"]
+    assert [line["barcode"] for line in lines] == ["43000000000001", "43000000000004", "43992833229019"]    # refill, with spool, matte refill
+    assert {url.split("/")[2] for url, _ in shop.calls} == {"eu.store.bambulab.com"}
+
+
+def test_applying_stores_the_barcode_on_the_filament(owner):
+    owner.post("/api/filament-library/invoice/apply", json={"lines": lines_of(owner)}, headers=H)
+    assert {e["colour"]: e["barcode"] for e in library(owner)} == {"Grijs": "43000000000001", "Rood": "43000000000004", "Pruim": "43992833229019"}
+    assert owner.get("/api/spools").get_json() == []
+
+
+
+def test_a_known_filament_without_a_barcode_gets_one_but_one_that_has_one_keeps_it(owner):  # noqa: E501
+    make(owner, "/api/filament-library", GREY)
+    make(owner, "/api/filament-library", {**GREY, "sku": "A00-R0-1.75-1000-SPL", "colour": "Rood", "refill": False, "filament_id": "10200", "barcode": "mine"})
+    lines = lines_of(owner)
+    owner.post("/api/filament-library/invoice/apply", json={"lines": lines}, headers=H)
+    assert {e["colour"]: e["barcode"] for e in library(owner)}["Grijs"] == "43000000000001"
+    assert {e["colour"]: e["barcode"] for e in library(owner)}["Rood"] == "mine"
+
+
+def test_without_the_shop_the_import_still_works_and_says_so(owner, monkeypatch):
+    monkeypatch.setattr(requests, "get", lambda *a, **k: (_ for _ in ()).throw(requests.ConnectionError("down")))
+    invoice = upload(owner, invoice_pdf()).get_json()
+    assert [line["barcode"] for line in invoice["lines"]] == ["", "", ""] and "Bambu Lab" in invoice["warnings"][0]
+    lines = invoice["lines"]
+    assert owner.post("/api/filament-library/invoice/apply", json={"lines": lines}, headers=H).get_json()["added"] == 3
+
+
+def test_a_line_the_shop_does_not_know_is_counted_in_a_warning(owner, shop):
+    shop.pages.pop("https://eu.store.bambulab.com/nl/products/pla-matte")
+    invoice = upload(owner, invoice_pdf()).get_json()
+    assert invoice["lines"][2]["barcode"] == "" and "1 regel" in invoice["warnings"][0]
+
+
+# --- a roll typed in by hand may go in the library too ------------------------------------------------------------------
+
+ROLL = {"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Grijs", "colour_hex": "#9e9e9e", "roll_weight_g": 1000, "price": "9.08",
+        "remaining_g": 640, "barcode": "555", "diameter_mm": "1.75", "print_temp_c": 220, "bed_temp_c": 55, "notes": "kast"}
+
+
+def test_a_new_roll_can_be_put_in_the_library_at_the_same_time_without_its_price_or_what_is_left(owner):
+    make(owner, "/api/spools", {**ROLL, "add_to_library": True})
+    [entry] = library(owner)
+    assert (entry["brand"], entry["material"], entry["product_type"], entry["colour"], entry["colour_hex"], entry["barcode"]) == \
+        ("Bambu Lab", "PLA", "Basic", "Grijs", "#9e9e9e", "555")
+    assert (entry["roll_weight_g"], entry["diameter_mm"], entry["print_temp_c"], entry["bed_temp_c"]) == ("1000.0", "1.75", 220, 55)
+    assert entry["price"] is None and entry["notes"] == ""                      # the price is the roll's, and so are the notes
+
+
+def test_a_roll_is_not_put_in_the_library_unless_it_says_so(owner):
+    make(owner, "/api/spools", ROLL)
+    make(owner, "/api/spools", {**ROLL, "colour": "Rood", "barcode": "", "add_to_library": False})
+    make(owner, "/api/spools", {**ROLL, "colour": "Blauw", "barcode": "", "add_to_library": "yes"})
+    assert library(owner) == []
+
+
+def test_a_roll_of_a_filament_that_is_already_in_the_library_does_not_add_it_again(owner):
+    make(owner, "/api/filament-library", GREY)                                       # has a SKU; the roll has not, but is the same filament
+    make(owner, "/api/spools", {**ROLL, "barcode": "", "add_to_library": True})
+    make(owner, "/api/spools", {**ROLL, "colour": "GRIJS", "brand": "bambu lab", "barcode": "", "add_to_library": True})
+    assert len(library(owner)) == 1
+    make(owner, "/api/spools", {**ROLL, "colour": "Zwart", "barcode": "777", "add_to_library": True})
+    make(owner, "/api/spools", {**ROLL, "colour": "Zwart (nieuw)", "barcode": "777", "add_to_library": True})     # the same barcode is the same filament
+    assert sorted(e["colour"] for e in library(owner)) == ["Grijs", "Zwart"]
+
+
+def test_a_roll_that_is_refused_puts_nothing_in_the_library(owner):
+    assert owner.post("/api/spools", json={**ROLL, "price": "-1", "add_to_library": True}, headers=H).status_code == 400
+    assert library(owner) == []
+
+
+def test_changing_a_roll_never_touches_the_library(owner):
+    roll = make(owner, "/api/spools", ROLL)
+    assert owner.patch(f"/api/spools/{roll['id']}", json={"colour": "Rood", "add_to_library": True}, headers=H).status_code == 200
+    assert library(owner) == []
+
+
+# --- no filament twice ------------------------------------------------------------------------------------------------
+
+PLUM = {"brand": "Bambu Lab", "product_type": "Matte", "material": "PLA", "colour": "Pruim", "roll_weight_g": 1000, "diameter_mm": "1.75"}
+
+
+def refused(res, fragment="al in de bibliotheek"):
+    assert res.status_code == 409 and fragment in res.get_json()["error"], res.get_json()
+
+
+@pytest.mark.parametrize("change", [
+    {"sku": " a00-d0-1.75-1000-splfree "},                                         # the same SKU, however it is typed
+    {"sku": "", "barcode": "", "filament_id": "10103", "colour": "anders"},         # the same supplier ID of the same kind
+    {"sku": "", "filament_id": "", "brand": "BAMBU LAB", "colour": " grijs "},      # the same name, weight and diameter
+])
+def test_typing_in_a_filament_that_is_already_there_is_refused(owner, change):
+    make(owner, "/api/filament-library", GREY)
+    refused(owner.post("/api/filament-library", json={**GREY, **change}, headers={**H, **NL}))
+    assert len(library(owner)) == 1
+
+
+def test_the_same_barcode_is_the_same_filament_even_under_another_name(owner):
+    make(owner, "/api/filament-library", {**PLUM, "barcode": "4300"})
+    refused(owner.post("/api/filament-library", json={**PLUM, "colour": "Plum", "barcode": " 4300 "}, headers={**H, **NL}))
+
+
+def test_what_differs_in_refill_weight_or_diameter_is_another_filament(owner):
+    make(owner, "/api/filament-library", PLUM)
+    for change in ({"refill": True}, {"roll_weight_g": 500}, {"diameter_mm": "2.85"}, {"colour": "Ivoor"}, {"brand": "Sunlu"}):
+        make(owner, "/api/filament-library", {**PLUM, **change})
+    assert len(library(owner)) == 6
+
+
+def test_a_change_that_makes_an_entry_a_copy_of_another_is_refused_but_other_changes_are_fine(owner):
+    a = make(owner, "/api/filament-library", PLUM)
+    b = make(owner, "/api/filament-library", {**PLUM, "colour": "Ivoor"})
+    assert owner.patch(f"/api/filament-library/{b['id']}", json={"notes": "x", "price": "9"}, headers=H).status_code == 200
+    refused(owner.patch(f"/api/filament-library/{b['id']}", json={"colour": "pruim"}, headers={**H, **NL}))
+    assert owner.patch(f"/api/filament-library/{a['id']}", json={"colour": "Pruim", "notes": "own"}, headers=H).status_code == 200      # itself is no clash
+    assert {e["colour"] for e in library(owner)} == {"Pruim", "Ivoor"}
+
+
+def test_an_entry_that_was_already_a_copy_before_can_still_be_edited(owner, app):
+    import psycopg
+    a = make(owner, "/api/filament-library", PLUM)
+    with psycopg.connect(app.config["APP_CONFIG"].database_url, autocommit=True) as conn:       # as an older release may have left it
+        conn.execute("INSERT INTO filament_library (brand, product_type, material, colour, roll_weight_g, diameter_mm) VALUES ('Bambu Lab', 'Matte', 'PLA', 'Pruim', 1000, 1.75)")
+    assert owner.patch(f"/api/filament-library/{a['id']}", json={"notes": "fine"}, headers=H).status_code == 200
+
+
+def test_two_requests_at_once_for_the_same_filament_make_one_entry(owner, app):
+    from concurrent.futures import ThreadPoolExecutor
+
+    def post(_):
+        client = app.test_client()
+        client.set_cookie("pp_session", owner.get_cookie("pp_session").value)
+        return client.post("/api/filament-library", json=PLUM, headers=H).status_code
+    with ThreadPoolExecutor(8) as pool:
+        statuses = sorted(pool.map(post, range(8)))
+    assert statuses == [201] + [409] * 7 and len(library(owner)) == 1
+
+
+def test_an_import_or_sync_cannot_add_a_filament_twice_nor_turn_one_into_a_copy(owner, remote):
+    make(owner, "/api/filament-library", PLUM)
+    make(owner, "/api/filament-library", {**PLUM, "colour": "Ivoor", "barcode": "9"})
+    doc = {"format": "printpricing-filament-library", "format_version": 1, "filaments": [{**PLUM, "price": "5"}, {**PLUM, "colour": "pruim", "price": "6"}]}
+    done = owner.post("/api/filament-library/import", json=doc, headers=H).get_json()
+    assert (done["added"], done["updated"]) == (0, 2) and len(library(owner)) == 2           # both lines are the one existing entry
+    assert {e["price"] for e in library(owner)} == {"6.00", None}
+    bad = {**doc, "filaments": [{**PLUM, "barcode": "9"}]}                                    # would give the first entry the barcode of the second
+    for path in ("/api/filament-library/import?dry_run=1", "/api/filament-library/import"):
+        res = owner.post(path, json=bad, headers={**H, **NL})
+        assert res.status_code == 400 and "Regel 1" in res.get_json()["error"] and "al in de bibliotheek" in res.get_json()["error"]
+    remote.reply = shared(*bad["filaments"])
+    assert owner.post("/api/filament-library/sync", headers=H).status_code == 400
+    assert {e["barcode"] for e in library(owner)} == {"", "9"}
+
+
+def test_an_invoice_line_that_is_a_filament_typed_in_before_completes_it_instead_of_adding_it_again(owner):
+    mine = make(owner, "/api/filament-library", {"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Grijs", "refill": True,
+                                                 "roll_weight_g": 1000, "diameter_mm": "1.75", "print_temp_c": 215, "notes": "mijn"})
+    lines = lines_of(owner)
+    res = owner.post("/api/filament-library/invoice/apply", json={"lines": [lines[0], lines[0]]}, headers=H).get_json()
+    assert (res["added"], res["updated"], res["unchanged"]) == (0, 1, 1)
+    [row] = library(owner)
+    assert row["id"] == mine["id"] and (row["sku"], row["filament_id"], row["barcode"], row["price"]) == ("A00-D0-1.75-1000-SPLFREE", "10103", "43000000000001", "19.32")
+    assert (row["print_temp_c"], row["notes"]) == (215, "mijn")                                # what was entered stays
+
+
+def test_a_backup_with_the_same_filament_twice_is_refused(owner):
+    make(owner, "/api/filament-library", PLUM)
+    doc = owner.get("/api/backup", headers=H).get_json()
+    doc["filament_library"].append({**doc["filament_library"][0], "colour": "PRUIM"})
+    res = owner.post("/api/backup/restore", json=doc, headers={**H, **NL})
+    assert res.status_code == 400 and "al in de bibliotheek" in res.get_json()["error"]
+    assert len(library(owner)) == 1
+
+
+# --- an entry already there is completed, not overwritten, by a roll ----------------------------------------------------
+
+def test_a_roll_completes_the_entry_it_belongs_to_with_what_that_lacks(owner):
+    make(owner, "/api/filament-library", {**GREY, "colour_hex": "#111111", "print_temp_c": 200})        # refill, with SKU, no barcode, no bed temperature
+    make(owner, "/api/spools", {**ROLL, "refill": True, "add_to_library": True})                         # same name, weight and diameter
+    [row] = library(owner)
+    assert (row["barcode"], row["bed_temp_c"]) == ("555", 55)                                            # filled in
+    assert (row["colour_hex"], row["print_temp_c"], row["price"], row["sku"]) == ("#111111", 200, "19.32", GREY["sku"])   # not overwritten
+
+
+def test_a_roll_with_a_known_barcode_completes_that_entry(owner):
+    make(owner, "/api/filament-library", {**PLUM, "barcode": "555"})
+    make(owner, "/api/spools", {**ROLL, "colour": "Anders", "colour_hex": "#abcdef", "add_to_library": True})
+    [row] = library(owner)
+    assert (row["colour"], row["colour_hex"], row["print_temp_c"]) == ("Pruim", "#abcdef", 220)
+
+
+def test_a_roll_that_could_be_a_refill_or_a_spool_changes_neither(owner):
+    make(owner, "/api/filament-library", {**GREY, "refill": True, "sku": "A"})
+    make(owner, "/api/filament-library", {**GREY, "refill": False, "sku": "B", "filament_id": "10103"})
+    make(owner, "/api/spools", {**ROLL, "add_to_library": True})
+    assert len(library(owner)) == 2 and {e["barcode"] for e in library(owner)} == {""}

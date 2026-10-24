@@ -6,8 +6,7 @@ error the user can act on. Nothing here touches the database; `filament_library`
 What the invoice says (and how it is read):
 
 * *Price* is the shop's list price **including** VAT, *Product discount* is the discount on the whole line and *Items SubTotal* is
-  Price x Qty - discount, still including VAT. The roll price the owner works with is excl. VAT, so both the list price and the
-  price actually paid per roll (after discount) are given, each excl. VAT.
+  Price x Qty - discount, still including VAT. The library keeps the list price excl. VAT (a discount is a promotion, not the price).
 * The SKU (`A00-D0-1.75-1000-SPLFREE`) carries the diameter and the weight in grams; a SKU ending in `FREE` is a refill (no spool).
   The variant (`Grijs (10103) / Bijvullen / 1kg`) carries the colour, the shop's colour code and, as a fallback, the weight.
 * Lines that are not filament (a printer, a hotend...) are skipped and reported.
@@ -117,11 +116,9 @@ def _line(buf: list[str], numbers: tuple) -> "dict | None":
 
     vat_pct = money(vat)
     quantity = int(qty)
-    paid = money(subtotal) / quantity
     return {"brand": BRAND, "material": material, "product_type": product_type, "colour": colour, "filament_id": code, "sku": sku,
             "refill": refill, "roll_weight_g": str(weight), "diameter_mm": str(diameter), "quantity": quantity, "vat_pct": str(vat_pct),
             "price": str(_excl(money(price), vat_pct)),                    # the list price per roll, excl. VAT: the library's reference
-            "paid_price": str(_excl(paid, vat_pct)),                       # what a roll really cost after the discount, excl. VAT
             "discount": str(money(discount)), "subtotal": str(money(subtotal)), "name": name}
 
 

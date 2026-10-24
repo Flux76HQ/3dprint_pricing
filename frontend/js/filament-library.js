@@ -52,23 +52,18 @@ function listCard(state) {
     h('p', { class: 'muted' }, t('library.intro')), h('div', { class: 'field' }, search), count, body);
 }
 
-/** The lines of an invoice, to choose from: what goes in the library and how many rolls go on the shelf. */
+/** The lines of an invoice, to choose from: what goes in the library. The rolls on the shelf are never touched from here. */
 function invoiceDialog(invoice, onDone) {
-  const rows = invoice.lines.map((line) => {
-    const add = h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: true, 'aria-label': t('library.invoice_add') });
-    const rolls = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', 'aria-label': t('library.invoice_rolls'),
-      value: invoice.rolls_on_shelf ? '0' : String(line.quantity) });
-    return { line, add, rolls };
-  });
+  const rows = invoice.lines.map((line) => ({
+    line, add: h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: true, 'aria-label': t('library.invoice_add') }) }));
   const error = h('p', { class: 'error', role: 'alert', hidden: true });
   const apply = async () => {
-    const lines = rows.filter((r) => r.add.checked || Number(r.rolls.value) > 0)
-      .map((r) => ({ ...r.line, add_to_library: r.add.checked, rolls: r.rolls.value.trim() }));
+    const lines = rows.filter((r) => r.add.checked).map((r) => r.line);
     if (!lines.length) { error.textContent = t('library.invoice_none'); error.hidden = false; return; }
     try {
-      const done = await api('POST', '/api/filament-library/invoice/apply', { order_number: invoice.order_number, lines });
+      const done = await api('POST', '/api/filament-library/invoice/apply', { lines });
       dialog.close();
-      toast(t('library.invoice_done', done));
+      toast(t('library.import_done', done));
       onDone();
     } catch (e) { error.textContent = e.message; error.hidden = false; }
   };
@@ -76,19 +71,17 @@ function invoiceDialog(invoice, onDone) {
     h('div', { class: 'stack' },
       h('h2', {}, t('library.invoice_title', { number: invoice.invoice_number || invoice.order_number || '' })),
       h('p', { class: 'muted' }, t('library.invoice_meta', { order: invoice.order_number || '?', date: invoice.invoice_date ? formatDate(invoice.invoice_date, { dateStyle: 'medium' }) : '?' })),
-      invoice.warning ? h('p', { class: 'notice', role: 'status' }, invoice.warning) : null,
-      invoice.rolls_on_shelf ? h('p', { class: 'notice', role: 'status' }, t('library.invoice_again', { n: invoice.rolls_on_shelf })) : null,
+      ...invoice.warnings.map((text) => h('p', { class: 'notice', role: 'status' }, text)),
       invoice.skipped.length ? h('p', { class: 'muted' }, t('library.invoice_skipped', { names: invoice.skipped.join(', ') })) : null,
-      h('p', { class: 'hint' }, t('library.invoice_rolls_hint')),
-      h('ul', { class: 'plain-list' }, rows.map(({ line, add, rolls }) => h('li', { class: 'list-row' },
+      h('p', { class: 'hint' }, t('library.invoice_hint_library')),
+      h('ul', { class: 'plain-list' }, rows.map(({ line, add }) => h('li', { class: 'list-row' },
         h('div', { class: 'item-head' }, spoolIcon(colourOf(line), 30),
           h('div', { class: 'grow' }, h('strong', {}, libraryName(line)),
-            h('p', { class: 'muted' }, [line.filament_id ? `${t('library.id_short')} ${line.filament_id}` : null, `${line.quantity} ×`,
-              t('library.invoice_prices', { price: eur(line.price), paid: eur(line.paid_price) })].filter(Boolean).join(' · ')),
+            h('p', { class: 'muted' }, [line.filament_id ? `${t('library.id_short')} ${line.filament_id}` : null,
+              t('library.invoice_price', { price: eur(line.price) })].filter(Boolean).join(' · ')),
+            h('p', { class: 'muted' }, line.barcode ? t('library.invoice_barcode', { code: line.barcode }) : t('library.invoice_no_barcode')),
             line.library_id ? h('p', { class: 'muted' }, t('library.invoice_known')) : null)),
-        h('div', { class: 'row' },
-          h('label', { class: 'check' }, add, t('library.invoice_add')),
-          h('label', { class: 'field roll-count' }, t('library.invoice_rolls'), rolls))))),
+        h('label', { class: 'check' }, add, t('library.invoice_add'))))),
       error,
       h('div', { class: 'row end' },
         h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),

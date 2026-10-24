@@ -1,9 +1,10 @@
 """The filament library: what a filament is (specs and a reference price), apart from the rolls on the shelf.
 
 Plain create / edit / delete of an entry is the generic resource in `api.RESOURCES` ("filament-library"); this module adds what only the
-library does: reading a Bambu Lab invoice into entries (and, when asked, into rolls on the shelf), and exporting / importing the library
-as a JSON file. An entry is matched on its SKU, else its barcode, else brand + material + type + colour + refill, so the same filament
-is never added twice by an import.
+library does: reading a Bambu Lab invoice into entries, syncing from GitHub, and exporting / importing the library as a JSON file.
+None of it touches the rolls on the shelf (`filament_spools`): the library is a separate list of the filaments that exist, a roll is made
+from an entry by hand in the roll form. An entry is matched on its SKU, else its barcode, else its filament ID, else brand + material +
+type + colour + refill, so the same filament is never added twice by an import.
 """
 import json
 from datetime import datetime, timezone
@@ -12,10 +13,10 @@ from decimal import Decimal
 import requests
 from flask import Blueprint, Response, jsonify, request
 
-from . import bambu_invoice
-from .api import RESOURCES, _share_notify, _validated, number, optional_int, stock_changed
+from . import bambu_invoice, bambu_store
+from .api import RESOURCES, _validated
 from .http import ApiError, config, json_body, login_required, pool
-from .i18n import Localized, tr
+from .i18n import L, Localized, tr
 
 bp = Blueprint("filament_library", __name__, url_prefix="/api/filament-library")
 
@@ -34,24 +35,84 @@ def _guard():
     """Every route here needs a session."""
 
 
-def identity(values: dict) -> tuple:
-    """What makes two entries the same filament: the shop's SKU, else the barcode, else the supplier's filament ID, else its name."""
-    brand = (values.get("brand") or "").strip().lower()
-    sku = (values.get("sku") or "").strip().lower()
-    if sku:
-        return ("sku", brand, sku)
-    barcode = (values.get("barcode") or "").strip()
-    if barcode:
-        return ("barcode", barcode)
-    material, kind = (values.get("material") or "").strip().lower(), (values.get("product_type") or "").strip().lower()
-    fid = (values.get("filament_id") or "").strip().lower()
-    if fid:                                            # a refill and a roll with spool share the ID, hence `refill`
-        return ("id", brand, fid, material, kind, bool(values.get("refill")))
-    return ("name", brand, *((values.get(k) or "").strip().lower() for k in ("material", "product_type", "colour")), bool(values.get("refill")))
+FILLABLE = ("sku", "filament_id", "barcode", "colour_hex", "print_temp_c", "bed_temp_c")      # what an entry may be given when it lacks it
+LOCK = 7_210_021                                                                                # advisory lock: one writer of the library at a time
 
 
-def _existing(conn) -> dict:
-    return {identity(r): r for r in conn.execute(f"SELECT * FROM {TABLE} ORDER BY created_at, id").fetchall()}
+def _n(values: dict, key: str) -> str:
+    return (values.get(key) or "").strip().lower()
+
+
+def _num(value) -> str:
+    return format(Decimal(str(value)).normalize(), "f") if value not in (None, "") else ""
+
+
+def _kind(values: dict) -> tuple:
+    """Brand, material, type, colour, weight and diameter: what a roll says about its filament (a roll has no refill or SKU)."""
+    return (_n(values, "brand"), _n(values, "material"), _n(values, "product_type"), _n(values, "colour"),
+            _num(values.get("roll_weight_g")), _num(values.get("diameter_mm")))
+
+
+def keys(values: dict) -> list[tuple]:
+    """Every way an entry is recognised, most certain first. Two entries that share *one* of them are the same filament: the shop's SKU, the
+    barcode, the supplier's filament ID (a refill and a roll with spool share it, hence `refill`), or the name with its weight and diameter."""
+    found = []
+    if _n(values, "sku"):
+        found.append(("sku", _n(values, "brand"), _n(values, "sku")))
+    if _n(values, "barcode"):
+        found.append(("barcode", _n(values, "barcode")))
+    if _n(values, "filament_id"):
+        found.append(("id", _n(values, "brand"), _n(values, "filament_id"), _n(values, "material"), _n(values, "product_type"), bool(values.get("refill"))))
+    found.append(("name", *_kind(values), bool(values.get("refill"))))
+    return found
+
+
+def name_of(values: dict) -> str:
+    return " · ".join(v for v in (values.get("brand"), values.get("product_type"), values.get("colour"), values.get("material")) if v)
+
+
+class Index:
+    """The entries of the library by each of their keys, to find the one a new or changed entry would be a copy of."""
+
+    def __init__(self, rows=()):
+        self.by: dict[tuple, list] = {}
+        for row in rows:
+            self.add(row)
+
+    def add(self, row: dict) -> None:
+        for key in keys(row):
+            self.by.setdefault(key, []).append(row)
+
+    def drop(self, row: dict) -> None:
+        for key in keys(row):
+            self.by[key] = [r for r in self.by.get(key, []) if r is not row]
+
+    def find(self, values: dict, *, only=None, skip=None) -> "dict | None":
+        """The first entry that shares a key with `values` (only these keys, when given), other than `skip`."""
+        for key in keys(values):
+            if only is None or key in only:
+                for row in self.by.get(key, ()):
+                    if row is not skip:
+                        return row
+        return None
+
+    def clash(self, row: dict, merged: dict) -> "dict | None":
+        """The entry that `row` would become a copy of once it looks like `merged`. Only what is new counts: two entries that were
+        already alike (from before this check existed) can still be edited."""
+        return self.find(merged, only=set(keys(merged)) - set(keys(row)), skip=row)
+
+
+def _duplicate(other: dict) -> ApiError:
+    return ApiError(409, "library.duplicate", name=name_of(other))
+
+
+def _lock(conn) -> None:
+    """Held until the transaction ends: two requests that add the same filament at once are made to take turns, so the second sees the first."""
+    conn.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK,))
+
+
+def _rows(conn) -> list[dict]:
+    return conn.execute(f"SELECT * FROM {TABLE} ORDER BY created_at, id").fetchall()
 
 
 def _insert(conn, values: dict):
@@ -71,6 +132,80 @@ def _differs(row: dict, values: dict) -> bool:
             return a == b
         return Decimal(str(a)) == Decimal(str(b))
     return any(not same(row[k], v) for k, v in values.items())
+
+
+def _blank(value) -> bool:
+    return value is None or str(value).strip() == ""
+
+
+def before_create(conn, values: dict) -> None:
+    """Typing in a new entry (the generic resource calls this before it inserts): refused when it is a filament that is already there."""
+    _lock(conn)
+    other = Index(_rows(conn)).find({**BLANK, **DEFAULTS, **values})
+    if other:
+        raise _duplicate(other)
+
+
+def before_update(conn, item_id, values: dict) -> None:
+    """Changing an entry: refused when it would become a copy of another one."""
+    _lock(conn)
+    rows = _rows(conn)
+    row = next((r for r in rows if r["id"] == item_id), None)
+    other = row and Index(rows).clash(row, {**row, **values})
+    if other:
+        raise _duplicate(other)
+
+
+def first_clash(rows: list[dict]) -> "tuple[int, dict] | None":
+    """(position, the earlier entry) of the first entry of a list that is a copy of one before it; used before a restore."""
+    index = Index()
+    for n, values in enumerate(rows, 1):
+        full = {**BLANK, **DEFAULTS, **values}
+        other = index.find(full)
+        if other:
+            return n, other
+        index.add(full)
+    return None
+
+
+def complete(conn, index: Index, row: dict, source: dict, *, price=None) -> dict:
+    """Give an entry that already exists what it is missing, from `source` (the same filament as an invoice line or a roll says it): the
+    fields in FILLABLE that are empty, and the reference `price` when one is given. Nothing that is filled in is overwritten. Returns the
+    entry as it is now."""
+    change = {k: source[k] for k in FILLABLE if _blank(row[k]) and not _blank(source.get(k))}
+    if price is not None:
+        change["price"] = price
+    if not change or not _differs(row, change):
+        return row
+    merged = {**row, **change}
+    other = index.clash(row, merged)
+    if other:
+        raise _duplicate(other)
+    index.drop(row)
+    updated = _update(conn, row["id"], change)
+    index.add(updated)
+    return updated
+
+
+def add_roll(conn, roll: dict) -> None:
+    """A roll typed in by hand may go in the library too: when the filament is not there yet it is added (what the roll says about the
+    filament, never what it cost or what is left), and when it is, that entry gets what it was missing. The same barcode is the same
+    filament; without one, the same brand, material, type, colour, weight and diameter, as a refill or not. When that is more than one
+    entry (a refill and a roll with spool), it is not clear which one this roll is, so none is touched."""
+    _lock(conn)
+    rows = _rows(conn)
+    index = Index(rows)
+    spec = {**BLANK, **{k: roll[k] for k in ("brand", "product_type", "material", "colour", "colour_hex", "barcode", "roll_weight_g",
+                                              "diameter_mm", "print_temp_c", "bed_temp_c")}}
+    code = _n(spec, "barcode")
+    found = [r for r in rows if code and _n(r, "barcode") == code] or [r for r in rows if _kind(r) == _kind(spec)]
+    if not found:
+        index.add(_insert(conn, {k: v for k, v in spec.items() if k in FIELDS and k not in ("price", "notes", "sku", "filament_id", "refill")}))
+    elif len(found) == 1:
+        try:
+            complete(conn, index, found[0], spec)
+        except ApiError:                                              # it would clash with another entry: leave the entry as it is
+            pass
 
 
 # --- export / import as JSON -------------------------------------------------------------------------------------
@@ -122,18 +257,26 @@ def _parse_library(doc) -> list[dict]:
 
 
 def _merge(conn, items: list[dict], *, write: bool) -> dict:
-    """Add what is new and bring what is already there in line with the file. Nothing is ever deleted."""
-    known = _existing(conn)
+    """Add what is new and bring what is already there in line with the file. Nothing is ever deleted. A line of the file is the same
+    filament as an entry when they share a key (see `keys`); a change that would make an entry a copy of another one is refused, with its line."""
+    if write:
+        _lock(conn)
+    index = Index(_rows(conn))
     counts = {"added": 0, "updated": 0, "unchanged": 0}
-    for values in items:
-        key = identity(values)
-        row = known.get(key)
+    for n, values in enumerate(items, 1):
+        row = index.find(values)
         if row is None:
             counts["added"] += 1
-            known[key] = {**{k: None for k in FIELDS}, **values, "id": None} if not write else _insert(conn, values)
-        elif _differs(row, values):
+            index.add(_insert(conn, values) if write else {**BLANK, **values, "id": None})
+            continue
+        merged = {**row, **values}
+        other = index.clash(row, merged)
+        if other:
+            raise ApiError(400, "library.bad_row", n=n, reason=L("library.duplicate", name=name_of(other)))
+        if _differs(row, values):
             counts["updated"] += 1
-            known[key] = {**row, **values} if not write else _update(conn, row["id"], values)
+            index.drop(row)
+            index.add(_update(conn, row["id"], values) if write else merged)
         else:
             counts["unchanged"] += 1
     return counts
@@ -197,7 +340,7 @@ def sync():
 
 @bp.post("/invoice")
 def read_invoice():
-    """What a Bambu Lab invoice holds, checked against the library and the shelf. Nothing is written."""
+    """What a Bambu Lab invoice holds, checked against the library. Nothing is written."""
     upload = request.files.get("file")
     if upload is None or not upload.filename:
         raise ApiError(400, "files.pick")
@@ -206,71 +349,51 @@ def read_invoice():
     except Localized as exc:
         raise ApiError(422, exc) from None
     with pool().connection() as conn:
-        known = _existing(conn)
-        rolls = 0
-        if invoice["order_number"]:
-            rolls = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE position(%s in notes) > 0",
-                                 (invoice["order_number"],)).fetchone()["n"]
-    for line in invoice["lines"]:
-        match = known.get(identity(line))
+        known = Index(_rows(conn))
+    store = bambu_store.lookup(invoice["lines"])                    # the Bambu Lab web shop's ID of each line: what the owner uses as barcode
+    warnings = []
+    for n, line in enumerate(invoice["lines"]):
+        match = known.find(line)
         line["library_id"] = str(match["id"]) if match else None
-    invoice["rolls_on_shelf"] = rolls                    # rolls already made from this very invoice: importing it twice doubles the shelf
+        line["barcode"] = store["ids"].get(n, "")
     if invoice["total"] is not None and invoice["total"] != invoice["lines_total"]:
-        invoice["warning"] = tr("bambu.warn_total", lines=invoice["lines_total"], invoice=invoice["total"])
+        warnings.append(tr("bambu.warn_total", lines=invoice["lines_total"], invoice=invoice["total"]))
+    if not store["reachable"]:
+        warnings.append(tr("bambu.warn_store"))
+    elif invoice["lines"] and len(store["ids"]) < len(invoice["lines"]):
+        warnings.append(tr("bambu.warn_store_missing", n=len(invoice["lines"]) - len(store["ids"])))
+    invoice["warnings"] = warnings
     return jsonify(invoice)
-
-
-ROLLS = optional_int("f.rolls", minimum=0, maximum=99)
-PAID = number("f.roll_price")
 
 
 @bp.post("/invoice/apply")
 def apply_invoice():
-    """Put the chosen lines of an invoice in the library (a known entry only gets the newer price and what it was missing)
-    and, for the lines that say how many rolls came in, those rolls on the shelf at the price that was paid."""
-    body = json_body()
-    lines = body.get("lines")
+    """Put the chosen lines of an invoice in the library. A filament that is already there (see `keys`) only gets the newer price and what
+    it was missing (SKU, filament ID, barcode). Only the library changes: the rolls on the shelf are never touched, whatever the invoice says."""
+    lines = json_body().get("lines")
     if not isinstance(lines, list) or not lines or len(lines) > bambu_invoice.MAX_LINES:
         raise ApiError(400, "bambu.err_no_lines")
-    order = str(body.get("order_number") or "").strip()[:60]
-    parsed = []
+    entries = []
     for n, line in enumerate(lines, 1):
-        if not isinstance(line, dict):
-            raise ApiError(400, "backup.bad_row_type")
         try:
-            entry = {**BLANK, **_validated(FIELDS, {**DEFAULTS, **line}, partial=False)}
-            rolls = ROLLS(line.get("rolls")) or 0
-            paid = PAID(line.get("paid_price")) if rolls else None
-        except ApiError as exc:
+            if not isinstance(line, dict):
+                raise Localized("backup.bad_row_type")
+            entries.append({**BLANK, **_validated(FIELDS, {**DEFAULTS, **line}, partial=False)})
+        except (ApiError, Localized) as exc:
             raise ApiError(400, "library.bad_row", n=n, reason=exc.msg) from None
-        parsed.append((entry, bool(line.get("add_to_library", True)), rolls, paid))
-    counts = {"added": 0, "updated": 0, "unchanged": 0, "rolls": 0}
+    counts = {"added": 0, "updated": 0, "unchanged": 0}
     with pool().connection() as conn:
-        known = _existing(conn)
-        for entry, add, rolls, paid in parsed:
-            row = known.get(identity(entry))
-            if add:
-                if row is None:
-                    row = known[identity(entry)] = _insert(conn, entry)
-                    counts["added"] += 1
-                else:
-                    fill = {k: entry[k] for k in ("sku", "filament_id", "barcode") if not row[k] and entry[k]}
-                    change = {"price": entry["price"], **fill}
-                    if entry["price"] is not None and _differs(row, change):
-                        row = known[identity(entry)] = _update(conn, row["id"], change)
-                        counts["updated"] += 1
-                    else:
-                        counts["unchanged"] += 1
-            spec = row if row is not None else entry
-            for _ in range(rolls):
-                spool = conn.execute(
-                    "INSERT INTO filament_spools (brand, product_type, material, colour, colour_hex, roll_weight_g, price, remaining_g, barcode, "
-                    "diameter_mm, print_temp_c, bed_temp_c, notes) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
-                    (spec["brand"], spec["product_type"], spec["material"], spec["colour"], spec["colour_hex"], spec["roll_weight_g"],
-                     paid, spec["roll_weight_g"], spec["barcode"], spec["diameter_mm"], spec["print_temp_c"], spec["bed_temp_c"],
-                     tr("bambu.note", order=order) if order else "")).fetchone()
-                _share_notify(conn, spool, explicit=False, creating=True)     # a new roll takes over the notification its kind already has
-                counts["rolls"] += 1
-    if counts["rolls"]:
-        stock_changed()
+        _lock(conn)
+        index = Index(_rows(conn))
+        for n, entry in enumerate(entries, 1):
+            row = index.find(entry)
+            if row is None:
+                index.add(_insert(conn, entry))
+                counts["added"] += 1
+                continue
+            try:
+                updated = complete(conn, index, row, entry, price=entry["price"])
+            except ApiError as exc:
+                raise ApiError(400, "library.bad_row", n=n, reason=exc.msg) from None
+            counts["unchanged" if updated is row else "updated"] += 1
     return jsonify({"ok": True, **counts})

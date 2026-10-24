@@ -36,7 +36,7 @@ function resources() {
     id: 'filament', title: t('filament.title'), path: '/api/spools', empty: t('filament.empty'), archivable: true,
     intro: t('filament.intro'),
     defaults: { brand: '', product_type: '', material: '', colour: '', colour_hex: '', roll_weight_g: '1000', price: '', remaining_g: '1000',
-      barcode: '', diameter_mm: '1.75', print_temp_c: '', bed_temp_c: '', notify_low: false, notes: '' },
+      barcode: '', diameter_mm: '1.75', print_temp_c: '', bed_temp_c: '', notify_low: false, notes: '', add_to_library: true },
     fields: [
       { key: 'barcode', label: t('filament.barcode'), type: 'barcode', hint: t('filament.barcode_hint') },
       { key: 'brand', label: t('filament.brand'), type: 'text', required: true, placeholder: t('filament.brand_ph') },
@@ -52,6 +52,7 @@ function resources() {
       { key: 'bed_temp_c', label: t('filament.bed_temp'), type: 'number', placeholder: t('filament.bed_temp_ph'), hint: t('filament.optional') },
       { key: 'notify_low', label: t('filament.notify_low'), type: 'checkbox', hint: t('filament.notify_low_hint') },
       { key: 'notes', label: t('common.notes'), type: 'textarea' },
+      { key: 'add_to_library', label: t('library.also_add'), type: 'checkbox', hint: t('library.also_add_hint'), newOnly: true },
     ],
     card(item) {
       const perKg = Number(item.price) / Number(item.roll_weight_g) * 1000;
@@ -270,6 +271,7 @@ async function askToPassOn(config, item, payload) {
 }
 
 export function openForm(config, item, reload) {
+  if (item) config = { ...config, fields: config.fields.filter((f) => !f.newOnly) };     // an option of making a new one, not of editing
   const values = { ...(item || config.defaults) };
   const error = h('p', { class: 'error', role: 'alert', hidden: true });
   const els = {};          // inputs by key, so "copy from the previous roll" can fill them

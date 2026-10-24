@@ -22,11 +22,10 @@ def test_the_filament_lines_come_out_with_their_specs():
     assert (plum["product_type"], plum["filament_id"]) == ("Matte", "11204")
 
 
-def test_prices_are_excl_vat_both_the_list_price_and_what_was_paid():
+def test_the_price_is_the_list_price_excl_vat_not_what_a_promotion_made_of_it():
     grey, red, _ = read()["lines"]
-    assert (grey["price"], grey["paid_price"]) == ("19.32", "9.08")          # 23.38 incl. VAT is 19.32; 10.99 paid for one roll incl. VAT is 9.08
-    assert (red["price"], red["paid_price"]) == ("21.84", "10.26")           # 24.84 for two rolls: 12.42 each incl. VAT
-    assert red["vat_pct"] == "21" and red["subtotal"] == "24.84"
+    assert grey["price"] == "19.32" and "paid_price" not in grey             # 23.38 incl. VAT is 19.32 excl.; the 12.39 discount is a promotion
+    assert red["price"] == "21.84" and red["vat_pct"] == "21" and red["subtotal"] == "24.84"
 
 
 def test_the_lines_add_up_to_the_invoice_total():

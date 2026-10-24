@@ -20,7 +20,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import ai_images, customers, invoice_docs, invoice_logo, invoice_template, orders, printfile
+from . import ai_images, customers, filament_library, invoice_docs, invoice_logo, invoice_template, orders, printfile
 from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized
@@ -189,6 +189,10 @@ def _parse(doc) -> dict:
                                "created_at": _when(row.get("created_at"))})
             except (ApiError, Localized) as exc:
                 raise _row_error(key, n, exc) from None
+        if key == "filament_library":
+            clash = filament_library.first_clash([item["values"] for item in parsed])       # a backup must not bring back what the library refuses
+            if clash:
+                raise _row_error(key, clash[0], Localized("library.duplicate", name=filament_library.name_of(clash[1])))
         if key == "tariffs":
             seen = False
             for item in parsed:                                     # at most one default (the database insists)
