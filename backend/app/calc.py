@@ -53,6 +53,30 @@ def round_up_price(value: Decimal, rule: str) -> Decimal:
     return ((value / step).to_integral_value(rounding=ROUND_CEILING) * step).quantize(CENT)
 
 
+def price_from_cost(cost_price: Decimal, margin: Decimal, vat_rate: Decimal, rounding: str = "none") -> dict:
+    """Margin, VAT and rounding on top of a cost price (all excl. VAT): the part of the calculation an order repeats with its own
+    margin and rounding. Returns Decimals."""
+    margin_amount = _money(cost_price * margin / 100)
+    sell_price = cost_price + margin_amount
+    # VAT is charged on the selling price; everything above is bought excl. VAT (deductible).
+    vat_amount = _money(sell_price * vat_rate / 100)
+    if rounding != "none":
+        # The consumer price is authoritative: round the VAT-inclusive price up, then take the VAT
+        # out of it. `margin` becomes a minimum and the effective margin follows from the price.
+        minimum_net = sell_price
+        incl = round_up_price(sell_price + vat_amount, rounding)
+        while True:
+            vat_amount = _money(incl - incl / (1 + vat_rate / 100))
+            if incl - vat_amount >= minimum_net or incl <= 0:
+                break
+            incl = round_up_price(incl + CENT, rounding)   # cent rounding of the VAT cost us the minimum
+        sell_price = incl - vat_amount
+        margin_amount = sell_price - cost_price
+    effective_pct = _money(margin_amount / cost_price * 100) if cost_price else Decimal("0.00")
+    return {"margin_amount": margin_amount, "sell_price": sell_price, "vat_amount": vat_amount,
+            "sell_price_incl_vat": sell_price + vat_amount, "margin_pct_effective": effective_pct}
+
+
 def calculate(data: dict, margin_pct=0, vat_pct=0, rounding="none") -> dict:
     """Return every line and subtotal as strings with two decimals."""
     margin = _num(margin_pct, L("cl.margin"))
@@ -107,23 +131,9 @@ def calculate(data: dict, margin_pct=0, vat_pct=0, rounding="none") -> dict:
     energy_total = total(energy)
     cost_price = (filament_total + parts_total + charger_total + packaging_total
                   + depreciation_total + energy_total)
-    margin_amount = _money(cost_price * margin / 100)
-    sell_price = cost_price + margin_amount
-    # VAT is charged on the selling price; everything above is bought excl. VAT (deductible).
-    vat_amount = _money(sell_price * vat_rate / 100)
-    if rounding != "none":
-        # The consumer price is authoritative: round the VAT-inclusive price up, then take the VAT
-        # out of it. `margin` becomes a minimum and the effective margin follows from the price.
-        minimum_net = sell_price
-        incl = round_up_price(sell_price + vat_amount, rounding)
-        while True:
-            vat_amount = _money(incl - incl / (1 + vat_rate / 100))
-            if incl - vat_amount >= minimum_net or incl <= 0:
-                break
-            incl = round_up_price(incl + CENT, rounding)   # cent rounding of the VAT cost us the minimum
-        sell_price = incl - vat_amount
-        margin_amount = sell_price - cost_price
-    effective_pct = _money(margin_amount / cost_price * 100) if cost_price else Decimal("0.00")
+    price = price_from_cost(cost_price, margin, vat_rate, rounding)
+    margin_amount, sell_price, vat_amount = price["margin_amount"], price["sell_price"], price["vat_amount"]
+    effective_pct = price["margin_pct_effective"]
 
     def fmt(lines):
         return [{**line, "cost": str(line["cost"]),

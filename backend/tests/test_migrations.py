@@ -34,3 +34,10 @@ def test_a_failing_migration_leaves_nothing_half_applied(fresh_db, tmp_path):
         assert conn.execute("SELECT to_regclass('half')").fetchone()[0] is None
         applied = [r[0] for r in conn.execute("SELECT filename FROM schema_migrations")]
     assert applied == sorted(p.name for p in MIGRATIONS_DIR.glob("*.sql"))   # everything real, nothing broken
+
+
+def test_migration_numbers_are_unique_and_without_gaps():
+    """Two pull requests that each add "the next" migration both pass on their own; merged, they would share a number, the runner would
+    apply both in file-name order and nobody would notice. `python scripts/update_branch.py` renumbers the branch's migration."""
+    numbers = [int(p.name[:4]) for p in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql"))]
+    assert numbers == list(range(1, len(numbers) + 1)), f"migration numbers must be unique and consecutive, got {numbers}"

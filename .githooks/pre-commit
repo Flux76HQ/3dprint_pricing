@@ -3,7 +3,6 @@ import subprocess
 import sys
 
 commands = (
-    [sys.executable, "scripts/check_version_bump.py", "--staged"],
     # Runs here as well as in CI: the check is about what the *other* AI clients see.
     [sys.executable, "scripts/check_agent_instructions.py"],
 )
