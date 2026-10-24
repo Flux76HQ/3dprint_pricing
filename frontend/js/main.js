@@ -22,6 +22,7 @@ const NAV = [
   ['klanten', 'nav.customers', 'account-group'],
   ['filament', 'nav.filament', 'printer-3d-nozzle'],
   ['verpakking', 'nav.packaging', 'package-variant-closed'],
+  ['onderdelen', 'nav.parts', 'chip'],
   ['printers', 'nav.printers', 'printer-3d'],
   ['energie', 'nav.energy', 'lightning-bolt'],
   ['instellingen', 'nav.settings', 'cog'],
@@ -103,6 +104,7 @@ function pageContent({ page, id }) {
       if (id) return customerEditorView(id === 'nieuw' ? null : id, navigate);
       return customerListView();
     case 'filament': case 'verpakking': case 'printers': case 'energie': return resourceView(page, id);
+    case 'onderdelen': return resourceView(id === 'accessoires' ? 'accessoires' : 'onderdelen', id);
     case 'meer':
       return h('section', { class: 'page' },
         h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.more'))), langSwitch(chooseLanguage)),

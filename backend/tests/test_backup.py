@@ -29,6 +29,8 @@ def fill(owner):
     printer = make(owner, "/api/printers", {"name": "X1C", "purchase_price": 1500, "lifetime_hours": 3000, "power_kw": "0.15"})
     tariff = make(owner, "/api/tariffs", {"name": "Thuis", "price_per_kwh": "0.22"})
     box = make(owner, "/api/packaging", {"name": "Doos 20x15", "price": "0.45"})
+    part = make(owner, "/api/parts", {"name": "JST-connector", "price": "0.12", "unit": "stuks", "notes": "2-pins"})
+    cable = make(owner, "/api/accessories", {"name": "USB-C-kabel", "price": "1.80", "unit": "m"})
     spool = make(owner, "/api/spools", {"brand": "Bambu Lab", "product_type": "Matte", "material": "PLA", "colour": "Black",
                                          "roll_weight_g": 1000, "price": "19.99", "remaining_g": 640, "barcode": "6975337030001",
                                          "print_temp_c": 220, "colour_hex": "#222222", "notes": "kast"})
@@ -36,10 +38,12 @@ def fill(owner):
                                 "barcode": "6975337030001"})
     payload = sheet_payload(spool["id"])
     payload["vat_pct"], payload["price_rounding"], payload["margin_pct"] = "21", "x.95", "40"
-    payload["data"]["parts"] = [{"group": "verpakking", "packaging_id": box["id"], "label": "Doos", "quantity": 1, "unit": "stuks", "unit_price": "0.45"}]
+    payload["data"]["parts"] = [{"group": "verpakking", "packaging_id": box["id"], "label": "Doos", "quantity": 1, "unit": "stuks", "unit_price": "0.45"},
+                                {"group": "onderdeel", "part_id": part["id"], "label": "JST-connector", "quantity": 2, "unit": "stuks", "unit_price": "0.12"},
+                                {"group": "oplader", "accessory_id": cable["id"], "label": "USB-C-kabel", "quantity": 1.5, "unit": "m", "unit_price": "1.80"}]
     project = make(owner, "/api/projects", payload)
     owner.put("/api/preferences", json={"theme": "dark", "language": "en", "vat_pct": "9", "blur_costs": True}, headers=H)
-    return {"printer": printer, "tariff": tariff, "box": box, "spool": spool, "project": project}
+    return {"printer": printer, "tariff": tariff, "box": box, "part": part, "cable": cable, "spool": spool, "project": project}
 
 
 def snapshot(client):
@@ -50,7 +54,8 @@ def snapshot(client):
         return out
     keep = lambda rows: sorted((money(r) for r in rows), key=lambda r: r["id"])
     return {"printers": keep(client.get("/api/printers").get_json()), "tariffs": keep(client.get("/api/tariffs").get_json()),
-            "packaging": keep(client.get("/api/packaging").get_json()), "spools": keep(client.get("/api/spools").get_json()),
+            "packaging": keep(client.get("/api/packaging").get_json()), "parts": keep(client.get("/api/parts").get_json()),
+            "accessories": keep(client.get("/api/accessories").get_json()), "spools": keep(client.get("/api/spools").get_json()),
             "projects": keep(client.get("/api/projects").get_json()), "preferences": client.get("/api/preferences").get_json()}
 
 
@@ -61,7 +66,7 @@ def backup(client, files=False):
 
 
 def wipe(client):
-    for path in ("projects", "spools", "packaging", "printers", "tariffs"):
+    for path in ("projects", "spools", "packaging", "parts", "accessories", "printers", "tariffs"):
         for row in client.get(f"/api/{path}").get_json():
             client.delete(f"/api/{path}/{row['id']}", headers=H)
     client.put("/api/preferences", json={"theme": "light", "language": "nl", "blur_costs": False}, headers=H)
@@ -79,8 +84,8 @@ def test_the_download_is_a_json_attachment_with_every_section(owner):
     res = backup(owner)
     assert "attachment" in res.headers["Content-Disposition"] and res.headers["Content-Disposition"].endswith('.json"')
     doc = res.get_json()
-    assert doc["format"] == "printpricing-backup" and doc["format_version"] == 3 and doc["app_version"]
-    assert [len(doc[k]) for k in ("printers", "tariffs", "packaging", "spools", "projects")] == [1, 1, 1, 2, 1]
+    assert doc["format"] == "printpricing-backup" and doc["format_version"] == 4 and doc["app_version"]
+    assert [len(doc[k]) for k in ("printers", "tariffs", "packaging", "parts", "accessories", "spools", "projects")] == [1, 1, 1, 1, 1, 2, 1]
     assert doc["preferences"]["theme"] == "dark" and doc["includes_files"] is False and "files" not in doc
 
 
@@ -397,6 +402,26 @@ def test_a_restore_without_orders_empties_them_and_a_version_1_file_still_works(
     assert res.status_code == 200 and owner.get("/api/orders").get_json() == []
     assert owner.get("/api/invoice-template").get_json()["template"] is None and owner.get("/api/invoice-logo").get_json()["logo"] is None
     assert [p["number"] for p in owner.get("/api/projects").get_json()] == [1]               # numbered afresh
+
+
+def test_a_backup_from_before_parts_and_accessories_still_restores_and_leaves_them_empty(owner):
+    fill(owner)
+    old = backup(owner).get_json()
+    for key in ("parts", "accessories"):
+        old.pop(key)
+    old["format_version"] = 3
+    assert owner.post("/api/backup/restore", json=old, headers=H).status_code == 200
+    assert owner.get("/api/parts").get_json() == [] and owner.get("/api/accessories").get_json() == []
+    assert len(owner.get("/api/packaging").get_json()) == 1
+
+
+def test_a_part_with_an_unknown_unit_names_its_section_and_changes_nothing(owner):
+    fill(owner)
+    doc = backup(owner).get_json()
+    doc["parts"][0]["unit"] = "liter"
+    res = owner.post("/api/backup/restore", json=doc, headers=H)
+    assert res.status_code == 400 and res.get_json()["error"].startswith("Parts, line 1")
+    assert [p["name"] for p in owner.get("/api/parts").get_json()] == ["JST-connector"]
 
 
 def test_a_calculation_without_a_number_gets_the_next_free_one(owner):

@@ -144,6 +144,42 @@ def test_packaging_items_crud_and_validation(owner):
     assert owner.get("/api/packaging").get_json() == []
 
 
+@pytest.mark.parametrize("path", ["parts", "accessories"])
+def test_parts_and_accessories_crud_unit_and_validation(owner, path):
+    item = make(owner, f"/api/{path}", {"name": "USB-C-kabel", "price": "1.80", "unit": "m", "notes": "1 m"})
+    assert item["price"] == "1.80" and item["unit"] == "m" and item["archived"] is False
+    assert make(owner, f"/api/{path}", {"name": "Chip", "price": "2"})["unit"] == "stuks"      # no unit: per piece
+    assert owner.post(f"/api/{path}", json={"name": "x"}, headers=H).status_code == 400
+    assert owner.post(f"/api/{path}", json={"name": "x", "price": -1}, headers=H).status_code == 400
+    assert owner.post(f"/api/{path}", json={"name": "x", "price": 1, "unit": "liter"}, headers=H).status_code == 400
+    assert owner.patch(f"/api/{path}/{item['id']}", json={"unit": "g"}, headers=H).get_json()["unit"] == "g"
+    assert owner.patch(f"/api/{path}/{item['id']}", json={"unit": "kg"}, headers=H).status_code == 400
+    assert owner.patch(f"/api/{path}/{item['id']}", json={"archived": True}, headers=H).get_json()["archived"] is True
+    assert owner.delete(f"/api/{path}/{item['id']}", headers=H).status_code == 200
+    assert [i["name"] for i in owner.get(f"/api/{path}").get_json()] == ["Chip"]
+
+
+def test_parts_and_accessories_need_a_session(client):
+    for path in ("parts", "accessories"):
+        assert client.get(f"/api/{path}").status_code == 401
+
+
+def test_a_saved_calculation_keeps_the_part_and_accessory_prices_after_the_items_change(owner):
+    part = make(owner, "/api/parts", {"name": "JST-connector", "price": "0.12"})
+    cable = make(owner, "/api/accessories", {"name": "USB-C-kabel", "price": "1.80", "unit": "m"})
+    body = sheet_payload()
+    body["data"]["parts"] = [
+        {"group": "onderdeel", "label": "JST-connector", "part_id": part["id"], "quantity": 5, "unit": "stuks", "unit_price": "0.12"},
+        {"group": "oplader", "label": "USB-C-kabel", "accessory_id": cable["id"], "quantity": 1.5, "unit": "m", "unit_price": "1.80"}]
+    p = make(owner, "/api/projects", body)
+    assert p["totals"]["subtotals"]["parts"] == "0.60" and p["totals"]["subtotals"]["charger"] == "2.70"
+    owner.patch(f"/api/parts/{part['id']}", json={"price": "9"}, headers=H)
+    owner.delete(f"/api/accessories/{cable['id']}", headers=H)
+    again = owner.get(f"/api/projects/{p['id']}").get_json()
+    assert again["totals"]["subtotals"]["parts"] == "0.60" and again["totals"]["subtotals"]["charger"] == "2.70"
+    assert [r.get("part_id") or r.get("accessory_id") for r in again["data"]["parts"]] == [part["id"], cable["id"]]
+
+
 def test_a_saved_calculation_keeps_the_packaging_price_after_the_item_changes(owner):
     box = make(owner, "/api/packaging", {"name": "Doos", "price": "0.85"})
     body = sheet_payload()

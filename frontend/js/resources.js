@@ -8,6 +8,27 @@ import { askChoice, confirmDialog, enhanceDialog, eur, field, fmt, h, icon, spoo
 // sent as typed; the server validates and is the only place that decides what is valid.
 const num = (v) => (v === '' || v == null ? '' : String(v).replace(',', '.'));
 
+// Parts and accessories are the same kind of list: a name, a price per unit (piece, metre or kg) and notes.
+const UNIT_OPTIONS = [['stuks', 'unit.pieces'], ['m', 'unit.meter'], ['g', 'unit.gram']];
+const UNIT_PRICE = { stuks: 'parts.per_piece', m: 'parts.per_meter', g: 'parts.per_kg' };
+
+function catalogue(id, path, text) {
+  return {
+    id, title: text.title, path, empty: text.empty, archivable: true,
+    intro: text.intro,
+    defaults: { name: '', price: '', unit: 'stuks', notes: '' },
+    fields: [
+      { key: 'name', label: t('common.name'), type: 'text', required: true, placeholder: text.name_ph },
+      { key: 'unit', label: text.unit, type: 'select', options: UNIT_OPTIONS.map(([value, label]) => [value, t(label)]) },
+      { key: 'price', label: text.price, type: 'number', required: true, hint: text.price_hint },
+      { key: 'notes', label: t('common.notes'), type: 'textarea' },
+    ],
+    card(item) {
+      return { title: item.name, subtitle: item.notes || null, stats: [[t(UNIT_PRICE[item.unit] || UNIT_PRICE.stuks), eur(item.price)]] };
+    },
+  };
+}
+
 // Built on every call, so the labels follow the language of the screen.
 function resources() {
   return {
@@ -63,6 +84,12 @@ function resources() {
       return { title: item.name, subtitle: item.notes || null, stats: [[t('packaging.per_piece'), eur(item.price)]] };
     },
   },
+  onderdelen: catalogue('parts', '/api/parts', {
+    title: t('parts.title'), empty: t('parts.empty'), intro: t('parts.intro'), name_ph: t('parts.name_ph'), unit: t('parts.unit'),
+    price: t('parts.price'), price_hint: t('parts.price_hint') }),
+  accessoires: catalogue('accessories', '/api/accessories', {
+    title: t('accessories.title'), empty: t('accessories.empty'), intro: t('accessories.intro'), name_ph: t('accessories.name_ph'),
+    unit: t('accessories.unit'), price: t('accessories.price'), price_hint: t('accessories.price_hint') }),
   printers: {
     id: 'printer', title: t('printers.title'), path: '/api/printers', empty: t('printers.empty'), archivable: true,
     intro: t('printers.intro'),
@@ -305,6 +332,12 @@ function openForm(config, item, reload) {
       els[f.key] = box;
       return h('div', { class: 'field' }, h('label', { class: 'check' }, box, f.label), f.hint ? h('p', { class: 'hint' }, f.hint) : null);
     }
+    if (f.type === 'select') {
+      const select = h('select', { onchange: (e) => { values[f.key] = e.target.value; dirty.add(f.key); } },
+        f.options.map(([value, label]) => h('option', { value, selected: value === values[f.key] }, label)));
+      els[f.key] = select;
+      return field(f.label, select, f.hint);
+    }
     let listId = null;
     if (f.list) {
       listId = `dl-${f.key}`;
@@ -453,5 +486,7 @@ export function resourceView(key, sub) {
     h('p', { class: 'muted page-intro' }, config.intro),
     key === 'filament' ? h('nav', { class: 'subnav', 'aria-label': t('filament.parts') },
       ...[['voorraad', 'filament.part_stock'], ['rollen', 'filament.part_rolls']].map(([to, label]) => h('a', { href: `#/filament/${to}`, 'aria-current': part === to ? 'page' : null }, t(label)))) : null,
+    key === 'onderdelen' || key === 'accessoires' ? h('nav', { class: 'subnav', 'aria-label': t('parts.tabs') },
+      ...[['onderdelen', 'parts.title'], ['accessoires', 'accessories.title']].map(([to, label]) => h('a', { href: `#/onderdelen${to === 'accessoires' ? '/accessoires' : ''}`, 'aria-current': key === to ? 'page' : null }, t(label)))) : null,
     sortBar, filters ? h('details', { class: 'filters-details', open: filters.active() }, h('summary', {}, t('filter.title')), filters.bar) : null, stock?.panel || null, part === 'rollen' || !part ? archiveToggle : null, part === 'voorraad' ? null : list);
 }

@@ -46,6 +46,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   round up, take the VAT out, and the margin becomes a minimum (the loop in `calc.price_from_cost` exists
   because cent-rounding the VAT can otherwise land a cent under that minimum).
 - A saved project stores the prices as they were when saved (`projects.data`). Do not make a
+- Packaging, parts and accessories (`packaging_items`, `part_items`, `accessory_items`) are price lists a calculation line copies from. The line's `group` (`verpakking`, `onderdeel`, `oplader`) is what the calculator sums on and is stored in saved projects, so it is never renamed even though `oplader` is shown as *Accessoires*; the link (`packaging_id`, `part_id`, `accessory_id`) is only a convenience, and a unit is `stuks`, `m` or `g` (price per kg) everywhere.
   project read live prices from spools, printers or tariffs: that rewrites history.
 - `backend/tests/test_calc.py` pins the owner's real spreadsheet example (total 2,74). If that test
   has to change, the calculation changed: say so in the pull request.

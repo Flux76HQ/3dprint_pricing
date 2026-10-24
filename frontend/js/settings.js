@@ -198,7 +198,7 @@ async function devicesList(redraw) {
       } }, t('common.delete'))))));
 }
 
-/** Backup and restore of everything entered (settings, printers, tariffs, packaging, rolls, calculations). */
+/** Backup and restore of everything entered (settings, printers, tariffs, packaging, parts, accessories, rolls, calculations). */
 function backupCard() {
   let withFiles = false;
   const status = h('p', { class: 'status-line', role: 'status' });
@@ -224,7 +224,7 @@ function backupCard() {
       const { summary: s } = await api('POST', '/api/backup/restore?dry_run=1', doc);       // checked first, nothing changes yet
       const when = s.created_at ? formatDateTime(s.created_at, { dateStyle: 'medium', timeStyle: 'short' }) : '?';
       const files = s.files ? t('backup.with_files', { n: s.files }) : '';
-      if (!(await confirmDialog(t('backup.confirm', { when, printers: s.printers, tariffs: s.tariffs, packaging: s.packaging,
+      if (!(await confirmDialog(t('backup.confirm', { when, printers: s.printers, tariffs: s.tariffs, packaging: s.packaging, parts: s.parts || 0, accessories: s.accessories || 0,
         spools: s.spools, projects: s.projects, orders: s.orders || 0, customers: s.customers || 0, files }), t('backup.restore_now')))) return;
       await api('POST', '/api/backup/restore', doc);
       toast(t('backup.restored'));
