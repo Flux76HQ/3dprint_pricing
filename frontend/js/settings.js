@@ -4,7 +4,7 @@ import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
 import { passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, pushSupport, thisDeviceFingerprint } from './push.js';
-import { applyNavGlass, confirmDialog, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
+import { applyNavGlass, confirmDialog, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
 
 // [value, label key]: labels are looked up when drawn, so they follow the language.
@@ -12,8 +12,6 @@ export const ACCENTS = [
   ['#6c5ce7', 'accent.violet'], ['#0a84ff', 'accent.blue'], ['#5e5ce6', 'accent.indigo'], ['#bf5af2', 'accent.purple'],
   ['#e0457b', 'accent.pink'], ['#e5484d', 'accent.red'], ['#d9730d', 'accent.orange'], ['#2f9e44', 'accent.green'], ['#0c9aa6', 'accent.teal'],
 ];
-const ROUNDINGS = [['none', 'rounding.none'], ['0.05', 'rounding.5c'], ['0.10', 'rounding.10c'], ['0.50', 'rounding.50c'],
-  ['1.00', 'rounding.1e'], ['5.00', 'rounding.5e'], ['x.95', 'rounding.95'], ['x.99', 'rounding.99']];
 const THEMES = [['system', 'theme.system'], ['light', 'theme.light'], ['dark', 'theme.dark']];
 
 function installCard() {

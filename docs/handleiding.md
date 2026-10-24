@@ -41,10 +41,10 @@ regel op hele centen afgerond vóór het optellen. **Machinetijd (afschrijving e
 afgerond op hele uren**: 3,06 uur rekent als 4 uur.
 
 **Zakelijk verkopen:** over de verkoopprijs (kostprijs + marge) komt **btw** (standaard 21%, per berekening aan te
-passen; 0 = geen btw). Inkoopprijzen voer je excl. btw in. Met **“Prijs incl. btw afronden”** (op 5/10/50 cent, hele
-euro's of eindigend op ,95/,99) wordt de prijs incl. btw naar boven afgerond en geldt je marge als *minimum*: de app
-verhoogt de marge net genoeg en toont de effectieve marge; de btw wordt uit de ronde prijs gehaald. Standaard btw en
-afronding stel je in onder *Instellingen → Zakelijk → Btw en afronding* (het onderdeel *Zakelijk* zet je eerst aan onder *Instellingen → Algemeen*). Onder *Instellingen → Algemeen* kun je kostprijs, subtotalen en
+passen; 0 = geen btw). Inkoopprijzen voer je excl. btw in. De marge van een berekening is de standaard voor bestellingen; de
+**afronding** van de prijs incl. btw (op 5/10/50 cent, hele euro's of eindigend op ,95/,99) en een afwijkende marge stel je **per bestelling**
+in (zie *Bestellingen en facturen*): de prijs incl. btw wordt dan naar boven afgerond, je marge geldt als *minimum* en de btw wordt uit de ronde prijs gehaald. Standaard btw en
+standaard afronding voor nieuwe bestellingen stel je in onder *Instellingen → Zakelijk → Btw en afronding* (het onderdeel *Zakelijk* zet je eerst aan onder *Instellingen → Algemeen*). Onder *Instellingen → Algemeen* kun je kostprijs, subtotalen en
 marge **blurren** op de berekeningenpagina (ook met de knop “Kosten verbergen” daar), handig als een klant meekijkt.
 
 ## Starten (Docker)
@@ -304,9 +304,11 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 **Klanten** (menu *Klanten*): een klant heeft een klantnummer, naam, adres, postcode, plaats, land, e-mail, telefoon en een notitie (alleen voor jezelf). Laat je het klantnummer leeg, dan krijgt de klant het volgende vrije hele getal (`1`, `2`, …); een eigen nummer (`K9999`) mag ook, maar is uniek (hoofdletters tellen niet). Een klant met bestellingen kan niet verwijderd worden. Bestaande bestellingen kregen bij het bijwerken automatisch een klant: één per naam + klantnummer, met een vrij nummer als het klantnummer leeg of dubbel was.
 
 **Bestellingen** (menu *Bestellingen*): *Nieuwe bestelling* vraagt de besteldatum en leverdatum, de **klant** (kies een bestaande klant of maak er op dat moment een aan; een bestelling hoort altijd bij een klant; de gegevens staan bij de klant) en de modellen. De bestelling bewaart een kopie van de klantgegevens: bewerk je een klant, dan verandert die kopie in zijn bestellingen **zonder factuur**; een factuur die al een nummer heeft blijft zoals hij was, tot je de bestelling opnieuw opslaat. Bij *Model toevoegen* zoek je een berekening op nummer (`2`, `#2`)
-of op een deel van de naam; kies je hem nog eens, dan gaat het aantal omhoog. De prijs per stuk is de verkoopprijs **incl. btw** uit
-de berekening zoals die er op dat moment uit zag; hij wordt gekopieerd en is per regel aan te passen, een latere wijziging van de
-berekening verandert een bestelling dus niet. Met *Eigen regel toevoegen* komt er een regel bij die niet bij een berekening hoort
+of op een deel van de naam; kies je hem nog eens, dan gaat het aantal omhoog. Een model op een bestelling bewaart de **kostprijs** (excl. btw) van de
+berekening zoals die er op dat moment uit zag, en heeft een eigen **marge** (standaard die van de berekening, per regel aan te passen). De **afronding** van de prijs
+incl. btw (op 5/10/50 cent, hele euro's of eindigend op ,95/,99) kies je **per bestelling**, boven de modellen; ze geldt voor alle modellen in die
+bestelling, de marge is dan het *minimum* en de app toont onder de regel de marge die het echt wordt. De prijs per stuk volgt uit kostprijs, marge, btw en afronding en wordt
+door de server uitgerekend; een latere wijziging van de berekening verandert een bestelling niet. Bestellingen van vóór deze functie, en eigen regels, houden de prijs die erbij stond of die je typt. Met *Eigen regel toevoegen* komt er een regel bij die niet bij een berekening hoort
 (bijvoorbeeld verzending). De **totalen rekent de server uit** (`backend/app/orders.py`, nooit de browser): de btw wordt per tarief
 uit de som van de regels gehaald, zodat wat de klant betaalt precies de som van de regels is. In de lijst filter je op status
 en zoek je op naam, klantnummer, plaats, bestelnummer of factuurnummer; de status zet je daar met één keuzelijst, of in de bestelling zelf.

@@ -430,7 +430,14 @@ select.status { width: auto; min-height: 44px; }
 @media (min-width: 640px) { .two.even { grid-template-columns: 1fr 1fr; } }
 .line.order { grid-template-columns: 1fr 1fr; }
 .line.order > :first-child { grid-column: 1 / -1; }
-@media (min-width: 900px) { .line.order { grid-template-columns: minmax(0, 1fr) 4.5rem 6.5rem 5rem 5.5rem auto; } .line.order > :first-child { grid-column: auto; } }
+@media (min-width: 900px) {
+  .line.order { grid-template-columns: minmax(0, 1fr) 4.5rem 6.5rem 5rem 5.5rem auto; }
+  .line.order > :first-child { grid-column: auto; }
+  /* a line made from a calculation has one field more (the margin): the description gets a row of its own */
+  .line.order.calc { grid-template-columns: 4.5rem 5.5rem minmax(6rem, 1fr) 5rem 6rem auto; }
+  .line.order.calc > :first-child { grid-column: 1 / -1; }
+}
+.line.order > .hint { grid-column: 1 / -1; margin: 0; }
 .picker { display: grid; gap: 8px; max-height: 50vh; overflow-y: auto; margin: 12px 0; }
 .picker-item { width: 100%; justify-content: flex-start; text-align: left; gap: 10px; }
 .picker-item .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }

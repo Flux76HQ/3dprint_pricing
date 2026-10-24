@@ -43,7 +43,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   (`whole_hours` in `calc.py`); this is a business rule, not a display choice, so it lives in the
   calculator and not in the frontend. VAT is charged on the selling price (cost + margin); purchase
   prices are entered excl. VAT. With a price rounding, the VAT-inclusive price is authoritative:
-  round up, take the VAT out, and the margin becomes a minimum (the loop in `calculate` exists
+  round up, take the VAT out, and the margin becomes a minimum (the loop in `calc.price_from_cost` exists
   because cent-rounding the VAT can otherwise land a cent under that minimum).
 - A saved project stores the prices as they were when saved (`projects.data`). Do not make a
   project read live prices from spools, printers or tariffs: that rewrites history.
@@ -62,7 +62,11 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - The screenshots in `docs/assets/` (shown by `README.md` and `README.nl.md`) are generated, never edited by hand: `python scripts/generate_screenshots.py` (needs `playwright` and `pillow`; `CHROMIUM_PATH` if the browser is elsewhere) starts a throwaway app on a scratch database with Dutch demo data and re-takes them as desktop, iPhone (iOS-style bar) and Android (Android-style bar) frames. Re-run it, and commit the PNGs, when a change alters how a screen looks; it never touches a real installation.
 - Navigation icons are the Material Design Icons (`frontend/js/mdi.js`, licence in `frontend/vendor/mdi/`); the bottom bar has two styles (`html[data-nav]`: `ios` floating glass: the slider value 0-100 is turned into plain `--nav-alpha` / `--nav-blur` values by `applyNavGlass` (`ui.js`, mirrored in `theme-boot.js`) because Safari drops a `backdrop-filter` or colour that has `calc()` / `color-mix()` around a variable, or `android`), both set from the account preferences `navbar_style` (`auto` = the device's: `theme-boot.js` sets `data-platform` before the first paint, `navStyle()` in `ui.js` resolves it) / `navbar_glass` and cached for `theme-boot.js`.
 - Customers (`backend/app/customers.py`, migration 0014) own the klantnummer (unique, case-insensitive; empty = next free whole number, claimed under an advisory lock). An order always has a `customer_id` (required by the API) and keeps a copy of the customer's details; saving the order or editing the customer refreshes that copy, except in orders that already have an invoice number. A customer with orders cannot be deleted. Backups carry customers; an older file without them gets customers derived from its orders.
-- Orders (`backend/app/orders.py`) keep the price per piece *including* VAT, copied from the calculation when the line is made, and
+- Margin and rounding are decided per order, not in the calculation (the calculation editor saves `price_rounding` as `none`; the account preference `price_rounding` is
+  only the default for new orders). An order has `price_rounding`; a line made from a calculation keeps that calculation's cost price (excl. VAT) and has its own
+  `margin_pct`, and its price per piece is derived on the server by `calc.price_from_cost` (the same code the calculation uses), never in the browser. A line without a
+  cost price (a free line, or one from before migration 0016) keeps its typed price.
+- Orders (`backend/app/orders.py`) keep the price per piece *including* VAT (derived as above, or copied/typed when the line has no cost price), and
   work out the totals on the server per VAT rate (`compute_totals`); the browser only displays them. An invoice number
   (a template in the business preferences, default `{JJJJ}-{NNNN}`, see `invoice_numbers.py`; counted per year in `invoice_counters`, or under year 0 when the template has no year) is claimed atomically once per order and never reused. Invoice templates (`invoice_docs.py`,
   `invoice_template.py`) are untrusted uploads like print files: capped in size and unpacked size, parsed only by `python-docx` / `pypdf`,
