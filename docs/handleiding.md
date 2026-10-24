@@ -6,7 +6,7 @@
 Zelf-gehoste PWA om de **kostprijs van 3D-prints** uit te rekenen en de voorraad en tarieven bij
 te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (geen wachtwoord).
 
-- **Berekeningen** — filament, onderdelen, USB-kabel/lader, **verpakkingsmateriaal**, printerafschrijving en
+- **Berekeningen** — filament, onderdelen, accessoires (kabels/laders), **verpakkingsmateriaal**, printerafschrijving en
   energie → totale kostprijs, optioneel met marge voor een adviesverkoopprijs. Opgeslagen berekeningen
   bewaren de prijzen van het moment van opslaan.
 - **Printbestand koppelen** — upload een `.3mf` of `.stl` bij een berekening; het bestand blijft bewaard en is later
@@ -32,11 +32,15 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (ge
   Het menu *Filament* heeft twee onderdelen: **Voorraad** (de soorten als tegels met een spoel-icoon in de kleur van de rol: twee naast elkaar op een telefoon, meer op een breder scherm, hooguit drie rijen met een chevron voor de rest) en **Rollen** (de rolinfo met sorteerknoppen bovenaan: naam, materiaal, resterend, prijs per kg, nieuwste; tik nog eens om om te draaien). De kleur kies je per rol (*Kleur van de rol*); kies je niets, dan wordt hij uit de naam geraden (*zwart*, *Red*, …). Het icoon is in de stijl van de Material Design-iconen getekend, want die hebben geen filamentspoel.
 - **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. In een berekening kies je er
   per product een uit de lijst (of vul je een regel zelf in); de prijs wordt in de berekening bewaard.
+- **Onderdelen** — twee lijsten onder één menu. **Onderdelen** zijn extra onderdelen zoals kabeltjes, connectoren en chips;
+  **Accessoires** zijn kabels en laders die bij een product horen. Elk item heeft een prijs per eenheid (per stuk, per meter
+  of per kg). In een berekening kies je ze per product uit de lijst bij *Andere onderdelen* of *Accessoires* (of vul je een
+  regel zelf in); de prijs wordt in de berekening bewaard.
 - **Printers** — aanschafwaarde, levensduur in uren (afschrijving per uur) en vermogen.
 - **Energie** — tarieven per kWh, met een standaardtarief.
 - Licht/donker/systeem, eigen accentkleur, installeerbaar op je beginscherm.
 
-De kostprijs volgt de spreadsheet: `filament + onderdelen + lader + verpakking + afschrijving + energie`, elke
+De kostprijs volgt de spreadsheet: `filament + onderdelen + accessoires + verpakking + afschrijving + energie`, elke
 regel op hele centen afgerond vóór het optellen. **Machinetijd (afschrijving en stroom) wordt altijd naar boven
 afgerond op hele uren**: 3,06 uur rekent als 4 uur.
 
@@ -235,7 +239,7 @@ De container start als root om de rechten van de gemounte map te zetten en draai
 |---|---|
 | `backend/app/calc.py` | de kostprijsberekening (`Decimal`, afronden per regel) |
 | `backend/app/auth.py`, `webauthn.py` | passkeys (ES256), herstelcodes, sessies, step-up |
-| `backend/app/api.py` | printers, tarieven, filament, verpakking, berekeningen, voorkeuren |
+| `backend/app/api.py` | printers, tarieven, filament, verpakking, onderdelen, accessoires, berekeningen, voorkeuren |
 | `backend/app/files.py`, `printfile.py` | upload/download van STL/3MF en het uitlezen ervan (slicer-gegevens of volume) |
 | `backend/app/db.py`, `migrations/` | migratierunner (vooruit-only, checksum-bewaakt) |
 | `frontend/` | statische PWA zonder buildstap, plus service worker voor offline schil |
@@ -396,7 +400,7 @@ wordt gelezen met `python-docx` (zonder XML-entiteiten) en PDF alleen met `pypdf
 ## Back-up in de app
 
 *Instellingen → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`):
-je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, filamentrollen,
+je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, filamentrollen,
 berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
 mailen of bewaren mag de app niet kunnen openen. Na herstellen op een lege installatie log je dus gewoon in met je passkey.

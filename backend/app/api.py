@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from flask import Blueprint, g, jsonify, request
 
 from . import invoice_docs, invoice_numbers, lowstock, push, stock
-from .calc import ROUNDINGS, calculate
+from .calc import PART_UNITS, ROUNDINGS, calculate
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import LANGUAGES, L, tr
 
@@ -70,6 +70,14 @@ def colour_hex(label):
     return check
 
 
+def choice(label, options):
+    def check(value):
+        if value not in options:
+            raise ApiError(400, "err.choice", label=L(label), options=", ".join(options))
+        return value
+    return check
+
+
 def boolean(label):
     def check(value):
         if not isinstance(value, bool):
@@ -98,6 +106,20 @@ RESOURCES = {
         "notes": text("f.notes", required=False, max_len=1000),
         "archived": boolean("f.archived"),
     }, "name"),
+    "parts": ("part_items", {
+        "name": text("f.name"),
+        "price": number("f.price_per_unit"),
+        "unit": choice("f.unit", PART_UNITS),
+        "notes": text("f.notes", required=False, max_len=1000),
+        "archived": boolean("f.archived"),
+    }, "name"),
+    "accessories": ("accessory_items", {
+        "name": text("f.name"),
+        "price": number("f.price_per_unit"),
+        "unit": choice("f.unit", PART_UNITS),
+        "notes": text("f.notes", required=False, max_len=1000),
+        "archived": boolean("f.archived"),
+    }, "name"),
     "spools": ("filament_spools", {
         "brand": text("f.brand"),
         "product_type": text("f.type", required=False, max_len=60),
@@ -116,7 +138,7 @@ RESOURCES = {
         "archived": boolean("f.archived"),
     }, "brand, colour"),
 }
-OPTIONAL = {"notes", "archived", "is_default", "material", "colour", "colour_hex", "product_type", "power_kw", "barcode", "diameter_mm",
+OPTIONAL = {"notes", "archived", "unit", "is_default", "material", "colour", "colour_hex", "product_type", "power_kw", "barcode", "diameter_mm",
             "print_temp_c", "bed_temp_c", "notify_low"}
 
 

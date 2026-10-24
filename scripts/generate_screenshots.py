@@ -140,6 +140,13 @@ def seed(api):
     pack = {"s": box("Verzenddoos S (15×10×5 cm)", "0.42"), "m": box("Verzenddoos M (25×18×10 cm)", "0.68"),
             "f": box("Bubbeltjesfolie (per meter)", "0.35"), "w": box("Pakbon + bedankkaartje", "0.12")}
 
+    def catalogue(path, name, price, unit="stuks"):
+        return api("POST", path, {"name": name, "price": price, "unit": unit, "notes": "", "archived": False})
+
+    extra = {"schroef": catalogue("/api/parts", "M2.5 schroeven", "0.06"), "jst": catalogue("/api/parts", "JST-connector 2-pins", "0.12"),
+             "draad": catalogue("/api/parts", "Dupont-kabeltjes", "0.85", "m"),
+             "kabel": catalogue("/api/accessories", "USB-C kabel", "1.40"), "lader": catalogue("/api/accessories", "USB-lader 5 V / 3 A", "4.95")}
+
     def roll(brand, kind, material, colour, hexc, price, left, barcode, nozzle, bed, notify=False, weight="1000"):
         return api("POST", "/api/spools", {"brand": brand, "product_type": kind, "material": material, "colour": colour, "colour_hex": hexc,
                                            "roll_weight_g": weight, "price": price, "remaining_g": left, "barcode": barcode, "diameter_mm": "1.75",
@@ -171,8 +178,8 @@ def seed(api):
         p = printers[key]
         return {"label": f"Stroom {p['name']}", "tariff_id": tariff["id"], "hours": str(hours), "kw": p["power_kw"], "price_per_kwh": tariff["price_per_kwh"]}
 
-    def part(group, label, qty, unit, price, packaging=None):
-        return {"group": group, "packaging_id": packaging["id"] if packaging else "", "label": label, "quantity": str(qty), "unit": unit, "unit_price": str(price)}
+    def part(group, label, qty, unit, price, packaging=None, **link):
+        return {"group": group, "packaging_id": packaging["id"] if packaging else "", "label": label, "quantity": str(qty), "unit": unit, "unit_price": str(price), **link}
 
     def packed(key, qty=1, unit="stuks"):
         return part("verpakking", pack[key]["name"], qty, unit, pack[key]["price"], pack[key])
@@ -190,7 +197,8 @@ def seed(api):
     calc("Vaas Silk Goud", [fil("goud", "PLA Silk Goud", 164)], 7.8, "x1", [packed("m"), packed("f", 2, "m"), packed("w")], margin="130")
     # The one the screenshots open: several lines per section, and a model link so the file box is filled in.
     calc("Raspberry Pi 5 behuizing", [fil("zwart", "PLA Basic Zwart", 58), fil("blauw", "PLA Basic Blauw", 6)], 4.4, "p1s",
-         [part("onderdeel", "M2.5 schroeven", 4, "stuks", "0.06"), part("oplader", "USB-C kabel", 1, "stuks", "1.40"), packed("s"), packed("w")],
+         [part("onderdeel", "M2.5 schroeven", 4, "stuks", "0.06", part_id=extra["schroef"]["id"]),
+          part("oplader", "USB-C kabel", 1, "stuks", "1.40", accessory_id=extra["kabel"]["id"]), packed("s"), packed("w")],
          margin="110", url="https://makerworld.com/nl/models/987654")
     calc("Fietsbel-houder (TPU)", [fil("tpu", "TPU 95A Geel", 21)], 1.6, "a1", [packed("s")], margin="200")
 

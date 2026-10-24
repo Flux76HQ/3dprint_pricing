@@ -57,7 +57,7 @@ def test_every_key_the_screens_use_has_text():
     missing = sorted(k for k in used if k not in keys and f"{k}_one" not in keys)
     assert missing == [], missing
     assert dynamic == {"${config.id}.edit", "${config.id}.new"}            # the one computed key, covered by these entries
-    for res in ("filament", "packaging", "printer", "tariff"):
+    for res in ("filament", "packaging", "parts", "accessories", "printer", "tariff"):
         assert f"{res}.new" in keys and f"{res}.edit" in keys
 
 
@@ -67,7 +67,7 @@ def test_every_key_the_server_uses_has_text():
     for module in BACK.glob("*.py"):
         text = module.read_text(encoding="utf-8")
         used |= set(re.findall(r"""(?:ApiError\(\s*\d+,\s*|\bL\(|Localized\(|\btr\(|translate\([\w.\(\)]+,\s*|PrintFileError\(|WebAuthnError\()\s*["']([\w.]+)["']""", text))
-        used |= set(re.findall(r"""\b(?:text|number|boolean|optional_int)\(\s*["'](f\.\w+)["']""", text))
+        used |= set(re.findall(r"""\b(?:text|number|boolean|optional_int|choice)\(\s*["'](f\.\w+)["']""", text))
     missing = sorted(k for k in used if k not in keys and f"{k}_one" not in keys)
     assert missing == [], missing
     assert len(used) > 80
