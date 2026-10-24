@@ -511,7 +511,8 @@ export function settingsView(ctx, requested) {
     backup: () => [backupCard()],
   };
   return h('section', { class: 'page' },
-    h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.settings')), h('p', { class: 'muted' }, t('settings.signed_in_as', { name: user.display_name })))),
+    h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.settings')))),
+    h('p', { class: 'muted page-intro' }, t('settings.signed_in_as', { name: user.display_name })),
     subnav,
     highlightPasskey && section === 'beveiliging' ? h('p', { class: 'notice', role: 'status' }, t('settings.recovered')) : null,
     ...parts[section]());

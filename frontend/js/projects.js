@@ -32,9 +32,10 @@ export function projectListView(ctx) {
   }).catch((e) => toast(e.message, 'error'));
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' },
-      h('div', {}, h('h1', {}, t('nav.calculations')), h('p', { class: 'muted' }, t('calc.intro'))),
+      h('div', {}, h('h1', {}, t('nav.calculations'))),
       h('div', { class: 'row' }, blurToggle(ctx),
         h('a', { class: 'btn primary', href: '#/berekeningen/nieuw' }, icon('plus'), h('span', {}, t('calc.new'))))),
+    h('p', { class: 'muted page-intro' }, t('calc.intro')),
     list);
 }
 

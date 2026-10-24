@@ -69,8 +69,9 @@ export function orderListView() {
   load();
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' },
-      h('div', {}, h('h1', {}, t('nav.orders')), h('p', { class: 'muted' }, t('orders.intro'))),
+      h('div', {}, h('h1', {}, t('nav.orders'))),
       h('a', { class: 'btn primary', href: '#/bestellingen/nieuw' }, icon('plus'), h('span', {}, t('orders.new')))),
+    h('p', { class: 'muted page-intro' }, t('orders.intro')),
     h('div', { class: 'filters' }, chips, search),
     list);
 }

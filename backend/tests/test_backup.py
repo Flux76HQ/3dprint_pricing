@@ -31,7 +31,7 @@ def fill(owner):
     box = make(owner, "/api/packaging", {"name": "Doos 20x15", "price": "0.45"})
     spool = make(owner, "/api/spools", {"brand": "Bambu Lab", "product_type": "Matte", "material": "PLA", "colour": "Black",
                                          "roll_weight_g": 1000, "price": "19.99", "remaining_g": 640, "barcode": "6975337030001",
-                                         "print_temp_c": 220, "notes": "kast"})
+                                         "print_temp_c": 220, "colour_hex": "#222222", "notes": "kast"})
     make(owner, "/api/spools", {"brand": "Bambu Lab", "product_type": "Matte", "roll_weight_g": 1000, "price": 25, "remaining_g": 1000,
                                 "barcode": "6975337030001"})
     payload = sheet_payload(spool["id"])

@@ -234,6 +234,30 @@ def test_spool_details_are_validated(owner, field, value):
     assert owner.post("/api/spools", json=body, headers=H).status_code == 400
 
 
+def test_a_roll_has_an_optional_colour_code_that_the_stock_overview_carries(owner):
+    base = {"brand": "Bambu", "colour": "Rood", "roll_weight_g": 1000, "price": 20, "remaining_g": 800}
+    plain = make(owner, "/api/spools", base)
+    assert plain["colour_hex"] == ""
+    coloured = make(owner, "/api/spools", {**base, "brand": "Prusa", "colour": "Red", "colour_hex": " #E53935 "})
+    assert coloured["colour_hex"] == "#e53935"                                                    # trimmed, lower case
+    cleared = owner.patch(f"/api/spools/{coloured['id']}", json={"colour_hex": ""}, headers=H).get_json()
+    assert cleared["colour_hex"] == ""
+    owner.patch(f"/api/spools/{coloured['id']}", json={"colour_hex": "#00ff00"}, headers=H)
+    groups = {g["brand"]: g for g in owner.get("/api/spools/stock").get_json()["groups"]}
+    assert groups["Prusa"]["colour_hex"] == "#00ff00" and groups["Bambu"]["colour_hex"] == ""
+    # one kind (same barcode): the first roll that has a colour gives the kind its colour, even a roll that is empty
+    one = {"brand": "Esun", "roll_weight_g": 1000, "price": 20, "barcode": "555"}
+    make(owner, "/api/spools", {**one, "remaining_g": 500})
+    make(owner, "/api/spools", {**one, "remaining_g": 0, "colour_hex": "#112233"})
+    assert [g["colour_hex"] for g in owner.get("/api/spools/stock").get_json()["groups"] if g["barcode"] == "555"] == ["#112233"]
+
+
+@pytest.mark.parametrize("value", ["red", "#fff", "#12345g", "#1234567", "112233", 5, "rgb(1,2,3)"])
+def test_a_colour_code_must_be_a_hex_colour(owner, value):
+    body = {"brand": "x", "roll_weight_g": 1000, "price": 1, "remaining_g": 1000, "colour_hex": value}
+    assert owner.post("/api/spools", json=body, headers=H).status_code == 400
+
+
 def test_barcode_lookup_returns_the_newest_roll_with_that_barcode(owner):
     base = {"roll_weight_g": 1000, "price": 20, "remaining_g": 0, "barcode": "8719"}
     make(owner, "/api/spools", {**base, "brand": "Oud", "price": 20})

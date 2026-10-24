@@ -100,7 +100,7 @@ function pageContent({ page, id }) {
     case 'klanten':
       if (id) return customerEditorView(id === 'nieuw' ? null : id, navigate);
       return customerListView();
-    case 'filament': case 'verpakking': case 'printers': case 'energie': return resourceView(page);
+    case 'filament': case 'verpakking': case 'printers': case 'energie': return resourceView(page, id);
     case 'meer':
       return h('section', { class: 'page' },
         h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.more'))), langSwitch(chooseLanguage)),
