@@ -6,7 +6,7 @@
 Zelf-gehoste PWA om de **kostprijs van 3D-prints** uit te rekenen en de voorraad en tarieven bij
 te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (geen wachtwoord).
 
-- **Berekeningen** — filament, onderdelen, accessoires (kabels/laders), **verpakkingsmateriaal**, printerafschrijving en
+- **3D Modellen** (menu; voorheen *Berekeningen*) — de berekening per model: filament, onderdelen, accessoires (kabels/laders), **verpakkingsmateriaal**, printerafschrijving en
   energie → totale kostprijs, optioneel met marge voor een adviesverkoopprijs. Opgeslagen berekeningen
   bewaren de prijzen van het moment van opslaan.
 - **Printbestand koppelen** — upload een `.3mf` of `.stl` bij een berekening; het bestand blijft bewaard en is later
