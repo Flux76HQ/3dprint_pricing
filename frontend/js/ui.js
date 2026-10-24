@@ -55,6 +55,13 @@ export function icon(name) {
   return svg;
 }
 
+/** The bottom bar to show: what the account chose, else the one of the device (data-platform is set before the first paint by
+    theme-boot.js: an Android phone gets the Android bar, anything else the iOS-like one). */
+export function navStyle(prefs) {
+  if (prefs.navbar_style === 'ios' || prefs.navbar_style === 'android') return prefs.navbar_style;
+  return document.documentElement.getAttribute('data-platform') === 'android' ? 'android' : 'ios';
+}
+
 /** The icon of a destination in the navigation: filled while it is the page you are on, as an outline otherwise (when there is one). */
 export const navIcon = (name, active) => icon(!active && MDI[`${name}-outline`] ? `${name}-outline` : name);
 

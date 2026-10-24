@@ -352,7 +352,7 @@ def validated_preferences(body: dict) -> dict:
             raise ApiError(400, "err.language")
         prefs["language"] = body["language"]
     if "navbar_style" in body:                                    # the bar at the bottom of a phone: floating "ios" or the native "android" one
-        if body["navbar_style"] not in ("ios", "android"):
+        if body["navbar_style"] not in ("auto", "ios", "android"):          # auto: the bar of the device (Android or iOS-like)
             raise ApiError(400, "err.navbar_style")
         prefs["navbar_style"] = body["navbar_style"]
     if "navbar_glass" in body:                                    # how glassy the floating bar is, 0 (solid) to 100

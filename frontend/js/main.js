@@ -12,7 +12,7 @@ import { goTo, installNativeBehaviour } from './pwa.js';
 import { BUILD } from './build.js';
 import { getLanguage, initLanguage, setLanguage, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
-import { h, icon, navIcon, toast, versionLabel } from './ui.js';
+import { h, icon, navIcon, navStyle, toast, versionLabel } from './ui.js';
 
 const root = document.getElementById('root');
 // [route, label key, icon]: the route is the URL part and stays as it is in every language.
@@ -56,7 +56,7 @@ function applyPrefs() {
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', accent);
   el.classList.toggle('sidebar-collapsed', !!prefs.sidebar_collapsed);
   el.classList.toggle('blur-costs', !!prefs.blur_costs);
-  el.setAttribute('data-nav', prefs.navbar_style === 'android' ? 'android' : 'ios');         // the bar at the bottom of a phone
+  el.setAttribute('data-nav', navStyle(prefs));                                                  // the bar at the bottom of a phone
   el.style.setProperty('--nav-glass', String(Number.isInteger(prefs.navbar_glass) ? prefs.navbar_glass : 60));
   try { localStorage.setItem('pp-prefs', JSON.stringify(prefs)); } catch { /* private mode */ }
 }
