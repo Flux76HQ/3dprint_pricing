@@ -460,7 +460,8 @@ def _project_row(row):
 def list_projects():
     with pool().connection() as conn:
         rows = conn.execute("SELECT id, number, name, margin_pct, vat_pct, price_rounding, totals, stock_booked_at, updated_at, "
-                            "(SELECT i.id FROM project_images i WHERE i.project_id = projects.id AND i.is_cover) AS cover_image_id "
+                            "(SELECT i.id FROM project_images i WHERE i.project_id = projects.id AND i.is_cover) AS cover_image_id , "
+                            "EXISTS (SELECT 1 FROM ai_image_jobs j WHERE j.project_id = projects.id AND j.status IN ('queued', 'running')) AS ai_busy "
                             "FROM projects ORDER BY updated_at DESC").fetchall()
     return jsonify([_project_row(r) for r in rows])
 

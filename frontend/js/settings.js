@@ -1,4 +1,4 @@
-import { aiSettingsCard } from './ai-images.js';
+import { aiLogCard, aiSettingsCard } from './ai-images.js';
 import { api, confirmWithPasskey, createPasskey, downloadFile, upload } from './api.js';
 import { iosSteps, installState, onInstallChange, promptInstall } from './install.js';
 import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
@@ -533,7 +533,7 @@ export function settingsView(ctx, requested) {
         h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
       companyCard(ctx), qrCard(ctx), invoiceLogoCard(), invoiceTemplateCard()],
     notificaties: () => notificationsCards(ctx),
-    ai: () => [aiSettingsCard()],
+    ai: () => [aiSettingsCard(), aiLogCard()],
     backup: () => [backupCard()],
   };
   return h('section', { class: 'page' },
