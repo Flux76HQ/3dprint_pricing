@@ -679,5 +679,7 @@
  "appearance.glass": "Glaseffect",
  "appearance.glass_hint": "0 is ondoorzichtig, hoger is doorzichtiger en meer vervaging.",
  "appearance.glass_value": "{n}%",
- "appearance.nav_style": "Stijl"
+ "appearance.nav_style": "Stijl",
+ "appearance.nav_auto": "Automatisch",
+ "appearance.nav_auto_hint": "Volgt het toestel: een Android-toestel krijgt de Android-balk, de rest de iOS-achtige. Nu: {style}."
 }

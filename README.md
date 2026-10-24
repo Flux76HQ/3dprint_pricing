@@ -48,7 +48,7 @@ The full-width navigation bar with a pill behind the active icon.
 |:---:|:---:|:---:|:---:|
 | <img src="docs/assets/android-calculations.png" width="200" alt="Android: calculations" /> | <img src="docs/assets/android-calculation.png" width="200" alt="Android: cost price of a calculation" /> | <img src="docs/assets/android-orders.png" width="200" alt="Android: orders" /> | <img src="docs/assets/android-filament.png" width="200" alt="Android: filament stock" /> |
 
-You pick the look under *Settings → Display → Navigation bar*. The choice is saved with your account and applies on all your devices. Light, dark and system themes and your own accent colour are included.
+Under *Settings → Display → Navigation bar*, choose iOS-style or Android-style, or leave it on *Automatic*: the app detects the device and defaults to Android-style on Android and iOS-style elsewhere. Your choice is saved with your account and applies on all your devices. Light, dark and system themes and your own accent colour are included.
 
 <sub>The screenshots show demo data.</sub>
 

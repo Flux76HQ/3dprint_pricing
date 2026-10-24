@@ -117,11 +117,19 @@ a { color: var(--accent); }
 .nav-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .icon.mdi { fill: currentColor; stroke: none; }
 
-/* The bar at the bottom of a phone, in two styles (Settings > Appearance): "ios" floats as a glass pill (--nav-glass, 0-100, says how
-   see-through and blurred the glass is) and "android" is the native bar: full width on the edge, a pill behind the active icon. */
-:root { --nav-glass: 60; }
-.tabbar.glass { background: color-mix(in srgb, var(--surface-solid) calc(100% - var(--nav-glass) * 0.8%), transparent);
-  -webkit-backdrop-filter: blur(calc(6px + var(--nav-glass) * .3px)) saturate(1.6); backdrop-filter: blur(calc(6px + var(--nav-glass) * .3px)) saturate(1.6); }
+/* The bar at the bottom of a phone, in two styles (Settings > Appearance): "ios" floats as a glass capsule and "android" is the native bar:
+   full width on the edge, a pill behind the active icon. How glassy the iOS one is (0-100) is worked out in JavaScript (`navGlass` in ui.js)
+   into plain values, --nav-alpha (the tint) and --nav-blur: Safari drops a backdrop-filter or background whose calc() or color-mix() contains
+   a variable, and the bar is then not glass at all. */
+:root { --surface-rgb: 255, 255, 255; --nav-alpha: .49; --nav-blur: 24px; }
+:root[data-theme="dark"] { --surface-rgb: 23, 22, 51; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --surface-rgb: 23, 22, 51; } }
+.tabbar.glass { background: rgba(var(--surface-rgb), var(--nav-alpha));
+  -webkit-backdrop-filter: saturate(180%) blur(var(--nav-blur)); backdrop-filter: saturate(180%) blur(var(--nav-blur));
+  border: 1px solid rgba(255, 255, 255, .45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .6), inset 0 -1px 0 rgba(255, 255, 255, .12), 0 10px 30px rgba(20, 16, 60, .16); }   /* the lit edge of the glass */
+:root[data-theme="dark"] .tabbar.glass { border-color: rgba(255, 255, 255, .16); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 10px 30px rgba(0, 0, 0, .5); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tabbar.glass { border-color: rgba(255, 255, 255, .16); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 10px 30px rgba(0, 0, 0, .5); } }
 @media (prefers-reduced-transparency: reduce) { .tabbar.glass { background: var(--surface-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 html[data-nav="android"] { --tabbar-h: 80px; }
 html[data-nav="android"] .tabbar.glass { left: 0; right: 0; bottom: 0; border-radius: 0; border: 0; padding: 12px 8px calc(16px + env(safe-area-inset-bottom));
@@ -165,7 +173,7 @@ main:focus { outline: none; }
    in it, so that button is always within reach. On a phone it is the bar under the status bar: its padding makes room for the notch / camera cut-out. */
 .page-head { position: sticky; top: 0; z-index: 15; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: nowrap;
   margin: -16px -16px 12px; padding: calc(env(safe-area-inset-top) + 10px) max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
-  min-height: calc(56px + env(safe-area-inset-top)); background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
+  min-height: calc(56px + env(safe-area-inset-top)); background: rgba(var(--surface-rgb), .94);
   -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); border-bottom: 1px solid var(--lijn); }
 .page-head h1 { margin: 0; font-size: 1.35rem; line-height: 1.25; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .page-head > div:first-child { display: flex; align-items: center; gap: 12px; min-width: 4.5em; flex: 1 1 0; }

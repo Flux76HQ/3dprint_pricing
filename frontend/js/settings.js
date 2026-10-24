@@ -4,7 +4,7 @@ import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
 import { passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, pushSupport, thisDeviceFingerprint } from './push.js';
-import { confirmDialog, field, h, icon, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
+import { applyNavGlass, confirmDialog, field, h, icon, navStyle, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
 
 // [value, label key]: labels are looked up when drawn, so they follow the language.
@@ -407,18 +407,19 @@ export function settingsView(ctx, requested) {
   // The bar at the bottom of a phone: floating (iOS-like, with a glass slider) or the native Android one. The slider shows at once while it moves.
   const navBox = h('div', { class: 'stack' });
   function drawNav() {
-    const style = ctx.prefs.navbar_style === 'android' ? 'android' : 'ios';
+    const chosen = ['ios', 'android'].includes(ctx.prefs.navbar_style) ? ctx.prefs.navbar_style : 'auto';
+    const style = navStyle(ctx.prefs);                            // what is shown: the choice, or the bar of this device
     const glass = Number.isInteger(ctx.prefs.navbar_glass) ? ctx.prefs.navbar_glass : 60;
     const choice = h('div', { class: 'segmented', role: 'group', 'aria-label': t('appearance.nav') },
-      [['ios', 'appearance.nav_ios'], ['android', 'appearance.nav_android']].map(([value, label]) => h('button', { type: 'button', class: 'seg', 'aria-pressed': String(style === value),
+      [['auto', 'appearance.nav_auto'], ['ios', 'appearance.nav_ios'], ['android', 'appearance.nav_android']].map(([value, label]) => h('button', { type: 'button', class: 'seg', 'aria-pressed': String(chosen === value),
         onclick: async () => { await setPrefs({ navbar_style: value }); drawNav(); } }, t(label))));
     const shown = h('output', { for: 'nav-glass' }, t('appearance.glass_value', { n: glass }));
     const slider = h('input', { type: 'range', id: 'nav-glass', min: 0, max: 100, step: 1, value: glass, 'aria-labelledby': 'nav-glass-label',
-      oninput: (e) => { shown.textContent = t('appearance.glass_value', { n: e.target.value }); document.documentElement.style.setProperty('--nav-glass', e.target.value); },
+      oninput: (e) => { shown.textContent = t('appearance.glass_value', { n: e.target.value }); applyNavGlass(Number(e.target.value)); },
       onchange: (e) => setPrefs({ navbar_glass: Number(e.target.value) }) });
     navBox.replaceChildren(
       h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.nav_style')), h('p', { class: 'muted' }, t('appearance.nav_hint')),
-        h('p', { class: 'muted' }, t(style === 'ios' ? 'appearance.nav_ios_hint' : 'appearance.nav_android_hint'))), choice),
+        h('p', { class: 'muted' }, chosen === 'auto' ? t('appearance.nav_auto_hint', { style: t(style === 'ios' ? 'appearance.nav_ios' : 'appearance.nav_android') }) : t(style === 'ios' ? 'appearance.nav_ios_hint' : 'appearance.nav_android_hint'))), choice),
       style === 'ios'
         ? h('div', { class: 'toggle-row' }, h('div', {}, h('strong', { id: 'nav-glass-label' }, t('appearance.glass')), h('p', { class: 'muted' }, t('appearance.glass_hint'))),
           h('div', { class: 'nav-glass' }, slider, shown))
