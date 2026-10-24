@@ -957,3 +957,57 @@ def test_an_order_without_rounding_keeps_its_old_behaviour(owner):
     order = new_order(owner)
     assert order["price_rounding"] == "none"
     assert order["lines"][0]["cost_price"] is None and order["lines"][0]["margin_pct_effective"] is None
+
+
+# --- optional lines (accessories) ---------------------------------------------------------------------------------
+
+def test_an_order_line_is_optional_only_when_it_says_so(owner):
+    order = new_order(owner, [line("Vaas"), line("USB-C kabel", 1, "1.21", "21", optional=True)])
+    assert [l["optional"] for l in order["lines"]] == [False, True]
+    again = owner.get(f"/api/orders/{order['id']}").get_json()
+    assert [l["optional"] for l in again["lines"]] == [False, True]
+    res = owner.post("/api/orders", json={"customer_id": order["customer_id"], "lines": [line(optional="ja")]}, headers=H)
+    assert res.status_code == 400
+    assert "Optional" in res.get_json()["error"] or "Optioneel" in res.get_json()["error"]
+
+
+def test_a_calculated_line_can_be_optional_and_keeps_its_price(owner):
+    order = new_order(owner, [{"description": "Lader", "quantity": 1, "cost_price": "4.00", "margin_pct": "0", "vat_pct": "21", "optional": True}])
+    assert order["lines"][0]["optional"] is True and order["lines"][0]["unit_price"] == "4.84"
+    assert order["totals"]["total"] == "4.84"                     # an optional line is billed like any other
+
+
+def test_the_invoice_lists_optional_lines_apart_after_the_others(owner):
+    business(owner)
+    order = new_order(owner, [line("USB-C kabel", 1, "1.21", "21", optional=True), line("Rack-houder", 2, "12.10", "21"),
+                              line("Lader", 1, "6.05", "21", optional=True)])
+    text = pdf_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
+    assert text.count("Accessoires (optioneel)") == 1
+    assert text.index("Rack-houder") < text.index("Accessoires (optioneel)") < text.index("USB-C kabel") < text.index("Lader")
+    assert "€ 31,46" in text                                       # 2 × 12,10 + 1,21 + 6,05: the optional lines count towards the total
+
+
+def test_an_invoice_without_optional_lines_has_no_heading_for_them(owner):
+    business(owner)
+    order = new_order(owner, [line("Rack-houder", 2, "12.10", "21")])
+    assert "optioneel" not in pdf_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
+
+
+def test_the_optional_heading_follows_the_invoice_language(owner):
+    business(owner, invoice_language="en")
+    order = new_order(owner, [line("Vase"), line("Cable", 1, "1.21", "21", optional=True)])
+    text = pdf_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
+    assert "Accessories (optional)" in text and "optioneel" not in text
+
+
+def test_in_a_word_template_an_optional_line_says_so_and_has_its_own_placeholder(owner):
+    business(owner)
+    sample = owner.get("/api/invoice-template/sample").data
+    assert upload(owner, "sjabloon.docx", sample).status_code == 201
+    order = new_order(owner, [line("Rack-houder"), line("USB-C kabel", 1, "1.21", "21", optional=True)])
+    text = docx_text(word(owner, f"/api/orders/{order['id']}/invoice"))
+    assert "USB-C kabel (optioneel)" in text and "Rack-houder (optioneel)" not in text
+    template = make_docx(paragraphs=[], rows=[["{{regel.omschrijving}}", "[{{regel.optioneel}}]"]])
+    assert upload(owner, "eigen.docx", template).status_code == 201
+    cells = docx_text(word(owner, f"/api/orders/{order['id']}/invoice"))
+    assert "[]" in cells and "[optioneel]" in cells

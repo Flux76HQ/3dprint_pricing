@@ -12,7 +12,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from flask import Blueprint, Response, g, jsonify, request
 
 from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template
-from .api import _serialise, number, text
+from .api import _serialise, boolean, number, text
 from .http import ApiError, json_body, login_required, pool
 from .i18n import L
 
@@ -118,7 +118,8 @@ def _line(raw, n: int, rounding: str = "none") -> dict:
         unit_price, effective = price["sell_price_incl_vat"], str(price["margin_pct_effective"])
     else:
         unit_price = _money(number("f.unit_price")(raw.get("unit_price")))
-    return {"project_id": project_id, "project_number": None, "description": text("f.description", max_len=200)(raw.get("description")),
+    optional = boolean("f.optional")(raw["optional"]) if "optional" in raw else False
+    return {"project_id": project_id, "project_number": None, "optional": optional, "description": text("f.description", max_len=200)(raw.get("description")),
             "quantity": int(quantity), "unit_price": unit_price, "vat_pct": vat_pct, "cost_price": cost_price, "margin_pct": margin_pct,
             "margin_pct_effective": effective}
 
@@ -174,9 +175,10 @@ def _write_lines(conn, order_id, lines: list) -> None:
         project_id = line["project_id"] if line["project_id"] in known else None   # a calculation that is gone is let go
         conn.execute(
             "INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, "
-            "cost_price, margin_pct) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "cost_price, margin_pct, optional) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (order_id, position, project_id, known.get(project_id) if project_id else line.get("project_number"),
-             line["description"], line["quantity"], line["unit_price"], line["vat_pct"], line.get("cost_price"), line.get("margin_pct")))
+             line["description"], line["quantity"], line["unit_price"], line["vat_pct"], line.get("cost_price"), line.get("margin_pct"),
+             line["optional"]))
 
 
 def _lines_of(conn, order_ids: list) -> dict:
@@ -371,6 +373,7 @@ def make_invoice(order_id):
         template = invoice_template.load(conn)
         logo = invoice_logo.load(conn)
         try:
+            lines = sorted(lines, key=lambda line: line["optional"])      # the optional lines (accessories) come after the others, stable
             content, _mimetype, extension = invoice_docs.render_invoice(order, lines, compute_totals(lines), business, template, logo)
             if extension == "docx":                                  # a Word template gives a Word file; the invoice itself is a PDF
                 content = invoice_docs.docx_to_pdf(content)
