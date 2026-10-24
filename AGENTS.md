@@ -59,6 +59,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - Uploads live under `UPLOAD_DIR` (`/data/uploads`, mounted from `DATA_PATH/app`), never in the
   image. Stored names are generated; the original filename is only a download name.
 - Every page starts with a `.page-head` header: it is the sticky title bar (safe-area aware on phones) and holds the page's main button, so keep a page's intro text outside it (`.page-intro`). `html, body` use `overflow-x: clip`, not `hidden`: `hidden` makes the body a scroll container and breaks `position: sticky`. A roll's colour is `filament_spools.colour_hex` (`#rrggbb`, empty = guess from the colour name in `filament-ui.js`).
+- The screenshots in `docs/assets/` (shown by `README.md` and `README.nl.md`) are generated, never edited by hand: `python scripts/generate_screenshots.py` (needs `playwright` and `pillow`; `CHROMIUM_PATH` if the browser is elsewhere) starts a throwaway app on a scratch database with Dutch demo data and re-takes them as desktop, iPhone (iOS-style bar) and Android (Android-style bar) frames. Re-run it, and commit the PNGs, when a change alters how a screen looks; it never touches a real installation.
 - Navigation icons are the Material Design Icons (`frontend/js/mdi.js`, licence in `frontend/vendor/mdi/`); the bottom bar has two styles (`html[data-nav]`: `ios` floating glass: the slider value 0-100 is turned into plain `--nav-alpha` / `--nav-blur` values by `applyNavGlass` (`ui.js`, mirrored in `theme-boot.js`) because Safari drops a `backdrop-filter` or colour that has `calc()` / `color-mix()` around a variable, or `android`), both set from the account preferences `navbar_style` (`auto` = the device's: `theme-boot.js` sets `data-platform` before the first paint, `navStyle()` in `ui.js` resolves it) / `navbar_glass` and cached for `theme-boot.js`.
 - Customers (`backend/app/customers.py`, migration 0014) own the klantnummer (unique, case-insensitive; empty = next free whole number, claimed under an advisory lock). An order always has a `customer_id` (required by the API) and keeps a copy of the customer's details; saving the order or editing the customer refreshes that copy, except in orders that already have an invoice number. A customer with orders cannot be deleted. Backups carry customers; an older file without them gets customers derived from its orders.
 - Orders (`backend/app/orders.py`) keep the price per piece *including* VAT, copied from the calculation when the line is made, and
@@ -119,7 +120,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 
 - Never commit `.env` or real secrets; only `.env.example` is tracked.
 - Keep `.env.example` complete and safe (placeholders only). A new environment variable is added
-  to `backend/app/config.py`, `.env.example` and the README table in the same change.
+  to `backend/app/config.py`, `.env.example` and the configuration table in `README.md` and `README.nl.md` in the same change.
 - Rotate `SESSION_SECRET` and `SETUP_CODE` before any public release.
 
 ## 5. Branch topology and pull request workflow
@@ -170,5 +171,6 @@ same commit. `agent-instructions-lint` checks this.
 
 - [ ] Non-doc changes to protected paths include a version bump.
 - [ ] No secrets or `.env` files are staged.
-- [ ] README operational sections are updated when run/deploy/backup behaviour changed.
+- [ ] The operational guide (`docs/handleiding.md`) is updated when run/deploy/backup behaviour changed.
+- [ ] `README.md` and `README.nl.md` stay in sync (same sections, same order, same screenshots from `docs/assets/`).
 - [ ] Tests added or updated; `pytest` passes.
