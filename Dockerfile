@@ -28,10 +28,10 @@ COPY frontend ./static
 COPY VERSION ./VERSION
 # So the keys can be generated without Python on the host: docker compose run --rm --no-deps app python generate_vapid.py
 COPY scripts/generate_vapid.py ./generate_vapid.py
-COPY deploy/entrypoint.sh /entrypoint.sh
+COPY deploy/entrypoint.sh deploy/migrate_uploads.sh /
 
 # The entrypoint starts as root only to fix ownership of the mounted /data, then drops to `app`.
-RUN useradd --system --uid 10001 app && chmod +x /entrypoint.sh && mkdir -p /data/uploads && chown -R app:app /data
+RUN useradd --system --uid 10001 app && chmod +x /entrypoint.sh /migrate_uploads.sh && mkdir -p /data/uploads && chown -R app:app /data
 
 EXPOSE 6080
 

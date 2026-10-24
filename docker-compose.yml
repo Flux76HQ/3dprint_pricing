@@ -14,7 +14,7 @@ services:
     ports:
       - "${WEB_PORT}:${WEB_PORT}"
     volumes:
-      - ${DATA_PATH}/app:/data   # uploaded STL/3MF files
+      - ${DATA_PATH}:/data   # DATA_PATH/uploads: the STL/3MF files (DATA_PATH/postgres is the database, below)
     depends_on:
       db:
         condition: service_healthy
@@ -27,6 +27,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
+      # The database is a folder on the host, never a Docker volume: it survives `docker compose down -v`, a rebuild and every update.
+      # Use an absolute DATA_PATH (e.g. /data): a relative one is relative to wherever a tool runs this file from.
       - ${DATA_PATH}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]

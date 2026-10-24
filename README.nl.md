@@ -111,7 +111,7 @@ Instellen in `.env`; het bestand `.env.example` documenteert elke waarde.
 | Variabele | Verplicht | Standaard | Omschrijving |
 |---|:---:|---|---|
 | `WEB_PORT` | ✅ | - | Poort van de app; compose publiceert en de app luistert op deze waarde |
-| `DATA_PATH` | ✅ | - | Map op de host voor de PostgreSQL-data (`postgres/`) en geüploade bestanden (`app/`) |
+| `DATA_PATH` | ✅ | - | Map op de host voor alle data: de database (`postgres/`) en de geüploade bestanden (`uploads/`). Gewone mappen, geen Docker-volumes; gebruik op een server een absoluut pad (bijv. `/data`) |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | ✅ | - | De database; gebruik een wachtwoord met alleen letters en cijfers |
 | `RP_ID` | ✅ | - | Domein waarop de app draait, zonder schema of poort. Passkeys zijn eraan gebonden |
 | `RP_ORIGINS` | ✅ | - | Volledige origin(s), komma-gescheiden, bijvoorbeeld `https://print.voorbeeld.nl` |
