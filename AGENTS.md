@@ -119,7 +119,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 
 - Never commit `.env` or real secrets; only `.env.example` is tracked.
 - Keep `.env.example` complete and safe (placeholders only). A new environment variable is added
-  to `backend/app/config.py`, `.env.example` and the README table in the same change.
+  to `backend/app/config.py`, `.env.example` and the configuration table in `README.md` and `README.nl.md` in the same change.
 - Rotate `SESSION_SECRET` and `SETUP_CODE` before any public release.
 
 ## 5. Branch topology and pull request workflow
@@ -170,5 +170,6 @@ same commit. `agent-instructions-lint` checks this.
 
 - [ ] Non-doc changes to protected paths include a version bump.
 - [ ] No secrets or `.env` files are staged.
-- [ ] README operational sections are updated when run/deploy/backup behaviour changed.
+- [ ] The operational guide (`docs/handleiding.md`) is updated when run/deploy/backup behaviour changed.
+- [ ] `README.md` and `README.nl.md` stay in sync (same sections, same order, same screenshots from `docs/assets/`).
 - [ ] Tests added or updated; `pytest` passes.
