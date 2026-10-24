@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Bring the current branch up to date with main, resolving the conflicts that are only bookkeeping.
 
-Two pull requests that each bump VERSION, add the next migration or regenerate the screenshots collide every time
-the other one merges first, although nothing in them contradicts each other. Run this instead of `git merge origin/main`:
+Two pull requests that add the next migration or regenerate the screenshots collide every time the other one merges first,
+although nothing in them contradicts each other. Run this instead of `git merge origin/main`:
 
-  * VERSION: main's version, bumped by the same part (patch/minor/major) this branch bumped it by.
+  * VERSION: main's (a pull request does not change it; main raises it after the merge).
   * A migration this branch added whose number main has taken meanwhile: renamed to the next free number.
   * docs/assets/*.png: main's file (they are generated; re-run scripts/generate_screenshots.py if this change alters a screen).
   * Anything else that conflicts is left for you, with the merge still open.
@@ -28,56 +28,9 @@ def git(*args: str, check: bool = True) -> str:
     return result.stdout
 
 
-def parse_version(value: str) -> tuple:
-    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", value.strip())
-    if not match:
-        raise ValueError(f"Invalid VERSION '{value.strip()}'. Expected MAJOR.MINOR.PATCH")
-    return tuple(int(part) for part in match.groups())
-
-
-def bumped_part(before: tuple, after: tuple) -> str | None:
-    """Which part a branch raised: the leftmost one that grew."""
-    for name, old, new in zip(("major", "minor", "patch"), before, after):
-        if new > old:
-            return name
-    return None
-
-
-def bump(version: tuple, part: str) -> tuple:
-    major, minor, patch = version
-    return {"major": (major + 1, 0, 0), "minor": (major, minor + 1, 0), "patch": (major, minor, patch + 1)}[part]
-
-
-def show(ref: str, path: str) -> str | None:
-    result = subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, text=True)
-    return result.stdout if result.returncode == 0 else None
-
-
 def migration_number(name: str) -> int | None:
     match = re.match(r"(\d{4})_.+\.sql$", Path(name).name)
     return int(match.group(1)) if match else None
-
-
-def resolve_version(base_ref: str, merge_base: str, notes: list) -> None:
-    path = Path("VERSION")
-    mine_before = parse_version(show(merge_base, "VERSION") or "0.0.0")
-    mine_now = parse_version(show("HEAD", "VERSION") or "0.0.0")
-    theirs = parse_version(show(base_ref, "VERSION") or "0.0.0")
-    part = bumped_part(mine_before, mine_now)
-    if part is None:                                       # this branch did not bump (documentation only): main's version stands
-        wanted = theirs
-    else:
-        wanted = bump(theirs, part)
-    current = None
-    try:
-        current = parse_version(path.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
-        pass                                               # conflict markers, or no file
-    if part is None and current == theirs or part is not None and current is not None and current > theirs:
-        return
-    path.write_text(".".join(map(str, wanted)), encoding="utf-8")
-    git("add", "VERSION")
-    notes.append(f"VERSION: {'.'.join(map(str, theirs))} (main) -> {'.'.join(map(str, wanted))}" + (f" ({part} bump kept)" if part else ""))
 
 
 def renumber_migrations(base_ref: str, merge_base: str, notes: list) -> None:
@@ -127,9 +80,11 @@ def main() -> int:
             git("add", path)
             conflicted.remove(path)
             notes.append(f"{path}: main's file taken (re-run scripts/generate_screenshots.py if this change alters how a screen looks)")
-    if "VERSION" in conflicted:
+    if "VERSION" in conflicted:                           # a branch from before this rule: main's number stands
+        git("checkout", "--theirs", "--", "VERSION")
+        git("add", "VERSION")
         conflicted.remove("VERSION")
-    resolve_version(base_ref, merge_base, notes)
+        notes.append("VERSION: main's number taken (a pull request leaves it alone)")
     renumber_migrations(base_ref, merge_base, notes)
 
     for note in notes:

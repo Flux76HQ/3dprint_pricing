@@ -99,11 +99,16 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 ## 2. Versioning discipline
 
 - Version source of truth is the `VERSION` file (`MAJOR.MINOR.PATCH`).
-- Changes touching runtime/build/deploy/CI surfaces **must** bump it.
+- **A pull request never changes `VERSION`.** Two pull requests that each raise it collide as soon as the other one merges, so the
+  pipeline raises it after the merge: the `docker` workflow runs `scripts/bump_version.py` on every push to `main`, commits the new
+  number (`Release X.Y.Z`) and builds the image from that commit. `enforce-version-bump` fails a pull request that touches `VERSION`.
+- A merge that changed protected paths raises the **patch** number; put the label `version:minor` or `version:major` on the pull
+  request to raise that part instead. A merge of documentation only (`*.md`, `*.txt`) keeps the number.
 - Protected paths: `backend/`, `frontend/`, `deploy/`, `scripts/`, `.github/workflows/`,
-  `.github/copilot-instructions.md`, `Dockerfile`, `docker-compose.yml`, `docker-compose.build.yml`, `.env.example`.
-- Documentation-only edits (`*.md`, `*.txt`) are exempt.
-- Bump with `python scripts/bump_version.py` (patch by default).
+  `.github/copilot-instructions.md`, `Dockerfile`, `docker-compose.yml`, `docker-compose.build.yml`, `.env.example`
+  (`scripts/check_version_bump.py` holds the list).
+- The workflow needs to push to `main`: github-actions must be allowed to bypass the branch protection, if there is any. Without it
+  the bump fails before anything is published, with the reason in the log.
 
 ## 3. Local enforcement and CI controls
 
@@ -113,8 +118,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 
   | Job name | What it checks |
   |---|---|
-  | `enforce-version-bump` | protected paths changed without a higher `VERSION` |
-  | `enforce-version-bump-on-merge` | the same, at merge, against the previous tip of `main` |
+  | `enforce-version-bump` | the pull request changed `VERSION` (it is raised after the merge, not in the pull request) |
   | `agent-instructions-lint` | that this file stays canonical and unduplicated |
   | `backend-tests` | calculator, WebAuthn, migrations, API; fails if any test was skipped |
   | `frontend-syntax` | every frontend module parses, checked as an ES module (a copy named `.mjs`: `node --check` on a `.js` file that uses `import` reports nothing, even for a broken one); the manifest is valid JSON |
@@ -139,8 +143,8 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - Check for an existing open PR before opening a new one; never push without a PR; never add
   commits to a branch whose PR is already merged — rebase and open a new one.
 - Keep a branch current with `python scripts/update_branch.py`, not a hand-made `git merge origin/main`: it merges main and
-  settles the conflicts that are only bookkeeping (`VERSION` becomes main's version plus the same part bump this branch made, a
-  migration whose number main took meanwhile is renumbered, a screenshot in `docs/assets/` becomes main's). Run it before the first
+  settles the conflicts that are only bookkeeping (a migration whose number main took meanwhile is renumbered, a screenshot in
+  `docs/assets/` becomes main's, a stray `VERSION` change becomes main's). Run it before the first
   push of a new branch, before opening the PR, and whenever the PR turns "dirty"; anything it leaves in conflict is a real one.
   `test_migrations.py` fails on a duplicate or missing migration number, which git would not notice.
 - Make a conflict less likely to start with: keep a PR to what it needs, do not reflow or reformat lines you are not changing, add
@@ -184,7 +188,7 @@ same commit. `agent-instructions-lint` checks this.
 
 ## 8. Commit checklist
 
-- [ ] Non-doc changes to protected paths include a version bump.
+- [ ] `VERSION` is untouched (main raises it after the merge; label `version:minor` / `version:major` if it must not be a patch).
 - [ ] The branch is current with main (`python scripts/update_branch.py`).
 - [ ] No secrets or `.env` files are staged.
 - [ ] The operational guide (`docs/handleiding.md`) is updated when run/deploy/backup behaviour changed.

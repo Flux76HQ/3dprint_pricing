@@ -2,14 +2,27 @@ name: docker
 
 # Publishes the image on every push to main. `latest` is a channel and moves on every build;
 # `X.Y.Z` names one artifact, so it is only pushed when the git tag vX.Y.Z does not exist yet.
+#
+# This workflow also raises VERSION: pull requests do not touch it (two that did would conflict every time),
+# so a push that changed code or build files gets the next number here, committed to main by the workflow,
+# and the image is built from that commit. A push of documentation only keeps the number. The PR label
+# `version:minor` / `version:major` chooses the part (patch otherwise). The bump commit is pushed with
+# GITHUB_TOKEN and so starts no workflow of its own. The repository must let github-actions push to main
+# (a ruleset bypass for it, if main is protected); without that the bump fails here, loudly, before anything is published.
 on:
   push:
     branches:
       - main
 
+# One run at a time: each one raises the number that the previous one left.
+concurrency:
+  group: publish-main
+  cancel-in-progress: false
+
 permissions:
   contents: write
   packages: write
+  pull-requests: read
 
 jobs:
   publish:
@@ -17,7 +30,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main                      # the tip, not the pushed commit: an earlier run may have raised VERSION since
           fetch-depth: 0
+      - name: Raise VERSION for this push
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          part=patch
+          labels="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[].labels[].name' 2>/dev/null || true)"
+          if grep -qx 'version:major' <<<"$labels"; then part=major
+          elif grep -qx 'version:minor' <<<"$labels"; then part=minor; fi
+          python scripts/bump_version.py --before "${{ github.event.before }}" --after "$GITHUB_SHA" --part "$part"
+          if ! git diff --quiet VERSION; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Release $(tr -d '[:space:]' < VERSION)" VERSION
+            pushed=false
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then pushed=true; break; fi
+              git pull --rebase origin main              # something landed meanwhile; VERSION is only ever changed here
+            done
+            if [ "$pushed" != true ]; then
+              echo "::error::Could not push the VERSION bump to main. Let github-actions push to main (ruleset bypass), or bump VERSION by hand."
+              exit 1
+            fi
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Read version and check the tag
         id: version
         run: |
@@ -41,7 +80,7 @@ jobs:
         with:
           context: .
           push: true
-          build-args: GIT_COMMIT=${{ github.sha }}
+          build-args: GIT_COMMIT=${{ steps.bump.outputs.sha }}
           tags: |
             ${{ steps.image.outputs.name }}:latest
             ${{ steps.version.outputs.new == 'true' && format('{0}:{1}', steps.image.outputs.name, steps.version.outputs.version) || '' }}
@@ -50,5 +89,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ steps.version.outputs.version }}" --target "$GITHUB_SHA" \
+          gh release create "v${{ steps.version.outputs.version }}" --target "${{ steps.bump.outputs.sha }}" \
             --title "v${{ steps.version.outputs.version }}" --generate-notes

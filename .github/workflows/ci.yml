@@ -35,7 +35,7 @@ jobs:
           PYTHONPATH=. python -m pytest -q -rs | tee /tmp/pytest.out
           ! grep -q "SKIPPED" /tmp/pytest.out
       - name: Test the repository scripts
-        run: python -m unittest discover -s scripts -p "test_update_branch.py" -v
+        run: python -m unittest discover -s scripts -p "test_*.py" -v
 
   frontend-syntax:
     runs-on: ubuntu-latest

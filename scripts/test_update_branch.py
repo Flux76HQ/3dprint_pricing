@@ -61,48 +61,30 @@ class UpdateBranchTestCase(unittest.TestCase):
     def read(self, path):
         return (self.root / path).read_text(encoding="utf-8")
 
-    def test_versions_migrations_and_screenshots_collide_and_are_resolved(self):
-        self.write("VERSION", "0.2.0")
+    def test_migrations_and_screenshots_collide_and_are_resolved(self):
         self.write(f"{MIG}/0002_mine.sql", "-- mine")
         self.write(PNG, "mine")
-        self.commit("feature: minor bump")
-        self.on_main(lambda: (self.write("VERSION", "0.1.1"), self.write(f"{MIG}/0002_theirs.sql", "-- theirs"), self.write(PNG, "theirs")))
+        self.commit("feature")
+        self.on_main(lambda: (self.write(f"{MIG}/0002_theirs.sql", "-- theirs"), self.write(PNG, "theirs")))
         self.assertEqual(self.run_script(), 0)
-        self.assertEqual(self.read("VERSION"), "0.2.0")                    # main's 0.1.1, bumped by the minor part this branch bumped
         self.assertEqual(self.read(f"{MIG}/0002_theirs.sql"), "-- theirs")
         self.assertEqual(self.read(f"{MIG}/0003_mine.sql"), "-- mine")
         self.assertFalse((self.root / f"{MIG}/0002_mine.sql").exists())
         self.assertEqual(self.read(PNG), "theirs")
         self.assertEqual(self.git("status", "--porcelain").strip(), "")     # committed
 
-    def test_a_patch_bump_is_kept_as_a_patch_on_top_of_mains_version(self):
-        self.write("VERSION", "0.1.1")
-        self.commit("feature: patch bump")
-        self.on_main(lambda: self.write("VERSION", "0.3.0"))
+    def test_a_branch_that_still_bumps_version_takes_mains_number(self):
+        self.write("VERSION", "0.2.0")
+        self.commit("feature (from before the rule)")
+        self.on_main(lambda: self.write("VERSION", "0.1.1"))
         self.assertEqual(self.run_script(), 0)
-        self.assertEqual(self.read("VERSION"), "0.3.1")
-
-    def test_a_branch_that_did_not_bump_takes_mains_version(self):
-        self.write("README.md", "feature\n")
-        self.commit("docs only")
-        self.on_main(lambda: self.write("VERSION", "0.1.5"))
-        self.assertEqual(self.run_script(), 0)
-        self.assertEqual(self.read("VERSION"), "0.1.5")
-
-    def test_a_clean_merge_that_leaves_the_same_version_still_bumps_above_main(self):
-        self.write("VERSION", "0.1.1")
-        self.commit("feature: patch bump")
-        self.on_main(lambda: self.write("VERSION", "0.1.1"))                 # both went to 0.1.1: git sees no conflict, nothing increases
-        self.assertEqual(self.run_script(), 0)
-        self.assertEqual(self.read("VERSION"), "0.1.2")
+        self.assertEqual(self.read("VERSION"), "0.1.1")
 
     def test_a_real_conflict_is_left_open_for_the_human(self):
         self.write("README.md", "feature\n")
-        self.write("VERSION", "0.1.1")
         self.commit("feature")
-        self.on_main(lambda: (self.write("README.md", "main\n"), self.write("VERSION", "0.1.1")))
+        self.on_main(lambda: self.write("README.md", "main\n"))
         self.assertEqual(self.run_script(), 1)
-        self.assertEqual(self.read("VERSION"), "0.1.2")                      # the bookkeeping part is done
         self.assertIn("<<<<<<<", self.read("README.md"))
         self.assertIn("README.md", self.git("diff", "--name-only", "--diff-filter=U"))
 
