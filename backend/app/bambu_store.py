@@ -16,7 +16,7 @@ from urllib.parse import urljoin
 
 import requests
 
-from .bambu_invoice import REFILL, WEIGHT
+from .bambu_invoice import REFILL, WEIGHT, split_name
 
 HOST = "eu.store.bambulab.com"
 PRODUCTS = f"https://{HOST}/nl/products/"
@@ -26,6 +26,25 @@ CACHE_SECONDS = 3600
 _cache: dict[str, tuple[float, "list | None"]] = {}
 JSONLD = re.compile(r'<script[^>]*id="product-jsonld"[^>]*>(.*?)</script>', re.S)
 IN_BRACKETS = re.compile(r"\(\s*([A-Za-z0-9-]{3,10})\s*\)")
+IN_BRACKETS_END = re.compile(r"^(.*?)\s*\(\s*([A-Za-z0-9-]{3,10})\s*\)$")
+
+
+# The filaments with colours that the shop sells, as (page, name). The list is ours, not the shop's, so that what may be fetched is fixed: a page
+# that is not here is never asked for. A new product is one line.
+CATALOG = (
+    ("pla-basic-filament", "PLA Basic"), ("pla-matte", "PLA Matte"), ("pla-silk-upgrade", "PLA Silk+"), ("pla-silk-multi-color", "PLA Silk Multi-Color"),
+    ("pla-sparkle", "PLA Sparkle"), ("pla-metal", "PLA Metal"), ("pla-marble", "PLA Marble"), ("pla-galaxy", "PLA Galaxy"), ("pla-glow", "PLA Glow"),
+    ("pla-wood", "PLA Wood"), ("pla-aero", "PLA Aero"), ("pla-basic-gradient", "PLA Basic Gradient"), ("pla-translucent", "PLA Translucent"),
+    ("pla-tough-upgrade", "PLA Tough+"), ("pla-pure", "PLA Pure"), ("pla-cf", "PLA-CF"),
+    ("petg-basic", "PETG Basic"), ("petg-hf", "PETG HF"), ("petg-matte", "PETG Matte"), ("petg-translucent", "PETG Translucent"), ("petg-cf", "PETG-CF"),
+    ("abs-filament", "ABS"), ("abs-gf", "ABS-GF"), ("asa-filament", "ASA"), ("asa-aero", "ASA Aero"), ("asa-cf", "ASA-CF"),
+    ("pc-filament", "PC"), ("pc-fr", "PC FR"), ("tpu-95a-hf", "TPU 95A HF"), ("tpu-for-ams", "TPU for AMS"), ("tpu-85a-tpu-90a", "TPU 85A / TPU 90A"),
+    ("pa6-cf", "PA6-CF"), ("pa6-gf", "PA6-GF"), ("paht-cf", "PAHT-CF"), ("pet-cf", "PET-CF"), ("ppa-cf", "PPA-CF"), ("pps-cf", "PPS-CF"),
+    ("pva", "PVA"), ("support-for-pla-petg", "Support for PLA/PETG"), ("support-for-pla-new", "Support for PLA (New Version)"),
+    ("support-for-abs", "Support for ABS"), ("support-for-pa-pet", "Support for PA/PET"),
+)
+SLUGS = {slug for slug, _ in CATALOG}
+DIAMETER_MM = "1.75"                 # every filament of the shop is 1.75 mm; the pages only say so in running text
 
 
 class WrongShop(Exception):
@@ -77,7 +96,7 @@ def variants(slug: str) -> "list[dict] | None":
                 continue
             for item in data.get("hasVariant", []) if isinstance(data, dict) else []:
                 if isinstance(item, dict) and str(item.get("sku", "")).isdigit() and isinstance(item.get("name"), str):
-                    found.append({"sku": str(item["sku"]), "name": item["name"]})
+                    found.append({"sku": str(item["sku"]), "name": item["name"], "product": str(data.get("name") or "")})
     _cache[slug] = (time.monotonic(), found)
     return found
 
@@ -119,3 +138,32 @@ def lookup(lines: list[dict]) -> dict:
     except (requests.RequestException, WrongShop):
         return {"ids": ids, "reachable": False}
     return {"ids": ids, "reachable": True}
+
+
+def parse_variant(option: dict) -> "dict | None":
+    """What the name of a variant says, as the fields of a filament: 'PLA Matte - Plum (11204) / Refill / 1kg' is the colour Plum of the product
+    PLA Matte, filament ID 11204, a refill of 1 kg. Several shapes occur ('Black(30105)', '0.5 kg', 'TPU 85A / TPU 90A - TPU 85A / Light
+    Cyan (51500) / 1 kg' without a refill or spool part); None for a name that has no filament ID in brackets."""
+    name, product = option["name"], option.get("product") or ""
+    rest = name[len(product) + 3:] if product and name.startswith(f"{product} - ") else name.split(" - ", 1)[-1]
+    parts = [p.strip() for p in rest.split(" / ")]
+    weight = WEIGHT.fullmatch(parts[-1]) if len(parts) > 1 else None
+    if weight:
+        parts.pop()
+    kind = parts.pop() if len(parts) > 1 and re.search(r"refill|spool|bijvul|spoel|nachf|recharge", parts[-1], re.I) else ""
+    named = IN_BRACKETS_END.match(" / ".join(parts))
+    if not named:
+        return None
+    material, product_type = split_name(product)
+    grams = round(float(weight.group(1).replace(",", ".")) * 1000) if weight else 1000
+    return {"id": option["sku"], "product": product, "material": material, "product_type": product_type, "colour": named.group(1).strip(),
+            "filament_id": named.group(2), "refill": bool(REFILL.search(kind)), "roll_weight_g": grams, "diameter_mm": float(DIAMETER_MM)}
+
+
+def catalog(slug: str) -> "list[dict] | None":
+    """The colours of one product of the shop, as filaments; None when the shop has no such page. Raises requests.RequestException or
+    WrongShop when the shop cannot be used (see the top of this module). Only a page of CATALOG is ever fetched."""
+    if slug not in SLUGS:
+        return None
+    options = variants(slug)
+    return None if options is None else [v for v in map(parse_variant, options) if v]

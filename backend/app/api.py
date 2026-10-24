@@ -235,7 +235,7 @@ def _register(path, table, fields, order):
                 row = _share_notify(conn, row, explicit="notify_low" in values, creating=True)
                 if body.get("add_to_library") is True:          # a roll typed in by hand may also be put in the library, if it is not there yet
                     from . import filament_library              # imported here: that module imports this one
-                    filament_library.add_roll(conn, row)
+                    filament_library.add_roll(conn, row, body.get("library"))
         if table == "filament_spools":
             stock_changed()
         return jsonify(_serialise(row)), 201

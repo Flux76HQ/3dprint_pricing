@@ -187,20 +187,26 @@ def complete(conn, index: Index, row: dict, source: dict, *, price=None) -> dict
     return updated
 
 
-def add_roll(conn, roll: dict) -> None:
+def add_roll(conn, roll: dict, extra=None) -> None:
     """A roll typed in by hand may go in the library too: when the filament is not there yet it is added (what the roll says about the
     filament, never what it cost or what is left), and when it is, that entry gets what it was missing. The same barcode is the same
     filament; without one, the same brand, material, type, colour, weight and diameter, as a refill or not. When that is more than one
-    entry (a refill and a roll with spool), it is not clear which one this roll is, so none is touched."""
+    entry (a refill and a roll with spool), it is not clear which one this roll is, so none is touched. `extra` is what the form knows
+    about the filament that a roll does not hold: its supplier `filament_id` and whether it is a `refill` (from the Bambu Lab shop); with a
+    `refill` the match is exact, so that is no longer unclear."""
     _lock(conn)
     rows = _rows(conn)
     index = Index(rows)
+    extra = extra if isinstance(extra, dict) else {}
+    refill = extra["refill"] if isinstance(extra.get("refill"), bool) else None
     spec = {**BLANK, **{k: roll[k] for k in ("brand", "product_type", "material", "colour", "colour_hex", "barcode", "roll_weight_g",
-                                              "diameter_mm", "print_temp_c", "bed_temp_c")}}
+                                              "diameter_mm", "print_temp_c", "bed_temp_c")},
+            "filament_id": str(extra.get("filament_id") or "").strip()[:20], "refill": bool(refill)}
     code = _n(spec, "barcode")
-    found = [r for r in rows if code and _n(r, "barcode") == code] or [r for r in rows if _kind(r) == _kind(spec)]
+    found = [r for r in rows if code and _n(r, "barcode") == code] or \
+        [r for r in rows if _kind(r) == _kind(spec) and (refill is None or r["refill"] == refill)]
     if not found:
-        index.add(_insert(conn, {k: v for k, v in spec.items() if k in FIELDS and k not in ("price", "notes", "sku", "filament_id", "refill")}))
+        index.add(_insert(conn, {k: v for k, v in spec.items() if k in FIELDS and k not in ("price", "notes", "sku")}))
     elif len(found) == 1:
         try:
             complete(conn, index, found[0], spec)

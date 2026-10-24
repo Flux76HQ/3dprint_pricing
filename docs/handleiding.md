@@ -441,6 +441,12 @@ hebben hetzelfde ID, dus tellen die apart), of merk, materiaal, type, kleur, gew
 synchroniseren, de factuur, een nieuwe rol en het terugzetten van een back-up gaan er allemaal doorheen: een kopie wordt geweigerd (*Dit filament staat al in de bibliotheek*), en schrijven
 gebeurt onder een slot, zodat twee verzoeken tegelijk er niet toch twee van maken. Twee dubbele vermeldingen die er al stonden (uit een oudere versie) blijven bewerkbaar; alleen een *nieuwe* overeenkomst wordt geweigerd.
 
+**Merk kiezen en Bambu Lab-kleuren.** Bij een nieuwe rol is *Merk* een keuzelijst met de merken die er al zijn (op rollen en in de bibliotheek, plus altijd Bambu Lab); staat een merk er nog niet bij, dan kies je
+*Nieuw merk…* en typ je de naam. Kies je **Bambu Lab**, dan verschijnt eronder een paneel waar je de **soort** (PLA Basic, PLA Matte, PETG HF, …; een vaste lijst in de code, `bambu_store.CATALOG`) en daarna de **kleur** kiest. De
+kleuren worden door de server uit de Bambu Lab-webshop gehaald (`GET /api/bambu/products/<soort>`; dezelfde EU-webshop en voorzorgen als bij de factuur, een soort die niet in de lijst staat wordt nooit opgevraagd) en een keuze vult
+het formulier in: type, materiaal, kleur, gewicht (1 kg, 0,5 kg, …), diameter (1,75 mm) en als **barcode** het winkel-ID van die kleur (bijvulling en met spoel hebben elk een eigen ID). De webshop noemt **geen temperaturen en geen prijs**; die komen uit
+de bibliotheek als die dit filament kent, anders uit een eerdere rol met dezelfde barcode, anders vul je ze zelf in. Is de webshop niet bereikbaar, dan staat er een melding en vul je het formulier gewoon met de hand in. Het filament-ID en of het een bijvulling is gaan mee naar de bibliotheek als je *Ook aan de bibliotheek toevoegen* laat aanstaan.
+
 **Een rol met de hand toevoegen.** Onder *Filament → Nieuwe rol* staat de keuze *Ook aan de bibliotheek toevoegen* (standaard aan, alleen bij een nieuwe rol). Staat het filament er nog niet in, dan komt het erin met wat de rol
 over het filament zegt (merk, type, materiaal, kleur, kleurcode, barcode, gewicht, diameter, temperaturen; niet de prijs of wat er nog over is). Staat het er al in, dan krijgt dat filament wat het nog mist (een barcode, een kleurcode,
 temperaturen), zonder iets te overschrijven. Dezelfde barcode is hetzelfde filament; zonder barcode dezelfde naam, hetzelfde gewicht en dezelfde diameter. Past de rol bij meer dan één vermelding (bijvulling én met spoel), dan blijft de bibliotheek ongemoeid.

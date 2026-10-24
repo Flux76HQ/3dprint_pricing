@@ -464,3 +464,23 @@ def test_a_roll_that_could_be_a_refill_or_a_spool_changes_neither(owner):
     make(owner, "/api/filament-library", {**GREY, "refill": False, "sku": "B", "filament_id": "10103"})
     make(owner, "/api/spools", {**ROLL, "add_to_library": True})
     assert len(library(owner)) == 2 and {e["barcode"] for e in library(owner)} == {""}
+
+
+def test_a_roll_from_the_shop_brings_its_filament_id_and_refill_to_the_library(owner):
+    make(owner, "/api/spools", {**ROLL, "barcode": "43992833229019", "add_to_library": True, "library": {"filament_id": "10103", "refill": True}})
+    [entry] = library(owner)
+    assert (entry["filament_id"], entry["refill"], entry["barcode"]) == ("10103", True, "43992833229019")
+
+
+def test_with_a_known_refill_the_roll_is_matched_exactly_and_completes_only_that_one(owner):
+    make(owner, "/api/filament-library", {**GREY, "refill": True, "sku": "A", "filament_id": ""})
+    spool = make(owner, "/api/filament-library", {**GREY, "refill": False, "sku": "B", "filament_id": ""})
+    make(owner, "/api/spools", {**ROLL, "add_to_library": True, "library": {"filament_id": "10103", "refill": False}})
+    assert {e["sku"]: (e["barcode"], e["filament_id"]) for e in library(owner)} == {"A": ("", ""), "B": ("555", "10103")} and spool
+
+
+@pytest.mark.parametrize("extra", ["text", 5, ["x"], {"refill": "yes", "filament_id": 5}])
+def test_what_the_form_adds_about_the_filament_is_never_trusted(owner, extra):
+    make(owner, "/api/spools", {**ROLL, "add_to_library": True, "library": extra})
+    [entry] = library(owner)
+    assert entry["refill"] is False and entry["colour"] == "Grijs"
