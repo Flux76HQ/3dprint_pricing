@@ -28,7 +28,7 @@ from .i18n import L, Localized
 bp = Blueprint("backup", __name__, url_prefix="/api/backup")
 
 FORMAT = "printpricing-backup"
-FORMAT_VERSION = 4          # 4: parts and accessories; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
+FORMAT_VERSION = 4          # 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
                             # numbers. A file of an older version still restores
 MAX_ROWS = 20_000
 # (key in the file, key in api.RESOURCES) -- the order is the order of insertion
@@ -116,7 +116,7 @@ def _export_orders(conn) -> list:
     lines = orders._lines_of(conn, [r["id"] for r in rows])
     for row in rows:
         item = _serialise(row)
-        item["lines"] = [_serialise({k: line[k] for k in ("project_id", "project_number", "description", "quantity", "unit_price", "vat_pct", "cost_price", "margin_pct")})
+        item["lines"] = [_serialise({k: line[k] for k in ("project_id", "project_number", "description", "quantity", "unit_price", "vat_pct", "cost_price", "margin_pct", "optional")})
                          for line in lines[row["id"]]]
         out.append(item)
     return out

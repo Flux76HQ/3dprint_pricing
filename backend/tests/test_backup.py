@@ -324,7 +324,7 @@ def fill_orders(owner):
         "customer_id": customer(owner, name="Jan Jansen", number="K9999", phone="0612345678", notes="Betaalt altijd op tijd")["id"], "subject": "Rack-houders voor oktober", "order_date": "2026-10-01", "delivery_date": "2026-10-15", "status": "verwerkt",
         "notes": "Graag in doos", "price_rounding": "0.50",
         "lines": [{"description": "Rack-houder", "quantity": 2, "cost_price": "10.00", "margin_pct": "25", "vat_pct": "21", "project_id": project["id"]},
-                                            {"description": "Verzending", "quantity": 1, "unit_price": "5.00", "vat_pct": "0"}]}).get_json()
+                                            {"description": "Verzending", "quantity": 1, "unit_price": "5.00", "vat_pct": "0", "optional": True}]}).get_json()
     owner.put("/api/preferences", json={"business": {"name": "Flux76 Prints", "kvk": "12345678", "payment_days": 30}}, headers=H)
     assert post(owner, f"/api/orders/{order['id']}/invoice").status_code == 200           # gets its invoice number
     order = owner.get(f"/api/orders/{order['id']}").get_json()
@@ -361,6 +361,7 @@ def test_orders_numbers_and_the_template_come_back_exactly(owner):
     doc = backup(owner).get_json()
     assert doc["orders"][0]["invoice_number"] and len(doc["orders"][0]["lines"]) == 2 and doc["invoice_template"]["kind"] == "pdf"
     assert doc["orders"][0]["price_rounding"] == "0.50" and doc["orders"][0]["lines"][0]["cost_price"] == "10.00" and doc["orders"][0]["lines"][0]["margin_pct"] == "25.00"
+    assert [l["optional"] for l in doc["orders"][0]["lines"]] == [False, True]          # an accessory line stays optional
     assert order["lines"][0]["unit_price"] == "15.50"                                   # 10,00 + 25% + 21% = 15,125, up to 50 cents
     assert base64.b64decode(doc["invoice_template"]["content_b64"]) == paper
     kept_pdf = owner.get(f"/api/orders/{order['id']}/invoice").data
