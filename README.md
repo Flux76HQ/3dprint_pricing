@@ -28,7 +28,7 @@
 
 ### Desktop
 
-| Calculations | Filament stock | Orders |
+| 3D Models | Filament stock | Orders |
 |:---:|:---:|:---:|
 | <img src="docs/assets/desktop-calculations.png" width="290" alt="Overview of calculations" /> | <img src="docs/assets/desktop-filament.png" width="290" alt="Filament stock per kind" /> | <img src="docs/assets/desktop-orders.png" width="290" alt="Orders with their status" /> |
 
@@ -36,7 +36,7 @@
 
 The floating, glass-like navigation bar. Installed on the home screen it runs full screen under the status bar.
 
-| Calculations | Cost price | Orders | Filament |
+| 3D Models | Cost price | Orders | Filament |
 |:---:|:---:|:---:|:---:|
 | <img src="docs/assets/ios-calculations.png" width="200" alt="iOS: calculations" /> | <img src="docs/assets/ios-calculation.png" width="200" alt="iOS: cost price of a calculation" /> | <img src="docs/assets/ios-orders.png" width="200" alt="iOS: orders" /> | <img src="docs/assets/ios-filament.png" width="200" alt="iOS: filament stock" /> |
 
@@ -44,7 +44,7 @@ The floating, glass-like navigation bar. Installed on the home screen it runs fu
 
 The full-width navigation bar with a pill behind the active icon.
 
-| Calculations | Cost price | Orders | Filament |
+| 3D Models | Cost price | Orders | Filament |
 |:---:|:---:|:---:|:---:|
 | <img src="docs/assets/android-calculations.png" width="200" alt="Android: calculations" /> | <img src="docs/assets/android-calculation.png" width="200" alt="Android: cost price of a calculation" /> | <img src="docs/assets/android-orders.png" width="200" alt="Android: orders" /> | <img src="docs/assets/android-filament.png" width="200" alt="Android: filament stock" /> |
 

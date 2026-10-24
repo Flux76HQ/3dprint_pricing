@@ -28,7 +28,7 @@
 
 ### Desktop
 
-| Berekeningen | Filamentvoorraad | Bestellingen |
+| 3D Modellen | Filamentvoorraad | Bestellingen |
 |:---:|:---:|:---:|
 | <img src="docs/assets/desktop-calculations.png" width="290" alt="Overzicht van berekeningen" /> | <img src="docs/assets/desktop-filament.png" width="290" alt="Filamentvoorraad per soort" /> | <img src="docs/assets/desktop-orders.png" width="290" alt="Bestellingen met hun status" /> |
 
@@ -36,7 +36,7 @@
 
 De zwevende navigatiebalk met glaseffect. Op het beginscherm geïnstalleerd draait de app schermvullend onder de statusbalk.
 
-| Berekeningen | Kostprijs | Bestellingen | Filament |
+| 3D Modellen | Kostprijs | Bestellingen | Filament |
 |:---:|:---:|:---:|:---:|
 | <img src="docs/assets/ios-calculations.png" width="200" alt="iOS: berekeningen" /> | <img src="docs/assets/ios-calculation.png" width="200" alt="iOS: kostprijs van een berekening" /> | <img src="docs/assets/ios-orders.png" width="200" alt="iOS: bestellingen" /> | <img src="docs/assets/ios-filament.png" width="200" alt="iOS: filamentvoorraad" /> |
 
@@ -44,7 +44,7 @@ De zwevende navigatiebalk met glaseffect. Op het beginscherm geïnstalleerd draa
 
 De navigatiebalk over de volle breedte met een pil achter het actieve icoon.
 
-| Berekeningen | Kostprijs | Bestellingen | Filament |
+| 3D Modellen | Kostprijs | Bestellingen | Filament |
 |:---:|:---:|:---:|:---:|
 | <img src="docs/assets/android-calculations.png" width="200" alt="Android: berekeningen" /> | <img src="docs/assets/android-calculation.png" width="200" alt="Android: kostprijs van een berekening" /> | <img src="docs/assets/android-orders.png" width="200" alt="Android: bestellingen" /> | <img src="docs/assets/android-filament.png" width="200" alt="Android: filamentvoorraad" /> |
 
