@@ -351,6 +351,15 @@ def validated_preferences(body: dict) -> dict:
         if body["language"] not in LANGUAGES:
             raise ApiError(400, "err.language")
         prefs["language"] = body["language"]
+    if "navbar_style" in body:                                    # the bar at the bottom of a phone: floating "ios" or the native "android" one
+        if body["navbar_style"] not in ("ios", "android"):
+            raise ApiError(400, "err.navbar_style")
+        prefs["navbar_style"] = body["navbar_style"]
+    if "navbar_glass" in body:                                    # how glassy the floating bar is, 0 (solid) to 100
+        value = body["navbar_glass"]
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
+            raise ApiError(400, "err.navbar_glass")
+        prefs["navbar_glass"] = value
     if "sidebar_collapsed" in body:
         prefs["sidebar_collapsed"] = boolean("f.sidebar")(body["sidebar_collapsed"])
     if "low_stock" in body:

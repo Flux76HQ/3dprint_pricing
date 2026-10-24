@@ -10,6 +10,8 @@
     var p = JSON.parse(localStorage.getItem('pp-prefs') || '{}');
     var root = document.documentElement;
     if (p.theme === 'light' || p.theme === 'dark') root.setAttribute('data-theme', p.theme);
+    root.setAttribute('data-nav', p.navbar_style === 'android' ? 'android' : 'ios');
+    if (Number.isInteger(p.navbar_glass)) root.style.setProperty('--nav-glass', String(p.navbar_glass));
     if (/^#[0-9a-f]{6}$/i.test(p.accent || '')) root.style.setProperty('--accent', p.accent);
   } catch (e) { /* storage blocked: defaults are fine */ }
 })();

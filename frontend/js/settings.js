@@ -404,6 +404,27 @@ export function settingsView(ctx, requested) {
   const custom = h('input', { type: 'color', 'aria-label': t('appearance.custom_accent'), value: ctx.prefs.accent || '#6c5ce7',
     onchange: (e) => setPrefs({ accent: e.target.value }) });
 
+  // The bar at the bottom of a phone: floating (iOS-like, with a glass slider) or the native Android one. The slider shows at once while it moves.
+  const navBox = h('div', { class: 'stack' });
+  function drawNav() {
+    const style = ctx.prefs.navbar_style === 'android' ? 'android' : 'ios';
+    const glass = Number.isInteger(ctx.prefs.navbar_glass) ? ctx.prefs.navbar_glass : 60;
+    const choice = h('div', { class: 'segmented', role: 'group', 'aria-label': t('appearance.nav') },
+      [['ios', 'appearance.nav_ios'], ['android', 'appearance.nav_android']].map(([value, label]) => h('button', { type: 'button', class: 'seg', 'aria-pressed': String(style === value),
+        onclick: async () => { await setPrefs({ navbar_style: value }); drawNav(); } }, t(label))));
+    const shown = h('output', { for: 'nav-glass' }, t('appearance.glass_value', { n: glass }));
+    const slider = h('input', { type: 'range', id: 'nav-glass', min: 0, max: 100, step: 1, value: glass, 'aria-labelledby': 'nav-glass-label',
+      oninput: (e) => { shown.textContent = t('appearance.glass_value', { n: e.target.value }); document.documentElement.style.setProperty('--nav-glass', e.target.value); },
+      onchange: (e) => setPrefs({ navbar_glass: Number(e.target.value) }) });
+    navBox.replaceChildren(
+      h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.nav_style')), h('p', { class: 'muted' }, t('appearance.nav_hint')),
+        h('p', { class: 'muted' }, t(style === 'ios' ? 'appearance.nav_ios_hint' : 'appearance.nav_android_hint'))), choice),
+      style === 'ios'
+        ? h('div', { class: 'toggle-row' }, h('div', {}, h('strong', { id: 'nav-glass-label' }, t('appearance.glass')), h('p', { class: 'muted' }, t('appearance.glass_hint'))),
+          h('div', { class: 'nav-glass' }, slider, shown))
+        : null);
+  }
+
   function drawAppearance() {
     themeButtons.replaceChildren(...THEMES.map(([value, label]) => h('button', {
       type: 'button', class: 'seg', 'aria-pressed': String((ctx.prefs.theme || 'system') === value),
@@ -486,10 +507,12 @@ export function settingsView(ctx, requested) {
       installCard(), updatesCard()],
     weergave: () => {
       drawAppearance();
+      drawNav();
       return [h('div', { class: 'glass card stack' }, h('h2', {}, t('appearance.title')),
         h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.language')), h('p', { class: 'muted' }, t('appearance.language_hint'))), langSwitch(ctx.setLanguage)),
         h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.theme')), h('p', { class: 'muted' }, t('appearance.theme_hint'))), themeButtons),
-        h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.accent')), h('p', { class: 'muted' }, t('appearance.accent_hint'))), accentButtons))];
+        h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.accent')), h('p', { class: 'muted' }, t('appearance.accent_hint'))), accentButtons)),
+      h('div', { class: 'glass card stack' }, h('h2', {}, t('appearance.nav')), navBox)];
     },
     beveiliging: () => {
       loadSecurity();

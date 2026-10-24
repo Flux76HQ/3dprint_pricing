@@ -112,6 +112,26 @@ a { color: var(--accent); }
 .tabbar a { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 52px; min-width: 44px;
   justify-content: center; font-size: .72rem; color: var(--text-muted); text-decoration: none; border-radius: 16px; padding: 4px 2px; }
 .tabbar a[aria-current="page"] { color: var(--accent); background: var(--accent-subtle); font-weight: 600; }
+.tabbar a { min-width: 0; padding-inline: 0; }
+.tabbar .nav-label { font-size: .68rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.icon.mdi { fill: currentColor; stroke: none; }
+
+/* The bar at the bottom of a phone, in two styles (Settings > Appearance): "ios" floats as a glass pill (--nav-glass, 0-100, says how
+   see-through and blurred the glass is) and "android" is the native bar: full width on the edge, a pill behind the active icon. */
+:root { --nav-glass: 60; }
+.tabbar.glass { background: color-mix(in srgb, var(--surface-solid) calc(100% - var(--nav-glass) * 0.8%), transparent);
+  -webkit-backdrop-filter: blur(calc(6px + var(--nav-glass) * .3px)) saturate(1.6); backdrop-filter: blur(calc(6px + var(--nav-glass) * .3px)) saturate(1.6); }
+@media (prefers-reduced-transparency: reduce) { .tabbar.glass { background: var(--surface-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+html[data-nav="android"] { --tabbar-h: 80px; }
+html[data-nav="android"] .tabbar.glass { left: 0; right: 0; bottom: 0; border-radius: 0; border: 0; padding: 12px 8px calc(16px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--surface-solid) 90%, var(--accent)); -webkit-backdrop-filter: none; backdrop-filter: none;
+  box-shadow: 0 -1px 0 var(--lijn), 0 -3px 14px rgba(0, 0, 0, .08); }
+html[data-nav="android"] .tabbar a { gap: 4px; min-height: 56px; padding: 0; border-radius: 0; background: none; font-weight: 500; color: var(--text-muted); }
+html[data-nav="android"] .tabbar a .nav-icon { width: 64px; height: 32px; border-radius: 16px; transition: background-color .2s ease; }
+html[data-nav="android"] .tabbar a[aria-current="page"] { background: none; color: var(--text); font-weight: 700; }
+html[data-nav="android"] .tabbar a[aria-current="page"] .nav-icon { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--accent); }
+html[data-nav="android"] .tabbar a:active .nav-icon { background: var(--accent-subtle); }
 main { padding: 16px 16px calc(var(--tabbar-h) + 32px + env(safe-area-inset-bottom)); max-width: 1100px; margin: 0 auto; }
 @media (max-width: 859.98px) { main { padding-top: 0; } }                     /* the title bar brings its own top padding */
 main:focus { outline: none; }
@@ -145,7 +165,7 @@ main:focus { outline: none; }
    in it, so that button is always within reach. On a phone it is the bar under the status bar: its padding makes room for the notch / camera cut-out. */
 .page-head { position: sticky; top: 0; z-index: 15; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: nowrap;
   margin: -16px -16px 12px; padding: calc(env(safe-area-inset-top) + 10px) max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
-  min-height: calc(56px + env(safe-area-inset-top)); background: color-mix(in srgb, var(--surface-solid) 84%, transparent);
+  min-height: calc(56px + env(safe-area-inset-top)); background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
   -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); border-bottom: 1px solid var(--lijn); }
 .page-head h1 { margin: 0; font-size: 1.35rem; line-height: 1.25; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .page-head > div:first-child { display: flex; align-items: center; gap: 12px; min-width: 4.5em; flex: 1 1 0; }
@@ -236,8 +256,13 @@ output.cost { font-weight: 650; font-variant-numeric: tabular-nums; min-height: 
 .toggle-row, .list-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap;
   padding: 8px 0; border-top: 1px solid var(--lijn); }
 .toggle-row:first-of-type { border-top: 0; }
-.toggle-row { flex-wrap: nowrap; padding: 10px 0; }                                   /* the switch stays on the right of its text, as in iOS settings */
-.toggle-row > div { flex: 1; min-width: 0; }
+.toggle-row { padding: 10px 0; }
+.toggle-row:has(> .switch) { flex-wrap: nowrap; }                                   /* the switch stays on the right of its text, as in iOS settings */
+.toggle-row > div:first-child { flex: 1 1 220px; min-width: 0; }
+.toggle-row:has(> .switch) > div:first-child { flex: 1; }
+.nav-glass { display: flex; align-items: center; gap: 12px; min-width: 200px; }
+.nav-glass input[type="range"] { flex: 1; min-width: 120px; accent-color: var(--accent); min-height: 44px; }
+.nav-glass output { min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
 .toggle-row p { margin: 2px 0 0; }
 .plain-list { list-style: none; margin: 0; padding: 0; }
 .segmented { display: inline-flex; border: 1px solid var(--rand); border-radius: 12px; overflow: hidden; }

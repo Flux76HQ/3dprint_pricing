@@ -113,6 +113,17 @@ def test_preferences_merge_and_validate(owner):
     assert owner.put("/api/preferences", json={"accent": "red"}, headers=H).status_code == 400
 
 
+def test_the_navigation_bar_preferences_are_validated(owner):
+    saved = owner.put("/api/preferences", json={"navbar_style": "android", "navbar_glass": 35}, headers=H).get_json()
+    assert (saved["navbar_style"], saved["navbar_glass"]) == ("android", 35)
+    assert owner.put("/api/preferences", json={"navbar_glass": 0}, headers=H).get_json()["navbar_glass"] == 0
+    assert owner.put("/api/preferences", json={"navbar_glass": 100, "navbar_style": "ios"}, headers=H).status_code == 200
+    for bad in ({"navbar_style": "windows"}, {"navbar_style": None}, {"navbar_glass": -1}, {"navbar_glass": 101}, {"navbar_glass": 50.5},
+                {"navbar_glass": "50"}, {"navbar_glass": True}, {"navbar_glass": None}):
+        assert owner.put("/api/preferences", json=bad, headers=H).status_code == 400, bad
+    assert owner.get("/api/preferences").get_json()["navbar_glass"] == 100          # a refusal changes nothing
+
+
 def test_health_endpoints_and_spa_fallback(client):
     assert client.get("/healthz").get_json()["status"] == "ok"
     assert client.get("/readyz").get_json()["status"] == "ready"

@@ -282,5 +282,7 @@
  "f.invoice_qr_link": "Payment link in the QR code",
  "err.invoice_qr_link": "Payment link: use an https address without spaces (500 characters at most), with only the fields {{bedrag}}, {{bedrag_cent}}, {{factuurnummer}}, {{klantnummer}}, {{betreft}}, {{iban}} and {{bestelnummer}}.",
  "f.colour_hex": "Colour code",
- "err.colour_hex": "{label}: use a colour like #rrggbb, or leave it empty."
+ "err.colour_hex": "{label}: use a colour like #rrggbb, or leave it empty.",
+ "err.navbar_style": "Navigation bar: choose iOS-like or Android-like.",
+ "err.navbar_glass": "Glass effect: a whole number from 0 to 100."
 }

@@ -1,4 +1,5 @@
 import { getLocale, t } from './i18n.js';
+import { MDI } from './mdi.js';
 
 // Tiny DOM helpers. Everything goes through textContent/attributes, never innerHTML with data.
 export function h(tag, attrs = {}, ...children) {
@@ -41,11 +42,21 @@ const ICONS = {
 export function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('class', 'icon');
   svg.setAttribute('aria-hidden', 'true');
+  if (MDI[name]) {                                   // a Material Design icon: filled, in the colour of the text
+    svg.setAttribute('class', 'icon mdi');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', MDI[name]);
+    svg.append(path);
+    return svg;
+  }
+  svg.setAttribute('class', 'icon');
   svg.innerHTML = ICONS[name] || ''; // static strings above, never user data
   return svg;
 }
+
+/** The icon of a destination in the navigation: filled while it is the page you are on, as an outline otherwise (when there is one). */
+export const navIcon = (name, active) => icon(!active && MDI[`${name}-outline`] ? `${name}-outline` : name);
 
 export const eur = (value) => new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'EUR' }).format(Number(value) || 0);
 

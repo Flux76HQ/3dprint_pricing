@@ -282,5 +282,7 @@
  "f.invoice_qr_link": "Betaallink in de QR-code",
  "err.invoice_qr_link": "Betaallink: gebruik een https-adres zonder spaties (maximaal 500 tekens), met alleen de velden {{bedrag}}, {{bedrag_cent}}, {{factuurnummer}}, {{klantnummer}}, {{betreft}}, {{iban}} en {{bestelnummer}}.",
  "f.colour_hex": "Kleurcode",
- "err.colour_hex": "{label}: gebruik een kleur als #rrggbb, of laat het leeg."
+ "err.colour_hex": "{label}: gebruik een kleur als #rrggbb, of laat het leeg.",
+ "err.navbar_style": "Navigatiebalk: kies iOS-achtig of Android-achtig.",
+ "err.navbar_glass": "Glaseffect: een heel getal van 0 tot en met 100."
 }

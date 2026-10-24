@@ -669,5 +669,15 @@
  "sort.desc": "aflopend",
  "stock.show_all": "Toon alle {n} soorten",
  "stock.show_less": "Minder tonen",
- "filter.title": "Filteren"
+ "filter.title": "Filteren",
+ "appearance.nav": "Navigatiebalk",
+ "appearance.nav_hint": "De balk onderaan op een telefoon of tablet; op een breed scherm staat het menu links.",
+ "appearance.nav_ios": "iOS-achtig",
+ "appearance.nav_android": "Android-achtig",
+ "appearance.nav_ios_hint": "Zwevend, met afgeronde hoeken.",
+ "appearance.nav_android_hint": "Over de volle breedte, met een pil achter het actieve icoon.",
+ "appearance.glass": "Glaseffect",
+ "appearance.glass_hint": "0 is ondoorzichtig, hoger is doorzichtiger en meer vervaging.",
+ "appearance.glass_value": "{n}%",
+ "appearance.nav_style": "Stijl"
 }
