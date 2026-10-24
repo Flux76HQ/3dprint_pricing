@@ -305,7 +305,8 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
 
   // --- print file: upload, read, adopt -------------------------------------------------
   let fileMeta = null;
-  let plateIndex = 0;
+  let plateIndex = 0;                                 // ALL_PLATES = every plate of the file together
+  const ALL_PLATES = -1;
   let densities = {};
   let material = 'PLA';
   let fillPct = '40';
@@ -320,6 +321,24 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
     const sp = spoolFor(type);
     return { spool_id: sp ? sp.id : '', label: sp ? spoolName(sp) : label, grams: String(grams), price_per_kg: sp ? perKg(sp) : '' };
   };
+
+  // All plates as one: hours and grams added up, the same filament (type and colour) on different plates as one line.
+  function combinePlates(plates) {
+    const byFilament = new Map();
+    let hours = null;
+    for (const pl of plates) {
+      if (pl.hours) hours = (hours || 0) + pl.hours;
+      for (const f of pl.filaments) {
+        const key = `${f.type}|${f.color}`;
+        const known = byFilament.get(key);
+        if (known) known.grams += f.grams;
+        else byFilament.set(key, { ...f });
+      }
+    }
+    const filaments = [...byFilament.values()].map((f) => ({ ...f, grams: Math.round(f.grams * 10) / 10 }));
+    const grams = Math.round(filaments.reduce((sum, f) => sum + f.grams, 0) * 10) / 10;
+    return { hours: hours && Math.round(hours * 100) / 100, grams: grams || null, filaments };
+  }
 
   // Takes grams and hours from the slicer into the calculation: filament lines (priced from the
   // matching roll), whole print hours, and a printer line with depreciation and energy.
@@ -388,10 +407,13 @@ function buildEditor({ spools, printers, tariffs, packaging, project, navigate, 
           h('a', { class: 'btn small', href: `/api/print-files/${fileMeta.id}/download` }, t('file.download')),
           h('button', { class: 'btn small', type: 'button', onclick: () => { fileMeta = null; state.file_id = null; touch(); drawFile(); } }, t('file.unlink')))));
       if (a.plates.length) {
-        const plate = a.plates[Math.min(plateIndex, a.plates.length - 1)];
+        const all = a.plates.length > 1 && plateIndex === ALL_PLATES;
+        const plate = all ? combinePlates(a.plates) : a.plates[Math.min(Math.max(plateIndex, 0), a.plates.length - 1)];
         if (a.plates.length > 1) {
+          const total = combinePlates(a.plates);
           parts.push(field(t('file.plate'), h('select', { onchange: (e) => { plateIndex = Number(e.target.value); drawFile(); } },
-            a.plates.map((pl, i) => h('option', { value: i, selected: i === plateIndex }, `${t('file.plate')} ${pl.index}${pl.grams ? ` · ${fmt(pl.grams, 1)} g` : ''}`)))));
+            [...a.plates.map((pl, i) => h('option', { value: i, selected: i === plateIndex }, `${t('file.plate')} ${pl.index}${pl.grams ? ` · ${fmt(pl.grams, 1)} g` : ''}`)),
+              h('option', { value: ALL_PLATES, selected: all }, `${t('file.all_plates')}${total.grams ? ` · ${fmt(total.grams, 1)} g` : ''}`)])));
         }
         parts.push(h('dl', { class: 'stats' },
           h('div', {}, h('dt', {}, t('file.print_time')), h('dd', {}, plate.hours ? t('file.hours', { n: fmt(plate.hours, 2) }) : '—')),

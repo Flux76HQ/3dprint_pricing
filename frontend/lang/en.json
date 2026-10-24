@@ -264,6 +264,7 @@
  "file.adopt_estimate": "Use estimate",
  "file.adopted": "Applied",
  "file.adopted_auto": "Applied automatically",
+ "file.all_plates": "All plates",
  "file.attention": "Note",
  "file.auto_adopt": "Apply grams and hours automatically when a sliced file is read",
  "file.dimensions": "Dimensions",
