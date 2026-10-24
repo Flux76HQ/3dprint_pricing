@@ -297,6 +297,7 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 | **Weergave** | taal, thema, accentkleur |
 | **Beveiliging** | passkeys en herstelcodes, wachtwoord en tweestapsverificatie |
 | **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon; alleen zichtbaar als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
+| **Filamenten** | de filamentbibliotheek: specificaties van filamenten, een Bambu Lab-factuur inlezen, JSON-export en -import en synchroniseren met GitHub; zie *Filamentbibliotheek* |
 | **Notificaties** | meldingen (dit apparaat, nieuwe versie, filament bijna op, testmelding, verbindingscontrole, apparatenlijst) en stille uren |
 | **Back-up en herstel** | zie *Back-up in de app* |
 
@@ -401,10 +402,38 @@ regelvelden hierboven. Het sjabloonbestand, het logo en de gemaakte factuur-PDF�
 back-up van de app. Een sjabloon of logo van een eerdere versie (nog als bestand onder `UPLOAD_DIR`) wordt de eerste keer dat het gebruikt wordt in de database gezet; is dat bestand al weg, upload het dan één keer opnieuw. Word- en PDF-bestanden worden als onbetrouwbaar behandeld: grootte en uitgepakte grootte zijn begrensd, Word
 wordt gelezen met `python-docx` (zonder XML-entiteiten) en PDF alleen met `pypdf`; er wordt niets uitgevoerd.
 
+## Filamentbibliotheek
+
+*Instellingen → Filamenten* bevat de **bibliotheek**: de gegevens van filamenten (merk, type, materiaal, kleur en kleurcode, **filament-ID**
+van de leverancier, artikelnummer (SKU), barcode, bijvulling of met spoel, gewicht, diameter, temperaturen en een richtprijs excl. btw), los van de
+rollen in je voorraad. Voeg je onder *Filament* een **nieuwe rol** toe, dan kies je bovenaan het formulier een filament uit de bibliotheek: merk, type,
+kleur, gewicht, diameter, temperaturen, barcode en prijs worden ingevuld, de rol begint vol en je kunt alles nog aanpassen. Zonder bibliotheek
+(of met *Niet uit de bibliotheek*) werkt het formulier als altijd.
+
+Drie manieren om de bibliotheek te vullen zonder te typen:
+
+- **Bambu Lab-factuur importeren.** Kies de PDF-factuur uit de Bambu Lab-webshop. De app leest hem (alleen met `pypdf`, met een grens aan grootte en aantal
+  pagina’s) en laat eerst zien wat erin staat: per filamentregel het merk, materiaal en type (*PLA* + *Basic*), de kleur, het filament-ID (het nummer tussen
+  haakjes achter de kleur), de SKU, het gewicht en de diameter (uit de SKU), of het een bijvulling is (SKU eindigt op `FREE`) en de prijzen. Op de factuur
+  staat de prijs **incl. btw** en de korting per regel; de app rekent om naar excl. btw: de *richtprijs* (de lijstprijs) en wat je werkelijk **betaalde** per rol. Per regel kies
+  je of het filament in de bibliotheek komt en **hoeveel rollen in de voorraad** komen, tegen de betaalde prijs; die rollen krijgen de factuur in hun notitie. Een filament dat al in de
+  bibliotheek staat (zelfde SKU) houdt zijn eigen gegevens en krijgt alleen de nieuwe richtprijs. Staan er van de factuur al rollen in de voorraad, dan staat het aantal
+  op 0 en zegt de app dat. Regels die geen filament zijn worden overgeslagen en genoemd; kloppen de regels niet met het factuurtotaal, dan staat er een waarschuwing. Andere webshops dan Bambu Lab worden niet herkend.
+- **Exporteren en importeren (JSON).** *Exporteren (JSON)* downloadt de bibliotheek (`printpricing-filaments-JJJJ-MM-DD.json`, zonder id’s, met getallen als getallen,
+  dus ook met de hand te bewerken). *Importeren (JSON)* leest zo’n bestand, controleert het helemaal met dezelfde regels als handmatig invoeren (één fout regel stopt alles en
+  noemt het regelnummer) en laat eerst zien hoeveel nieuw, bijgewerkt en ongewijzigd is. Een filament wordt herkend aan zijn SKU, anders zijn barcode, anders zijn filament-ID, anders
+  merk, materiaal, type, kleur en bijvulling. Wat het bestand voor een bekend filament vermeldt, wordt overschreven; wat het niet vermeldt blijft, en er wordt **nooit iets verwijderd**.
+- **Synchroniseren.** De knop *Synchroniseren* haalt de gedeelde bibliotheek op van GitHub en voegt op dezelfde manier toe en werkt bij (eerst een bevestiging met de aantallen). De
+  **server** haalt het bestand op, niet de browser. Het adres staat in `FILAMENT_LIBRARY_URL` (standaard `library/filaments.json` van deze repository): alleen `https` op
+  `raw.githubusercontent.com` of `gist.githubusercontent.com`, een doorverwijzing wordt niet gevolgd, het bestand mag hoogstens 2 MB zijn en het adres komt nooit uit een verzoek. Leeg zet de
+  knop uit. De container moet GitHub kunnen bereiken; lukt dat niet, dan zegt de app dat de bron niet bereikbaar is.
+
+De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg bij herstellen).
+
 ## Back-up in de app
 
 *Instellingen → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`):
-je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, filamentrollen,
+je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, de filamentbibliotheek, filamentrollen,
 berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
 mailen of bewaren mag de app niet kunnen openen. Na herstellen op een lege installatie log je dus gewoon in met je passkey.

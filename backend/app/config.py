@@ -6,10 +6,16 @@ one.
 """
 import os
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 
 class ConfigError(RuntimeError):
     pass
+
+
+# Where "Sync" in Settings -> Filaments reads the shared filament library from: a JSON file as the app exports it.
+DEFAULT_LIBRARY_URL = "https://raw.githubusercontent.com/Flux76HQ/3dprint_pricing/main/library/filaments.json"
+LIBRARY_HOSTS = ("raw.githubusercontent.com", "gist.githubusercontent.com")
 
 
 def _required(name: str) -> str:
@@ -41,10 +47,20 @@ class Config:
     vapid_private_key: str = ""
     vapid_subject: str = ""
     ai_images_enabled: bool = False
+    filament_library_url: str = DEFAULT_LIBRARY_URL
 
     @property
     def push_configured(self) -> bool:
         return bool(self.vapid_public_key and self.vapid_private_key)
+
+
+def _library_url() -> str:
+    """The address of the shared library; empty switches the sync off. Only https on a GitHub raw host: the server fetches it, so it is
+    never taken from a request, and a typo here must not turn the app into a way to reach other machines."""
+    url = os.environ.get("FILAMENT_LIBRARY_URL", DEFAULT_LIBRARY_URL).strip()
+    if url and (not url.startswith("https://") or (urlparse(url).hostname or "") not in LIBRARY_HOSTS):
+        raise ConfigError(f"FILAMENT_LIBRARY_URL must be an https address on {' or '.join(LIBRARY_HOSTS)}, or empty.")
+    return url
 
 
 def load_config() -> Config:
@@ -68,4 +84,5 @@ def load_config() -> Config:
         vapid_private_key=os.environ.get("VAPID_PRIVATE_KEY", "").strip(),
         vapid_subject=os.environ.get("VAPID_SUBJECT", "").strip() or f"mailto:admin@{_required('RP_ID')}",
         ai_images_enabled=_flag("AI_IMAGES_ENABLED"),
+        filament_library_url=_library_url(),
     )

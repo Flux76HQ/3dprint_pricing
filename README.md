@@ -60,6 +60,7 @@ Selling 3D prints means knowing what each one costs: filament by the gram, machi
 
 - **Cost price in seconds**: filament, parts, accessories (cables, chargers), packaging, printer depreciation and energy add up to a cost price, with an optional margin for a recommended selling price. Every line is rounded to the cent first, so the lines on screen add up to the total.
 - **Straight from the slicer**: attach a `.3mf` or `.stl` file. A sliced 3MF (Bambu Studio / Orca) gives the real grams per filament and the print time, which go into the calculation automatically; an STL gives a weight estimate.
+- **Filament library and invoice import**: keep the specs of the filaments you buy (brand, type, colour, supplier filament ID, weight, diameter, temperatures) in a library, so a new roll fills itself in. Read a Bambu Lab invoice (PDF) to add the filaments, and the rolls, in one go; export and import the library as JSON, or sync it from GitHub.
 - **Filament stock with barcode scanning**: your rolls with price, remaining weight, colour and temperatures, grouped per kind. Scan a barcode with your phone camera and a known roll fills itself in. Get a notification when a kind is nearly out, and book the usage of a calculation off the stock with one click.
 - **Prices that stay put**: a saved calculation keeps the prices of the moment you saved it, so changing a roll price later never rewrites your history.
 - **Business-ready**: VAT on the selling price, a margin and a price rounding per order (to 5/10/50 cents, whole euros, or ending in ,95/,99, with your margin as the minimum), and a button to blur the costs when a customer looks over your shoulder.
@@ -122,6 +123,7 @@ Set in `.env`; the file `.env.example` documents each value.
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | ❌ | empty | Key pair for push notifications (`python scripts/generate_vapid.py`); empty means notifications are off |
 | `VAPID_SUBJECT` | ❌ | `mailto:admin@<RP_ID>` | Contact address for the push services |
 | `AI_IMAGES_ENABLED` | ❌ | `FALSE` | Set to `TRUE` to show the optional *AI images* feature (product pictures from a photo, made with OpenAI GPT Image). The API key is entered in the app under Settings, not in `.env` |
+| `FILAMENT_LIBRARY_URL` | ❌ | this repository's `library/filaments.json` | Where *Settings → Filaments → Sync* reads the shared filament library from: a JSON file in the format of the library export, on `raw.githubusercontent.com`. Empty switches the Sync button off |
 | `PROXY_HOPS` | ❌ | `0` | Number of reverse proxies in front of the app |
 | `WEB_CONCURRENCY` | ❌ | `2` | Number of Gunicorn workers |
 | `APP_IMAGE` | ❌ | `ghcr.io/flux76hq/3dprint_pricing:latest` | The image to run |

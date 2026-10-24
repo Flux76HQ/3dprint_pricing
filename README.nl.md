@@ -60,6 +60,7 @@ Wie 3D-prints verkoopt moet weten wat elke print kost: filament per gram, machin
 
 - **Kostprijs in een paar seconden**: filament, onderdelen, accessoires (kabels, laders), verpakking, printerafschrijving en energie tellen op tot een kostprijs, met optioneel een marge voor een adviesverkoopprijs. Elke regel wordt eerst op hele centen afgerond, zodat de regels op het scherm optellen tot het totaal.
 - **Rechtstreeks uit de slicer**: koppel een `.3mf`- of `.stl`-bestand. Een gesliced 3MF (Bambu Studio / Orca) geeft de echte gram per filament en de printtijd, die automatisch in de berekening komen; een STL geeft een schatting van het gewicht.
+- **Filamentbibliotheek en factuurimport**: leg de gegevens van de filamenten die je koopt vast (merk, type, kleur, filament-ID van de leverancier, gewicht, diameter, temperaturen), zodat een nieuwe rol zichzelf invult. Lees een Bambu Lab-factuur (PDF) in om de filamenten, en de rollen, in één keer toe te voegen; exporteer en importeer de bibliotheek als JSON, of synchroniseer haar met GitHub.
 - **Filamentvoorraad met barcodescanner**: je rollen met prijs, resterend gewicht, kleur en temperaturen, gegroepeerd per soort. Scan een barcode met de camera van je telefoon en een bekende rol vult zichzelf in. Krijg een melding als een soort bijna op is en boek het verbruik van een berekening met één klik van de voorraad af.
 - **Prijzen die blijven staan**: een opgeslagen berekening bewaart de prijzen van het moment van opslaan, dus een latere prijswijziging van een rol herschrijft je geschiedenis niet.
 - **Zakelijk bruikbaar**: btw over de verkoopprijs, een marge en een afronding van de prijs per bestelling (op 5/10/50 cent, hele euro's of eindigend op ,95/,99, met je marge als minimum), en een knop om de kosten te blurren als een klant meekijkt.
@@ -122,6 +123,7 @@ Instellen in `.env`; het bestand `.env.example` documenteert elke waarde.
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | ❌ | leeg | Sleutelpaar voor push-meldingen (`python scripts/generate_vapid.py`); leeg betekent meldingen uit |
 | `VAPID_SUBJECT` | ❌ | `mailto:admin@<RP_ID>` | Contactadres voor de pushdiensten |
 | `AI_IMAGES_ENABLED` | ❌ | `FALSE` | Zet op `TRUE` om de optionele functie *AI-afbeeldingen* te tonen (productafbeeldingen uit een foto, gemaakt met OpenAI GPT Image). De API-sleutel voer je in de app in onder Instellingen, niet in `.env` |
+| `FILAMENT_LIBRARY_URL` | ❌ | `library/filaments.json` van deze repository | Waar *Instellingen → Filamenten → Synchroniseren* de gedeelde filamentbibliotheek vandaan haalt: een JSON-bestand in het formaat van de bibliotheek-export, op `raw.githubusercontent.com`. Leeg zet de knop Synchroniseren uit |
 | `PROXY_HOPS` | ❌ | `0` | Aantal reverse proxies voor de app |
 | `WEB_CONCURRENCY` | ❌ | `2` | Aantal Gunicorn-workers |
 | `APP_IMAGE` | ❌ | `ghcr.io/flux76hq/3dprint_pricing:latest` | De te draaien image |

@@ -135,6 +135,35 @@ function resources() {
   };
 }
 
+/** "Bambu Lab · Basic · Grijs · PLA · bijvulling": one entry of the filament library, in a line. */
+export const libraryName = (e) => [spoolName(e, ' · '), e.material, e.refill ? t('library.refill_short') : ''].filter(Boolean).join(' · ');
+
+/** The form of a filament library entry (Settings -> Filaments); `openForm` draws it like the other forms. */
+export function libraryConfig() {
+  return {
+    id: 'library', path: '/api/filament-library',
+    defaults: { brand: '', product_type: '', material: '', colour: '', colour_hex: '', filament_id: '', sku: '', barcode: '', refill: false,
+      roll_weight_g: '1000', diameter_mm: '1.75', print_temp_c: '', bed_temp_c: '', price: '', notes: '' },
+    fields: [
+      { key: 'brand', label: t('filament.brand'), type: 'text', required: true, placeholder: t('filament.brand_ph') },
+      { key: 'product_type', label: t('filament.type'), type: 'text', placeholder: t('filament.type_ph'), hint: t('filament.type_hint') },
+      { key: 'material', label: t('filament.material'), type: 'text', placeholder: t('filament.material_ph') },
+      { key: 'colour', label: t('filament.colour'), type: 'text', placeholder: t('filament.colour_ph') },
+      { key: 'colour_hex', label: t('filament.colour_hex'), type: 'color', hint: t('filament.colour_hex_hint') },
+      { key: 'filament_id', label: t('library.filament_id'), type: 'text', hint: t('library.filament_id_hint') },
+      { key: 'sku', label: t('library.sku'), type: 'text', hint: t('library.sku_hint') },
+      { key: 'barcode', label: t('filament.barcode'), type: 'text' },
+      { key: 'refill', label: t('library.refill'), type: 'checkbox', hint: t('library.refill_hint') },
+      { key: 'roll_weight_g', label: t('filament.roll_weight'), type: 'number', required: true },
+      { key: 'diameter_mm', label: t('filament.diameter'), type: 'number', required: true, list: ['1.75', '2.85'] },
+      { key: 'print_temp_c', label: t('filament.print_temp'), type: 'number', placeholder: t('filament.print_temp_ph'), hint: t('filament.print_temp_hint') },
+      { key: 'bed_temp_c', label: t('filament.bed_temp'), type: 'number', placeholder: t('filament.bed_temp_ph'), hint: t('filament.optional') },
+      { key: 'price', label: t('library.price'), type: 'number', hint: t('library.price_hint') },
+      { key: 'notes', label: t('common.notes'), type: 'textarea' },
+    ],
+  };
+}
+
 // What is left per kind of filament: the rolls you still have (with what is on each) and the total,
 // plus a total per material.
 function stockPanel() {
@@ -240,7 +269,7 @@ async function askToPassOn(config, item, payload) {
   return answer === null ? null : (answer === 'all' ? changed : []);
 }
 
-function openForm(config, item, reload) {
+export function openForm(config, item, reload) {
   const values = { ...(item || config.defaults) };
   const error = h('p', { class: 'error', role: 'alert', hidden: true });
   const els = {};          // inputs by key, so "copy from the previous roll" can fill them
@@ -323,6 +352,45 @@ function openForm(config, item, reload) {
       f.hint ? h('p', { class: 'hint' }, f.hint) : null);
   }
 
+  // A new roll can start from the filament library: one pick fills in everything the library knows about that filament.
+  const FROM_LIBRARY = ['brand', 'product_type', 'material', 'colour', 'colour_hex', 'roll_weight_g', 'diameter_mm', 'print_temp_c', 'bed_temp_c', 'barcode', 'price'];
+  function libraryPicker() {
+    const select = h('select', { id: 'f-library', 'aria-describedby': 'f-library-hint' });
+    const box = h('div', { class: 'field', hidden: true }, h('label', { for: 'f-library' }, t('library.pick')), select,
+      h('p', { class: 'hint', id: 'f-library-hint' }, t('library.pick_hint')));
+    let entries = [];
+    const put = (key, value) => {
+      values[key] = value;
+      dirty.add(key);
+      if (!els[key]) return;
+      if (els[key].setColour) els[key].setColour(value); else els[key].value = value;
+    };
+    select.addEventListener('change', () => {
+      const entry = entries.find((e) => e.id === select.value);
+      if (!entry) return;
+      for (const key of FROM_LIBRARY) {
+        const value = entry[key] ?? '';
+        if (key === 'price' && value === '') continue;            // an entry without a price leaves the price as it is
+        put(key, value);
+      }
+      put('remaining_g', entry.roll_weight_g);                     // a new roll starts full
+    });
+    api('GET', '/api/filament-library').then((rows) => {
+      entries = rows;
+      if (!rows.length) return;
+      const groups = new Map();
+      for (const e of rows) {
+        const name = [e.brand, e.material].filter(Boolean).join(' · ');
+        if (!groups.has(name)) groups.set(name, h('optgroup', { label: name }));
+        groups.get(name).append(h('option', { value: e.id },
+          [e.product_type, e.filament_id ? `${e.colour} (${e.filament_id})` : e.colour, e.refill ? t('library.refill_short') : ''].filter(Boolean).join(' · ') || e.brand));
+      }
+      select.append(h('option', { value: '' }, t('library.pick_none')), ...groups.values());
+      box.hidden = false;
+    }).catch(() => { /* the library is a convenience: the form works without it */ });
+    return box;
+  }
+
   const inputs = config.fields.map((f) => {
     if (f.type === 'barcode') return barcodeField(f);
     if (f.type === 'color') return colourField(f);
@@ -372,6 +440,7 @@ function openForm(config, item, reload) {
       } catch (err) { error.textContent = err.message; error.hidden = false; }
     } },
     h('h2', {}, item ? t(`${config.id}.edit`) : t(`${config.id}.new`)),
+    config.id === 'filament' && !item ? libraryPicker() : null,
     ...inputs, ...datalists, error,
     h('div', { class: 'row end' },
       h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
