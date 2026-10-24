@@ -60,6 +60,16 @@ def optional_int(label, *, minimum, maximum):
     return check
 
 
+def colour_hex(label):
+    """A colour as #rrggbb (stored in lower case), or empty for none."""
+    def check(value):
+        value = "" if value is None else str(value).strip().lower()
+        if value and not re.fullmatch(r"#[0-9a-f]{6}", value):
+            raise ApiError(400, "err.colour_hex", label=L(label))
+        return value
+    return check
+
+
 def boolean(label):
     def check(value):
         if not isinstance(value, bool):
@@ -93,6 +103,7 @@ RESOURCES = {
         "product_type": text("f.type", required=False, max_len=60),
         "material": text("f.material", required=False, max_len=40),
         "colour": text("f.colour", required=False, max_len=40),
+        "colour_hex": colour_hex("f.colour_hex"),
         "roll_weight_g": number("f.roll_weight", strict=True),
         "price": number("f.roll_price"),
         "remaining_g": number("f.remaining"),
@@ -105,7 +116,7 @@ RESOURCES = {
         "archived": boolean("f.archived"),
     }, "brand, colour"),
 }
-OPTIONAL = {"notes", "archived", "is_default", "material", "colour", "product_type", "power_kw", "barcode", "diameter_mm",
+OPTIONAL = {"notes", "archived", "is_default", "material", "colour", "colour_hex", "product_type", "power_kw", "barcode", "diameter_mm",
             "print_temp_c", "bed_temp_c", "notify_low"}
 
 
@@ -253,7 +264,7 @@ def lookup_spool():
 
 # Details of the product, not of one roll: the same barcode means the same brand, type, material, colour,
 # weight and diameter. Price, what is left and notes differ per roll and are never passed on.
-PRODUCT_FIELDS = ("brand", "product_type", "material", "colour", "roll_weight_g", "diameter_mm", "print_temp_c", "bed_temp_c")
+PRODUCT_FIELDS = ("brand", "product_type", "material", "colour", "colour_hex", "roll_weight_g", "diameter_mm", "print_temp_c", "bed_temp_c")
 
 
 def _barcode_of(conn, spool_id) -> str:
@@ -340,6 +351,15 @@ def validated_preferences(body: dict) -> dict:
         if body["language"] not in LANGUAGES:
             raise ApiError(400, "err.language")
         prefs["language"] = body["language"]
+    if "navbar_style" in body:                                    # the bar at the bottom of a phone: floating "ios" or the native "android" one
+        if body["navbar_style"] not in ("ios", "android"):
+            raise ApiError(400, "err.navbar_style")
+        prefs["navbar_style"] = body["navbar_style"]
+    if "navbar_glass" in body:                                    # how glassy the floating bar is, 0 (solid) to 100
+        value = body["navbar_glass"]
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
+            raise ApiError(400, "err.navbar_glass")
+        prefs["navbar_glass"] = value
     if "sidebar_collapsed" in body:
         prefs["sidebar_collapsed"] = boolean("f.sidebar")(body["sidebar_collapsed"])
     if "low_stock" in body:

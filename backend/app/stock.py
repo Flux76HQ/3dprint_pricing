@@ -19,8 +19,9 @@ def groups(rows) -> list[dict]:
     for row in rows:
         group = found.setdefault(key_of(row), {
             "key": key_of(row), "brand": row["brand"], "product_type": row["product_type"] or "", "material": row["material"] or "", "colour": row["colour"] or "",
-            "barcode": (row["barcode"] or "").strip(), "rolls": [], "remaining_g": Decimal(0), "notify_low": False})
+            "colour_hex": row["colour_hex"] or "", "barcode": (row["barcode"] or "").strip(), "rolls": [], "remaining_g": Decimal(0), "notify_low": False})
         group["notify_low"] = group["notify_low"] or bool(row["notify_low"])
+        group["colour_hex"] = group["colour_hex"] or row["colour_hex"] or ""          # the first roll that has a colour gives the kind its colour
         if row["remaining_g"] > 0:
             group["rolls"].append({"id": str(row["id"]), "remaining_g": str(row["remaining_g"]),
                                    "roll_weight_g": str(row["roll_weight_g"])})
@@ -35,7 +36,7 @@ def groups(rows) -> list[dict]:
 
 def fetch(conn, barcode: str | None = None):
     """The rolls that count as stock (not archived), optionally only those with this barcode."""
-    sql = ("SELECT id, brand, product_type, material, colour, barcode, roll_weight_g, remaining_g, notify_low FROM filament_spools "
+    sql = ("SELECT id, brand, product_type, material, colour, colour_hex, barcode, roll_weight_g, remaining_g, notify_low FROM filament_spools "
            "WHERE NOT archived")
     params: tuple = ()
     if barcode is not None:

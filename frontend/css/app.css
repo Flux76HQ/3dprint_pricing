@@ -112,7 +112,28 @@ a { color: var(--accent); }
 .tabbar a { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 52px; min-width: 44px;
   justify-content: center; font-size: .72rem; color: var(--text-muted); text-decoration: none; border-radius: 16px; padding: 4px 2px; }
 .tabbar a[aria-current="page"] { color: var(--accent); background: var(--accent-subtle); font-weight: 600; }
+.tabbar a { min-width: 0; padding-inline: 0; }
+.tabbar .nav-label { font-size: .68rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.icon.mdi { fill: currentColor; stroke: none; }
+
+/* The bar at the bottom of a phone, in two styles (Settings > Appearance): "ios" floats as a glass pill (--nav-glass, 0-100, says how
+   see-through and blurred the glass is) and "android" is the native bar: full width on the edge, a pill behind the active icon. */
+:root { --nav-glass: 60; }
+.tabbar.glass { background: color-mix(in srgb, var(--surface-solid) calc(100% - var(--nav-glass) * 0.8%), transparent);
+  -webkit-backdrop-filter: blur(calc(6px + var(--nav-glass) * .3px)) saturate(1.6); backdrop-filter: blur(calc(6px + var(--nav-glass) * .3px)) saturate(1.6); }
+@media (prefers-reduced-transparency: reduce) { .tabbar.glass { background: var(--surface-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+html[data-nav="android"] { --tabbar-h: 80px; }
+html[data-nav="android"] .tabbar.glass { left: 0; right: 0; bottom: 0; border-radius: 0; border: 0; padding: 12px 8px calc(16px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--surface-solid) 90%, var(--accent)); -webkit-backdrop-filter: none; backdrop-filter: none;
+  box-shadow: 0 -1px 0 var(--lijn), 0 -3px 14px rgba(0, 0, 0, .08); }
+html[data-nav="android"] .tabbar a { gap: 4px; min-height: 56px; padding: 0; border-radius: 0; background: none; font-weight: 500; color: var(--text-muted); }
+html[data-nav="android"] .tabbar a .nav-icon { width: 64px; height: 32px; border-radius: 16px; transition: background-color .2s ease; }
+html[data-nav="android"] .tabbar a[aria-current="page"] { background: none; color: var(--text); font-weight: 700; }
+html[data-nav="android"] .tabbar a[aria-current="page"] .nav-icon { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--accent); }
+html[data-nav="android"] .tabbar a:active .nav-icon { background: var(--accent-subtle); }
 main { padding: 16px 16px calc(var(--tabbar-h) + 32px + env(safe-area-inset-bottom)); max-width: 1100px; margin: 0 auto; }
+@media (max-width: 859.98px) { main { padding-top: 0; } }                     /* the title bar brings its own top padding */
 main:focus { outline: none; }
 
 @media (min-width: 860px) {
@@ -137,8 +158,29 @@ main:focus { outline: none; }
 }
 
 /* Pages & cards */
-.page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
-.back { display: inline-block; margin-bottom: 4px; }
+.back { display: inline-block; }
+.page-intro { margin: 0 0 16px; }
+
+/* The title bar: the header of every page. It stays at the top while the page scrolls, with the page's main button (new order, customer, roll...)
+   in it, so that button is always within reach. On a phone it is the bar under the status bar: its padding makes room for the notch / camera cut-out. */
+.page-head { position: sticky; top: 0; z-index: 15; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: nowrap;
+  margin: -16px -16px 12px; padding: calc(env(safe-area-inset-top) + 10px) max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
+  min-height: calc(56px + env(safe-area-inset-top)); background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); border-bottom: 1px solid var(--lijn); }
+.page-head h1 { margin: 0; font-size: 1.35rem; line-height: 1.25; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-head > div:first-child { display: flex; align-items: center; gap: 12px; min-width: 4.5em; flex: 1 1 0; }
+.page-head .back { white-space: nowrap; font-size: .9rem; }
+.page-head > .btn, .page-head .row { flex: none; white-space: nowrap; }
+.page-head .btn { padding-inline: 12px; }
+@media (max-width: 559.98px) {                                           /* a phone: the bar has to hold the title and the button */
+  .page-head { gap: 8px; }
+  .page-head h1 { font-size: 1.2rem; }
+  .page-head .btn { font-size: .9rem; padding-inline: 10px; }
+  .page-head .row { gap: 6px; }
+  .page-head .row .btn:not(.primary) { font-size: 0; padding-inline: 10px; min-width: 44px; justify-content: center; }   /* secondary buttons: just the icon */
+}
+@media (min-width: 860px) { .page-head { margin: -32px -32px 20px; padding: 14px 32px; min-height: 64px; } .page-head h1 { font-size: 1.6rem; } }
+@media (prefers-reduced-transparency: reduce) { .page-head { background: var(--surface-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .row.end { justify-content: flex-end; }
@@ -214,8 +256,13 @@ output.cost { font-weight: 650; font-variant-numeric: tabular-nums; min-height: 
 .toggle-row, .list-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap;
   padding: 8px 0; border-top: 1px solid var(--lijn); }
 .toggle-row:first-of-type { border-top: 0; }
-.toggle-row { flex-wrap: nowrap; padding: 10px 0; }                                   /* the switch stays on the right of its text, as in iOS settings */
-.toggle-row > div { flex: 1; min-width: 0; }
+.toggle-row { padding: 10px 0; }
+.toggle-row:has(> .switch) { flex-wrap: nowrap; }                                   /* the switch stays on the right of its text, as in iOS settings */
+.toggle-row > div:first-child { flex: 1 1 220px; min-width: 0; }
+.toggle-row:has(> .switch) > div:first-child { flex: 1; }
+.nav-glass { display: flex; align-items: center; gap: 12px; min-width: 200px; }
+.nav-glass input[type="range"] { flex: 1; min-width: 120px; accent-color: var(--accent); min-height: 44px; }
+.nav-glass output { min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
 .toggle-row p { margin: 2px 0 0; }
 .plain-list { list-style: none; margin: 0; padding: 0; }
 .segmented { display: inline-flex; border: 1px solid var(--rand); border-radius: 12px; overflow: hidden; }
@@ -307,7 +354,7 @@ input.toggle::after { content: ""; }
 .scan-line { position: absolute; left: 8%; right: 8%; top: 50%; height: 2px; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
 
 /* Native feel: no pinch/double-tap zoom, no sideways panning or swipe-back rubber band, no tap flash. */
-html, body { overscroll-behavior-x: none; touch-action: pan-y; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
+html, body { overscroll-behavior-x: none; touch-action: pan-y; overflow-x: hidden; overflow-x: clip; -webkit-tap-highlight-color: transparent; }
 button, .btn, nav a, .seg, .swatch, .switch, .tabbar { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 
 /* Installed on a phone: the page runs under the status bar (black-translucent), so keep clear of the
@@ -391,3 +438,37 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .subnav a[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 650; }
 
 .logo-preview { max-width: 220px; max-height: 80px; object-fit: contain; padding: 6px; border: 1px solid var(--rand); border-radius: var(--radius-sm); background: #fff; }
+
+/* Filament: the stock as tiles (two side by side on a phone, more when there is room), the roll icon and the sort buttons */
+.item-head .grow { flex: 1; min-width: 0; }
+.item-head { align-items: flex-start; }
+.spool-icon { flex: none; --spool-colour: var(--lijn); }
+.spool-flange { fill: var(--surface-solid); stroke: var(--rand); stroke-width: 1.2; }
+.spool-wound { fill: var(--spool-colour); stroke: color-mix(in srgb, var(--spool-colour) 55%, #000); stroke-width: .6; }
+.spool-turn { fill: none; stroke: #000; stroke-opacity: .2; stroke-width: .7; }
+.spool-hub { fill: var(--surface-solid); stroke: var(--rand); stroke-width: .8; }
+.spool-hole { fill: var(--rand); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.filters-details { margin: 0 0 12px; }
+.filters-details summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
+.filters-details .filters { margin-top: 4px; }
+.page-intro { margin-top: 8px; }
+.stock-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 640px) { .stock-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 960px) { .stock-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 1240px) { .stock-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 12px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); }
+.tile[hidden] { display: none; }
+.tile.low { border-color: var(--danger); }
+.tile.out { opacity: .7; }
+.tile-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tile-grams { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.tile-name { font-size: .95rem; line-height: 1.25; overflow-wrap: anywhere; }
+.tile p { margin: 0; font-size: .8rem; }
+.tile-weights { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.more-tiles { align-self: center; }
+.sortbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.sortbar .btn { min-height: 36px; }
+.colour-row { gap: 12px; }
+.colour-row input[type="color"] { width: 56px; height: 40px; padding: 2px; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: var(--surface-field); }

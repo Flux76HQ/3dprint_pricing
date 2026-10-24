@@ -1,4 +1,5 @@
 import { getLocale, t } from './i18n.js';
+import { MDI } from './mdi.js';
 
 // Tiny DOM helpers. Everything goes through textContent/attributes, never innerHTML with data.
 export function h(tag, attrs = {}, ...children) {
@@ -25,6 +26,8 @@ const ICONS = {
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   collapse: '<path d="m15 6-6 6 6 6"/>',
   expand: '<path d="m9 6 6 6-6 6"/>',
+  'chevron-down': '<path d="m6 9 6 6 6-6"/>',
+  'chevron-up': '<path d="m6 15 6-6 6 6"/>',
   box: '<path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/>',
   more: '<circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/>',
   scan: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M4 12h16"/>',
@@ -39,11 +42,21 @@ const ICONS = {
 export function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('class', 'icon');
   svg.setAttribute('aria-hidden', 'true');
+  if (MDI[name]) {                                   // a Material Design icon: filled, in the colour of the text
+    svg.setAttribute('class', 'icon mdi');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', MDI[name]);
+    svg.append(path);
+    return svg;
+  }
+  svg.setAttribute('class', 'icon');
   svg.innerHTML = ICONS[name] || ''; // static strings above, never user data
   return svg;
 }
+
+/** The icon of a destination in the navigation: filled while it is the page you are on, as an outline otherwise (when there is one). */
+export const navIcon = (name, active) => icon(!active && MDI[`${name}-outline`] ? `${name}-outline` : name);
 
 export const eur = (value) => new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'EUR' }).format(Number(value) || 0);
 

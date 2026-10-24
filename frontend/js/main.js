@@ -12,19 +12,19 @@ import { goTo, installNativeBehaviour } from './pwa.js';
 import { BUILD } from './build.js';
 import { getLanguage, initLanguage, setLanguage, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
-import { h, icon, toast, versionLabel } from './ui.js';
+import { h, icon, navIcon, toast, versionLabel } from './ui.js';
 
 const root = document.getElementById('root');
 // [route, label key, icon]: the route is the URL part and stays as it is in every language.
 const NAV = [
-  ['berekeningen', 'nav.calculations', 'calculator'],
-  ['bestellingen', 'nav.orders', 'clipboard'],
-  ['klanten', 'nav.customers', 'users'],
-  ['filament', 'nav.filament', 'spool'],
-  ['verpakking', 'nav.packaging', 'box'],
-  ['printers', 'nav.printers', 'printer'],
-  ['energie', 'nav.energy', 'bolt'],
-  ['instellingen', 'nav.settings', 'settings'],
+  ['berekeningen', 'nav.calculations', 'calculator-variant'],
+  ['bestellingen', 'nav.orders', 'clipboard-text'],
+  ['klanten', 'nav.customers', 'account-group'],
+  ['filament', 'nav.filament', 'printer-3d-nozzle'],
+  ['verpakking', 'nav.packaging', 'package-variant-closed'],
+  ['printers', 'nav.printers', 'printer-3d'],
+  ['energie', 'nav.energy', 'lightning-bolt'],
+  ['instellingen', 'nav.settings', 'cog'],
 ];
 // On compact widths the bottom bar holds five destinations: the first four, then "Meer",
 // which lists the rest. The sidebar shows all of them in the same order.
@@ -56,6 +56,8 @@ function applyPrefs() {
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', accent);
   el.classList.toggle('sidebar-collapsed', !!prefs.sidebar_collapsed);
   el.classList.toggle('blur-costs', !!prefs.blur_costs);
+  el.setAttribute('data-nav', prefs.navbar_style === 'android' ? 'android' : 'ios');         // the bar at the bottom of a phone
+  el.style.setProperty('--nav-glass', String(Number.isInteger(prefs.navbar_glass) ? prefs.navbar_glass : 60));
   try { localStorage.setItem('pp-prefs', JSON.stringify(prefs)); } catch { /* private mode */ }
 }
 
@@ -100,12 +102,12 @@ function pageContent({ page, id }) {
     case 'klanten':
       if (id) return customerEditorView(id === 'nieuw' ? null : id, navigate);
       return customerListView();
-    case 'filament': case 'verpakking': case 'printers': case 'energie': return resourceView(page);
+    case 'filament': case 'verpakking': case 'printers': case 'energie': return resourceView(page, id);
     case 'meer':
       return h('section', { class: 'page' },
         h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.more'))), langSwitch(chooseLanguage)),
         h('div', { class: 'cards' }, OVERFLOW.map(([key, label, ic]) => h('a', { class: 'glass card item link-card', href: `#/${key}` },
-          h('h3', {}, icon(ic), t(label))))),
+          h('h3', {}, navIcon(ic, false), t(label))))),
         h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: logout }, icon('logout'), h('span', {}, t('session.logout')))));
     case 'instellingen':
       return settingsView({ get prefs() { return prefs; }, setPrefs, setLanguage: chooseLanguage, user: session.user, highlightPasskey: flags.recovered }, id);
@@ -121,7 +123,7 @@ async function logout() {
 function navLink([page, labelKey, ic], active) {
   const label = t(labelKey);
   return h('a', { href: `#/${page}`, 'aria-current': active ? 'page' : null, title: label },
-    icon(ic), h('span', { class: 'nav-label' }, label));
+    h('span', { class: 'nav-icon' }, navIcon(ic, active)), h('span', { class: 'nav-label' }, label));
 }
 
 // A language was picked with a flag: show it now, and keep it with the account so every device agrees.
@@ -149,7 +151,7 @@ function route() {
   // One primary navigator at a time: CSS shows the tab bar on compact widths, the sidebar otherwise.
   const inOverflow = r.page === 'meer' || OVERFLOW.some((n) => n[0] === r.page);
   const tabbar = h('nav', { class: 'tabbar glass', 'aria-label': t('nav.main_mobile') },
-    ...COMPACT.map((n) => navLink(n, n[0] === r.page)), navLink(['meer', 'nav.more', 'more'], inOverflow));
+    ...COMPACT.map((n) => navLink(n, n[0] === r.page)), navLink(['meer', 'nav.more', 'dots-horizontal'], inOverflow));
   root.replaceChildren(h('div', { class: 'app' }, sidebar, main, tabbar));
   window.scrollTo(0, 0);
 }

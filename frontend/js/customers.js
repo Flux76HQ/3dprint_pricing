@@ -59,8 +59,9 @@ export function customerListView() {
   load();
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' },
-      h('div', {}, h('h1', {}, t('nav.customers')), h('p', { class: 'muted' }, t('customers.intro'))),
+      h('div', {}, h('h1', {}, t('nav.customers'))),
       h('a', { class: 'btn primary', href: '#/klanten/nieuw' }, icon('plus'), h('span', {}, t('customers.new')))),
+    h('p', { class: 'muted page-intro' }, t('customers.intro')),
     h('div', { class: 'filters' }, search),
     list);
 }
