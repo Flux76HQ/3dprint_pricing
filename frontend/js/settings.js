@@ -200,6 +200,8 @@ async function devicesList(redraw) {
 }
 
 const megabytes = (bytes) => `${fmt(bytes / 1048576, 1)} MB`;
+const seconds = (ms) => fmt(ms / 1000, 1);
+const TIMING_KEY = 'pp-restore-timing';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Backup and restore of everything entered (settings, printers, tariffs, packaging, parts, accessories, rolls, calculations).
@@ -237,12 +239,17 @@ function backupCard() {
   async function download() {
     busy();
     show(withFiles ? t('backup.making_files') : t('backup.making'));                    // the server is putting it together: nothing to count yet
+    const began = performance.now();
+    let answered = null;
     try {
       const { blob, name } = await downloadFile(`/api/backup${withFiles ? '?files=1' : ''}`, {
-        onProgress: (got, total) => show(t('backup.receiving'), total ? (got / total) * 100 : null, total ? t('backup.of', { done: megabytes(got), total: megabytes(total) }) : megabytes(got)),
+        onProgress: (got, total) => {
+          if (answered == null) answered = performance.now();                           // the first answer: the server is done, the file starts to arrive
+          show(t('backup.receiving'), total ? (got / total) * 100 : null, total ? t('backup.of', { done: megabytes(got), total: megabytes(total) }) : megabytes(got));
+        },
       });
       saveBlob(blob, name);
-      status.textContent = t('backup.downloaded', { name });
+      status.textContent = `${t('backup.downloaded', { name })} ${t('backup.timing_download', { made: seconds(answered - began), got: seconds(performance.now() - answered), size: megabytes(blob.size) })}`;
     } catch (e) { toast(e.message, 'error'); }
     idle();
   }
@@ -250,14 +257,17 @@ function backupCard() {
   async function restore(file) {
     busy();
     let staged;
+    const began = performance.now();
+    let sentAt = began;
     try {
       show(t('backup.sending'), 0);
       staged = await sendFile('/api/backup/stage', file, {
         onProgress: (sent, total) => show(t('backup.sending'), (sent / total) * 100, t('backup.of', { done: megabytes(sent), total: megabytes(total) })),
-        onSent: () => show(t('backup.checking')),                                      // all of it is up; the server reads it through before anything is replaced
+        onSent: () => { sentAt = performance.now(); show(t('backup.checking')); },    // all of it is up; the server reads it through before anything is replaced
       });
     } catch (e) { idle(); toast(e.message, 'error'); return; }
     box.hidden = true;
+    const uploadTimes = { up: seconds(sentAt - began), stage: seconds(performance.now() - sentAt), size: megabytes(file.size) };
     const s = staged.summary;
     const when = s.created_at ? formatDateTime(s.created_at, { dateStyle: 'medium', timeStyle: 'short' }) : '?';
     const files = s.files ? t('backup.with_files', { n: s.files }) : '';
@@ -266,12 +276,12 @@ function backupCard() {
     if (!ok) { api('DELETE', `/api/backup/stage/${staged.token}`).catch(() => {}); idle(); return; }
     try {
       const { job } = await api('POST', '/api/backup/jobs', { token: staged.token });
-      follow(job);
+      follow(job, uploadTimes);
     } catch (e) { idle(); toast(e.message, 'error'); }
   }
 
   /** Shows a restore job until it ends. Stops quietly when the card is gone: the job does not depend on it. */
-  async function follow(job) {
+  async function follow(job, uploadTimes) {
     busy();
     while (job.status === 'running') {
       if (!box.isConnected) return;
@@ -287,6 +297,10 @@ function backupCard() {
     try { await api('DELETE', `/api/backup/jobs/${job.id}`); } catch { return; }           // seen: not shown again (and no reload loop if this fails)
     if (job.status === 'done') {
       toast(t('backup.restored'));
+      try {                                                                             // where the time went, shown again after the reload
+        const server = t('backup.timing_server', { check: seconds((job.checking_seconds || 0) * 1000), replace: seconds((job.replacing_seconds || 0) * 1000) });
+        sessionStorage.setItem(TIMING_KEY, uploadTimes ? `${t('backup.timing_upload', uploadTimes)} ${server}` : server);
+      } catch { /* no storage: the restore is done all the same */ }
       setTimeout(() => window.location.reload(), 600);                                  // settings and language may have changed
     } else {
       status.textContent = job.message || t('api.error_status', { status: 500 });
@@ -294,6 +308,10 @@ function backupCard() {
     }
   }
 
+  try {
+    const timing = sessionStorage.getItem(TIMING_KEY);
+    if (timing) { status.textContent = `${t('backup.restored')} ${timing}`; sessionStorage.removeItem(TIMING_KEY); }
+  } catch { /* nothing to show */ }
   picker.addEventListener('change', () => { const file = picker.files[0]; picker.value = ''; if (file) restore(file); });
   api('GET', '/api/backup/jobs/latest').then(({ job }) => { if (job) follow(job); }).catch(() => {});      // a restore started before the page was left
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('backup.title')),

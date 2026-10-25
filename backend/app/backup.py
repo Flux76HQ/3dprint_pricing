@@ -68,6 +68,7 @@ def _app_version() -> str:
 @bp.get("")
 def export():
     include_files = request.args.get("files") == "1"
+    began = time.monotonic()
     doc = {"format": FORMAT, "format_version": FORMAT_VERSION, "app_version": _app_version(),
            "created_at": datetime.now(timezone.utc).isoformat(), "includes_files": include_files}
     with pool().connection() as conn:
@@ -118,8 +119,10 @@ def export():
                               "sha256": row["sha256"], "created_at": row["created_at"].isoformat(),
                               "archive_path": member})                # the model itself sits in the ZIP, as a file of its own
             doc["files"] = files
+    queried = time.monotonic() - began
     stamp = datetime.now().strftime("%Y-%m-%d")
     if not include_files:
+        log.info("backup: read in %.1fs", queried)
         return Response(json.dumps(doc, ensure_ascii=False), mimetype="application/json",
                         headers={"Content-Disposition": f'attachment; filename="printpricing-backup-{stamp}.json"'})
     upload_dir = Path(config().upload_dir)
@@ -127,13 +130,14 @@ def export():
     out = tempfile.TemporaryFile(dir=upload_dir)                     # on the data disk, not in memory: the models can be large
     with zipfile.ZipFile(out, "w", strict_timestamps=False) as archive:
         archive.writestr(ARCHIVE_JSON, json.dumps(doc, ensure_ascii=False), compress_type=zipfile.ZIP_DEFLATED)
-        for member, path, kind in attachments:                       # a 3MF is a ZIP already: storing it saves the time and gains nothing
-            archive.write(path, member, compress_type=zipfile.ZIP_STORED if kind == "3mf" else zipfile.ZIP_DEFLATED)
+        for member, path, _kind in attachments:                      # stored, not deflated: a 3MF is a ZIP already, and deflating an STL costs far more time on a small server than the space it saves
+            archive.write(path, member, compress_type=zipfile.ZIP_STORED)
     size = out.seek(0, os.SEEK_END)
     out.seek(0)
     response = send_file(out, mimetype="application/zip", as_attachment=True, download_name=f"printpricing-backup-{stamp}.zip")      # with its size, so the screen can show how far the download is
     response.headers["Content-Disposition"] = f'attachment; filename="printpricing-backup-{stamp}.zip"'
     response.headers["Content-Length"] = str(size)
+    log.info("backup with files: read in %.1fs, zipped in %.1fs, %.1f MB", queried, time.monotonic() - began - queried, size / 1048576)
     return response
 
 
@@ -679,7 +683,8 @@ JOB_LOCK = 7603003                   # two clicks never start two restores
 def _job_json(row) -> dict:
     message = render(L(row["error_key"], **row["error_params"]), request_language()) if row["error_key"] else None
     return {"id": str(row["id"]), "status": row["status"], "phase": row["phase"], "step": row["step"], "steps": row["steps"],
-            "message": message, "summary": row["summary"], "started_at": row["created_at"].isoformat(),
+            "message": message, "summary": row["summary"],
+            "checking_seconds": row["checking_seconds"], "replacing_seconds": row["replacing_seconds"], "started_at": row["created_at"].isoformat(),
             "finished_at": row["finished_at"].isoformat() if row["finished_at"] else None}
 
 
@@ -738,10 +743,15 @@ def _run_restore(app, job_id, token, user_id, lang) -> None:
         staged = _upload_dir() / f"{STAGE_PREFIX}{token}"
         archive = None
         try:
+            began = time.monotonic()
             doc, archive = _open_backup(staged)
             plan = _parse(doc, archive, progress=lambda n, total: _progress(job_id, "checking", n, total))
             summary = _summary_of(doc, plan)
+            checked = round(time.monotonic() - began, 1)
+            with pool().connection() as conn:
+                conn.execute("UPDATE backup_jobs SET checking_seconds = %s WHERE id = %s", (checked, job_id))
             _write(plan, archive, user_id, progress=lambda n, total: _progress(job_id, "replacing", n, total), job=(job_id, summary, len(plan["files"])))
+            log.info("restore %s: checked in %.1fs, replaced in %.1fs (%s print files)", job_id, checked, time.monotonic() - began - checked, len(plan["files"]))
             try:
                 stock_changed()
             except Exception:
@@ -768,6 +778,7 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
     upload_dir = Path(config().upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
     written, old_files = [], []
+    started = time.monotonic()
     try:
         with pool().connection() as conn:
             conn.execute("DELETE FROM projects")
@@ -837,8 +848,8 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                 invoice_logo.replace(conn, filename=lg["filename"], kind=lg["kind"], content=lg["content"], width=lg["width"], height=lg["height"])
             conn.execute("UPDATE users SET preferences = %s::jsonb WHERE id = %s", (json.dumps(plan["preferences"]), user_id))
             if job:
-                conn.execute("UPDATE backup_jobs SET status = 'done', phase = 'done', step = %s, steps = %s, summary = %s::jsonb, finished_at = now(), updated_at = now() "
-                             "WHERE id = %s", (job[2], job[2], json.dumps(job[1]), job[0]))
+                conn.execute("UPDATE backup_jobs SET status = 'done', phase = 'done', step = %s, steps = %s, summary = %s::jsonb, replacing_seconds = %s, "
+                             "finished_at = now(), updated_at = now() WHERE id = %s", (job[2], job[2], json.dumps(job[1]), round(time.monotonic() - started, 1), job[0]))
     except Exception:
         for path in written:                                          # nothing was swapped in: take the new files out again
             path.unlink(missing_ok=True)
