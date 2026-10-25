@@ -130,8 +130,8 @@ def export():
     out = tempfile.TemporaryFile(dir=upload_dir)                     # on the data disk, not in memory: the models can be large
     with zipfile.ZipFile(out, "w", strict_timestamps=False) as archive:
         archive.writestr(ARCHIVE_JSON, json.dumps(doc, ensure_ascii=False), compress_type=zipfile.ZIP_DEFLATED)
-        for member, path, kind in attachments:                       # a 3MF is a ZIP already: storing it saves the time and gains nothing
-            archive.write(path, member, compress_type=zipfile.ZIP_STORED if kind == "3mf" else zipfile.ZIP_DEFLATED)
+        for member, path, _kind in attachments:                      # stored, not deflated: a 3MF is a ZIP already, and deflating an STL costs far more time on a small server than the space it saves
+            archive.write(path, member, compress_type=zipfile.ZIP_STORED)
     size = out.seek(0, os.SEEK_END)
     out.seek(0)
     response = send_file(out, mimetype="application/zip", as_attachment=True, download_name=f"printpricing-backup-{stamp}.zip")      # with its size, so the screen can show how far the download is
