@@ -31,7 +31,7 @@ function apply() {
   const shown = showBanner('release', {
     text: t('release.banner', { latest: `v${state.latest}`, current: `v${state.current}` }),
     actions: [
-      h('button', { class: 'btn small primary', type: 'button', onclick: () => { shown.close(); goTo('#/instellingen/algemeen'); } }, t('release.view')),
+      h('button', { class: 'btn small primary', type: 'button', onclick: () => { shown.close(); goTo('#/instellingen/systeem'); } }, t('release.view')),
       h('button', { class: 'btn small', type: 'button', onclick: () => { dismiss(state.latest); shown.close(); } }, t('updates.later')),
     ],
   });
