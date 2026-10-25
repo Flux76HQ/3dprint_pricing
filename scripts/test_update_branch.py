@@ -52,7 +52,7 @@ class UpdateBranchTestCase(unittest.TestCase):
     def run_script(self):
         import sys
         old = sys.argv
-        sys.argv = ["update_branch.py", "--no-fetch"]
+        sys.argv = ["update_branch.py", "--no-fetch", "--base-ref", "origin/main"]
         try:
             return update_branch.main()
         finally:

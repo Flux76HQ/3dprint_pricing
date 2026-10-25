@@ -43,15 +43,15 @@ def changed_files(base_ref: str) -> list:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--base-ref", default="origin/main")
+    parser.add_argument("--base-ref", default="origin/beta")
     args = parser.parse_args()
 
     if "VERSION" in changed_files(args.base_ref):
         raise RuntimeError(
-            "This pull request changes VERSION, but main raises it after the merge.\n"
-            "Fix: restore it (`git checkout origin/main -- VERSION`). For a minor or major version, put the label\n"
-            "`version:minor` or `version:major` on the pull request; without a label the merge raises the patch number.")
-    print("VERSION is untouched; main raises it after the merge.")
+            "This pull request changes VERSION, but the pipeline raises it when beta is promoted to main.\n"
+            f"Fix: restore it (`git checkout {args.base_ref} -- VERSION`). For a minor or major version, put the label\n"
+            "`version:minor` or `version:major` on the promotion pull request (beta to main); without a label the promotion raises the patch number.")
+    print("VERSION is untouched; it is raised when beta is promoted to main.")
     return 0
 
 

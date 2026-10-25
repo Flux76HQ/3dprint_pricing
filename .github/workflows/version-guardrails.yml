@@ -6,6 +6,7 @@ name: version-guardrails
 on:
   pull_request:
     branches:
+      - beta
       - main
 
 jobs:
