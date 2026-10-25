@@ -112,6 +112,8 @@ verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.
 
 **Camerascannen** (barcode) vraagt, net als passkeys, https en toestemming voor de camera. Chrome/Edge/Android gebruiken
 hun eigen scanner; Safari/iOS laadt een meegeleverde scanbibliotheek ([ZXing](../frontend/vendor/zxing/README.md), Apache-2.0).
+Weigert de telefoon de camera, dan toont het scanvenster de stappen om dat te herstellen (op Android: app-icoon ingedrukt houden → App-info →
+Rechten → Camera → *Alleen tijdens gebruik van de app*) en een knop *Opnieuw proberen*; de barcode intypen blijft altijd mogelijk.
 Eén barcode hoort bij een *product*: meerdere rollen van hetzelfde filament mogen dezelfde barcode hebben.
 
 **Passkeys vragen https** (behalve op `http://localhost`) en een **domeinnaam**: openen via een IP-adres

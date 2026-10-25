@@ -1,5 +1,5 @@
 import { t } from './i18n.js';
-import { enhanceDialog, h } from './ui.js';
+import { enhanceDialog, fill, h } from './ui.js';
 
 // Barcode scanning with the camera. Uses the browser's own BarcodeDetector where it exists
 // (Chrome/Edge/Android) and the vendored ZXing build everywhere else (Safari/iOS). A hardware
@@ -34,6 +34,18 @@ function cameraMessage(e) {
   }
 }
 
+// What to tap to give the app the camera back, for the device it runs on (data-platform is set before the first paint).
+function accessSteps() {
+  switch (document.documentElement.getAttribute('data-platform')) {
+    case 'android':
+      return [t('scanner.help.android_1'), t('scanner.help.android_2'), t('scanner.help.android_3'), t('scanner.help.android_4')];
+    case 'ios':
+      return [t('scanner.help.ios_1'), t('scanner.help.ios_2'), t('scanner.help.ios_3')];
+    default:
+      return [t('scanner.help.other_1'), t('scanner.help.other_2')];
+  }
+}
+
 export function cameraAvailable() {
   return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 }
@@ -43,15 +55,20 @@ export function scanBarcode() {
   return new Promise((resolve) => {
     const video = h('video', { class: 'scan-video', playsinline: true, muted: true, autoplay: true });
     const status = h('p', { class: 'muted', role: 'status' }, t('scanner.starting'));
+    const help = h('div', { class: 'scan-help', hidden: true });
+    const frame = h('div', { class: 'scan-frame' }, video, h('div', { class: 'scan-line', 'aria-hidden': 'true' }));
     let stopped = false;
     let stopScan = () => {};
     let result = null;
+    const retry = h('button', { class: 'btn primary', type: 'button', hidden: true, onclick: () => start() }, t('scanner.retry'));
 
     const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
       h('h2', {}, t('scanner.title')),
-      h('div', { class: 'scan-frame' }, video, h('div', { class: 'scan-line', 'aria-hidden': 'true' })),
+      frame,
       status,
+      help,
       h('div', { class: 'row end' },
+        retry,
         h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, t('common.cancel')))));
     dialog.addEventListener('close', () => {
       stopped = true;
@@ -67,14 +84,31 @@ export function scanBarcode() {
       result = String(text).trim();
       dialog.close();
     };
-    const fail = (message) => { status.textContent = message; status.classList.add('error'); };
+    const fail = (message, steps) => {
+      status.textContent = message;
+      status.classList.add('error');
+      frame.hidden = true;                                   // the black box only pushes the instructions off a phone screen
+      fill(help, steps && h('div', {},
+        h('p', {}, h('strong', {}, t('scanner.help.title'))),
+        h('ol', {}, steps.map((step) => h('li', {}, step))),
+        h('p', { class: 'muted' }, t('scanner.help.type'))));
+      help.hidden = !steps;
+      retry.hidden = false;
+    };
 
-    if (!cameraAvailable()) {
-      fail(t('scanner.unavailable'));
-      return;
-    }
-
-    (async () => {
+    // Also what "Try again" runs, after the person has changed the permission.
+    const start = async () => {
+      stopScan();
+      stopScan = () => {};
+      status.textContent = t('scanner.starting');
+      status.classList.remove('error');
+      frame.hidden = false;
+      help.hidden = true;
+      retry.hidden = true;
+      if (!cameraAvailable()) {
+        fail(t('scanner.unavailable'));
+        return;
+      }
       try {
         if ('BarcodeDetector' in window) {
           const detector = new window.BarcodeDetector({ formats: FORMATS });
@@ -100,8 +134,10 @@ export function scanBarcode() {
           await reader.decodeFromVideoDevice(null, video, (res) => { if (res) found(res.getText()); });
         }
       } catch (e) {
-        fail(cameraMessage(e));
+        const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+        fail(cameraMessage(e), denied ? accessSteps() : null);
       }
-    })();
+    };
+    start();
   });
 }
