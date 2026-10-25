@@ -238,7 +238,7 @@ warning in the process log: how many tables were emptied and how many files remo
 
 Follows App-Guidance's [`shared/guidelines/update-check.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/update-check.md).
 `backend/app/updates.py` (`GET /api/update`, `POST /api/update/check`, signed in = the owner), `frontend/js/release.js` (banner, dot on the entries that lead to Settings,
-dismissed per version in `localStorage`) and the *Updates* card in Settings → Algemeen. It reads the redirect of `github.com/Flux76HQ/3dprint_pricing/releases/latest`
+dismissed per version in `localStorage`) and the *Updatecontrole* card in Settings → Systeem (next to the factory reset in *Opruimen*). It reads the redirect of `github.com/Flux76HQ/3dprint_pricing/releases/latest`
 (never `api.github.com`: 60 anonymous requests an hour per IP address), so it sees stable releases only, which `docker.yml` creates as `vX.Y.Z` at every promotion; a beta
 never hears of a newer beta. It announces and nothing else: it never updates, restarts or downloads, and the request carries a fixed `User-Agent` and nothing about the installation.
 **It is switched off with `PRINTPRICING_UPDATE_CHECK=false`** (default on; documented in `.env.example`, both READMEs and the handleiding; `docker-compose.yml` needs no change, it
