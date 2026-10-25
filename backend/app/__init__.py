@@ -9,7 +9,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import ai_images, api, auth, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invoice_template, orders, password_api, push, push_api, system
-from .config import Config, load_config
+from .config import Config, build_channel, load_config
 from .db import make_pool
 from .http import ApiError, error_response
 from .i18n import tr
@@ -125,7 +125,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
 
     @app.get("/api/version")
     def version():
-        return jsonify({"version": VERSION, "commit": _commit()})
+        return jsonify({"version": VERSION, "commit": _commit(), "channel": build_channel()})
 
     def _build() -> str:
         return f"{VERSION}-{_commit()}"
@@ -144,11 +144,15 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
             text = _ASSET.sub(lambda m: f'{m.group(1)}="{m.group(2)}?v={token}"', text)
             # The home screen icon is looked at when someone pins the page: iOS keeps an icon per URL, so this one URL is new
             # on every load and a pin always takes the icon of the moment.
+            if build_channel() == "beta":
+                # A beta build says so in the tab title and under its home screen icon, next to a stable install.
+                text = text.replace("<title>3D Print Pricing</title>", "<title>3D Print Pricing (beta)</title>")
+                text = text.replace('name="apple-mobile-web-app-title" content="PrintPricing"', 'name="apple-mobile-web-app-title" content="PrintPricing beta"')
             text = _TOUCH_ICON.sub(lambda m: f'{m.group(1)}?v={token}.{time.time_ns() // 1_000_000:x}"', text)
         else:
             text = _IMPORT.sub(lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}?v={token}{m.group(2)}", text)
-            text = text.replace("export const BUILD = { version: 'dev', commit: 'dev' };",
-                                f"export const BUILD = {{ version: '{VERSION}', commit: '{_commit()}' }};")
+            text = text.replace("export const BUILD = { version: 'dev', commit: 'dev', channel: 'stable' };",
+                                f"export const BUILD = {{ version: '{VERSION}', commit: '{_commit()}', channel: '{build_channel()}' }};")
         response = app.response_class(text, mimetype="text/html" if relative.endswith(".html") else "text/javascript")
         response.headers["Cache-Control"] = "no-cache"
         response.set_etag(hashlib.sha1(text.encode("utf-8")).hexdigest())

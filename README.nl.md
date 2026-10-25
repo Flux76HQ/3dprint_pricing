@@ -123,7 +123,7 @@ Instellen in `.env`; het bestand `.env.example` documenteert elke waarde.
 | Variabele | Verplicht | Standaard | Omschrijving |
 |---|:---:|---|---|
 | `WEB_PORT` | ✅ | - | Poort van de app; compose publiceert en de app luistert op deze waarde |
-| `DATA_PATH` | ✅ | - | Map op de host voor alle data: de database (`postgres/`) en de geüploade bestanden (`uploads/`). Gewone mappen, geen Docker-volumes; gebruik op een server een absoluut pad (bijv. `/data`) |
+| `DATA_PATH` | ✅ | - | Map op de host voor alle data: de database (`postgres/`) en de geüploade bestanden (`uploads/`). Gewone mappen, geen Docker-volumes. Moet een **absolute** map van de Docker-host zijn (bijv. `/srv/printpricing`, op Unraid `/mnt/user/appdata/printpricing`), nooit `./data`; data die ergens anders terecht is gekomen verplaatst `scripts/migrate_data.sh` |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | ✅ | - | De database; gebruik een wachtwoord met alleen letters en cijfers |
 | `RP_ID` | ✅ | - | Domein waarop de app draait, zonder schema of poort. Passkeys zijn eraan gebonden |
 | `RP_ORIGINS` | ✅ | - | Volledige origin(s), komma-gescheiden, bijvoorbeeld `https://print.voorbeeld.nl` |
@@ -138,7 +138,7 @@ Instellen in `.env`; het bestand `.env.example` documenteert elke waarde.
 | `FILAMENT_LIBRARY_URL` | ❌ | `library/filaments.json` van deze repository | Waar *Instellingen → Filamenten → Synchroniseren* de gedeelde filamentbibliotheek vandaan haalt: een JSON-bestand in het formaat van de bibliotheek-export, op `raw.githubusercontent.com`. Leeg zet de knop Synchroniseren uit |
 | `PROXY_HOPS` | ❌ | `0` | Aantal reverse proxies voor de app |
 | `WEB_CONCURRENCY` | ❌ | `2` | Aantal Gunicorn-workers |
-| `APP_IMAGE` | ❌ | `ghcr.io/flux76hq/3dprint_pricing:latest` | De te draaien image |
+| `PRINTPRICING_TAG` | ❌ | `latest` | Welke build draait: `latest` (stabiel), `beta` (de ontwikkelversie) of een versienummer zoals `0.26.15`. `docker-compose.yml` pullt `ghcr.io/flux76hq/3dprint_pricing:<tag>` en geeft dezelfde waarde aan de app, die op `beta` een **beta**-label naast zijn naam toont. Vervangt `APP_IMAGE` |
 
 Bijwerken doe je met `docker compose pull && docker compose up -d`. Health checks, back-up, meldingen en al het andere over het draaiende houden van de app staan in de [handleiding](docs/handleiding.md).
 
@@ -181,7 +181,7 @@ De screenshots hierboven komen uit een demo-instance: na een wijziging die een s
 | Image | `ghcr.io/flux76hq/3dprint_pricing:latest` (en `X.Y.Z`) | `ghcr.io/flux76hq/3dprint_pricing:beta` |
 | GitHub-release | `vX.Y.Z` | geen |
 
-Elke wijziging komt eerst in `beta`, en elke push naar `beta` bouwt een nieuwe beta-image. Pas als de beta zich bewijst, wordt hij gepromoveerd naar `main`, wat `VERSION` ophoogt en `latest` en de release bouwt. Om de beta te proberen zet je `APP_IMAGE=ghcr.io/flux76hq/3dprint_pricing:beta` in `.env` en draai je `docker compose pull && docker compose up -d`; gebruik daarvoor een aparte datamap.
+Elke wijziging komt eerst in `beta`, en elke push naar `beta` bouwt een nieuwe beta-image. Pas als de beta zich bewijst, wordt hij gepromoveerd naar `main`, wat `VERSION` ophoogt en `latest` en de release bouwt. Om de beta te proberen zet je `PRINTPRICING_TAG=beta` in `.env` (de app toont dan een **beta**-label naast zijn naam) en draai je `docker compose pull && docker compose up -d`; gebruik daarvoor een aparte datamap.
 
 ## Privacy & beveiliging
 

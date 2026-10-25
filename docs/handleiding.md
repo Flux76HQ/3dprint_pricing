@@ -108,7 +108,7 @@ verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.
 | `AI_IMAGES_ENABLED` | `TRUE` toont de optionele functie *AI-afbeeldingen* (zie [AI-afbeeldingen](#ai-afbeeldingen-optioneel)); alles anders, of leeg, laat haar uit. Standaard `FALSE` |
 | `PROXY_HOPS` | Aantal reverse proxies ervoor (vertrouwt `X-Forwarded-*`) |
 | `WEB_CONCURRENCY` | Aantal Gunicorn-workers (standaard 2) |
-| `APP_IMAGE` | Te draaien image (standaard `ghcr.io/flux76hq/3dprint_pricing:latest`) |
+| `PRINTPRICING_TAG` | Welke build draait: `latest` (stabiel, standaard), `beta` of een versienummer als `0.26.15`; vervangt `APP_IMAGE`. Dezelfde waarde gaat naar de app, die op `beta` een beta-label toont |
 
 **Camerascannen** (barcode) vraagt, net als passkeys, https en toestemming voor de camera. Chrome/Edge/Android gebruiken
 hun eigen scanner; Safari/iOS laadt een meegeleverde scanbibliotheek ([ZXing](../frontend/vendor/zxing/README.md), Apache-2.0).
@@ -207,18 +207,24 @@ geïnstalleerd; dan start de testsuite een tijdelijke cluster. Zie [`AGENTS.md`]
 - `GET /api/version` — draaiende versie.
 
 ### Waar de data staat
-Alles staat in **één map op de host**, `DATA_PATH` (op een server bijvoorbeeld `/data`):
+Alles staat in **één map op de host**, `DATA_PATH` (op een server bijvoorbeeld `/srv/printpricing`, op Unraid `/mnt/user/appdata/printpricing`):
 
 ```
-/data/postgres   de database (PostgreSQL)
-/data/uploads    de geüploade STL/3MF-bestanden
-/data/backups    de dumps die `scripts/update.sh` maakt
+/srv/printpricing/postgres   de database (PostgreSQL)
+/srv/printpricing/uploads    de geüploade STL/3MF-bestanden
+/srv/printpricing/backups    de dumps die `scripts/update.sh` maakt
 ```
 
 Het zijn gewone mappen, **geen Docker-volumes**: `docker compose down -v`, een `docker system prune --volumes`, opnieuw bouwen en updaten raken ze niet (een test, `test_deploy_layout.py`, laat
 de CI falen als de compose-file ooit een volume voor de data gebruikt). De app-container ziet `DATA_PATH` als `/data`; de database-container mount alleen `DATA_PATH/postgres`.
-**Gebruik een absoluut pad.** Een relatief pad als `./data` is relatief aan de plek waar een tool de stack start; een hulpmiddel dat bij elke deploy een verse checkout maakt, zou dan met een lege database beginnen. Start de app-container zonder
-`/data`-mount, dan zegt hij dat bij het opstarten (*WARNING: /data is not a mounted folder*), want de uploads verdwijnen dan met de container.
+**`DATA_PATH` is altijd een absolute map van de Docker-host, nooit `./data`.** Een relatief pad wordt opgelost door het hulpmiddel dat de stack start, niet door de app: een hulpmiddel dat bij elke deploy een verse checkout maakt, begint met een lege database, en Dockhand op Unraid zette `./data` in een map in het RAM-geheugen van de host (`/appdata/...` in plaats van `/mnt/user/appdata/...`), die bij de volgende herstart leeg is. Compose weigert te starten zonder `DATA_PATH`. Start de app-container met een relatief pad, dan zegt hij dat bij het opstarten (*WARNING: DATA_PATH is …, a relative path*); start hij zonder
+`/data`-mount, dan zegt hij ook dat (*WARNING: /data is not a mounted folder*), want de uploads verdwijnen dan met de container.
+
+**Staat de data in een andere map dan `DATA_PATH`?** Controleer waar de database echt staat:
+```bash
+docker inspect $(docker compose ps -aq db) --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
+```
+Moet de bron `DATA_PATH/postgres` zijn en is dat niet zo, zet dan in `.env` een absolute `DATA_PATH` en draai op de host `sh scripts/migrate_data.sh` (of `--check` om alleen te zien wat er zou gebeuren). Dat stopt de stack, kopieert `postgres/`, `uploads/` en `backups/` naar `DATA_PATH`, controleert de kopie en laat de oude map staan (hij zegt waar). Daarna `docker compose up -d`. `scripts/update.sh` doet dit zelf vóór de update; een update via Dockhand voert dat script niet uit, draai het daar één keer met de hand. Staat er in `DATA_PATH/postgres` al een database, dan weigert het script: kies zelf welke je houdt.
 
 **Overstappen van oudere versies.** Tot en met 0.26.10 stonden de uploads in `DATA_PATH/app/uploads`. Bij de eerste start na de update verplaatst de container ze zelf naar `DATA_PATH/uploads` (ook de bestanden met een spatie of punt in de naam; een bestand dat daar al
 staat wordt nooit overschreven, het oude blijft dan staan, en de lege map `app/` verdwijnt). De database bleef al in `DATA_PATH/postgres`, dus daar verandert niets. Zorg dat `DATA_PATH` in `.env` naar dezelfde map wijst als voorheen.
@@ -229,9 +235,9 @@ sh scripts/update.sh        # maakt eerst een dump in DATA_PATH/backups en doet 
 # of met de hand:
 docker compose pull && docker compose up -d
 ```
-`scripts/update.sh` bewaart de database als `DATA_PATH/backups/pre-update-JJJJ-MM-DD-UUMMSS.sql.gz` voordat er iets wordt vervangen; mislukt of is die dump leeg, dan stopt de update. Die dumps staan in dezelfde map als de data die ze beschermen:
+`scripts/update.sh` bewaart de database als `DATA_PATH/backups/pre-update-JJJJ-MM-DD-UUMMSS.sql.gz` voordat er iets wordt vervangen (daarna verhuist `scripts/migrate_data.sh` data die in een andere map dan `DATA_PATH` staat); mislukt of is die dump leeg, dan stopt de update. Die dumps staan in dezelfde map als de data die ze beschermen:
 kopieer ze nu en dan van de server af. Terugzetten: zie *Back-up en herstel*.
-CI publiceert bij elke push naar `beta` `:beta` (en `:beta-<sha>`), zonder release of nieuw versienummer: zet `APP_IMAGE` op `…:beta` om de beta te draaien, met een aparte datamap.
+CI publiceert bij elke push naar `beta` `:beta` (en `:beta-<sha>`), zonder release of nieuw versienummer: zet `PRINTPRICING_TAG=beta` in `.env` om de beta te draaien, met een aparte datamap.
 CI publiceert bij elke promotie naar `main` (een pull request vanuit `beta`) `:latest`, en `:X.Y.Z` plus een GitHub Release (met notities) wanneer
 `VERSION` een nieuwe versie heeft. Een versie-image wordt nooit overschreven. Migraties draaien bij het opstarten
 vóór de server verkeer krijgt; de container stopt als een migratie faalt of een toegepaste migratie is gewijzigd.
@@ -241,7 +247,7 @@ Hosten op de gedeelde Flux76-server: zie `shared/infrastructure/adding-an-app.md
 `curl http://<host>:<poort>/api/version`, en vergelijk met de laatste release op GitHub. Staat daar een oudere versie:
 - `docker compose up -d` pullt een image die al lokaal bestaat **niet** opnieuw; gebruik `docker compose pull && docker compose up -d`.
   Een eerder lokaal gebouwde `…:latest` heeft voorrang tot je pullt.
-- Controleer of `APP_IMAGE` in `.env` niet op een oude tag staat; zet hem desnoods op de nieuwste (bijv. `…:0.3.0`).
+- Controleer of `PRINTPRICING_TAG` in `.env` niet op een oude versie staat; zet hem desnoods op `latest`. Een oude `APP_IMAGE` in `.env` wordt niet meer gelezen.
 - Draait alles goed maar toont je browser oude schermen, ververs dan één keer hard (de service worker haalt bestanden
   vanaf versie 0.3.1 eerst van het netwerk).
 

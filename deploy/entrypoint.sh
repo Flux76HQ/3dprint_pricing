@@ -14,6 +14,12 @@ if [ "$(id -u)" = "0" ]; then
     echo "WARNING: /data is not a mounted folder. Everything stored there (the uploaded print files) is lost when the container is replaced." >&2
     echo "         Mount the host's DATA_PATH on /data (see docker-compose.yml)." >&2
   fi
+  # A relative DATA_PATH is resolved by the tool that starts the stack, not by us: under Dockhand on Unraid it ended up in the host's RAM disk.
+  case "${DATA_PATH:-}" in
+    /*|"") ;;
+    *) echo "WARNING: DATA_PATH is \"$DATA_PATH\", a relative path. The data may be in a folder you do not expect. Set an absolute folder of the host in .env," >&2
+       echo "         then run scripts/migrate_data.sh on the host (see docs/handleiding.md, 'Waar de data staat')." >&2 ;;
+  esac
   mkdir -p "$UPLOAD_DIR"
   chown app:app "$UPLOAD_DIR"                                   # only the uploads: /data itself is the host's DATA_PATH, which also holds postgres/
   # Earlier releases kept the uploads in DATA_PATH/app/uploads. A failed move must not keep the app from starting: the files just stay there.
