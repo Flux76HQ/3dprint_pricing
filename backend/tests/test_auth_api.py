@@ -38,6 +38,37 @@ def test_onboarding_creates_owner_session_and_recovery_codes(client):
     assert status["onboarded"] and status["authenticated"] and status["user"]["display_name"] == "Helmer"
 
 
+def test_options_do_not_insist_on_a_discoverable_key_or_on_user_verification(client):
+    # A password manager (Enpass...) cannot always verify the user; asking for "required" makes it refuse.
+    reg = post(client, "/api/auth/onboarding/options", {"setup_code": SETUP_CODE, "display_name": "Owner"}).get_json()
+    assert reg["authenticatorSelection"] == {"residentKey": "preferred", "userVerification": "preferred"}
+    assert post(client, "/api/auth/login/options").get_json()["userVerification"] == "preferred"
+
+
+def test_login_options_name_the_owners_passkeys_so_a_non_discoverable_one_still_signs_in(client):
+    assert post(client, "/api/auth/login/options").get_json()["allowCredentials"] == []  # nothing registered yet
+    auth, _ = onboard(client)
+    client.post("/api/auth/logout", headers=H)
+    options = post(client, "/api/auth/login/options").get_json()
+    assert options["allowCredentials"] == [{"type": "public-key", "id": wa.b64u_encode(auth.credential_id)}]
+    assert post(client, "/api/auth/login/verify", {"credential": auth.assert_(options)}).status_code == 200
+
+
+def test_a_password_manager_passkey_can_onboard_log_in_and_confirm(client):
+    # Flags 0x41 / 0x01: user present, not verified: what Enpass reports.
+    auth = FakeAuthenticator()
+    options = post(client, "/api/auth/onboarding/options",
+                   {"setup_code": SETUP_CODE, "display_name": "Owner"}).get_json()
+    assert post(client, "/api/auth/onboarding/verify",
+                {"credential": auth.register(options, flags=0x41)}).status_code == 200
+    options = post(client, "/api/auth/login/options").get_json()
+    assert post(client, "/api/auth/login/verify",
+                {"credential": auth.assert_(options, flags=0x01)}).status_code == 200
+    opts = post(client, "/api/auth/stepup/options", {"action": "regenerate-recovery"}).get_json()
+    assert post(client, "/api/auth/recovery/regenerate",
+                {"credential": auth.assert_(opts, flags=0x01)}).status_code == 200
+
+
 def test_onboarding_needs_the_setup_code(client):
     res = post(client, "/api/auth/onboarding/options", {"setup_code": "nope", "display_name": "X"})
     assert res.status_code == 403

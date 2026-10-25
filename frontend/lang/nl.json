@@ -596,7 +596,6 @@
  "passkey.already_here": "Deze passkey staat al op dit apparaat.",
  "passkey.cancelled": "De passkey-prompt is geannuleerd of verlopen.",
  "passkey.default_name": "Passkey",
- "passkey.extension_hint": "Gebruik je een wachtwoordmanager zoals Enpass of Bitwarden? Zet de passkey-functie daarvan voor deze site tijdelijk uit (of open de app in een privévenster) en probeer het opnieuw.",
  "passkey.failed": "Passkey mislukt: {message}",
  "passkey.https_only": "Passkeys werken alleen via https (of http://localhost). Open de app via je https-adres.",
  "passkey.last_used": "laatst gebruikt {date}",

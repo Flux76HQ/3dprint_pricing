@@ -50,7 +50,9 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   project read live prices from spools, printers or tariffs: that rewrites history.
 - `backend/tests/test_calc.py` pins the owner's real spreadsheet example (total 2,74). If that test
   has to change, the calculation changed: say so in the pull request.
-- WebAuthn is hand-rolled (`backend/app/webauthn.py`, ES256 only). Do not widen what is accepted
+- WebAuthn is checked by the open-source `webauthn` package (py_webauthn); `backend/app/webauthn.py` is a thin adapter that
+  fixes the policy (ES256 only, user presence required, user verification not, because password managers such as Enpass
+  do not report it) and translates the library's errors. Do not write ceremony checks ourselves (baseline §19). Do not widen what is accepted
   without a test that fails first.
 - Uploaded print files are untrusted. All parsing goes through `backend/app/printfile.py`
   (defusedxml, size caps, readable `PrintFileError`s); never open an upload with another parser. A
