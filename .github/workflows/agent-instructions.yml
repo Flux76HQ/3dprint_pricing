@@ -3,6 +3,7 @@ name: agent-instructions
 on:
   pull_request:
     branches:
+      - beta
       - main
 
 jobs:
