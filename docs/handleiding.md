@@ -325,7 +325,7 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 | **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon; alleen zichtbaar als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
 | **Filamenten** | de filamentbibliotheek: specificaties van filamenten, een Bambu Lab-factuur inlezen, JSON-export en -import en synchroniseren met GitHub; zie *Filamentbibliotheek* |
 | **Notificaties** | meldingen (dit apparaat, nieuwe versie, filament bijna op, testmelding, verbindingscontrole, apparatenlijst) en stille uren |
-| **Back-up en herstel** | zie *Back-up in de app* |
+| **Systeem** | back-up en herstel (zie *Back-up in de app*) en terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
 
 *Uitloggen* staat onderaan de zijbalk (op een telefoon onderaan *Meer*). *Zakelijk* verbergt alleen dat onderdeel van de instellingen; het menu
 *Bestellingen* blijft gewoon zichtbaar. Een onderdeel dat niet getoond wordt (bijvoorbeeld *Zakelijk* terwijl het uit staat) valt terug op
@@ -480,7 +480,7 @@ De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg b
 
 ## Back-up in de app
 
-*Instellingen → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`):
+*Instellingen → Systeem → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`):
 je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, de filamentbibliotheek, filamentrollen,
 berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
@@ -494,3 +494,15 @@ nog steeds en laat de bestellingen dan leeg. Het volgende bestel- en factuurnumm
 Zo'n back-up past binnen `MAX_UPLOAD_MB` (standaard 50 MB); met printbestanden kan dat te klein zijn, verhoog het dan in `.env`.
 Een volledige kopie van de database (`pg_dump`) en de map met uploads blijft de manier voor een back-up van de hele server, zie
 *Back-up en herstel* (onder Beheer) hierboven.
+
+## Fabrieksinstellingen
+
+*Instellingen → Systeem → Terug naar fabrieksinstellingen…* zet de app terug zoals direct na de installatie. Het verwijdert **alles**:
+berekeningen, bestellingen met factuurnummers, klanten, printers, tarieven, rollen, de filamentbibliotheek, instellingen, het factuursjabloon
+en logo, de geüploade bestanden, de OpenAI-sleutel, meldingsaanmeldingen en ook je passkeys, herstelcodes en wachtwoord. Alleen de database zelf en
+je `.env` blijven staan. Het kan niet ongedaan worden gemaakt: download eerst een back-up (*Back-up en herstel*) als je iets wilt bewaren.
+
+De app vraagt om bevestiging met de verificatiemethode die je gebruikt: een verse passkey-bevestiging, of, als wachtwoord-login aan staat en de passkey op dit
+apparaat niet werkt, je wachtwoord plus een code (authenticator of back-upcode); dat telt voor de blokkade net als inloggen. Daarna sta je weer op het
+welkomstscherm: je doorloopt de eerste start opnieuw, met de `SETUP_CODE` uit `.env`, en maakt een nieuwe passkey en nieuwe herstelcodes. Bestel-, factuur- en
+berekeningsnummers beginnen weer bij 1; wil je ze behouden, herstel dan een back-up na de eerste start.

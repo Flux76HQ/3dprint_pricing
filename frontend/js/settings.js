@@ -4,8 +4,8 @@ import { filamentLibraryCards } from './filament-library.js';
 import { iosSteps, installState, onInstallChange, promptInstall } from './install.js';
 import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
-import { passwordCard } from './password.js';
-import { currentSubscription, disablePush, enablePush, pushSupport, thisDeviceFingerprint } from './push.js';
+import { confirmIdentity, passwordCard } from './password.js';
+import { currentSubscription, disablePush, enablePush, forgetPush, pushSupport, thisDeviceFingerprint } from './push.js';
 import { applyNavGlass, confirmDialog, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
 
@@ -245,6 +245,24 @@ function backupCard() {
     h('p', { class: 'muted' }, t('backup.not_included')));
 }
 
+/** Back to factory settings: everything is deleted, including the passkeys, and the app is set up again from the start. */
+function resetCard() {
+  async function reset() {
+    const proof = await confirmIdentity({ action: 'factory-reset', title: t('reset.confirm_title'), message: t('reset.confirm_msg'), confirmLabel: t('reset.now') });
+    if (!proof) return;
+    try {
+      await api('POST', '/api/system/reset', proof);
+    } catch (e) { toast(e.message, 'error'); return; }
+    try { localStorage.removeItem('pp-prefs'); } catch { /* private mode */ }               // the look of the old account must not be the look of the new one
+    await forgetPush().catch(() => {});
+    history.replaceState(null, '', window.location.pathname);                              // not back on the settings page afterwards
+    window.location.reload();                                                               // the server now says "not set up": the welcome screen follows
+  }
+  return h('div', { class: 'glass card stack' }, h('h2', {}, t('reset.title')),
+    h('p', { class: 'muted' }, t('reset.intro')),
+    h('div', { class: 'row' }, h('button', { class: 'btn danger', type: 'button', id: 'factory-reset', onclick: reset }, t('reset.button'))));
+}
+
 // The company details that go on an invoice. Each field is saved when it is left; `ctx.prefs` is read at that moment, never copied.
 const COMPANY_TEXT = [['name', 'company.name'], ['address', 'company.address'], ['postal_code', 'company.postal_code'], ['city', 'company.city'],
   ['country', 'company.country'], ['email', 'company.email'], ['phone', 'company.phone'], ['website', 'company.website'], ['kvk', 'company.kvk'],
@@ -386,13 +404,14 @@ function invoiceTemplateCard() {
 
 // The parts of the settings, in the order of the sub menu: [route, label key]. "Zakelijk" is only there when it is switched on.
 const SECTIONS = [['algemeen', 'settings.tab_general'], ['weergave', 'settings.tab_appearance'], ['beveiliging', 'settings.tab_security'],
-  ['zakelijk', 'settings.tab_business'], ['filamenten', 'settings.tab_filaments'], ['notificaties', 'settings.tab_notifications'], ['ai', 'settings.tab_ai'], ['backup', 'settings.tab_backup']];
+  ['zakelijk', 'settings.tab_business'], ['filamenten', 'settings.tab_filaments'], ['notificaties', 'settings.tab_notifications'], ['ai', 'settings.tab_ai'], ['systeem', 'settings.tab_system']];
 
 export function settingsView(ctx, requested) {
   const { setPrefs, user, highlightPasskey } = ctx;
   const businessOn = () => !!ctx.prefs.business_mode;
   const shown = () => SECTIONS.filter(([key]) => (key !== 'zakelijk' || businessOn()) && (key !== 'ai' || ctx.aiImages));   // "AI-afbeeldingen" only when .env switches it on
-  const section = shown().some(([key]) => key === requested) ? requested : 'algemeen';
+  const wanted = requested === 'backup' ? 'systeem' : requested;                          // the address this part had before it was renamed
+  const section = shown().some(([key]) => key === wanted) ? wanted : 'algemeen';
   // The address says what is shown: a part that is not there (Business while it is off) must not stay in the URL, or clicking its tab later would change nothing.
   if (requested && requested !== section) history.replaceState(null, '', `#/instellingen/${section}`);
   let vatTimer = null;
@@ -534,7 +553,7 @@ export function settingsView(ctx, requested) {
     filamenten: () => filamentLibraryCards(),
     notificaties: () => notificationsCards(ctx),
     ai: () => [aiSettingsCard(), aiLogCard()],
-    backup: () => [backupCard()],
+    systeem: () => [backupCard(), resetCard()],
   };
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.settings')))),
