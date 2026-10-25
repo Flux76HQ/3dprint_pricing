@@ -45,7 +45,31 @@ def test_every_import_and_the_entry_scripts_carry_the_release(real):
 
 def test_the_page_learns_what_it_loaded_from_the_file_itself(real):
     build = real.get("/js/build.js").get_data(as_text=True)
-    assert re.search(r"BUILD = \{ version: '[^']+', commit: '0123456' \}", build) and "'dev', commit: 'dev'" not in build
+    assert re.search(r"BUILD = \{ version: '[^']+', commit: '0123456', channel: 'stable' \}", build) and "'dev', commit: 'dev'" not in build
+
+
+def test_a_stable_build_has_no_beta_label(real):
+    assert real.get("/api/version").get_json()["channel"] == "stable"
+    assert "channel: 'stable'" in real.get("/js/build.js").get_data(as_text=True)
+    index = real.get("/").get_data(as_text=True)
+    assert "<title>3D Print Pricing</title>" in index and 'content="PrintPricing"' in index
+
+
+@pytest.mark.parametrize("tag, channel", [("beta", "beta"), ("2.0.0-beta", "beta"), ("latest", "stable"), ("0.26.15", "stable"), ("", "stable")])
+def test_the_tag_decides_the_channel(real, monkeypatch, tag, channel):
+    monkeypatch.setenv("PRINTPRICING_TAG", tag)
+    assert real.get("/api/version").get_json()["channel"] == channel
+    assert f"channel: '{channel}'" in real.get("/js/build.js").get_data(as_text=True)
+
+
+def test_a_beta_build_says_so_in_the_tab_title_and_under_the_home_screen_icon(real, monkeypatch):
+    monkeypatch.setenv("PRINTPRICING_TAG", "beta")
+    index = real.get("/").get_data(as_text=True)
+    assert "<title>3D Print Pricing (beta)</title>" in index and 'content="PrintPricing beta"' in index
+
+
+def test_the_beta_label_is_drawn_next_to_the_name_in_the_sidebar_and_on_the_login_screen():
+    assert "betaBadge()" in (FRONT / "js/main.js").read_text() and "betaBadge()" in (FRONT / "js/auth-views.js").read_text()
 
 
 def test_the_sidebar_and_the_update_check_use_the_built_in_release_not_the_servers_answer():

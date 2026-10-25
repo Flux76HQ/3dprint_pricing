@@ -39,16 +39,55 @@ export async function upload(path, formData) {
   return data;
 }
 
-/** Fetches a file the server sends as an attachment (a POST when making it changes something). Resolves { blob, name }. */
-export async function downloadFile(path, { method = 'GET' } = {}) {
+/** Fetches a file the server sends as an attachment (a POST when making it changes something). Resolves { blob, name }.
+ *  `onProgress(received, total)` is called as the body arrives (total is 0 when the server did not say how big it is). */
+export async function downloadFile(path, { method = 'GET', onProgress } = {}) {
   let res;
   try { res = await fetch(path, { method, credentials: 'same-origin', headers: langHeader() }); } catch { throw new ApiError(0, t('api.no_connection')); }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new ApiError(res.status, data.error || t('api.error_status', { status: res.status }));
   }
-  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1] || 'download';
-  return { blob: await res.blob(), name };
+  const name = /filename="?([^";]+)"?/.exec(res.headers.get('Content-Disposition') || '')?.[1] || 'download';
+  if (!onProgress || !res.body) return { blob: await res.blob(), name };
+  const total = Number(res.headers.get('Content-Length')) || 0;
+  const reader = res.body.getReader();
+  const chunks = [];
+  let received = 0;
+  onProgress(0, total);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      onProgress(received, total);
+    }
+  } catch { throw new ApiError(0, t('api.no_connection')); }
+  return { blob: new Blob(chunks, { type: res.headers.get('Content-Type') || '' }), name };
+}
+
+/** Sends a file as the raw request body, telling how far it is: `onProgress(sent, total)` while it goes, `onSent()` once all of it
+ *  has left (the server may still be working on it). fetch cannot report that, XMLHttpRequest can. Resolves the JSON answer. */
+export function sendFile(path, file, { onProgress, onSent } = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', path);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('X-Lang', getLanguage());
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total); };
+    xhr.upload.onload = () => { if (onSent) onSent(); };
+    xhr.onerror = () => reject(new ApiError(0, t('api.no_connection')));
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { /* not JSON: the status says enough */ }
+      if (xhr.status >= 200 && xhr.status < 300) { resolve(data); return; }
+      if (xhr.status === 401) window.dispatchEvent(new Event('auth:expired'));
+      reject(new ApiError(xhr.status, data.error || t('api.error_status', { status: xhr.status })));
+    };
+    xhr.send(file);
+  });
 }
 
 // --- passkeys ------------------------------------------------------------------

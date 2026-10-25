@@ -1,12 +1,12 @@
 import { aiLogCard, aiSettingsCard } from './ai-images.js';
-import { api, confirmWithPasskey, createPasskey, downloadFile, upload } from './api.js';
+import { api, confirmWithPasskey, createPasskey, downloadFile, sendFile, upload } from './api.js';
 import { filamentLibraryCards } from './filament-library.js';
 import { iosSteps, installState, onInstallChange, promptInstall } from './install.js';
 import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
 import { confirmIdentity, passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, forgetPush, pushSupport, thisDeviceFingerprint } from './push.js';
-import { applyNavGlass, confirmDialog, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
+import { applyNavGlass, confirmDialog, fmt, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
 
 // [value, label key]: labels are looked up when drawn, so they follow the language.
@@ -199,48 +199,127 @@ async function devicesList(redraw) {
       } }, t('common.delete'))))));
 }
 
-/** Backup and restore of everything entered (settings, printers, tariffs, packaging, parts, accessories, rolls, calculations). */
+const megabytes = (bytes) => `${fmt(bytes / 1048576, 1)} MB`;
+const seconds = (ms) => fmt(ms / 1000, 1);
+const TIMING_KEY = 'pp-restore-timing';
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Backup and restore of everything entered (settings, printers, tariffs, packaging, parts, accessories, rolls, calculations).
+ *  Both show what they are doing. A restore is a job on the server (`/api/backup/jobs`): once the file is up, leaving the page stops
+ *  nothing, and the card picks the job up again when it is shown. */
 function backupCard() {
   let withFiles = false;
   const status = h('p', { class: 'status-line', role: 'status' });
-  const picker = h('input', { type: 'file', accept: '.json,application/json', hidden: true, 'aria-label': t('backup.restore') });
+  const picker = h('input', { type: 'file', accept: '.zip,.json,application/zip,application/json', hidden: true, 'aria-label': t('backup.restore') });
+  const label = h('strong');
+  const note = h('p', { class: 'muted' });
+  const bar = h('progress', { class: 'op-bar', max: 100 });
+  const box = h('div', { class: 'op-progress', role: 'status', hidden: true }, h('div', { class: 'row' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), label), bar, note);
+  const downloadButton = h('button', { class: 'btn primary', type: 'button', onclick: () => download() }, t('backup.download'));
+  const restoreButton = h('button', { class: 'btn', type: 'button', onclick: () => picker.click() }, t('backup.restore'));
+
+  /** `value` 0-100 fills the bar; null leaves it moving without a figure (the server is busy and cannot say how far it is). */
+  function show(text, value = null, detail = '') {
+    label.textContent = text;
+    note.textContent = detail;
+    if (value == null) bar.removeAttribute('value'); else bar.value = Math.max(0, Math.min(100, value));
+    box.hidden = false;
+  }
+  function idle() {
+    box.hidden = true;
+    downloadButton.disabled = false;
+    restoreButton.disabled = false;
+  }
+  function busy() {
+    downloadButton.disabled = true;
+    restoreButton.disabled = true;
+    status.textContent = '';
+  }
 
   async function download() {
+    busy();
+    show(withFiles ? t('backup.making_files') : t('backup.making'));                    // the server is putting it together: nothing to count yet
+    const began = performance.now();
+    let answered = null;
     try {
-      const { blob, name } = await downloadFile(`/api/backup${withFiles ? '?files=1' : ''}`);
-      const url = URL.createObjectURL(blob);
-      const link = h('a', { href: url, download: name });
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      status.textContent = t('backup.downloaded', { name });
+      const { blob, name } = await downloadFile(`/api/backup${withFiles ? '?files=1' : ''}`, {
+        onProgress: (got, total) => {
+          if (answered == null) answered = performance.now();                           // the first answer: the server is done, the file starts to arrive
+          show(t('backup.receiving'), total ? (got / total) * 100 : null, total ? t('backup.of', { done: megabytes(got), total: megabytes(total) }) : megabytes(got));
+        },
+      });
+      saveBlob(blob, name);
+      status.textContent = `${t('backup.downloaded', { name })} ${t('backup.timing_download', { made: seconds(answered - began), got: seconds(performance.now() - answered), size: megabytes(blob.size) })}`;
     } catch (e) { toast(e.message, 'error'); }
+    idle();
   }
 
   async function restore(file) {
-    let doc;
-    try { doc = JSON.parse(await file.text()); } catch { toast(t('backup.not_json'), 'error'); return; }
+    busy();
+    let staged;
+    const began = performance.now();
+    let sentAt = began;
     try {
-      const { summary: s } = await api('POST', '/api/backup/restore?dry_run=1', doc);       // checked first, nothing changes yet
-      const when = s.created_at ? formatDateTime(s.created_at, { dateStyle: 'medium', timeStyle: 'short' }) : '?';
-      const files = s.files ? t('backup.with_files', { n: s.files }) : '';
-      if (!(await confirmDialog(t('backup.confirm', { when, printers: s.printers, tariffs: s.tariffs, packaging: s.packaging, parts: s.parts || 0, accessories: s.accessories || 0, library: s.library || 0,
-        spools: s.spools, projects: s.projects, orders: s.orders || 0, customers: s.customers || 0, files }), t('backup.restore_now')))) return;
-      await api('POST', '/api/backup/restore', doc);
-      toast(t('backup.restored'));
-      setTimeout(() => window.location.reload(), 600);                                      // settings and language may have changed
-    } catch (e) { toast(e.message, 'error'); }
+      show(t('backup.sending'), 0);
+      staged = await sendFile('/api/backup/stage', file, {
+        onProgress: (sent, total) => show(t('backup.sending'), (sent / total) * 100, t('backup.of', { done: megabytes(sent), total: megabytes(total) })),
+        onSent: () => { sentAt = performance.now(); show(t('backup.checking')); },    // all of it is up; the server reads it through before anything is replaced
+      });
+    } catch (e) { idle(); toast(e.message, 'error'); return; }
+    box.hidden = true;
+    const uploadTimes = { up: seconds(sentAt - began), stage: seconds(performance.now() - sentAt), size: megabytes(file.size) };
+    const s = staged.summary;
+    const when = s.created_at ? formatDateTime(s.created_at, { dateStyle: 'medium', timeStyle: 'short' }) : '?';
+    const files = s.files ? t('backup.with_files', { n: s.files }) : '';
+    const ok = await confirmDialog(t('backup.confirm', { when, printers: s.printers, tariffs: s.tariffs, packaging: s.packaging, parts: s.parts || 0, accessories: s.accessories || 0, library: s.library || 0,
+      spools: s.spools, projects: s.projects, orders: s.orders || 0, customers: s.customers || 0, files }), t('backup.restore_now'));
+    if (!ok) { api('DELETE', `/api/backup/stage/${staged.token}`).catch(() => {}); idle(); return; }
+    try {
+      const { job } = await api('POST', '/api/backup/jobs', { token: staged.token });
+      follow(job, uploadTimes);
+    } catch (e) { idle(); toast(e.message, 'error'); }
   }
 
+  /** Shows a restore job until it ends. Stops quietly when the card is gone: the job does not depend on it. */
+  async function follow(job, uploadTimes) {
+    busy();
+    while (job.status === 'running') {
+      if (!box.isConnected) return;
+      const counting = job.steps > 0;
+      show(job.phase === 'replacing' ? t('backup.replacing') : t('backup.verifying'), counting ? (job.step / job.steps) * 100 : null,
+        [counting ? t('backup.step_files', { n: job.step, total: job.steps }) : '', t('backup.background')].filter(Boolean).join(' · '));
+      await sleep(1000);
+      try { job = (await api('GET', '/api/backup/jobs/latest')).job || { status: 'gone' }; } catch { /* a dropped connection does not stop the restore: ask again */ }
+    }
+    if (!box.isConnected) return;
+    idle();
+    if (job.status === 'gone') return;
+    try { await api('DELETE', `/api/backup/jobs/${job.id}`); } catch { return; }           // seen: not shown again (and no reload loop if this fails)
+    if (job.status === 'done') {
+      toast(t('backup.restored'));
+      try {                                                                             // where the time went, shown again after the reload
+        const server = t('backup.timing_server', { check: seconds((job.checking_seconds || 0) * 1000), replace: seconds((job.replacing_seconds || 0) * 1000) });
+        sessionStorage.setItem(TIMING_KEY, uploadTimes ? `${t('backup.timing_upload', uploadTimes)} ${server}` : server);
+      } catch { /* no storage: the restore is done all the same */ }
+      setTimeout(() => window.location.reload(), 600);                                  // settings and language may have changed
+    } else {
+      status.textContent = job.message || t('api.error_status', { status: 500 });
+      toast(status.textContent, 'error');
+    }
+  }
+
+  try {
+    const timing = sessionStorage.getItem(TIMING_KEY);
+    if (timing) { status.textContent = `${t('backup.restored')} ${timing}`; sessionStorage.removeItem(TIMING_KEY); }
+  } catch { /* nothing to show */ }
   picker.addEventListener('change', () => { const file = picker.files[0]; picker.value = ''; if (file) restore(file); });
+  api('GET', '/api/backup/jobs/latest').then(({ job }) => { if (job) follow(job); }).catch(() => {});      // a restore started before the page was left
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('backup.title')),
     h('p', { class: 'muted' }, t('backup.intro')),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', class: 'toggle', role: 'switch', onchange: (e) => { withFiles = e.target.checked; } }), t('backup.files')),
     h('p', { class: 'hint' }, t('backup.files_hint')),
-    h('div', { class: 'row' },
-      h('button', { class: 'btn primary', type: 'button', onclick: download }, t('backup.download')),
-      h('button', { class: 'btn', type: 'button', onclick: () => picker.click() }, t('backup.restore')), picker),
+    h('div', { class: 'row' }, downloadButton, restoreButton, picker),
+    box,
     status,
     h('p', { class: 'muted' }, t('backup.not_included')));
 }

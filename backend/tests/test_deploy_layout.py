@@ -32,6 +32,13 @@ def test_nothing_in_the_compose_file_is_a_docker_volume():
         assert line.split(":")[0].startswith("${DATA_PATH}"), line               # and every mount is a host folder under DATA_PATH
 
 
+def test_one_tag_picks_the_image_and_tells_the_app_which_channel_it_is():
+    """PRINTPRICING_TAG (latest or beta, set in .env) chooses the image and is passed on, so a beta build can show it is one."""
+    assert "image: ghcr.io/flux76hq/3dprint_pricing:${PRINTPRICING_TAG:-latest}" in COMPOSE
+    assert "PRINTPRICING_TAG: ${PRINTPRICING_TAG:-latest}" in COMPOSE
+    assert re.search(r"^PRINTPRICING_TAG=latest$", (ROOT / ".env.example").read_text(encoding="utf-8"), re.M)       # stable unless chosen otherwise
+
+
 def test_the_uploads_are_where_the_app_looks_for_them():
     from app.config import Config
     assert Config.__dataclass_fields__["upload_dir"].default == "/data/uploads"      # DATA_PATH/uploads on the host
@@ -47,7 +54,7 @@ def test_the_entrypoint_and_the_image_carry_the_migration_and_do_not_take_over_t
     assert "deploy/migrate_uploads.sh" in dockerfile and "chmod +x /entrypoint.sh /migrate_uploads.sh" in dockerfile
 
 
-@pytest.mark.parametrize("script", ["deploy/entrypoint.sh", "deploy/migrate_uploads.sh", "scripts/update.sh"])
+@pytest.mark.parametrize("script", ["deploy/entrypoint.sh", "deploy/migrate_uploads.sh", "scripts/update.sh", "scripts/migrate_data.sh"])
 def test_the_shell_scripts_parse(script):
     assert subprocess.run(["sh", "-n", str(ROOT / script)]).returncode == 0
 
@@ -112,3 +119,98 @@ def test_names_with_spaces_move_too(data):
     root, old, new = data
     (old / "my model.3mf").write_bytes(b"1")
     assert migrate(old, new).returncode == 0 and (new / "my model.3mf").read_bytes() == b"1"
+
+
+# --- DATA_PATH is an absolute folder of the host --------------------------------------------------------------------------
+
+def test_a_new_installation_gets_an_absolute_data_path():
+    """./data is resolved by whatever tool starts the stack (Dockhand on Unraid: a RAM disk), so no template or helper may hand it out."""
+    example = re.search(r"^DATA_PATH=(.*)$", (ROOT / ".env.example").read_text(encoding="utf-8"), re.M).group(1)
+    assert example.startswith("/")
+    assert "DATA_PATH: ${DATA_PATH:?" in COMPOSE                                # compose refuses to start without it, and the app gets to see it
+    init_env = subprocess.run(["python3", str(ROOT / "scripts" / "init_env.py"), "--data-path", "./data"], capture_output=True, text=True)
+    assert init_env.returncode != 0 and "absolute" in init_env.stderr and not (ROOT / ".env").exists()
+
+
+def run_entrypoint_as_root_warning(data_path: str) -> str:
+    entry = (ROOT / "deploy" / "entrypoint.sh").read_text(encoding="utf-8")
+    block = re.search(r'(case "\$\{DATA_PATH:-\}" in.*?\n  esac)', entry, re.S).group(1)
+    return subprocess.run(["sh", "-c", block], env={"DATA_PATH": data_path, "PATH": "/usr/bin:/bin"}, capture_output=True, text=True).stderr
+
+
+def test_the_entrypoint_warns_about_a_relative_data_path_only():
+    assert "relative path" in run_entrypoint_as_root_warning("./data")
+    assert run_entrypoint_as_root_warning("/mnt/user/appdata/printpricing") == ""
+    assert run_entrypoint_as_root_warning("") == ""
+
+
+# --- scripts/migrate_data.sh: data that sits in another folder than DATA_PATH ------------------------------------------------
+
+@pytest.fixture
+def stack(tmp_path):
+    """A stack folder with a .env and a fake `docker` that reports where the db container keeps the database."""
+    folder = tmp_path / "stack"
+    bin_dir = tmp_path / "bin"
+    folder.mkdir()
+    bin_dir.mkdir()
+    (bin_dir / "docker").write_text(
+        "#!/bin/sh\n"
+        'echo "$*" >> "$FAKE_LOG"\n'
+        'case "$*" in\n'
+        '  "compose ps -aq db") [ -z "$FAKE_SOURCE" ] || echo abc123 ;;\n'
+        '  "inspect "*) echo "$FAKE_SOURCE" ;;\n'
+        "esac\n", encoding="utf-8")
+    (bin_dir / "docker").chmod(0o755)
+    return folder, bin_dir, tmp_path / "log"
+
+
+def migrate_data(stack, data_path, source="", *args):
+    folder, bin_dir, log = stack
+    (folder / ".env").write_text(f"DATA_PATH={data_path}\n", encoding="utf-8")
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_SOURCE": str(source), "FAKE_LOG": str(log)}
+    done = subprocess.run(["sh", str(ROOT / "scripts" / "migrate_data.sh"), *args], cwd=folder, env=env, capture_output=True, text=True)
+    return done, (log.read_text() if log.exists() else "")
+
+
+def wrong_place(tmp_path):
+    """The data where a relative DATA_PATH once ended up: postgres/ and uploads/ in a folder that is not DATA_PATH."""
+    old = tmp_path / "ram" / "data"
+    (old / "postgres").mkdir(parents=True)
+    (old / "postgres" / "PG_VERSION").write_text("17")
+    (old / "uploads").mkdir()
+    (old / "uploads" / "a.3mf").write_bytes(b"model")
+    return old
+
+
+def test_data_in_another_folder_is_copied_to_the_data_path_and_the_old_folder_stays(stack, tmp_path):
+    old, new = wrong_place(tmp_path), tmp_path / "array" / "printpricing"
+    done, log = migrate_data(stack, new, old / "postgres")
+    assert done.returncode == 0, done.stderr
+    assert (new / "postgres" / "PG_VERSION").read_text() == "17" and (new / "uploads" / "a.3mf").read_bytes() == b"model"
+    assert (old / "postgres" / "PG_VERSION").exists()                           # nothing is deleted
+    assert "compose stop" in log and str(old) in done.stdout                    # the stack is stopped first, and the old folder is named
+
+
+def test_nothing_happens_when_the_data_is_already_in_the_data_path_or_there_is_no_installation(stack, tmp_path):
+    new = tmp_path / "array" / "printpricing"
+    (new / "postgres").mkdir(parents=True)
+    done, log = migrate_data(stack, new, new / "postgres")
+    assert done.returncode == 0 and "already" in done.stdout and "compose stop" not in log
+    done, log = migrate_data(stack, new, "")                                    # no db container: a new installation
+    assert done.returncode == 0 and "compose stop" not in log
+
+
+def test_it_refuses_a_relative_data_path_and_a_target_that_already_has_a_database(stack, tmp_path):
+    old, new = wrong_place(tmp_path), tmp_path / "array" / "printpricing"
+    done, log = migrate_data(stack, "./data", old / "postgres")
+    assert done.returncode != 0 and "relative" in done.stderr and "compose stop" not in log
+    (new / "postgres").mkdir(parents=True)
+    (new / "postgres" / "PG_VERSION").write_text("17")
+    done, log = migrate_data(stack, new, old / "postgres")
+    assert done.returncode != 0 and "already holds a database" in done.stderr and "compose stop" not in log
+
+
+def test_check_changes_nothing(stack, tmp_path):
+    old, new = wrong_place(tmp_path), tmp_path / "array" / "printpricing"
+    done, log = migrate_data(stack, new, old / "postgres", "--check")
+    assert done.returncode == 0 and "would" in done.stdout and "compose stop" not in log and not new.exists()

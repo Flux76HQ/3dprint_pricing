@@ -59,7 +59,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   sliced 3MF is exact, geometry is only an estimate, and print time is never derived from geometry.
   Test with the synthetic fixtures in `backend/tests/printfiles.py`; a real slicer file is the
   final check, since the 3MF/slice_info layout is the slicer's, not ours.
-- All data lives in one host folder, `DATA_PATH`: the database in `DATA_PATH/postgres` (mounted by the `db` service only) and the uploads in `DATA_PATH/uploads` (the app sees `DATA_PATH` as `/data`). They are plain folders, never Docker volumes (`test_deploy_layout.py` fails on a named volume or a changed mount), and `DATA_PATH` should be absolute on a server. `deploy/migrate_uploads.sh` moves the uploads of releases before this layout (`DATA_PATH/app/uploads`) on start; never remove it while such installations may exist, and never `chown` the whole of `/data` (it is the host's folder and holds `postgres/`). `scripts/update.sh` dumps the database to `DATA_PATH/backups` before an update. Changing where the database lives needs a migration of the existing folder first: pointing the `db` mount elsewhere makes a running installation start on an empty database.
+- All data lives in one host folder, `DATA_PATH`: the database in `DATA_PATH/postgres` (mounted by the `db` service only) and the uploads in `DATA_PATH/uploads` (the app sees `DATA_PATH` as `/data`). They are plain folders, never Docker volumes (`test_deploy_layout.py` fails on a named volume or a changed mount), and `DATA_PATH` is an absolute folder of the Docker host, never `./data` (a relative path is resolved by the tool that starts the stack; under Dockhand on Unraid it landed in the host's RAM disk). `docker-compose.yml` requires it, `deploy/entrypoint.sh` warns about a relative one, `scripts/init_env.py` refuses one, and `scripts/migrate_data.sh` (run by `scripts/update.sh`) moves data that sits in another folder than `DATA_PATH`; it never deletes the old folder and refuses when `DATA_PATH/postgres` already holds a database. `deploy/migrate_uploads.sh` moves the uploads of releases before this layout (`DATA_PATH/app/uploads`) on start; never remove it while such installations may exist, and never `chown` the whole of `/data` (it is the host's folder and holds `postgres/`). `scripts/update.sh` dumps the database to `DATA_PATH/backups` before an update. Changing where the database lives needs a migration of the existing folder first: pointing the `db` mount elsewhere makes a running installation start on an empty database.
 - Uploads live under `UPLOAD_DIR` (`/data/uploads`, i.e. `DATA_PATH/uploads`), never in the
   image. Stored names are generated; the original filename is only a download name.
 - Every page starts with a `.page-head` header: it is the sticky title bar (safe-area aware on phones) and holds the page's main button, so keep a page's intro text outside it (`.page-intro`). `html, body` use `overflow-x: clip`, not `hidden`: `hidden` makes the body a scroll container and breaks `position: sticky`. A roll's colour is `filament_spools.colour_hex` (`#rrggbb`, empty = guess from the colour name in `filament-ui.js`).
@@ -159,6 +159,12 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   release and no `VERSION`. A promotion builds `latest`, raises `VERSION`, and publishes `X.Y.Z` with its GitHub Release (`docker` workflow), which then
   merges `main` back into `beta` so `beta` carries the new `VERSION` (best effort; if it warns, merge `main` into `beta` by hand).
   github-actions must be allowed to push to `beta` as well as to `main`, if either is protected.
+- **One variable picks the build: `PRINTPRICING_TAG`** (`latest` = stable, the default; `beta`; or a version number to pin), set in `.env`.
+  `docker-compose.yml` uses it for the image (`ghcr.io/flux76hq/3dprint_pricing:${PRINTPRICING_TAG:-latest}`) and passes the same value into the
+  container, where `config.build_channel()` turns it into the channel (`beta` when the tag contains `beta`). `BUILD.channel` in `js/build.js`
+  (stamped by the server), `/api/version` and `<title>` carry it, and a beta build shows a **beta** label next to the app name (`betaBadge()` in
+  `ui.js`, sidebar and login screen) and installs on a home screen as "PrintPricing beta". There is no `APP_IMAGE` any more. Same set-up as
+  MealieShopper (`MEALIESHOPPER_TAG`); `test_deploy_layout.py` and `test_static_build.py` pin it.
 - Develop on a feature branch off `beta`; never commit directly to `beta` or `main`.
 - Give a new feature its own worktree and its own agent session.
 - Check for an existing open PR before opening a new one; never push without a PR; never add
@@ -199,6 +205,12 @@ in the same commit (`backend/tests/test_i18n.py` fails otherwise) and give `{pla
 push subscriptions): `tests/test_backup.py` greps the file for them. Restore validates the whole file with the same
 validators as the normal endpoints, recalculates calculations, re-reads print files, and swaps everything in one
 transaction. A new table or column that holds user data belongs in the backup and in its round-trip test.
+
+With print files the download is a ZIP (`backup.json` plus every model under `files/`, referenced by `archive_path`); without them it is one JSON file, and a JSON
+file with the models inline (`content_b64`) still restores. A ZIP is never extracted to disk: a member is read by name, capped at `MAX_UPLOAD_MB`, and stored under a generated name.
+The screen sends the file once to `POST /api/backup/stage` (checked, kept as `UPLOAD_DIR/.restore-<token>`), and after the owner confirms `POST /api/backup/jobs` restores it in a
+thread of the web worker, so leaving the page stops nothing; the state is `backup_jobs` (polled with `GET /api/backup/jobs/latest`, not in a backup, marked done in the same transaction as the swap).
+Never make the restore depend on the request that started it, and never let a refused or finished restore leave its staged file behind.
 
 ## 6d. Factory reset
 

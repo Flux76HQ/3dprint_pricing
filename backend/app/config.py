@@ -54,6 +54,16 @@ class Config:
         return bool(self.vapid_public_key and self.vapid_private_key)
 
 
+def image_tag() -> str:
+    """The image tag of this installation (PRINTPRICING_TAG: latest, beta, 0.26.15, ...), the same value as in docker-compose.yml."""
+    return os.environ.get("PRINTPRICING_TAG", "").strip()
+
+
+def build_channel() -> str:
+    """"beta" when the tag names a beta build, otherwise "stable"."""
+    return "beta" if "beta" in image_tag().lower() else "stable"
+
+
 def _library_url() -> str:
     """The address of the shared library; empty switches the sync off. Only https on a GitHub raw host: the server fetches it, so it is
     never taken from a request, and a typo here must not turn the app into a way to reach other machines."""

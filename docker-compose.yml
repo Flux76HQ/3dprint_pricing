@@ -7,9 +7,13 @@
 #   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 services:
   app:
-    image: ${APP_IMAGE:-ghcr.io/flux76hq/3dprint_pricing:latest}
+    # PRINTPRICING_TAG is chosen in .env next to this file: latest (stable, the default) or beta.
+    # The same value goes into the container, so a beta build shows a beta label in the app.
+    image: ghcr.io/flux76hq/3dprint_pricing:${PRINTPRICING_TAG:-latest}
     env_file: .env
     environment:
+      PRINTPRICING_TAG: ${PRINTPRICING_TAG:-latest}
+      DATA_PATH: ${DATA_PATH:?Set DATA_PATH in .env to an absolute folder of the host, e.g. /srv/printpricing}   # the entrypoint warns when it is relative
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     ports:
       - "${WEB_PORT}:${WEB_PORT}"
@@ -28,7 +32,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       # The database is a folder on the host, never a Docker volume: it survives `docker compose down -v`, a rebuild and every update.
-      # Use an absolute DATA_PATH (e.g. /data): a relative one is relative to wherever a tool runs this file from.
+      # DATA_PATH is an absolute folder of the host: a relative one is resolved by whatever tool runs this file (Dockhand: in a RAM disk on Unraid).
       - ${DATA_PATH}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
