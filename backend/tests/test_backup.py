@@ -341,6 +341,7 @@ def test_a_zip_is_sent_once_checked_and_restored_from_the_server(owner, app):
     assert owner.get("/api/projects").get_json() == []                       # staging changes nothing
     job = restore_job(owner, answer.get_json()["token"])
     assert job["status"] == "done" and job["phase"] == "done" and job["step"] == job["steps"] == 1 and job["summary"]["files"] == 1
+    assert job["checking_seconds"] >= 0 and job["replacing_seconds"] >= 0           # how long each part took, so a slow restore says where
     restored = owner.get(f"/api/projects/{project['id']}").get_json()
     assert restored["file_id"] == meta["id"]
     download = owner.get(f"/api/print-files/{meta['id']}/download")

@@ -10,6 +10,8 @@ CREATE TABLE backup_jobs (
     error_key     text,
     error_params  jsonb NOT NULL DEFAULT '{}',
     summary       jsonb NOT NULL DEFAULT '{}',
+    checking_seconds   double precision,          -- how long each part took, shown when it is done: where the time goes
+    replacing_seconds  double precision,
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now(),
     finished_at   timestamptz
