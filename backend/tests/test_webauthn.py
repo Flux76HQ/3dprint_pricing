@@ -43,7 +43,6 @@ def test_assertion_roundtrip_returns_the_new_counter():
 
 @pytest.mark.parametrize("kwargs", [
     {"origin": "https://evil.example"},
-    {"flags": 0x41},           # user present, but not verified
     {"flags": 0x44},           # verified, but not present
 ])
 def test_registration_refuses(kwargs):
@@ -53,6 +52,16 @@ def test_registration_refuses(kwargs):
     with pytest.raises(wa.WebAuthnError):
         wa.verify_registration(wa.b64u_decode(r["clientDataJSON"]),
                                wa.b64u_decode(r["attestationObject"]), challenge, RP, ORIGINS)
+
+
+def test_registration_accepts_a_password_manager_that_does_not_verify_the_user():
+    # Enpass, Bitwarden and friends report user presence only; their own unlock is the verification.
+    auth = FakeAuthenticator(RP, ORIGIN)
+    challenge = wa.new_challenge()
+    r = auth.register({"challenge": wa.b64u_encode(challenge)}, flags=0x41)["response"]
+    result = wa.verify_registration(wa.b64u_decode(r["clientDataJSON"]),
+                                    wa.b64u_decode(r["attestationObject"]), challenge, RP, ORIGINS)
+    assert result["credential_id"] == auth.credential_id
 
 
 def test_registration_refuses_wrong_challenge_and_wrong_rp():
@@ -88,12 +97,17 @@ def test_assertion_accepts_authenticators_without_a_counter():
     assert verify(auth, result, assertion(auth, bump=False), stored=0) == 0
 
 
-def test_assertion_refuses_wrong_origin_and_missing_verification():
+def test_assertion_refuses_wrong_origin_and_missing_presence():
     auth, result = registered()
     with pytest.raises(wa.WebAuthnError, match="Origin"):
         verify(auth, result, assertion(auth, origin="https://evil.example"))
-    with pytest.raises(wa.WebAuthnError, match="verificatie"):
-        verify(auth, result, assertion(auth, flags=0x01))
+    with pytest.raises(wa.WebAuthnError, match="aanwezigheid"):
+        verify(auth, result, assertion(auth, flags=0x04))
+
+
+def test_assertion_accepts_presence_without_verification():
+    auth, result = registered()
+    assert verify(auth, result, assertion(auth, flags=0x01)) == 1
 
 
 def test_garbage_is_a_webauthn_error_not_a_crash():

@@ -18,7 +18,6 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from .i18n import Localized
 
 FLAG_UP = 0x01
-FLAG_UV = 0x04
 FLAG_AT = 0x40
 
 COSE_KTY, COSE_ALG, COSE_CRV, COSE_X, COSE_Y = 1, 3, -1, -2, -3
@@ -61,8 +60,10 @@ def _auth_data(auth_data: bytes, rp_id: str) -> tuple[int, int]:
     if auth_data[:32] != hashlib.sha256(rp_id.encode()).digest():
         raise WebAuthnError("wa.rp_hash")
     flags = auth_data[32]
-    if not flags & FLAG_UP or not flags & FLAG_UV:
-        raise WebAuthnError("wa.uv")
+    # Presence only: a password manager (Enpass, Bitwarden...) unlocks with its own master password and
+    # reports the user as not verified, so requiring the UV flag would lock those passkeys out.
+    if not flags & FLAG_UP:
+        raise WebAuthnError("wa.up")
     return flags, struct.unpack(">I", auth_data[33:37])[0]
 
 

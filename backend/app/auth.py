@@ -102,7 +102,7 @@ def _registration_options(user_id, name, display_name, challenge, exclude) -> di
         "rp": {"id": cfg.rp_id, "name": cfg.rp_name},
         "user": {"id": wa.b64u_encode(user_id.bytes), "name": name, "displayName": display_name},
         "pubKeyCredParams": [{"type": "public-key", "alg": -7}],
-        "authenticatorSelection": {"residentKey": "required", "userVerification": "required"},
+        "authenticatorSelection": {"residentKey": "required", "userVerification": "preferred"},
         "attestation": "none",
         "timeout": 120000,
         "excludeCredentials": [
@@ -267,7 +267,7 @@ def login_options():
         challenge = _store_challenge(conn, "login")
     return jsonify({
         "challenge": wa.b64u_encode(challenge), "rpId": config().rp_id,
-        "userVerification": "required", "timeout": 120000, "allowCredentials": [],
+        "userVerification": "preferred", "timeout": 120000, "allowCredentials": [],
     })
 
 
@@ -379,7 +379,7 @@ def stepup_options():
         challenge = _store_challenge(conn, "confirm", purpose=purpose, user_id=g.user_id)
     return jsonify({
         "challenge": wa.b64u_encode(challenge), "rpId": config().rp_id,
-        "userVerification": "required", "timeout": 120000,
+        "userVerification": "preferred", "timeout": 120000,
         "allowCredentials": [{"type": "public-key", "id": wa.b64u_encode(bytes(c))} for c in creds],
     })
 

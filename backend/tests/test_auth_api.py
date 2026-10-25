@@ -38,6 +38,28 @@ def test_onboarding_creates_owner_session_and_recovery_codes(client):
     assert status["onboarded"] and status["authenticated"] and status["user"]["display_name"] == "Helmer"
 
 
+def test_options_ask_for_a_discoverable_passkey_but_do_not_insist_on_user_verification(client):
+    # A password manager (Enpass...) cannot always verify the user; asking for "required" makes it refuse.
+    reg = post(client, "/api/auth/onboarding/options", {"setup_code": SETUP_CODE, "display_name": "Owner"}).get_json()
+    assert reg["authenticatorSelection"] == {"residentKey": "required", "userVerification": "preferred"}
+    assert post(client, "/api/auth/login/options").get_json()["userVerification"] == "preferred"
+
+
+def test_a_password_manager_passkey_can_onboard_log_in_and_confirm(client):
+    # Flags 0x41 / 0x01: user present, not verified: what Enpass reports.
+    auth = FakeAuthenticator()
+    options = post(client, "/api/auth/onboarding/options",
+                   {"setup_code": SETUP_CODE, "display_name": "Owner"}).get_json()
+    assert post(client, "/api/auth/onboarding/verify",
+                {"credential": auth.register(options, flags=0x41)}).status_code == 200
+    options = post(client, "/api/auth/login/options").get_json()
+    assert post(client, "/api/auth/login/verify",
+                {"credential": auth.assert_(options, flags=0x01)}).status_code == 200
+    opts = post(client, "/api/auth/stepup/options", {"action": "regenerate-recovery"}).get_json()
+    assert post(client, "/api/auth/recovery/regenerate",
+                {"credential": auth.assert_(opts, flags=0x01)}).status_code == 200
+
+
 def test_onboarding_needs_the_setup_code(client):
     res = post(client, "/api/auth/onboarding/options", {"setup_code": "nope", "display_name": "X"})
     assert res.status_code == 403
