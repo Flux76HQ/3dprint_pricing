@@ -264,7 +264,7 @@ De container start als root om de rechten van de gemounte map te zetten en draai
 | Onderdeel | Taak |
 |---|---|
 | `backend/app/calc.py` | de kostprijsberekening (`Decimal`, afronden per regel) |
-| `backend/app/auth.py`, `webauthn.py` | passkeys (ES256), herstelcodes, sessies, step-up |
+| `backend/app/auth.py`, `webauthn.py` | passkeys (ES256, controle door de bibliotheek `py_webauthn`), herstelcodes, sessies, step-up |
 | `backend/app/api.py` | printers, tarieven, filament, verpakking, onderdelen, accessoires, berekeningen, voorkeuren |
 | `backend/app/files.py`, `printfile.py` | upload/download van STL/3MF en het uitlezen ervan (slicer-gegevens of volume) |
 | `backend/app/db.py`, `migrations/` | migratierunner (vooruit-only, checksum-bewaakt) |

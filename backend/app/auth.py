@@ -114,15 +114,13 @@ def _registration_options(user_id, name, display_name, challenge, exclude) -> di
 def _verify_registration(conn, cred: dict, challenge_row_kind, *, purpose=None, user_id=None):
     try:
         client_data = wa.b64u_decode(cred["response"]["clientDataJSON"])
-        attestation = wa.b64u_decode(cred["response"]["attestationObject"])
         raw_id = wa.b64u_decode(cred["rawId"])
     except (KeyError, wa.WebAuthnError, ValueError):
         raise ApiError(400, "auth.bad_passkey_data") from None
     row = _consume_challenge(conn, client_data, challenge_row_kind, purpose=purpose, user_id=user_id)
     cfg = config()
     try:
-        result = wa.verify_registration(client_data, attestation, bytes(row["challenge"]),
-                                        cfg.rp_id, cfg.rp_origins)
+        result = wa.verify_registration(cred, bytes(row["challenge"]), cfg.rp_id, cfg.rp_origins)
     except wa.WebAuthnError as exc:
         raise ApiError(400, "auth.passkey_refused", reason=exc) from None
     if result["credential_id"] != raw_id:
@@ -137,8 +135,6 @@ def _verify_assertion(conn, cred: dict, kind, *, purpose=None, user_id=None):
         r = cred["response"]
         raw_id = wa.b64u_decode(cred["rawId"])
         client_data = wa.b64u_decode(r["clientDataJSON"])
-        auth_data = wa.b64u_decode(r["authenticatorData"])
-        signature = wa.b64u_decode(r["signature"])
     except (KeyError, wa.WebAuthnError, ValueError):
         raise fail from None
     stored = conn.execute(
@@ -154,9 +150,8 @@ def _verify_assertion(conn, cred: dict, kind, *, purpose=None, user_id=None):
         raise fail from None
     cfg = config()
     try:
-        count = wa.verify_assertion(client_data, auth_data, signature, bytes(row["challenge"]),
-                                    cfg.rp_id, cfg.rp_origins, bytes(stored["public_key"]),
-                                    stored["sign_count"])
+        count = wa.verify_assertion(cred, bytes(row["challenge"]), cfg.rp_id, cfg.rp_origins,
+                                    bytes(stored["public_key"]), stored["sign_count"])
     except wa.WebAuthnError:
         raise fail from None
     conn.execute(

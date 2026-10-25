@@ -145,7 +145,7 @@ Bijwerken doe je met `docker compose pull && docker compose up -d`. Health check
 ## Tech stack
 
 - **App / frontend:** een Progressive Web App in gewoon JavaScript, zonder buildstap, met een service worker voor de offline schil
-- **Backend:** Python, Flask en Gunicorn; passkeys via een zelfgeschreven WebAuthn-implementatie
+- **Backend:** Python, Flask en Gunicorn; passkeys via de open-source bibliotheek `py_webauthn` (pakket `webauthn`)
 - **Database:** PostgreSQL 17, met alleen-vooruit migraties die op checksum bewaakt worden
 - **Infrastructuur:** Docker Compose, een image die CI naar GHCR publiceert
 

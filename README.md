@@ -145,7 +145,7 @@ Updating is `docker compose pull && docker compose up -d`. Health checks, backup
 ## Tech stack
 
 - **App / frontend:** a Progressive Web App in plain JavaScript, no build step, with a service worker for the offline shell
-- **Backend:** Python, Flask and Gunicorn; passkeys through a hand-rolled WebAuthn implementation
+- **Backend:** Python, Flask and Gunicorn; passkeys through the open-source `py_webauthn` library (`webauthn` package)
 - **Database:** PostgreSQL 17, with forward-only, checksum-guarded migrations
 - **Infrastructure:** Docker Compose, an image published to GHCR by CI
 
