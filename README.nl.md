@@ -48,6 +48,18 @@ De navigatiebalk over de volle breedte met een pil achter het actieve icoon.
 |:---:|:---:|:---:|:---:|
 | <img src="docs/assets/android-calculations.png" width="200" alt="Android: berekeningen" /> | <img src="docs/assets/android-calculation.png" width="200" alt="Android: kostprijs van een berekening" /> | <img src="docs/assets/android-orders.png" width="200" alt="Android: bestellingen" /> | <img src="docs/assets/android-filament.png" width="200" alt="Android: filamentvoorraad" /> |
 
+### Filament: bibliotheek, import en nieuwe rollen
+
+*Instellingen → Filamenten* bevat de filamentbibliotheek: voeg een filament toe, importeer een Bambu Lab-factuur, importeer of exporteer de bibliotheek als JSON, of synchroniseer haar met GitHub. Onder *Filament → Nieuwe rol* maak je een rol aan, met de hand, door de barcode te scannen of door een filament uit de bibliotheek te kiezen.
+
+| Bibliotheek: import, export en synchronisatie | Nieuwe rol |
+|:---:|:---:|
+| <img src="docs/assets/desktop-library.png" width="440" alt="Desktop: de filamentbibliotheek met factuurimport, synchroniseren, JSON-export en -import" /> | <img src="docs/assets/desktop-new-roll.png" width="440" alt="Desktop: een nieuwe rol aanmaken, met de keuzelijst van de bibliotheek bovenaan" /> |
+
+| iPhone: bibliotheek | iPhone: nieuwe rol | Android: bibliotheek | Android: nieuwe rol |
+|:---:|:---:|:---:|:---:|
+| <img src="docs/assets/ios-library.png" width="200" alt="iOS: de filamentbibliotheek" /> | <img src="docs/assets/ios-new-roll.png" width="200" alt="iOS: een nieuwe rol aanmaken" /> | <img src="docs/assets/android-library.png" width="200" alt="Android: de filamentbibliotheek" /> | <img src="docs/assets/android-new-roll.png" width="200" alt="Android: een nieuwe rol aanmaken" /> |
+
 Onder *Instellingen → Weergave → Navigatiebalk* kies je iOS-achtig of Android-achtig, of laat je de instelling op *Automatisch*: de app herkent het toestel en kiest Android-achtig op Android en iOS-achtig op andere apparaten. Je keuze wordt bij je account bewaard en geldt op al je apparaten. Licht, donker en systeemthema en een eigen accentkleur zitten erbij.
 
 <sub>De screenshots tonen demogegevens.</sub>
@@ -60,8 +72,8 @@ Wie 3D-prints verkoopt moet weten wat elke print kost: filament per gram, machin
 
 - **Kostprijs in een paar seconden**: filament, onderdelen, accessoires (kabels, laders), printerafschrijving en energie tellen op tot een kostprijs, met optioneel een marge voor een adviesverkoopprijs. Elke regel wordt eerst op hele centen afgerond, zodat de regels op het scherm optellen tot het totaal.
 - **Rechtstreeks uit de slicer**: koppel een `.3mf`- of `.stl`-bestand. Een gesliced 3MF (Bambu Studio / Orca) geeft de echte gram per filament en de printtijd, die automatisch in de berekening komen; een STL geeft een schatting van het gewicht.
-- **Filamentbibliotheek en factuurimport**: leg de gegevens van de filamenten die je koopt vast (merk, type, kleur, filament-ID van de leverancier, gewicht, diameter, temperaturen), zodat een nieuwe rol zichzelf invult. Lees een Bambu Lab-factuur (PDF) in om de bibliotheek te vullen, inclusief barcodes; de bibliotheek bevat nooit twee keer hetzelfde filament en staat los van je voorraad; bij een nieuwe Bambu Lab-rol kies je soort en kleur en het formulier wordt uit de webshop ingevuld; exporteer en importeer de bibliotheek als JSON, of synchroniseer haar met GitHub.
-- **Filamentvoorraad met barcodescanner**: je rollen met prijs, resterend gewicht, kleur en temperaturen, gegroepeerd per soort. Scan een barcode met de camera van je telefoon en een bekende rol vult zichzelf in. Krijg een melding als een soort bijna op is en boek het verbruik van een berekening met één klik van de voorraad af.
+- **Filamentbibliotheek**: leg de gegevens van de filamenten die je koopt vast (merk, type, kleur, filament-ID van de leverancier, gewicht, diameter, temperaturen, richtprijs), zodat een nieuwe rol zichzelf invult. Voeg een filament met de hand toe via *Filament toevoegen*, of vul de bibliotheek zonder te typen: **importeer** een Bambu Lab-factuur (PDF, inclusief barcodes), **importeer** een JSON-bestand of **synchroniseer** de gedeelde bibliotheek met GitHub. **Exporteer** de bibliotheek als JSON om haar te bewaren of naar een andere installatie te verplaatsen. JSON-import en synchroniseren voegen alleen toe en werken bij, verwijderen nooit, en vragen eerst een bevestiging met de aantallen; de bibliotheek bevat nooit twee keer hetzelfde filament en staat los van je voorraad.
+- **Filamentvoorraad met barcodescanner**: je rollen met prijs, resterend gewicht, kleur en temperaturen, gegroepeerd per soort. **Maak een nieuwe rol aan** met de hand, door de barcode te scannen (een bekende rol vult zichzelf in), door een filament uit de bibliotheek te kiezen of, bij Bambu Lab, door soort en kleur uit de webshop te kiezen; een nieuwe rol kan zijn filament ook aan de bibliotheek toevoegen. Krijg een melding als een soort bijna op is en boek het verbruik van een berekening met één klik van de voorraad af.
 - **Prijzen die blijven staan**: een opgeslagen berekening bewaart de prijzen van het moment van opslaan, dus een latere prijswijziging van een rol herschrijft je geschiedenis niet.
 - **Zakelijk bruikbaar**: btw over de verkoopprijs, een marge en een afronding van de prijs per bestelling (op 5/10/50 cent, hele euro's of eindigend op ,95/,99, met je marge als minimum), en een knop om de kosten te blurren als een klant meekijkt.
 - **Klanten, bestellingen en facturen**: klanten met klantnummer, bestellingen met meerdere prints, een status van *nieuw* tot *afgehandeld* en een factuur als PDF met je logo, een uniek factuurnummer en een SEPA-betaal-QR. Wil je je eigen briefpapier, dan kan dat als Word- of PDF-sjabloon.
