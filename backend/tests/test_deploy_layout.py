@@ -32,6 +32,13 @@ def test_nothing_in_the_compose_file_is_a_docker_volume():
         assert line.split(":")[0].startswith("${DATA_PATH}"), line               # and every mount is a host folder under DATA_PATH
 
 
+def test_one_tag_picks_the_image_and_tells_the_app_which_channel_it_is():
+    """PRINTPRICING_TAG (latest or beta, set in .env) chooses the image and is passed on, so a beta build can show it is one."""
+    assert "image: ghcr.io/flux76hq/3dprint_pricing:${PRINTPRICING_TAG:-latest}" in COMPOSE
+    assert "PRINTPRICING_TAG: ${PRINTPRICING_TAG:-latest}" in COMPOSE
+    assert re.search(r"^PRINTPRICING_TAG=latest$", (ROOT / ".env.example").read_text(encoding="utf-8"), re.M)       # stable unless chosen otherwise
+
+
 def test_the_uploads_are_where_the_app_looks_for_them():
     from app.config import Config
     assert Config.__dataclass_fields__["upload_dir"].default == "/data/uploads"      # DATA_PATH/uploads on the host

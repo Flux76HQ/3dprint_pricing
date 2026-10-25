@@ -138,7 +138,7 @@ Set in `.env`; the file `.env.example` documents each value.
 | `FILAMENT_LIBRARY_URL` | ❌ | this repository's `library/filaments.json` | Where *Settings → Filaments → Sync* reads the shared filament library from: a JSON file in the format of the library export, on `raw.githubusercontent.com`. Empty switches the Sync button off |
 | `PROXY_HOPS` | ❌ | `0` | Number of reverse proxies in front of the app |
 | `WEB_CONCURRENCY` | ❌ | `2` | Number of Gunicorn workers |
-| `APP_IMAGE` | ❌ | `ghcr.io/flux76hq/3dprint_pricing:latest` | The image to run |
+| `PRINTPRICING_TAG` | ❌ | `latest` | Which build runs: `latest` (stable), `beta` (the development version) or a version number such as `0.26.15`. `docker-compose.yml` pulls `ghcr.io/flux76hq/3dprint_pricing:<tag>` and passes the same value to the app, which shows a **beta** label next to its name on `beta`. Replaces `APP_IMAGE` |
 
 Updating is `docker compose pull && docker compose up -d`. Health checks, backups, notifications and everything else about running the app are in the [operations guide](docs/handleiding.md) (Dutch).
 
@@ -181,7 +181,7 @@ The screenshots above are generated from a demo instance: after a change that al
 | Image | `ghcr.io/flux76hq/3dprint_pricing:latest` (and `X.Y.Z`) | `ghcr.io/flux76hq/3dprint_pricing:beta` |
 | GitHub release | `vX.Y.Z` | none |
 
-Every change lands in `beta` first, and every push to `beta` builds a new beta image. Only when the beta proves itself is it promoted to `main`, which raises `VERSION` and builds `latest` and the release. To try the beta, set `APP_IMAGE=ghcr.io/flux76hq/3dprint_pricing:beta` in `.env` and run `docker compose pull && docker compose up -d`; use a separate data folder for it.
+Every change lands in `beta` first, and every push to `beta` builds a new beta image. Only when the beta proves itself is it promoted to `main`, which raises `VERSION` and builds `latest` and the release. To try the beta, set `PRINTPRICING_TAG=beta` in `.env` (the app then shows a **beta** label next to its name) and run `docker compose pull && docker compose up -d`; use a separate data folder for it.
 
 ## Privacy & security
 

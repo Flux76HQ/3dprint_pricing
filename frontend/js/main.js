@@ -12,7 +12,7 @@ import { goTo, installNativeBehaviour } from './pwa.js';
 import { BUILD } from './build.js';
 import { getLanguage, initLanguage, setLanguage, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
-import { applyNavGlass, h, icon, navIcon, navStyle, toast, versionLabel } from './ui.js';
+import { applyNavGlass, h, icon, navIcon, navStyle, betaBadge, toast, versionLabel } from './ui.js';
 
 const root = document.getElementById('root');
 // [route, label key, icon]: the route is the URL part and stays as it is in every language.
@@ -142,7 +142,7 @@ function route() {
   const main = h('main', { id: 'main', tabindex: '-1' }, pageContent(r));
   const sidebar = h('nav', { class: 'sidebar glass', 'aria-label': t('nav.main') },
     h('div', { class: 'sidebar-brand' }, h('img', { src: '/icons/icon.svg', alt: '', width: 32, height: 32 }),
-      h('span', { class: 'nav-label brand-text' }, '3D Print Pricing',
+      h('span', { class: 'nav-label brand-text' }, h('span', { class: 'brand-name' }, '3D Print Pricing', betaBadge()),
         appVersion ? h('small', { class: 'version', id: 'sidebar-version' }, versionLabel(appVersion)) : null)),
     ...NAV.map((n) => navLink(n, n[0] === r.page)),
     langSwitch(chooseLanguage),

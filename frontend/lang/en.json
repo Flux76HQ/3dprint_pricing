@@ -99,6 +99,7 @@
  "barcode.placeholder": "Scan or type the barcode",
  "blur.hide": "Hide costs",
  "blur.show": "Show costs",
+ "brand.beta_title": "This is a beta version: it may still contain bugs.",
  "brand.new": "New brand…",
  "brand.new_ph": "Name of the new brand",
  "brand.pick": "Pick a brand",

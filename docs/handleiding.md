@@ -108,7 +108,7 @@ verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.
 | `AI_IMAGES_ENABLED` | `TRUE` toont de optionele functie *AI-afbeeldingen* (zie [AI-afbeeldingen](#ai-afbeeldingen-optioneel)); alles anders, of leeg, laat haar uit. Standaard `FALSE` |
 | `PROXY_HOPS` | Aantal reverse proxies ervoor (vertrouwt `X-Forwarded-*`) |
 | `WEB_CONCURRENCY` | Aantal Gunicorn-workers (standaard 2) |
-| `APP_IMAGE` | Te draaien image (standaard `ghcr.io/flux76hq/3dprint_pricing:latest`) |
+| `PRINTPRICING_TAG` | Welke build draait: `latest` (stabiel, standaard), `beta` of een versienummer als `0.26.15`; vervangt `APP_IMAGE`. Dezelfde waarde gaat naar de app, die op `beta` een beta-label toont |
 
 **Camerascannen** (barcode) vraagt, net als passkeys, https en toestemming voor de camera. Chrome/Edge/Android gebruiken
 hun eigen scanner; Safari/iOS laadt een meegeleverde scanbibliotheek ([ZXing](../frontend/vendor/zxing/README.md), Apache-2.0).
@@ -229,7 +229,7 @@ docker compose pull && docker compose up -d
 ```
 `scripts/update.sh` bewaart de database als `DATA_PATH/backups/pre-update-JJJJ-MM-DD-UUMMSS.sql.gz` voordat er iets wordt vervangen; mislukt of is die dump leeg, dan stopt de update. Die dumps staan in dezelfde map als de data die ze beschermen:
 kopieer ze nu en dan van de server af. Terugzetten: zie *Back-up en herstel*.
-CI publiceert bij elke push naar `beta` `:beta` (en `:beta-<sha>`), zonder release of nieuw versienummer: zet `APP_IMAGE` op `…:beta` om de beta te draaien, met een aparte datamap.
+CI publiceert bij elke push naar `beta` `:beta` (en `:beta-<sha>`), zonder release of nieuw versienummer: zet `PRINTPRICING_TAG=beta` in `.env` om de beta te draaien, met een aparte datamap.
 CI publiceert bij elke promotie naar `main` (een pull request vanuit `beta`) `:latest`, en `:X.Y.Z` plus een GitHub Release (met notities) wanneer
 `VERSION` een nieuwe versie heeft. Een versie-image wordt nooit overschreven. Migraties draaien bij het opstarten
 vóór de server verkeer krijgt; de container stopt als een migratie faalt of een toegepaste migratie is gewijzigd.
@@ -239,7 +239,7 @@ Hosten op de gedeelde Flux76-server: zie `shared/infrastructure/adding-an-app.md
 `curl http://<host>:<poort>/api/version`, en vergelijk met de laatste release op GitHub. Staat daar een oudere versie:
 - `docker compose up -d` pullt een image die al lokaal bestaat **niet** opnieuw; gebruik `docker compose pull && docker compose up -d`.
   Een eerder lokaal gebouwde `…:latest` heeft voorrang tot je pullt.
-- Controleer of `APP_IMAGE` in `.env` niet op een oude tag staat; zet hem desnoods op de nieuwste (bijv. `…:0.3.0`).
+- Controleer of `PRINTPRICING_TAG` in `.env` niet op een oude versie staat; zet hem desnoods op `latest`. Een oude `APP_IMAGE` in `.env` wordt niet meer gelezen.
 - Draait alles goed maar toont je browser oude schermen, ververs dan één keer hard (de service worker haalt bestanden
   vanaf versie 0.3.1 eerst van het netwerk).
 
