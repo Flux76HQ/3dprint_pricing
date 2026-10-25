@@ -54,6 +54,15 @@ def test_login_options_name_the_owners_passkeys_so_a_non_discoverable_one_still_
     assert post(client, "/api/auth/login/verify", {"credential": auth.assert_(options)}).status_code == 200
 
 
+def test_stepup_options_let_the_browser_find_the_passkey_and_the_server_checks_whose_it_is(client):
+    # A list of credential ids made Enpass skip the passkey it holds; the server still only accepts one of the
+    # signed-in user's own credentials (see test_stepup_confirmation_from_someone_elses_key_is_refused).
+    onboard(client)
+    opts = post(client, "/api/auth/stepup/options", {"action": "regenerate-recovery"}).get_json()
+    assert opts["allowCredentials"] == []
+    assert opts["userVerification"] == "preferred"
+
+
 def test_a_password_manager_passkey_can_onboard_log_in_and_confirm(client):
     # Flags 0x41 / 0x01: user present, not verified: what Enpass reports.
     auth = FakeAuthenticator()

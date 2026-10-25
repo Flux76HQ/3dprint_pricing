@@ -375,14 +375,13 @@ def _purpose(action: str, target: str | None) -> str:
 def stepup_options():
     body = json_body()
     purpose = _purpose(str(body.get("action", "")), body.get("target"))
+    # No credential list: the browser (and a password manager such as Enpass) finds the passkey itself, as
+    # it does at login. `_verify_assertion` only accepts one of this user's own credentials, so nothing is lost.
     with pool().connection() as conn:
-        creds = [r["credential_id"] for r in conn.execute(
-            "SELECT credential_id FROM webauthn_credentials WHERE user_id = %s", (g.user_id,)).fetchall()]
         challenge = _store_challenge(conn, "confirm", purpose=purpose, user_id=g.user_id)
     return jsonify({
         "challenge": wa.b64u_encode(challenge), "rpId": config().rp_id,
-        "userVerification": "preferred", "timeout": 120000,
-        "allowCredentials": [{"type": "public-key", "id": wa.b64u_encode(bytes(c))} for c in creds],
+        "userVerification": "preferred", "timeout": 120000, "allowCredentials": [],
     })
 
 
