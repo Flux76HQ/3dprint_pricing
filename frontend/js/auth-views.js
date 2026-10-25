@@ -1,13 +1,13 @@
 import { api, createPasskey, getPasskey, passkeySupport } from './api.js';
 import { t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
-import { h, toast } from './ui.js';
+import { betaBadge, h, toast } from './ui.js';
 
 function shell(onLanguage, ...children) {
   return h('main', { id: 'main', class: 'auth-wrap' }, h('div', { class: 'glass card auth-card' },
     langSwitch(onLanguage),
     h('div', { class: 'brand' }, h('img', { src: '/icons/icon.svg', alt: '', width: 40, height: 40 }),
-      h('div', {}, h('h1', {}, '3D Print Pricing'), h('p', { class: 'muted' }, t('auth.tagline')))),
+      h('div', {}, h('h1', {}, '3D Print Pricing', betaBadge()), h('p', { class: 'muted' }, t('auth.tagline')))),
     ...children));
 }
 

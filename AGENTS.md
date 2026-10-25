@@ -159,6 +159,12 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   release and no `VERSION`. A promotion builds `latest`, raises `VERSION`, and publishes `X.Y.Z` with its GitHub Release (`docker` workflow), which then
   merges `main` back into `beta` so `beta` carries the new `VERSION` (best effort; if it warns, merge `main` into `beta` by hand).
   github-actions must be allowed to push to `beta` as well as to `main`, if either is protected.
+- **One variable picks the build: `PRINTPRICING_TAG`** (`latest` = stable, the default; `beta`; or a version number to pin), set in `.env`.
+  `docker-compose.yml` uses it for the image (`ghcr.io/flux76hq/3dprint_pricing:${PRINTPRICING_TAG:-latest}`) and passes the same value into the
+  container, where `config.build_channel()` turns it into the channel (`beta` when the tag contains `beta`). `BUILD.channel` in `js/build.js`
+  (stamped by the server), `/api/version` and `<title>` carry it, and a beta build shows a **beta** label next to the app name (`betaBadge()` in
+  `ui.js`, sidebar and login screen) and installs on a home screen as "PrintPricing beta". There is no `APP_IMAGE` any more. Same set-up as
+  MealieShopper (`MEALIESHOPPER_TAG`); `test_deploy_layout.py` and `test_static_build.py` pin it.
 - Develop on a feature branch off `beta`; never commit directly to `beta` or `main`.
 - Give a new feature its own worktree and its own agent session.
 - Check for an existing open PR before opening a new one; never push without a PR; never add
