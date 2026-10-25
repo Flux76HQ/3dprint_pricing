@@ -25,5 +25,8 @@ else
   echo "The database is not running, so there is nothing to dump: updating anyway." >&2
 fi
 
+# Data that sits in another folder than DATA_PATH (a relative DATA_PATH once resolved elsewhere) is copied there first; no-op otherwise.
+sh "$(dirname "$0")/migrate_data.sh"
+
 docker compose pull
 docker compose up -d
