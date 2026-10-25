@@ -14,23 +14,37 @@ import hashlib
 import json
 import os
 import re
+import logging
+import tempfile
+import threading
+import time
 import uuid
+import zipfile
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Blueprint, Response, g, jsonify, request
+from flask import Blueprint, Response, current_app, g, jsonify, request, send_file
 
 from . import ai_images, customers, filament_library, invoice_docs, invoice_logo, invoice_template, orders, printfile
 from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
-from .i18n import L, Localized
+from .i18n import L, Localized, render, request_language
 
 bp = Blueprint("backup", __name__, url_prefix="/api/backup")
+log = logging.getLogger(__name__)
 
 FORMAT = "printpricing-backup"
 FORMAT_VERSION = 5          # 5: the filament library; 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
                             # numbers. A file of an older version still restores
 MAX_ROWS = 20_000
+ARCHIVE_JSON = "backup.json"                 # the data of a backup with print files: a ZIP with this file and the models next to it, under files/
+ZIP_MAGIC = b"PK\x03\x04"
+MAX_STAGE_BYTES = 2 * 1024 ** 3              # a backup with print files is many uploads in one; the usual upload cap (MAX_UPLOAD_MB) is for one file
+MAX_JSON_BYTES = 512 * 1024 ** 2             # what backup.json may unpack to
+STAGE_PREFIX = ".restore-"                   # a backup waiting under UPLOAD_DIR for the owner to confirm; removed after the restore, or after an hour
+STAGE_TTL_SECONDS = 3600
+STALE_MINUTES = 15                           # a restore that has not moved for this long lost its thread (the container restarted); the swap is one transaction, so nothing had changed
 # (key in the file, key in api.RESOURCES) -- the order is the order of insertion
 SECTIONS = (("printers", "printers"), ("tariffs", "tariffs"), ("packaging", "packaging"), ("parts", "parts"),
             ("accessories", "accessories"), ("filament_library", "filament-library"), ("spools", "spools"))
@@ -91,19 +105,48 @@ def export():
             doc["invoice_template"] = {"filename": template["filename"], "kind": template["kind"], "margin_top_mm": template["margin_top_mm"],
                                        "margin_bottom_mm": template["margin_bottom_mm"],
                                        "content_b64": base64.b64encode(template["content"]).decode("ascii")}
+        attachments = []                                             # (name in the ZIP, path on disk, kind)
         if include_files:
-            files = []
+            files, used = [], set()
             for row in conn.execute("SELECT * FROM print_files ORDER BY created_at, id").fetchall():
                 path = Path(config().upload_dir) / row["stored_name"]
                 if not path.is_file():
                     continue                                         # the row outlived its file: nothing to back up
+                member = _archive_name(row["filename"], used)
+                attachments.append((member, path, row["kind"]))
                 files.append({"id": str(row["id"]), "filename": row["filename"], "kind": row["kind"],
                               "sha256": row["sha256"], "created_at": row["created_at"].isoformat(),
-                              "content_b64": base64.b64encode(path.read_bytes()).decode("ascii")})
+                              "archive_path": member})                # the model itself sits in the ZIP, as a file of its own
             doc["files"] = files
-    name = f"printpricing-backup-{datetime.now().strftime('%Y-%m-%d')}.json"
-    return Response(json.dumps(doc, ensure_ascii=False), mimetype="application/json",
-                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    if not include_files:
+        return Response(json.dumps(doc, ensure_ascii=False), mimetype="application/json",
+                        headers={"Content-Disposition": f'attachment; filename="printpricing-backup-{stamp}.json"'})
+    upload_dir = Path(config().upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    out = tempfile.TemporaryFile(dir=upload_dir)                     # on the data disk, not in memory: the models can be large
+    with zipfile.ZipFile(out, "w", strict_timestamps=False) as archive:
+        archive.writestr(ARCHIVE_JSON, json.dumps(doc, ensure_ascii=False), compress_type=zipfile.ZIP_DEFLATED)
+        for member, path, kind in attachments:                       # a 3MF is a ZIP already: storing it saves the time and gains nothing
+            archive.write(path, member, compress_type=zipfile.ZIP_STORED if kind == "3mf" else zipfile.ZIP_DEFLATED)
+    size = out.seek(0, os.SEEK_END)
+    out.seek(0)
+    response = send_file(out, mimetype="application/zip", as_attachment=True, download_name=f"printpricing-backup-{stamp}.zip")      # with its size, so the screen can show how far the download is
+    response.headers["Content-Disposition"] = f'attachment; filename="printpricing-backup-{stamp}.zip"'
+    response.headers["Content-Length"] = str(size)
+    return response
+
+
+def _archive_name(filename: str, used: set) -> str:
+    """Where a model goes in the ZIP: files/<its own name>, with (2), (3)… when two models are called the same."""
+    name = re.sub(r"[\\/\x00-\x1f]", "_", os.path.basename(str(filename or "").replace("\\", "/"))).strip(". ") or "model"
+    stem, ext = os.path.splitext(name)
+    candidate, n = name, 1
+    while candidate.casefold() in used:
+        n += 1
+        candidate = f"{stem} ({n}){ext}"
+    used.add(candidate.casefold())
+    return f"files/{candidate}"
 
 
 MAX_INVOICE_PDF_BYTES = 10 * 1024 * 1024
@@ -153,8 +196,8 @@ def _row_error(key: str, n: int, error) -> ApiError:
     return ApiError(400, "backup.bad_row", section=L(f"backup.s.{key}"), n=n, reason=reason)
 
 
-def _parse(doc) -> dict:
-    """Check the whole file and turn it into what will be written. Nothing is written here."""
+def _parse(doc, archive=None, progress=None) -> dict:
+    """Check the whole file and turn it into what will be written. Nothing is written here. `archive` is the ZIP the models sit in, if any."""
     if not isinstance(doc, dict) or doc.get("format") != FORMAT:
         raise ApiError(400, "backup.not_backup")
     version = doc.get("format_version")
@@ -170,9 +213,12 @@ def _parse(doc) -> dict:
         raise _row_error("preferences", 1, exc) from None
 
     if doc.get("includes_files") and isinstance(doc.get("files"), list):
-        for n, entry in enumerate(_rows(doc, "files"), 1):
+        entries = _rows(doc, "files")
+        for n, entry in enumerate(entries, 1):
+            if progress:
+                progress(n, len(entries))                          # reading a model again is the slow part: this is what the screen counts
             try:
-                plan["files"].append(_parse_file(entry))
+                plan["files"].append(_parse_file(entry, archive))
             except (ApiError, Localized, printfile.PrintFileError) as exc:
                 raise _row_error("files", n, exc) from None
         plan["file_ids"] = {f["id"] for f in plan["files"]}
@@ -422,16 +468,40 @@ def _parse_template(entry):
         raise _row_error("template", 1, exc) from None
 
 
-def _parse_file(entry) -> dict:
+def _read_member(archive: zipfile.ZipFile, name: str, limit: int) -> bytes:
+    """One file out of the ZIP, never more than `limit` bytes: what the ZIP says it unpacks to is not taken on trust."""
+    try:
+        info = archive.getinfo(name)
+    except KeyError:
+        raise Localized("backup.missing_file", name=name[:120]) from None
+    if info.file_size > limit:
+        raise Localized("backup.bad_file")
+    try:
+        with archive.open(info) as handle:
+            data = handle.read(limit + 1)
+    except (zipfile.BadZipFile, zlib.error, NotImplementedError, RuntimeError, EOFError):
+        raise Localized("backup.bad_file") from None
+    if len(data) > limit:
+        raise Localized("backup.bad_file")
+    return data
+
+
+def _parse_file(entry, archive=None) -> dict:
     if not isinstance(entry, dict):
         raise Localized("backup.bad_row_type")
     kind = entry.get("kind")
     if kind not in ("stl", "3mf"):
         raise Localized("pf.unsupported")
-    try:
-        content = base64.b64decode(str(entry.get("content_b64", "")), validate=True)
-    except (binascii.Error, ValueError):
-        raise Localized("backup.bad_file") from None
+    member = entry.get("archive_path")
+    if member is not None:
+        if archive is None or not isinstance(member, str):
+            raise Localized("backup.bad_file")
+        content = _read_member(archive, member, config().max_upload_mb * 1024 * 1024)      # a model never was bigger than an upload may be
+    else:
+        try:
+            content = base64.b64decode(str(entry.get("content_b64", "")), validate=True)
+        except (binascii.Error, ValueError):
+            raise Localized("backup.bad_file") from None
     if not content:
         raise Localized("files.empty")
     digest = hashlib.sha256(content).hexdigest()
@@ -447,7 +517,8 @@ def _parse_file(entry) -> dict:
     finally:
         tmp.unlink(missing_ok=True)
     return {"id": str(_uuid(entry.get("id") or uuid.uuid4(), "files")), "filename": filename or f"model.{kind}", "kind": kind,
-            "content": content, "sha256": digest, "analysis": analysis, "created_at": _when(entry.get("created_at"))}
+            "member": member, "content": content if member is None else None,       # from the ZIP it is read again when written: not all the models in memory at once
+            "size": len(content), "sha256": digest, "analysis": analysis, "created_at": _when(entry.get("created_at"))}
 
 
 def _summary(plan: dict) -> dict:
@@ -488,16 +559,212 @@ def _restore_orders(conn, items: list) -> None:
         conn.execute("INSERT INTO invoice_counters (year, last) VALUES (%s, %s)", (year, last))
 
 
+# --- staging: a backup is sent once, checked, and restored from the server's disk after the owner confirmed ------
+
+def _upload_dir() -> Path:
+    path = Path(config().upload_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _staged(token) -> Path:
+    if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{32}", token):
+        raise ApiError(400, "backup.expired")
+    path = _upload_dir() / f"{STAGE_PREFIX}{token}"
+    if not path.is_file():
+        raise ApiError(400, "backup.expired")
+    return path
+
+
+def _clear_old_stages() -> None:
+    for path in _upload_dir().glob(f"{STAGE_PREFIX}*"):
+        try:
+            if time.time() - path.stat().st_mtime > STAGE_TTL_SECONDS:
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _open_backup(path: Path):
+    """The data of a staged backup: a ZIP (backup.json and the models) or a plain JSON file. Resolves (document, archive or None)."""
+    with path.open("rb") as handle:
+        magic = handle.read(4)
+    if magic == ZIP_MAGIC:
+        try:
+            archive = zipfile.ZipFile(path)
+        except zipfile.BadZipFile:
+            raise ApiError(400, "backup.bad_zip") from None
+        try:
+            doc = json.loads(_read_member(archive, ARCHIVE_JSON, MAX_JSON_BYTES))
+        except Localized:
+            archive.close()
+            raise ApiError(400, "backup.not_backup") from None
+        except ValueError:
+            archive.close()
+            raise ApiError(400, "backup.not_json") from None
+        return doc, archive
+    try:
+        return json.loads(path.read_bytes()), None
+    except ValueError:                                              # includes a file that is not text at all
+        raise ApiError(400, "backup.not_json") from None
+
+
+def _summary_of(doc, plan: dict) -> dict:
+    doc = doc if isinstance(doc, dict) else {}
+    return {**_summary(plan), "app_version": str(doc.get("app_version", ""))[:40],
+            "created_at": str(doc.get("created_at", ""))[:40], "includes_files": bool(plan["files"])}
+
+
+@bp.post("/stage")
+def stage():
+    """Takes the backup (the raw request body: a ZIP or a JSON file), keeps it on the server's disk and checks all of it.
+    The answer says what would come back and gives the token that /restore needs. Nothing in the database changes."""
+    request.max_content_length = MAX_STAGE_BYTES
+    _clear_old_stages()
+    token = uuid.uuid4().hex
+    path = _upload_dir() / f"{STAGE_PREFIX}{token}"
+    try:
+        with path.open("wb") as handle:
+            while True:
+                chunk = request.stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                handle.write(chunk)
+    except Exception as exc:                                        # werkzeug raises its own error when the limit is passed
+        path.unlink(missing_ok=True)
+        if getattr(exc, "code", None) == 413:
+            raise ApiError(413, "backup.too_large", mb=MAX_STAGE_BYTES // 1024 ** 2) from None
+        raise
+    archive = None
+    try:
+        doc, archive = _open_backup(path)
+        summary = _summary_of(doc, _parse(doc, archive))
+    except Exception:
+        path.unlink(missing_ok=True)                                # a file that is refused is not kept
+        raise
+    finally:
+        if archive:
+            archive.close()
+    return jsonify({"ok": True, "token": token, "summary": summary})
+
+
+@bp.delete("/stage/<token>")
+def unstage(token):
+    """The owner changed their mind after the check."""
+    try:
+        _staged(token).unlink(missing_ok=True)
+    except ApiError:
+        pass
+    return jsonify({"ok": True})
+
+
 @bp.post("/restore")
 def restore():
-    body = json_body()
-    dry_run = request.args.get("dry_run") == "1"
-    plan = _parse(body)
-    summary = {**_summary(plan), "app_version": str(body.get("app_version", ""))[:40],
-               "created_at": str(body.get("created_at", ""))[:40], "includes_files": bool(plan["files"])}
-    if dry_run:
+    """The backup as the JSON body, done within this request. The screen uses stage + jobs instead (a restore that survives leaving the page)."""
+    doc = json_body()
+    plan = _parse(doc)
+    summary = _summary_of(doc, plan)
+    if request.args.get("dry_run") == "1":
         return jsonify({"ok": True, "dry_run": True, "summary": summary})
+    _write(plan, None, g.user_id)
+    stock_changed()                                                   # the restored shelf and thresholds may already be low
+    return jsonify({"ok": True, "dry_run": False, "summary": summary})
 
+
+# --- the restore as a background job -------------------------------------------------------------------------------
+
+JOB_LOCK = 7603003                   # two clicks never start two restores
+
+
+def _job_json(row) -> dict:
+    message = render(L(row["error_key"], **row["error_params"]), request_language()) if row["error_key"] else None
+    return {"id": str(row["id"]), "status": row["status"], "phase": row["phase"], "step": row["step"], "steps": row["steps"],
+            "message": message, "summary": row["summary"], "started_at": row["created_at"].isoformat(),
+            "finished_at": row["finished_at"].isoformat() if row["finished_at"] else None}
+
+
+def _recover(conn) -> None:
+    """Give up on a restore that has not moved for a while: its thread died with its container. The swap is one transaction, so nothing changed."""
+    conn.execute("UPDATE backup_jobs SET status = 'failed', error_key = 'backup.err_interrupted', finished_at = now(), updated_at = now() "
+                 "WHERE status = 'running' AND updated_at < now() - make_interval(mins => %s)", (STALE_MINUTES,))
+
+
+def _progress(job_id, phase: str, step: int, steps: int) -> None:
+    with pool().connection() as conn:
+        conn.execute("UPDATE backup_jobs SET phase = %s, step = %s, steps = %s, updated_at = now() WHERE id = %s AND status = 'running'",
+                     (phase, step, steps, job_id))
+
+
+@bp.get("/jobs/latest")
+def latest_job():
+    """The restore that is running, or the last one that finished and has not been dismissed. The screen polls this."""
+    with pool().connection() as conn:
+        _recover(conn)
+        row = conn.execute("SELECT * FROM backup_jobs ORDER BY created_at DESC LIMIT 1").fetchone()
+    return jsonify({"job": _job_json(row) if row else None})
+
+
+@bp.post("/jobs")
+def start_job():
+    """Restore the staged backup in the background and answer at once. From here on nothing depends on this browser: leaving the page does not stop it."""
+    staged = _staged(json_body().get("token"))
+    with pool().connection() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (JOB_LOCK,))
+        _recover(conn)
+        if conn.execute("SELECT 1 FROM backup_jobs WHERE status = 'running'").fetchone():
+            raise ApiError(409, "backup.busy")
+        conn.execute("DELETE FROM backup_jobs")                          # the last one is dismissed by starting the next
+        row = conn.execute("INSERT INTO backup_jobs DEFAULT VALUES RETURNING *").fetchone()
+    _start(current_app._get_current_object(), row["id"], staged.name[len(STAGE_PREFIX):], g.user_id, request_language())
+    return jsonify({"job": _job_json(row)}), 202
+
+
+@bp.delete("/jobs/<uuid:job_id>")
+def dismiss_job(job_id):
+    with pool().connection() as conn:
+        conn.execute("DELETE FROM backup_jobs WHERE id = %s AND status <> 'running'", (job_id,))
+    return jsonify({"ok": True})
+
+
+def _start(app, job_id, token, user_id, lang):
+    """Restore in a thread of this web worker (tests replace this to run it on the spot)."""
+    thread = threading.Thread(target=_run_restore, args=(app, job_id, token, user_id, lang), name="backup-restore", daemon=True)
+    thread.start()
+    return thread
+
+
+def _run_restore(app, job_id, token, user_id, lang) -> None:
+    with app.app_context():
+        staged = _upload_dir() / f"{STAGE_PREFIX}{token}"
+        archive = None
+        try:
+            doc, archive = _open_backup(staged)
+            plan = _parse(doc, archive, progress=lambda n, total: _progress(job_id, "checking", n, total))
+            summary = _summary_of(doc, plan)
+            _write(plan, archive, user_id, progress=lambda n, total: _progress(job_id, "replacing", n, total), job=(job_id, summary, len(plan["files"])))
+            try:
+                stock_changed()
+            except Exception:
+                log.exception("low-stock check after a restore failed")
+        except Exception as exc:
+            known = isinstance(exc, (ApiError, Localized))
+            if not known:
+                log.exception("restore %s failed", job_id)
+            reason = render(exc.msg if known else L("backup.err_unexpected"), lang)
+            try:
+                with pool().connection() as conn:
+                    conn.execute("UPDATE backup_jobs SET status = 'failed', error_key = 'backup.failed', error_params = %s::jsonb, finished_at = now(), "
+                                 "updated_at = now() WHERE id = %s", (json.dumps({"reason": reason}), job_id))
+            except Exception:
+                log.exception("could not mark restore %s as failed", job_id)
+        finally:
+            if archive:
+                archive.close()
+            staged.unlink(missing_ok=True)
+
+
+def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
+    """Swap the plan in, all or nothing. `job` = (id, summary, steps): the job is marked done in the same transaction as the swap."""
     upload_dir = Path(config().upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
     written, old_files = [], []
@@ -515,12 +782,14 @@ def restore():
                 conn.execute(f"DELETE FROM {table}")
             if plan["files"]:
                 old_files += [r["stored_name"] for r in conn.execute("DELETE FROM print_files RETURNING stored_name").fetchall()]
-                for item in plan["files"]:
+                for n, item in enumerate(plan["files"], 1):
+                    if progress:
+                        progress(n, len(plan["files"]))
                     stored = f"{uuid.uuid4().hex}.{item['kind']}"
-                    (upload_dir / stored).write_bytes(item["content"])
+                    (upload_dir / stored).write_bytes(item["content"] if item["member"] is None else _read_member(archive, item["member"], item["size"]))
                     written.append(upload_dir / stored)
                     _insert(conn, "print_files", {"id": item["id"], "filename": item["filename"], "kind": item["kind"],
-                                                  "size_bytes": len(item["content"]), "sha256": item["sha256"],
+                                                  "size_bytes": item["size"], "sha256": item["sha256"],
                                                   "stored_name": stored, "analysis": json.dumps(item["analysis"]),
                                                   **({"created_at": item["created_at"]} if item["created_at"] else {})})
             for _key, (table, items) in plan["sections"].items():
@@ -566,12 +835,13 @@ def restore():
             if plan["logo"]:
                 lg = plan["logo"]
                 invoice_logo.replace(conn, filename=lg["filename"], kind=lg["kind"], content=lg["content"], width=lg["width"], height=lg["height"])
-            conn.execute("UPDATE users SET preferences = %s::jsonb WHERE id = %s", (json.dumps(plan["preferences"]), g.user_id))
+            conn.execute("UPDATE users SET preferences = %s::jsonb WHERE id = %s", (json.dumps(plan["preferences"]), user_id))
+            if job:
+                conn.execute("UPDATE backup_jobs SET status = 'done', phase = 'done', step = %s, steps = %s, summary = %s::jsonb, finished_at = now(), updated_at = now() "
+                             "WHERE id = %s", (job[2], job[2], json.dumps(job[1]), job[0]))
     except Exception:
         for path in written:                                          # nothing was swapped in: take the new files out again
             path.unlink(missing_ok=True)
         raise
     for name in old_files:                                            # swapped in: the replaced files can go
         (upload_dir / name).unlink(missing_ok=True)
-    stock_changed()                                                   # the restored shelf and thresholds may already be low
-    return jsonify({"ok": True, "dry_run": False, "summary": summary})

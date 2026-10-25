@@ -2,20 +2,32 @@
 unlocks the app is in the file; a file that is wrong, damaged or edited is refused before anything changes."""
 import base64
 import copy
+import dataclasses
 import io
 import json
 import os
+import zipfile
 from decimal import Decimal
 
 import psycopg
 import pytest
 
+from app import backup as backup_module
 from tests import printfiles as pf
 from tests.test_auth_api import H, onboard, post
 from tests.test_domain_api import make, sheet_payload
 from tests.test_orders import customer
 
 EN = {"X-Lang": "en"}
+
+
+REAL_START = backup_module._start
+
+
+@pytest.fixture(autouse=True)
+def _inline(monkeypatch):
+    """A restore runs in a thread; here it runs on the spot, so a test sees the outcome. One test uses the real thread."""
+    monkeypatch.setattr(backup_module, "_start", lambda *args: backup_module._run_restore(*args))
 
 
 @pytest.fixture
@@ -73,6 +85,44 @@ def wipe(client):
         for row in client.get(f"/api/{path}").get_json():
             client.delete(f"/api/{path}/{row['id']}", headers=H)
     client.put("/api/preferences", json={"theme": "light", "language": "nl", "blur_costs": False}, headers=H)
+
+
+def archive_of(res):
+    assert res.mimetype == "application/zip", res.mimetype
+    return zipfile.ZipFile(io.BytesIO(res.data))
+
+
+def inline(res):
+    """A backup with files as the one-JSON-file form it had before the ZIP: every model back inside as base64."""
+    archive = archive_of(res)
+    doc = json.loads(archive.read("backup.json"))
+    for entry in doc["files"]:
+        entry["content_b64"] = base64.b64encode(archive.read(entry.pop("archive_path"))).decode()
+    return doc
+
+
+def make_zip(doc, members=None):
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as archive:
+        archive.writestr("backup.json", json.dumps(doc))
+        for name, data in (members or {}).items():
+            archive.writestr(name, data)
+    return out.getvalue()
+
+
+def stage(client, data, headers=None):
+    return client.post("/api/backup/stage", data=data, headers=headers or {**H, "X-Lang": "nl"}, content_type="application/octet-stream")
+
+
+def restore_job(client, token, headers=None):
+    """Start the restore of a staged backup and return the job as it stands afterwards."""
+    res = client.post("/api/backup/jobs", json={"token": token}, headers=headers or {**H, "X-Lang": "nl"})
+    assert res.status_code == 202, res.get_json()
+    return client.get("/api/backup/jobs/latest", headers={**H, "X-Lang": "nl"}).get_json()["job"]
+
+
+def staged_files(app):
+    return [n for n in os.listdir(app.config["APP_CONFIG"].upload_dir) if n.startswith(".restore-")]
 
 
 # --- who may, and what is in it ----------------------------------------------------------------------------------
@@ -265,20 +315,180 @@ def with_file(owner):
     return meta, project
 
 
-def test_print_files_travel_along_when_asked_and_are_read_again_on_the_way_in(owner, app):
+def test_with_print_files_the_backup_is_a_zip_with_every_model_loose_and_a_json_for_the_rest(owner):
     meta, project = with_file(owner)
-    doc = backup(owner, files=True).get_json()
-    assert doc["includes_files"] and len(doc["files"]) == 1 and doc["files"][0]["content_b64"]
+    upload(owner, pf.stl_binary(), name="part.stl")                         # a second model with the same name
+    res = backup(owner, files=True)
+    assert res.headers["Content-Disposition"].endswith('.zip"') and int(res.headers["Content-Length"]) == len(res.data)      # the size is known up front
+    archive = archive_of(res)
+    assert sorted(archive.namelist()) == ["backup.json", "files/part (2).stl", "files/part.stl"]
+    assert archive.read("files/part.stl") == pf.stl_binary()                  # the model as it is, not wrapped in anything
+    doc = json.loads(archive.read("backup.json"))
+    assert doc["includes_files"] and len(doc["files"]) == 2 and all("content_b64" not in f and f["archive_path"] in archive.namelist() for f in doc["files"])
+    assert "printers" in doc and len(doc["projects"]) == 2                  # the rest is the same JSON as ever
+    assert backup(owner).mimetype == "application/json"                     # without the models it stays one JSON file
+
+
+def test_a_zip_is_sent_once_checked_and_restored_from_the_server(owner, app):
+    meta, project = with_file(owner)
+    res = backup(owner, files=True)
     old_names = set(os.listdir(app.config["APP_CONFIG"].upload_dir))
     wipe(owner)
-    post(owner, "/api/backup/restore", doc)
+    answer = stage(owner, res.data)
+    assert answer.status_code == 200, answer.get_json()
+    assert answer.get_json()["summary"]["files"] == 1 and answer.get_json()["summary"]["projects"] == 2
+    assert len(staged_files(app)) == 1                                       # waiting for the owner to confirm
+    assert owner.get("/api/projects").get_json() == []                       # staging changes nothing
+    job = restore_job(owner, answer.get_json()["token"])
+    assert job["status"] == "done" and job["phase"] == "done" and job["step"] == job["steps"] == 1 and job["summary"]["files"] == 1
     restored = owner.get(f"/api/projects/{project['id']}").get_json()
     assert restored["file_id"] == meta["id"]
     download = owner.get(f"/api/print-files/{meta['id']}/download")
     assert download.status_code == 200 and download.data == pf.stl_binary()
     assert owner.get(f"/api/print-files/{meta['id']}").get_json()["analysis"]["volume_cm3"] == pytest.approx(1.0, rel=0.01)
     new_names = set(os.listdir(app.config["APP_CONFIG"].upload_dir))
-    assert len(new_names) == 1 and new_names != old_names                  # the replaced file is gone, no leftovers
+    assert len(new_names) == 1 and new_names != old_names                   # the replaced file is gone, the staged ZIP too
+    assert post(owner, "/api/backup/jobs", {"token": answer.get_json()["token"]}).status_code == 400      # a token is used once
+
+
+def test_a_json_backup_from_before_the_zip_is_staged_and_restored_too(owner, app):
+    meta, project = with_file(owner)
+    doc = inline(backup(owner, files=True))
+    wipe(owner)
+    answer = stage(owner, json.dumps(doc).encode())
+    assert answer.status_code == 200 and answer.get_json()["summary"]["files"] == 1
+    assert restore_job(owner, answer.get_json()["token"])["status"] == "done"
+    assert owner.get(f"/api/print-files/{meta['id']}/download").data == pf.stl_binary()
+    post(owner, "/api/backup/restore", doc)                                  # and the JSON can still be posted straight to /restore
+    assert owner.get(f"/api/print-files/{meta['id']}/download").data == pf.stl_binary()
+
+
+def test_a_restore_that_fails_says_why_changes_nothing_and_leaves_no_file(owner, app, monkeypatch):
+    fill(owner)
+    token = stage(owner, backup(owner, files=True).data).get_json()["token"]
+    before = snapshot(owner)
+    def broken(*args, **kwargs):
+        raise RuntimeError("the disk is full")
+    monkeypatch.setattr(backup_module, "_write", broken)
+    job = restore_job(owner, token)
+    assert job["status"] == "failed" and "mislukt" in job["message"] and "niets veranderd" in job["message"]
+    assert "disk" not in job["message"]                                      # what went wrong inside is for the log, not for the screen
+    assert staged_files(app) == [] and snapshot(owner) == before
+
+
+def test_a_file_that_is_refused_while_restoring_is_reported_by_the_job(owner, app):
+    fill(owner)
+    token = stage(owner, backup(owner).data).get_json()["token"]
+    path = os.path.join(app.config["APP_CONFIG"].upload_dir, f".restore-{token}")
+    doc = json.loads(open(path, "rb").read())
+    doc["printers"][0]["power_kw"] = "banana"                                # it was fine when staged; the file on disk changed since
+    open(path, "wb").write(json.dumps(doc).encode())
+    before = snapshot(owner)
+    job = restore_job(owner, token)
+    assert job["status"] == "failed" and "Printers, regel 1" in job["message"] and snapshot(owner) == before
+
+
+def test_only_one_restore_runs_at_a_time_and_a_finished_one_is_dismissed_by_the_screen(owner, app):
+    with_file(owner)
+    data = backup(owner, files=True).data
+    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+        conn.execute("INSERT INTO backup_jobs (status) VALUES ('running')")
+        conn.commit()
+    token = stage(owner, data).get_json()["token"]
+    assert post(owner, "/api/backup/jobs", {"token": token}).status_code == 409
+    assert owner.get("/api/backup/jobs/latest").get_json()["job"]["status"] == "running"
+    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:    # its thread is gone and nothing has moved for a long time
+        conn.execute("UPDATE backup_jobs SET updated_at = now() - interval '1 hour'")
+        conn.commit()
+    job = owner.get("/api/backup/jobs/latest", headers={**H, "X-Lang": "nl"}).get_json()["job"]
+    assert job["status"] == "failed" and "onderbroken" in job["message"]
+    job = restore_job(owner, token)
+    assert job["status"] == "done"
+    assert owner.delete(f"/api/backup/jobs/{job['id']}", headers=H).status_code == 200
+    assert owner.get("/api/backup/jobs/latest").get_json() == {"job": None}
+
+
+def test_the_restore_goes_on_in_the_background_whatever_the_browser_does(owner, app, monkeypatch):
+    meta, project = with_file(owner)
+    token = stage(owner, backup(owner, files=True).data).get_json()["token"]
+    wipe(owner)
+    threads = []
+    monkeypatch.setattr(backup_module, "_start", lambda *args: threads.append(REAL_START(*args)) or threads[-1])
+    res = post(owner, "/api/backup/jobs", {"token": token})
+    assert res.status_code == 202 and res.get_json()["job"]["status"] in ("running", "done")      # answered at once; the work is the thread's
+    threads[0].join(30)
+    assert not threads[0].is_alive()
+    assert owner.get("/api/backup/jobs/latest").get_json()["job"]["status"] == "done"
+    assert owner.get(f"/api/projects/{project['id']}").get_json()["file_id"] == meta["id"]
+
+
+def test_cancelling_removes_the_staged_backup(owner, app):
+    with_file(owner)
+    token = stage(owner, backup(owner, files=True).data).get_json()["token"]
+    assert owner.delete(f"/api/backup/stage/{token}", headers=H).status_code == 200 and staged_files(app) == []
+
+
+def test_old_staged_backups_are_cleared_when_the_next_one_arrives(owner, app):
+    with_file(owner)
+    data = backup(owner, files=True).data
+    first = stage(owner, data).get_json()["token"]
+    old = os.path.join(app.config["APP_CONFIG"].upload_dir, f".restore-{first}")
+    os.utime(old, (0, 0))                                                    # an hour is long gone
+    stage(owner, data)
+    assert not os.path.exists(old) and len(staged_files(app)) == 1
+
+
+def test_staging_needs_a_session_and_a_token_must_look_like_one(client, owner):
+    assert post(owner, "/api/backup/jobs", {"token": "../../etc/passwd"}).status_code == 400
+    assert post(owner, "/api/backup/jobs", {"token": "0" * 32}).status_code == 400
+    assert post(owner, "/api/backup/jobs", {}).status_code == 400
+    client.post("/api/auth/logout", json={}, headers=H)
+    assert stage(client, b"{}").status_code == 401
+    assert client.post("/api/backup/jobs", json={"token": "0" * 32}, headers=H).status_code == 401
+    assert client.get("/api/backup/jobs/latest").status_code == 401
+
+
+def test_something_that_is_no_backup_is_refused_and_not_kept(owner, app):
+    fill(owner)
+    before = snapshot(owner)
+    for junk in (b"just some text", b"PK\x03\x04 not really a zip", b"", make_zip({"format": "something-else"}), b"\xff\xfe\x00"):
+        res = stage(owner, junk)
+        assert res.status_code == 400, junk
+    assert staged_files(app) == [] and snapshot(owner) == before
+
+
+def test_a_zip_with_a_damaged_edited_or_missing_model_is_refused(owner, app):
+    meta, project = with_file(owner)
+    res = backup(owner, files=True)
+    archive = archive_of(res)
+    doc = json.loads(archive.read("backup.json"))
+    model = archive.read("files/part.stl")
+    names = set(os.listdir(app.config["APP_CONFIG"].upload_dir))
+    before = snapshot(owner)
+    raw = bytearray(model)
+    raw[100] ^= 0xFF
+    cases = {
+        "edited": make_zip(doc, {"files/part.stl": bytes(raw)}),             # no longer fits its checksum
+        "missing": make_zip(doc, {}),
+        "no name": make_zip({**doc, "files": [{**doc["files"][0], "archive_path": 7}]}, {"files/part.stl": model}),
+    }
+    for name, data in cases.items():
+        answer = stage(owner, data)
+        assert answer.status_code == 400, name
+        assert "Printbestanden, regel 1" in answer.get_json()["error"], (name, answer.get_json())
+    wrong = {**doc, "files": [{k: v for k, v in doc["files"][0].items() if k != "sha256"}]}
+    answer = stage(owner, make_zip(wrong, {"files/part.stl": b"this is not a model"}))       # no checksum to hide behind: it is read and rejected
+    assert answer.status_code == 400 and "Printbestanden, regel 1" in answer.get_json()["error"]
+    assert set(os.listdir(app.config["APP_CONFIG"].upload_dir)) == names and snapshot(owner) == before      # nothing left behind, nothing changed
+
+
+def test_a_model_in_the_zip_that_unpacks_bigger_than_an_upload_may_be_is_refused(owner, app, monkeypatch):
+    with_file(owner)
+    archive = archive_of(backup(owner, files=True))
+    real = app.config["APP_CONFIG"]
+    monkeypatch.setattr("app.backup.config", lambda: dataclasses.replace(real, max_upload_mb=0))        # nothing may be bigger than 0 MB
+    answer = stage(owner, make_zip(json.loads(archive.read("backup.json")), {"files/part.stl": archive.read("files/part.stl")}))
+    assert answer.status_code == 400
 
 
 def test_without_files_a_calculation_keeps_its_file_only_if_that_file_is_still_here(owner):
@@ -295,9 +505,9 @@ def test_without_files_a_calculation_keeps_its_file_only_if_that_file_is_still_h
     assert owner.get(f"/api/projects/{project['id']}").get_json()["file_id"] is None               # gone: let go, not an error
 
 
-def test_a_damaged_or_edited_print_file_is_refused(owner, app):
+def test_a_damaged_or_edited_print_file_is_refused_in_the_json_form(owner, app):
     meta, project = with_file(owner)
-    doc = backup(owner, files=True).get_json()
+    doc = inline(backup(owner, files=True))
     names = set(os.listdir(app.config["APP_CONFIG"].upload_dir))
     edited = copy.deepcopy(doc)
     raw = bytearray(base64.b64decode(edited["files"][0]["content_b64"]))

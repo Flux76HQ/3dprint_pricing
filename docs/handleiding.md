@@ -282,7 +282,7 @@ Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de ap
 
 | Limiet | Waarde die de app nodig heeft | Beperkt |
 |---|---|---|
-| Maximale request-body (proxy/CDN) | ≥ `MAX_UPLOAD_MB` + 1 MB (standaard 51 MB) | uploadlimiet van de app; Cloudflare Free stopt bij 100 MB, nginx staat standaard op 1 MB (`client_max_body_size`) |
+| Maximale request-body (proxy/CDN) | ≥ `MAX_UPLOAD_MB` + 1 MB (standaard 51 MB); voor het herstellen van een back-up met printbestanden zo groot als die back-up | uploadlimiet van de app; Cloudflare Free stopt bij 100 MB, nginx staat standaard op 1 MB (`client_max_body_size`) |
 | Request-timeout (proxy/CDN) | ≥ 120 s | Gunicorn `--timeout 120` in `deploy/entrypoint.sh` (een groot 3MF uitlezen duurt even) |
 | `Origin`-header op schrijvende verzoeken doorgeven | verplicht ongewijzigd | origin-check tegen `RP_ORIGINS` |
 | `X-Forwarded-For/-Proto/-Host` doorgeven | aantal proxies = `PROXY_HOPS` | rate-limit op de setupcode per client-IP |
@@ -487,7 +487,7 @@ De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg b
 
 ## Back-up in de app
 
-*Instellingen → Systeem → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`):
+*Instellingen → Systeem → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`; met *Printbestanden (STL/3MF) meenemen* is het een ZIP-bestand, zie hieronder):
 je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, de filamentbibliotheek, filamentrollen,
 berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
@@ -498,7 +498,19 @@ berekeningen worden opnieuw uitgerekend, een aangepast totaal in het bestand tel
 gelezen en tegen hun controlesom gehouden) en laat zien wat er terugkomt. Pas na jouw bevestiging **vervangt** het alles wat er
 nu staat, in één keer: lukt iets niet, dan verandert er niets. Een bestand uit een nieuwere versie van de app wordt geweigerd; een back-up van een oudere versie (zonder bestellingen) werkt
 nog steeds en laat de bestellingen dan leeg. Het volgende bestel- en factuurnummer gaat door na de hoogste uit de back-up.
-Zo'n back-up past binnen `MAX_UPLOAD_MB` (standaard 50 MB); met printbestanden kan dat te klein zijn, verhoog het dan in `.env`.
+
+**Met printbestanden is het een ZIP-bestand** (`printpricing-backup-JJJJ-MM-DD.zip`): elk STL- of 3MF-bestand staat er los in, onder `files/` met zijn eigen naam (heten twee modellen hetzelfde, dan krijgt de tweede ` (2)`), en `backup.json`
+bevat de rest, met per model een verwijzing (`archive_path`) en zijn controlesom. Je kunt het ZIP-bestand dus gewoon openen om een model terug te halen. Een back-up zonder printbestanden blijft één JSON-bestand, en een JSON-back-up
+van een eerdere versie (met de modellen er inline in) kan nog steeds worden teruggezet.
+
+**Je ziet wat er gebeurt.** Bij het maken van een back-up toont de kaart een voortgangsbalk: eerst dat de server hem samenstelt, daarna hoeveel er al binnen is. Bij herstellen zie je het uploaden (met megabytes), het controleren van het bestand
+en daarna het herstellen zelf, met bij printbestanden *printbestand 4 van 10*. Na de controle vraagt de app om bevestiging; **daarna draait het herstel op de server als achtergrondtaak** (tabel `backup_jobs`, geen onderdeel van een back-up):
+je kunt de pagina verlaten of de browser sluiten en het gaat door. Open *Instellingen → Systeem* weer, dan zie je de stand of de uitkomst; is het klaar, dan laadt de app opnieuw met de teruggezette instellingen. Mislukt het, dan staat er waarom
+en is er niets veranderd (het vervangen is één transactie). Er loopt hooguit één herstel tegelijk. Een herstel dat 15 minuten niet vooruitkwam (de server was herstart) wordt als onderbroken gemeld; ook dan is er niets veranderd.
+Het geüploade bestand staat tot het herstel klaar is als `.restore-<token>` onder `DATA_PATH/uploads` en wordt daarna, of na een uur, verwijderd.
+
+De grootte: een herstel mag tot 2 GB zijn, en elk model daarin hoogstens `MAX_UPLOAD_MB` (standaard 50 MB), net als een gewone upload. Een proxy of CDN vóór de app moet zo'n body doorlaten
+(zie *Limieten buiten de repository*: Cloudflare Free stopt bij 100 MB, nginx staat standaard op 1 MB); past je back-up daar niet doorheen, gebruik dan de database-dump en de uploads-map hierboven.
 Een volledige kopie van de database (`pg_dump`) en de map met uploads blijft de manier voor een back-up van de hele server, zie
 *Back-up en herstel* (onder Beheer) hierboven.
 
