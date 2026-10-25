@@ -363,6 +363,8 @@ def _purpose(action: str, target: str | None) -> str:
         return f"credential:{target}:delete"
     if action == "regenerate-recovery":
         return "recovery:regenerate"
+    if action == "factory-reset":
+        return "system:reset"
     if action in ("password-disable", "password-change", "password-backup-codes"):
         return f"password:{action.split('-', 1)[1]}"
     raise ApiError(400, "auth.unknown_action")

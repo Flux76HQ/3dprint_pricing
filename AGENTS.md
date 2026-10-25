@@ -188,6 +188,14 @@ push subscriptions): `tests/test_backup.py` greps the file for them. Restore val
 validators as the normal endpoints, recalculates calculations, re-reads print files, and swaps everything in one
 transaction. A new table or column that holds user data belongs in the backup and in its round-trip test.
 
+## 6d. Factory reset
+
+`backend/app/system.py` (`POST /api/system/reset`, Settings → Systeem). It truncates *every* table in the schema except `schema_migrations`
+(read from `pg_tables`, so a table added later is covered without a change here), restarts the sequences, removes the files under `UPLOAD_DIR` and the
+session cookie. It is the only thing that also deletes the credentials, so it takes the same proof as turning off password login
+(`password_api._confirm`, action `factory-reset`, purpose `system:reset`): a fresh passkey confirmation, or the password plus a code. Never let it
+run without that proof, and never keep a table out of it unless the app cannot start without it (`tests/test_system.py` checks that no row is left).
+
 ## 7. Work done in one client leaves the other clients correct
 
 A change to a working convention goes in this file, never in a client's entry file. If a client

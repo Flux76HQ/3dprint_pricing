@@ -56,6 +56,14 @@ export async function disablePush() {
   await api('POST', '/api/push/unsubscribe', { endpoint });
 }
 
+/** After a factory reset: this browser's subscription is of no use any more and the server has forgotten it; the opt-out was the old owner's. */
+export async function forgetPush() {
+  remember(OPT_OUT, null);
+  remember(SNOOZED, null);
+  const sub = await currentSubscription();
+  if (sub) await sub.unsubscribe();
+}
+
 /** Matches `fingerprint` from /api/push/devices: how this device finds itself in the list. */
 export async function thisDeviceFingerprint() {
   const sub = await currentSubscription().catch(() => null);
