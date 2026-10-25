@@ -162,7 +162,7 @@ flowchart LR
 
 ## Bijdragen
 
-Bijdragen zijn welkom. De werkafspraken voor mensen en AI-assistenten staan in [AGENTS.md](AGENTS.md): versiebeheer, lokale controles, tests en de werkwijze voor pull requests. Voor bugs en ideeën kun je een [issue](https://github.com/Flux76HQ/3dprint_pricing/issues/new) openen.
+Bijdragen zijn welkom. Pull requests gaan naar de branch `beta`, nooit rechtstreeks naar `main`; `main` is de stabiele lijn en krijgt alleen een promotie-pull-request vanuit `beta`. De werkafspraken voor mensen en AI-assistenten staan in [AGENTS.md](AGENTS.md): versiebeheer, lokale controles, tests en de werkwijze voor pull requests. Voor bugs en ideeën kun je een [issue](https://github.com/Flux76HQ/3dprint_pricing/issues/new) openen.
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
@@ -172,6 +172,16 @@ cd backend && PYTHONPATH=. python -m pytest -q
 ```
 
 De screenshots hierboven komen uit een demo-instance: na een wijziging die een scherm anders laat uitzien draai je `pip install playwright && python scripts/generate_screenshots.py` en commit je de bijgewerkte afbeeldingen in `docs/assets/`.
+
+### Stabiel en beta
+
+| | Stabiel | Beta |
+|---|---|---|
+| Branch | `main` | `beta` |
+| Image | `ghcr.io/flux76hq/3dprint_pricing:latest` (en `X.Y.Z`) | `ghcr.io/flux76hq/3dprint_pricing:beta` |
+| GitHub-release | `vX.Y.Z` | geen |
+
+Elke wijziging komt eerst in `beta`, en elke push naar `beta` bouwt een nieuwe beta-image. Pas als de beta zich bewijst, wordt hij gepromoveerd naar `main`, wat `VERSION` ophoogt en `latest` en de release bouwt. Om de beta te proberen zet je `APP_IMAGE=ghcr.io/flux76hq/3dprint_pricing:beta` in `.env` en draai je `docker compose pull && docker compose up -d`; gebruik daarvoor een aparte datamap.
 
 ## Privacy & beveiliging
 

@@ -1,6 +1,6 @@
 name: docker
 
-# Publishes the image on every push to main. `latest` is a channel and moves on every build;
+# Publishes the stable image on every push to main (a promotion from beta; beta has its own workflow, docker-beta.yml). `latest` is a channel and moves on every build;
 # `X.Y.Z` names one artifact, so it is only pushed when the git tag vX.Y.Z does not exist yet.
 #
 # This workflow also raises VERSION: pull requests do not touch it (two that did would conflict every time),
@@ -91,3 +91,19 @@ jobs:
         run: |
           gh release create "v${{ steps.version.outputs.version }}" --target "${{ steps.bump.outputs.sha }}" \
             --title "v${{ steps.version.outputs.version }}" --generate-notes
+      # beta is where pull requests land and main only receives promotions from it, so beta has to carry the VERSION bump
+      # (and the release commit) main just made. Best effort: a failure here never undoes the release.
+      - name: Bring beta level with main
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin beta
+          git checkout -B beta origin/beta
+          if git merge --no-edit "${{ steps.bump.outputs.sha }}" && git push origin beta; then
+            echo "beta is level with main."
+          else
+            git merge --abort 2>/dev/null || true
+            echo "::warning::Could not bring beta level with main. Merge main into beta by hand (python scripts/update_branch.py on a branch off beta, with --base-ref origin/main)."
+            exit 1
+          fi

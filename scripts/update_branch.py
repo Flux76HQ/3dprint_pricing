@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Bring the current branch up to date with main, resolving the conflicts that are only bookkeeping.
+"""Bring the current branch up to date with beta (the branch pull requests target), resolving the conflicts that are only bookkeeping.
 
 Two pull requests that add the next migration or regenerate the screenshots collide every time the other one merges first,
-although nothing in them contradicts each other. Run this instead of `git merge origin/main`:
+although nothing in them contradicts each other. Run this instead of `git merge origin/beta`:
 
-  * VERSION: main's (a pull request does not change it; main raises it after the merge).
-  * A migration this branch added whose number main has taken meanwhile: renamed to the next free number.
-  * docs/assets/*.png: main's file (they are generated; re-run scripts/generate_screenshots.py if this change alters a screen).
+  * VERSION: the base branch's (a pull request does not change it; the pipeline raises it when beta is promoted to main).
+  * A migration this branch added whose number the base branch has taken meanwhile: renamed to the next free number.
+  * docs/assets/*.png: the base branch's file (they are generated; re-run scripts/generate_screenshots.py if this change alters a screen).
   * Anything else that conflicts is left for you, with the merge still open.
 
-Usage: python scripts/update_branch.py [--base-ref origin/main] [--no-fetch]
+Usage: python scripts/update_branch.py [--base-ref origin/beta] [--no-fetch]
 """
 import argparse
 import re
@@ -45,12 +45,12 @@ def renumber_migrations(base_ref: str, merge_base: str, notes: list) -> None:
         target = f"{MIGRATIONS}/{free:04d}{Path(path).name[4:]}"
         git("mv", path, target)
         taken[free] = target
-        notes.append(f"migration {Path(path).name} -> {Path(target).name} (number {number:04d} is main's {Path(taken[number]).name})")
+        notes.append(f"migration {Path(path).name} -> {Path(target).name} (number {number:04d} is the base branch's {Path(taken[number]).name})")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--base-ref", default="origin/main")
+    parser.add_argument("--base-ref", default="origin/beta")
     parser.add_argument("--no-fetch", action="store_true", help="use the base ref as it is (for tests)")
     args = parser.parse_args()
     base_ref = args.base_ref
@@ -79,12 +79,12 @@ def main() -> int:
             git("checkout", "--theirs", "--", path)
             git("add", path)
             conflicted.remove(path)
-            notes.append(f"{path}: main's file taken (re-run scripts/generate_screenshots.py if this change alters how a screen looks)")
-    if "VERSION" in conflicted:                           # a branch from before this rule: main's number stands
+            notes.append(f"{path}: the base branch's file taken (re-run scripts/generate_screenshots.py if this change alters how a screen looks)")
+    if "VERSION" in conflicted:                           # a branch from before this rule: the base branch's number stands
         git("checkout", "--theirs", "--", "VERSION")
         git("add", "VERSION")
         conflicted.remove("VERSION")
-        notes.append("VERSION: main's number taken (a pull request leaves it alone)")
+        notes.append("VERSION: the base branch's number taken (a pull request leaves it alone)")
     renumber_migrations(base_ref, merge_base, notes)
 
     for note in notes:

@@ -110,10 +110,11 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 
 - Version source of truth is the `VERSION` file (`MAJOR.MINOR.PATCH`).
 - **A pull request never changes `VERSION`.** Two pull requests that each raise it collide as soon as the other one merges, so the
-  pipeline raises it after the merge: the `docker` workflow runs `scripts/bump_version.py` on every push to `main`, commits the new
-  number (`Release X.Y.Z`) and builds the image from that commit. `enforce-version-bump` fails a pull request that touches `VERSION`.
-- A merge that changed protected paths raises the **patch** number; put the label `version:minor` or `version:major` on the pull
-  request to raise that part instead. A merge of documentation only (`*.md`, `*.txt`) keeps the number.
+  pipeline raises it after the merge to `main`, i.e. when `beta` is promoted: the `docker` workflow runs `scripts/bump_version.py` on every push to `main`, commits the new
+  number (`Release X.Y.Z`) and builds the image from that commit. `enforce-version-bump` fails a pull request (into `beta` or `main`) that touches `VERSION`.
+  A push to `beta` never raises it and publishes no release, only the `beta` image (section 5).
+- A promotion that changed protected paths raises the **patch** number; put the label `version:minor` or `version:major` on the
+  **promotion pull request** (`beta` → `main`, the pull request the bump reads) to raise that part instead. A promotion of documentation only (`*.md`, `*.txt`) keeps the number.
 - Protected paths: `backend/`, `frontend/`, `deploy/`, `scripts/`, `.github/workflows/`,
   `.github/copilot-instructions.md`, `Dockerfile`, `docker-compose.yml`, `docker-compose.build.yml`, `.env.example`
   (`scripts/check_version_bump.py` holds the list).
@@ -124,10 +125,11 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 
 - Activate hooks once per clone: `python scripts/setup_hooks.py`.
 - Every MUST rule needs an automated enforcement point (CI or hook).
-- CI jobs on every pull request into `main`:
+- CI jobs on every pull request into `beta` or `main` (`only-from-beta` only on `main`):
 
   | Job name | What it checks |
   |---|---|
+  | `only-from-beta` | a pull request into `main` comes from `beta` of this repository (the promotion); every other one fails |
   | `enforce-version-bump` | the pull request changed `VERSION` (it is raised after the merge, not in the pull request) |
   | `agent-instructions-lint` | that this file stays canonical and unduplicated |
   | `backend-tests` | calculator, WebAuthn, migrations, API; fails if any test was skipped |
@@ -147,20 +149,28 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 
 ## 5. Branch topology and pull request workflow
 
-- The **integration branch** for this repository is `main`. Set GitHub's Default branch to match.
-- Develop on a feature branch off `main`; never commit directly to it.
+- **Pull requests go to `beta`, never directly to `main`.** `beta` is the integration branch: feature branches start from it and
+  merge into it. Set GitHub's Default branch to `beta` so a new pull request targets it.
+- `main` is the stable line. It only receives a pull request **from `beta`** (the promotion), when the owner asks for one, and that
+  pull request is merged with a **merge commit**, never squashed or rebased (a squash leaves `beta` diverged from `main`). `only-from-beta`
+  fails every other pull request into `main`. The owner makes `only-from-beta` required, and forbids pushing to `main` directly, in the
+  branch protection of GitHub; that cannot be done from the code.
+- A push to `beta` builds `ghcr.io/flux76hq/3dprint_pricing:beta` (and `beta-<sha>`, `docker-beta` workflow). It writes no stable tag, no
+  release and no `VERSION`. A promotion builds `latest`, raises `VERSION`, and publishes `X.Y.Z` with its GitHub Release (`docker` workflow), which then
+  merges `main` back into `beta` so `beta` carries the new `VERSION` (best effort; if it warns, merge `main` into `beta` by hand).
+  github-actions must be allowed to push to `beta` as well as to `main`, if either is protected.
+- Develop on a feature branch off `beta`; never commit directly to `beta` or `main`.
 - Give a new feature its own worktree and its own agent session.
 - Check for an existing open PR before opening a new one; never push without a PR; never add
   commits to a branch whose PR is already merged — rebase and open a new one.
-- Keep a branch current with `python scripts/update_branch.py`, not a hand-made `git merge origin/main`: it merges main and
-  settles the conflicts that are only bookkeeping (a migration whose number main took meanwhile is renumbered, a screenshot in
-  `docs/assets/` becomes main's, a stray `VERSION` change becomes main's). Run it before the first
+- Keep a branch current with `python scripts/update_branch.py` (base `origin/beta`), not a hand-made `git merge origin/beta`: it merges the base and
+  settles the conflicts that are only bookkeeping (a migration whose number `beta` took meanwhile is renumbered, a screenshot in
+  `docs/assets/` becomes the base's, a stray `VERSION` change becomes the base's). Run it before the first
   push of a new branch, before opening the PR, and whenever the PR turns "dirty"; anything it leaves in conflict is a real one.
-  `test_migrations.py` fails on a duplicate or missing migration number, which git would not notice.
 - Make a conflict less likely to start with: keep a PR to what it needs, do not reflow or reformat lines you are not changing, add
   language keys at their alphabetical place, and regenerate the screenshots only when a screen changed.
-- Carry your own PR to merge: watch it, drive failing checks green, merge at all green without
-  asking again.
+- Carry your own PR into `beta` to merge: watch it, drive failing checks green, merge at all green without
+  asking again. The promotion to `main` is the exception: open and merge it only when the owner asks.
 
 ## 6. Testing
 
@@ -206,8 +216,8 @@ same commit. `agent-instructions-lint` checks this.
 
 ## 8. Commit checklist
 
-- [ ] `VERSION` is untouched (main raises it after the merge; label `version:minor` / `version:major` if it must not be a patch).
-- [ ] The branch is current with main (`python scripts/update_branch.py`).
+- [ ] `VERSION` is untouched (the promotion to `main` raises it; label the promotion pull request `version:minor` / `version:major` if it must not be a patch).
+- [ ] The branch is based on `beta` and the pull request targets `beta`; it is current with it (`python scripts/update_branch.py`).
 - [ ] No secrets or `.env` files are staged.
 - [ ] The operational guide (`docs/handleiding.md`) is updated when run/deploy/backup behaviour changed.
 - [ ] `README.md` and `README.nl.md` stay in sync (same sections, same order, same screenshots from `docs/assets/`).
