@@ -102,7 +102,7 @@ def _registration_options(user_id, name, display_name, challenge, exclude) -> di
         "rp": {"id": cfg.rp_id, "name": cfg.rp_name},
         "user": {"id": wa.b64u_encode(user_id.bytes), "name": name, "displayName": display_name},
         "pubKeyCredParams": [{"type": "public-key", "alg": -7}],
-        "authenticatorSelection": {"residentKey": "required", "userVerification": "preferred"},
+        "authenticatorSelection": {"residentKey": "preferred", "userVerification": "preferred"},
         "attestation": "none",
         "timeout": 120000,
         "excludeCredentials": [
@@ -263,11 +263,16 @@ def onboarding_verify():
 
 @bp.post("/login/options")
 def login_options():
+    # One owner, so every stored credential is theirs. Naming them lets a passkey that is not
+    # discoverable sign in too; with none registered yet the list is empty and the browser looks itself.
     with pool().connection() as conn:
+        creds = [r["credential_id"] for r in conn.execute(
+            "SELECT credential_id FROM webauthn_credentials").fetchall()]
         challenge = _store_challenge(conn, "login")
     return jsonify({
         "challenge": wa.b64u_encode(challenge), "rpId": config().rp_id,
-        "userVerification": "preferred", "timeout": 120000, "allowCredentials": [],
+        "userVerification": "preferred", "timeout": 120000,
+        "allowCredentials": [{"type": "public-key", "id": wa.b64u_encode(bytes(c))} for c in creds],
     })
 
 
