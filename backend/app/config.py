@@ -30,6 +30,14 @@ def _flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("true", "1", "yes")
 
 
+def _switch(name: str, default: bool = True) -> bool:
+    """A switch that is on unless .env turns it off: false, 0, no or off (any case) is off; empty, unset or anything else keeps the default."""
+    value = os.environ.get(name, "").strip().lower()
+    if value in ("false", "0", "no", "off"):
+        return False
+    return True if value in ("true", "1", "yes", "on") else default
+
+
 @dataclass(frozen=True)
 class Config:
     database_url: str
@@ -48,6 +56,7 @@ class Config:
     vapid_subject: str = ""
     ai_images_enabled: bool = False
     filament_library_url: str = DEFAULT_LIBRARY_URL
+    update_check: bool = True
 
     @property
     def push_configured(self) -> bool:
@@ -95,4 +104,5 @@ def load_config() -> Config:
         vapid_subject=os.environ.get("VAPID_SUBJECT", "").strip() or f"mailto:admin@{_required('RP_ID')}",
         ai_images_enabled=_flag("AI_IMAGES_ENABLED"),
         filament_library_url=_library_url(),
+        update_check=_switch("PRINTPRICING_UPDATE_CHECK"),
     )
