@@ -79,9 +79,10 @@ async function ceremony(run) {
     return await run();
   } catch (e) {
     if (e instanceof ApiError) throw e;
-    if (e?.name === 'NotAllowedError') throw new ApiError(0, t('passkey.cancelled'));
     if (e?.name === 'InvalidStateError') throw new ApiError(0, t('passkey.already_here'));
-    throw new ApiError(0, t('passkey.failed', { message: e?.message || e }));
+    // A password-manager extension (Enpass, Bitwarden...) can intercept the prompt; say what to try.
+    const stopped = e?.name === 'NotAllowedError' ? t('passkey.cancelled') : t('passkey.failed', { message: e?.message || e });
+    throw new ApiError(0, `${stopped.replace(/[.!?]?$/, '.')} ${t('passkey.extension_hint')}`);
   }
 }
 

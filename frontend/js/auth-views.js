@@ -59,6 +59,7 @@ export function onboardingView(onDone, onLanguage) {
     h('h2', {}, t('auth.welcome_setup')),
     h('p', { class: 'muted' },
       t('auth.first_time')),
+    setupCodeHelp(),
     h('div', { class: 'field' }, h('label', { for: 'setup-code' }, t('auth.setup_code')), code,
       h('p', { class: 'hint' }, t('auth.setup_code_hint'))),
     h('div', { class: 'field' }, h('label', { for: 'owner-name' }, t('auth.your_name')), name),
@@ -66,6 +67,17 @@ export function onboardingView(onDone, onLanguage) {
     error, submit);
   root.append(form);
   return shell(onLanguage, root);
+}
+
+// Says what the setup code is, where it lives and where it goes, so nobody has to guess at the first screen.
+function setupCodeHelp() {
+  return h('section', { class: 'setup-help', 'aria-labelledby': 'setup-help-title' },
+    h('h3', { id: 'setup-help-title' }, t('auth.setup_help_title')),
+    h('p', {}, t('auth.setup_help_why')),
+    h('ol', {},
+      h('li', {}, t('auth.setup_help_step_find'), ' ', h('code', {}, 'grep SETUP_CODE .env')),
+      h('li', {}, t('auth.setup_help_step_copy'))),
+    h('p', { class: 'hint' }, t('auth.setup_help_note')));
 }
 
 function recoveryStep(codes, onDone) {

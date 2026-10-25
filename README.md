@@ -98,7 +98,7 @@ docker compose up -d
 
 Then open the address and go through the onboarding:
 
-1. Enter the **setup code** (`SETUP_CODE` in `.env`) and your name.
+1. Enter the **setup code** and your name. The setup code is the value after `SETUP_CODE=` in the `.env` file on your server (`init_env.py` printed it too; `grep SETUP_CODE .env` shows it again). Type or paste it into the *Setup code* field of the first screen; you only need it for this first setup, afterwards you sign in with your passkey. The onboarding screen explains this as well.
 2. Create your **passkey** (fingerprint, face or device code).
 3. **Save the 8 recovery codes.** They are shown once and each works once.
 

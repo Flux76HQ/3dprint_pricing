@@ -52,6 +52,7 @@ def main() -> int:
     target.chmod(0o600)
     print(f"Wrote .env (port {args.port}, origin {origin}).")
     print(f"Setup code for onboarding: {values['SETUP_CODE']}")
+    print("Enter it in the 'Setup code' field on the first screen of the app. It stays in .env as SETUP_CODE=.")
     return 0
 
 
