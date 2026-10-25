@@ -5,6 +5,7 @@ import { orderEditorView, orderListView } from './orders.js';
 import { projectEditorView, projectListView } from './projects.js';
 import { resourceView } from './resources.js';
 import { ACCENTS, settingsView } from './settings.js';
+import { initRelease, redrawRelease, releaseAvailable, stopRelease } from './release.js';
 import { initUpdates, setDirty } from './updates.js';
 import { maybeShowInstallBanner } from './install.js';
 import { maybeOfferPush } from './push.js';
@@ -124,15 +125,17 @@ async function logout() {
 
 function navLink([page, labelKey, ic], active) {
   const label = t(labelKey);
+  // A dot on the entries that lead to Settings while a newer release exists (release.js shows and hides it).
+  const dot = page === 'instellingen' || page === 'meer' ? h('span', { class: 'nav-dot', 'aria-hidden': 'true', hidden: !releaseAvailable() }) : null;
   return h('a', { href: `#/${page}`, 'aria-current': active ? 'page' : null, title: label },
-    h('span', { class: 'nav-icon' }, navIcon(ic, active)), h('span', { class: 'nav-label' }, label));
+    h('span', { class: 'nav-icon' }, navIcon(ic, active), dot), h('span', { class: 'nav-label' }, label));
 }
 
 // A language was picked with a flag: show it now, and keep it with the account so every device agrees.
 async function chooseLanguage(code) {
   if (code === getLanguage()) return;
   setLanguage(code);
-  if (session.user) { await setPrefs({ language: code }); route(); } else start();
+  if (session.user) { await setPrefs({ language: code }); route(); redrawRelease(); } else start();
 }
 
 function route() {
@@ -170,6 +173,7 @@ async function start() {
       h('button', { class: 'btn primary', type: 'button', onclick: start }, t('app.retry')))));
     return;
   }
+  if (!status.onboarded || !status.authenticated) stopRelease();
   if (!status.onboarded) { session = { user: null }; root.replaceChildren(onboardingView(start, chooseLanguage)); return; }
   if (!status.authenticated) {
     session = { user: null };
@@ -185,6 +189,7 @@ async function start() {
   if (prefs.language) setLanguage(prefs.language);
   else setPrefs({ language: getLanguage() });
   route();
+  initRelease();
   maybeShowInstallBanner();
   maybeOfferPush();
 }

@@ -334,6 +334,7 @@
  "pwapi.no_setup": "Er is geen installatie bezig. Begin opnieuw.",
  "pwapi.not_on": "Wachtwoord-login staat niet aan.",
  "stock.unknown_material": "Onbekend materiaal",
+ "system.word": "Typ {word} om te bevestigen dat je alles wilt verwijderen.",
  "wa.b64": "Ongeldige base64url-waarde.",
  "wa.counter": "Signature counter liep niet op: mogelijk gekloonde sleutel.",
  "wa.origin": "Origin niet toegestaan: het adres in de browser staat niet in RP_ORIGINS in .env.",

@@ -334,6 +334,7 @@
  "pwapi.no_setup": "No setup is in progress. Start again.",
  "pwapi.not_on": "Password login is not turned on.",
  "stock.unknown_material": "Unknown material",
+ "system.word": "Type {word} to confirm that you want to delete everything.",
  "wa.b64": "Invalid base64url value.",
  "wa.counter": "Signature counter did not increase: possibly a cloned key.",
  "wa.origin": "Origin not allowed: the address in the browser is not listed in RP_ORIGINS in .env.",

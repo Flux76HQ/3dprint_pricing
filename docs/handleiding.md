@@ -108,6 +108,7 @@ verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.
 | `AI_IMAGES_ENABLED` | `TRUE` toont de optionele functie *AI-afbeeldingen* (zie [AI-afbeeldingen](#ai-afbeeldingen-optioneel)); alles anders, of leeg, laat haar uit. Standaard `FALSE` |
 | `PROXY_HOPS` | Aantal reverse proxies ervoor (vertrouwt `X-Forwarded-*`) |
 | `WEB_CONCURRENCY` | Aantal Gunicorn-workers (standaard 2) |
+| `PRINTPRICING_UPDATE_CHECK` | De updatecontrole (zie *Meldingen en updates*). Standaard aan; `false` (ook `0`, `no`, `off`) zet hem uit, voor een installatie die niet naar buiten mag bellen |
 | `PRINTPRICING_TAG` | Welke build draait: `latest` (stabiel, standaard), `beta` of een versienummer als `0.26.15`; vervangt `APP_IMAGE`. Dezelfde waarde gaat naar de app, die op `beta` een beta-label toont |
 
 **Camerascannen** (barcode) vraagt, net als passkeys, https en toestemming voor de camera. Chrome/Edge/Android gebruiken
@@ -145,6 +146,10 @@ met een eigen icoon en opstartscherm en reageert als een native app:
 Is die nieuwer dan wat de app geladen heeft, dan verschijnt bovenaan “Nieuwe versie beschikbaar: vX.Y.Z (commit)” met
 *Nu bijwerken* en *Later* (een uur rust). Heb je een berekening met niet-opgeslagen wijzigingen open, dan vraagt de app
 eerst of je die wilt kwijtraken. *Instellingen → Algemeen → Updates* toont de draaiende versie en controleert op verzoek.
+
+**Nieuwe release (updatecontrole).** Los van het bovenstaande (dat merkt dat *de server* is bijgewerkt) vraagt de server aan GitHub of er een nieuwere release is dan die hij draait, en meldt dat alleen aan de ingelogde eigenaar: een balk bovenaan (“Nieuwe release beschikbaar: vX (je hebt vY)”) met *Bekijken* (opent *Instellingen → Algemeen → Updates*) en *Later* (voor die versie; een nog nieuwere versie meldt zich weer), en een stip bij *Instellingen* (of *Meer*). Onder *Updates* staan de draaiende en de nieuwste versie, wanneer er voor het laatst gekeken is, *Nu controleren*, een link naar de release notes en hoe je bijwerkt; ook staat daar of de controle uit staat, of er nog geen release is, of waarom het mislukte (“limiet van GitHub bereikt (HTTP 403)”, certificaat, time-out, geen verbinding). De app **meldt alleen**: bijwerken, herstarten of downloaden doet hij nooit; dat doe je zelf op de server (zie *Deploy en update*).
+- De controle leest de nieuwste gepubliceerde, niet-pre-release **GitHub Release** van deze repository, via de doorverwijzing van `github.com/Flux76HQ/3dprint_pricing/releases/latest` (niet via `api.github.com`, dat per IP-adres maar 60 aanvragen per uur toestaat). De aanvraag draagt een vaste `User-Agent` en niets over jouw installatie: geen versie, geen id, geen gegevens. Een beta-build (`PRINTPRICING_TAG=beta`) ziet dus alleen stabiele releases en nooit een nieuwere beta.
+- Het antwoord wordt per worker in het geheugen bewaard: zes uur na een succes, tien minuten na een mislukking; *Nu controleren* slaat dat over maar heeft een ondergrens van 30 seconden. Een mislukking houdt het laatste goede antwoord vast, zodat een gemelde update niet verdwijnt door een storing. Uitzetten: `PRINTPRICING_UPDATE_CHECK=false` in `.env` (dit is een nieuwe, optionele variabele: wie niets doet heeft de controle aan; `docker-compose.yml` geeft `.env` al door).
 
 **Push-meldingen (voorbereid).** Zet ze aan met VAPID-sleutels. Draai je alleen Docker, dan maak je ze in de image zelf:
 `docker compose run --rm --no-deps app python generate_vapid.py` (of `python scripts/generate_vapid.py` met Python op de host,
@@ -522,6 +527,8 @@ Een volledige kopie van de database (`pg_dump`) en de map met uploads blijft de 
 berekeningen, bestellingen met factuurnummers, klanten, printers, tarieven, rollen, de filamentbibliotheek, instellingen, het factuursjabloon
 en logo, de geüploade bestanden, de OpenAI-sleutel, meldingsaanmeldingen en ook je passkeys, herstelcodes en wachtwoord. Alleen de database zelf en
 je `.env` blijven staan. Het kan niet ongedaan worden gemaakt: download eerst een back-up (*Back-up en herstel*) als je iets wilt bewaren.
+
+Het scherm toont **eerst de waarschuwing** (wat verdwijnt, ook je eigen passkeys, en wat blijft), dan het veld waarin je het woord **`RESET`** typt; zonder dat woord doet de server niets, ook niet met een geldige bevestiging. Wat **blijft**: je `.env` (met `SETUP_CODE`, `SESSION_SECRET`, de VAPID-sleutels), de image, `DATA_PATH/backups` (de dumps van `scripts/update.sh`) en je accounts bij andere diensten (zoals OpenAI; alleen de sleutel in de app verdwijnt). Daarna volgt een laatste vraag (“alle gegevens worden nu definitief gewist”) en pas dan de bevestiging hieronder. Er is **geen herstart** nodig: alle toestand staat in de database en de uploadmap, en de server begint bij het volgende verzoek gewoon opnieuw met een lege database. De reset laat één regel achter in het logboek van de container (hoeveel tabellen zijn geleegd en hoeveel bestanden zijn verwijderd, met hun namen; nooit inhoud). Weet je het niet zeker: kopieer eerst de map `DATA_PATH` of maak een back-up; de reset biedt er zelf geen aan.
 
 De app vraagt om bevestiging met de verificatiemethode die je gebruikt: een verse passkey-bevestiging, of, als wachtwoord-login aan staat en de passkey op dit
 apparaat niet werkt, je wachtwoord plus een code (authenticator of back-upcode); dat telt voor de blokkade net als inloggen. Daarna sta je weer op het

@@ -79,7 +79,7 @@ Selling 3D prints means knowing what each one costs: filament by the gram, machi
 - **Customers, orders and invoices**: customers with a customer number, orders with several prints each, a status from *new* to *completed*, and a PDF invoice with your logo, a unique invoice number and a SEPA payment QR code. Bring your own Word or PDF letterhead if you like.
 - **Passkey login**: no password to leak. Optional password with two-step verification, and recovery codes for emergencies.
 - **A real app on every device**: installs on the iPhone and Android home screen and on the desktop, works with the camera and with notifications, and speaks Dutch and English.
-- **Your data, your server**: backup and restore of everything from within the app, and your data stays on your own server.
+- **Your data, your server**: backup and restore of everything from within the app, and your data stays on your own server. *Settings → System* can also put the app back to a new installation: it deletes everything in the database and the uploads (the passkeys too) after a typed word and a fresh passkey (or password and code) confirmation, and leaves `.env`, the image and `DATA_PATH/backups` alone. Make a backup first if you are not sure.
 
 The full description of every feature is in the [operations guide](docs/handleiding.md) (Dutch).
 
@@ -138,9 +138,10 @@ Set in `.env`; the file `.env.example` documents each value.
 | `FILAMENT_LIBRARY_URL` | ❌ | this repository's `library/filaments.json` | Where *Settings → Filaments → Sync* reads the shared filament library from: a JSON file in the format of the library export, on `raw.githubusercontent.com`. Empty switches the Sync button off |
 | `PROXY_HOPS` | ❌ | `0` | Number of reverse proxies in front of the app |
 | `WEB_CONCURRENCY` | ❌ | `2` | Number of Gunicorn workers |
+| `PRINTPRICING_UPDATE_CHECK` | ❌ | `true` | The update check: the app asks GitHub whether a newer stable release exists and tells the owner with a banner and under *Settings → General → Updates*. It sends nothing about your installation and never updates anything. `false` (also `0`, `no`, `off`) switches it off, for an installation that must not call out. A beta build only sees stable releases |
 | `PRINTPRICING_TAG` | ❌ | `latest` | Which build runs: `latest` (stable), `beta` (the development version) or a version number such as `0.26.15`. `docker-compose.yml` pulls `ghcr.io/flux76hq/3dprint_pricing:<tag>` and passes the same value to the app, which shows a **beta** label next to its name on `beta`. Replaces `APP_IMAGE` |
 
-Updating is `docker compose pull && docker compose up -d`. Health checks, backups, notifications and everything else about running the app are in the [operations guide](docs/handleiding.md) (Dutch).
+Updating is `docker compose pull && docker compose up -d` (or `sh scripts/update.sh`, which dumps the database first). The app tells you when a newer release exists: it asks GitHub (the latest stable release of this repository, nothing about your installation is sent) and shows a banner and *Settings → General → Updates*; it only announces, it never updates anything. `PRINTPRICING_UPDATE_CHECK=false` switches it off. Health checks, backups, notifications and everything else about running the app are in the [operations guide](docs/handleiding.md) (Dutch).
 
 ## Tech stack
 

@@ -214,11 +214,28 @@ Never make the restore depend on the request that started it, and never let a re
 
 ## 6d. Factory reset
 
+Follows App-Guidance's [`shared/guidelines/factory-reset.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/factory-reset.md).
 `backend/app/system.py` (`POST /api/system/reset`, Settings → Systeem). It truncates *every* table in the schema except `schema_migrations`
 (read from `pg_tables`, so a table added later is covered without a change here), restarts the sequences, removes the files under `UPLOAD_DIR` and the
-session cookie. It is the only thing that also deletes the credentials, so it takes the same proof as turning off password login
-(`password_api._confirm`, action `factory-reset`, purpose `system:reset`): a fresh passkey confirmation, or the password plus a code. Never let it
-run without that proof, and never keep a table out of it unless the app cannot start without it (`tests/test_system.py` checks that no row is left).
+session cookie. It is the only thing that also deletes the credentials, so it takes two things in the request itself, in this order: the typed word
+(`CONFIRM_WORD`, `RESET`; `RESET_WORD` in `settings.js` is the same word and `tests/test_system.py` pins both), checked first so a missing word spends no passkey
+confirmation and no attempt; then the same proof as turning off password login (`password_api._confirm`, action `factory-reset`, purpose `system:reset`): a fresh
+passkey confirmation, or the password plus a code, counted against the same lockout as signing in. Never let it run without both, and never keep a table out of it unless
+the app cannot start without it (`tests/test_system.py` checks that no row is left). The screen shows the warning (what goes, the owner's own passkeys too, what stays: `.env`, the image,
+`DATA_PATH/backups`, accounts at other services) before the word field, asks one last question after it, and disables the form while it runs. **No restart**: unlike a
+SQLite app nothing is held in the process (the database is PostgreSQL, the secrets are in `.env`), and a test sets the app up again in the same process. The only trace is one
+warning in the process log: how many tables were emptied and how many files removed, with their names (never contents). This adds no variable and changes no deployment file.
+
+## 6e. Update check
+
+Follows App-Guidance's [`shared/guidelines/update-check.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/update-check.md).
+`backend/app/updates.py` (`GET /api/update`, `POST /api/update/check`, signed in = the owner), `frontend/js/release.js` (banner, dot on the entries that lead to Settings,
+dismissed per version in `localStorage`) and the *Updates* card in Settings → Algemeen. It reads the redirect of `github.com/Flux76HQ/3dprint_pricing/releases/latest`
+(never `api.github.com`: 60 anonymous requests an hour per IP address), so it sees stable releases only, which `docker.yml` creates as `vX.Y.Z` at every promotion; a beta
+never hears of a newer beta. It announces and nothing else: it never updates, restarts or downloads, and the request carries a fixed `User-Agent` and nothing about the installation.
+**It is switched off with `PRINTPRICING_UPDATE_CHECK=false`** (default on; documented in `.env.example`, both READMEs and the handleiding; `docker-compose.yml` needs no change, it
+passes `.env` through). The server answers with a reason *key* (`ERROR_KEYS`), never a sentence (section 6b); every key has a `release.err.*` text. This is not `frontend/js/updates.js`, which
+notices that the *server* was updated since the page loaded and offers to reload.
 
 ## 7. Work done in one client leaves the other clients correct
 
