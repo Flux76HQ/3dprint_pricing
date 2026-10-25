@@ -206,6 +206,12 @@ push subscriptions): `tests/test_backup.py` greps the file for them. Restore val
 validators as the normal endpoints, recalculates calculations, re-reads print files, and swaps everything in one
 transaction. A new table or column that holds user data belongs in the backup and in its round-trip test.
 
+With print files the download is a ZIP (`backup.json` plus every model under `files/`, referenced by `archive_path`); without them it is one JSON file, and a JSON
+file with the models inline (`content_b64`) still restores. A ZIP is never extracted to disk: a member is read by name, capped at `MAX_UPLOAD_MB`, and stored under a generated name.
+The screen sends the file once to `POST /api/backup/stage` (checked, kept as `UPLOAD_DIR/.restore-<token>`), and after the owner confirms `POST /api/backup/jobs` restores it in a
+thread of the web worker, so leaving the page stops nothing; the state is `backup_jobs` (polled with `GET /api/backup/jobs/latest`, not in a backup, marked done in the same transaction as the swap).
+Never make the restore depend on the request that started it, and never let a refused or finished restore leave its staged file behind.
+
 ## 6d. Factory reset
 
 `backend/app/system.py` (`POST /api/system/reset`, Settings → Systeem). It truncates *every* table in the schema except `schema_migrations`
