@@ -48,6 +48,18 @@ The full-width navigation bar with a pill behind the active icon.
 |:---:|:---:|:---:|:---:|
 | <img src="docs/assets/android-calculations.png" width="200" alt="Android: calculations" /> | <img src="docs/assets/android-calculation.png" width="200" alt="Android: cost price of a calculation" /> | <img src="docs/assets/android-orders.png" width="200" alt="Android: orders" /> | <img src="docs/assets/android-filament.png" width="200" alt="Android: filament stock" /> |
 
+### Filament: library, import and new rolls
+
+*Settings → Filaments* holds the filament library: add a filament, import a Bambu Lab invoice, import or export the library as JSON, or sync it from GitHub. Under *Filament → New roll* you create a roll, either by hand, by scanning its barcode or by picking a filament from the library.
+
+| Library: import, export and sync | New roll |
+|:---:|:---:|
+| <img src="docs/assets/desktop-library.png" width="440" alt="Desktop: the filament library with invoice import, sync, JSON export and import" /> | <img src="docs/assets/desktop-new-roll.png" width="440" alt="Desktop: creating a new roll, with the pick-list of the library on top" /> |
+
+| iPhone: library | iPhone: new roll | Android: library | Android: new roll |
+|:---:|:---:|:---:|:---:|
+| <img src="docs/assets/ios-library.png" width="200" alt="iOS: the filament library" /> | <img src="docs/assets/ios-new-roll.png" width="200" alt="iOS: creating a new roll" /> | <img src="docs/assets/android-library.png" width="200" alt="Android: the filament library" /> | <img src="docs/assets/android-new-roll.png" width="200" alt="Android: creating a new roll" /> |
+
 Under *Settings → Display → Navigation bar*, choose iOS-style or Android-style, or leave it on *Automatic*: the app detects the device and defaults to Android-style on Android and iOS-style elsewhere. Your choice is saved with your account and applies on all your devices. Light, dark and system themes and your own accent colour are included.
 
 <sub>The screenshots show demo data.</sub>
@@ -60,8 +72,8 @@ Selling 3D prints means knowing what each one costs: filament by the gram, machi
 
 - **Cost price in seconds**: filament, parts, accessories (cables, chargers), printer depreciation and energy add up to a cost price, with an optional margin for a recommended selling price. Every line is rounded to the cent first, so the lines on screen add up to the total.
 - **Straight from the slicer**: attach a `.3mf` or `.stl` file. A sliced 3MF (Bambu Studio / Orca) gives the real grams per filament and the print time, which go into the calculation automatically; an STL gives a weight estimate.
-- **Filament library and invoice import**: keep the specs of the filaments you buy (brand, type, colour, supplier filament ID, weight, diameter, temperatures) in a library, so a new roll fills itself in. Read a Bambu Lab invoice (PDF) to fill the library, barcodes included; the library never holds the same filament twice and is separate from your stock; for a new Bambu Lab roll you pick the product and colour and the form is filled in from the web shop; export and import the library as JSON, or sync it from GitHub.
-- **Filament stock with barcode scanning**: your rolls with price, remaining weight, colour and temperatures, grouped per kind. Scan a barcode with your phone camera and a known roll fills itself in. Get a notification when a kind is nearly out, and book the usage of a calculation off the stock with one click.
+- **Filament library**: keep the specs of the filaments you buy (brand, type, colour, supplier filament ID, weight, diameter, temperatures, indicative price) in a library, so a new roll fills itself in. Add a filament by hand with *Add filament*, or fill the library without typing: **import** a Bambu Lab invoice (PDF, barcodes included), **import** a JSON file, or **sync** the shared library from GitHub. **Export** the library as JSON to back it up or move it to another installation. JSON import and sync only add and update, never delete, and ask for confirmation with the numbers first; the library never holds the same filament twice and is separate from your stock.
+- **Filament stock with barcode scanning**: your rolls with price, remaining weight, colour and temperatures, grouped per kind. **Create a new roll** by hand, by scanning its barcode (a known roll fills itself in), by picking a filament from the library, or, for Bambu Lab, by choosing the product and colour from the web shop; a new roll can also add its filament to the library. Get a notification when a kind is nearly out, and book the usage of a calculation off the stock with one click.
 - **Prices that stay put**: a saved calculation keeps the prices of the moment you saved it, so changing a roll price later never rewrites your history.
 - **Business-ready**: VAT on the selling price, a margin and a price rounding per order (to 5/10/50 cents, whole euros, or ending in ,95/,99, with your margin as the minimum), and a button to blur the costs when a customer looks over your shoulder.
 - **Customers, orders and invoices**: customers with a customer number, orders with several prints each, a status from *new* to *completed*, and a PDF invoice with your logo, a unique invoice number and a SEPA payment QR code. Bring your own Word or PDF letterhead if you like.

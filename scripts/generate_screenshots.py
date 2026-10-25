@@ -124,6 +124,26 @@ class Api:
         return res.get_json()
 
 
+def seed_library(api):
+    """The filament library, filled the way a user would: through the JSON import (the same validators as typing it in)."""
+    def entry(brand, kind, material, colour, hexc, filament_id, barcode, price, nozzle, bed, refill=False, weight=1000.0):
+        return {"brand": brand, "product_type": kind, "material": material, "colour": colour, "colour_hex": hexc, "filament_id": filament_id,
+                "sku": "", "barcode": barcode, "refill": refill, "roll_weight_g": weight, "diameter_mm": 1.75, "print_temp_c": nozzle,
+                "bed_temp_c": bed, "price": price, "notes": ""}
+
+    filaments = [
+        entry("Bambu Lab", "Basic", "PLA", "Zwart", "#1c1c1e", "10101", "6975337030011", 19.99, 220, 55),
+        entry("Bambu Lab", "Basic", "PLA", "Wit", "#f2f2f2", "10100", "6975337030028", 19.99, 220, 55, refill=True),
+        entry("Bambu Lab", "Basic", "PLA", "Blauw", "#2e6fdb", "10600", "6975337030042", 19.99, 220, 55),
+        entry("Bambu Lab", "Matte", "PLA", "Charcoal Rood", "#c0392b", "11200", "6975337030035", 22.49, 220, 55),
+        entry("Bambu Lab", "Silk", "PLA", "Goud", "#d4a017", "13400", "6975337030059", 26.99, 230, 55),
+        entry("Bambu Lab", "95A HF", "TPU", "Geel", "#f1c40f", "53400", "6975337030066", 34.99, 230, 35, weight=500.0),
+        entry("Sunlu", "HS", "PETG", "Transparant", "#cfe8f3", "", "6970000112233", 17.50, 245, 75),
+        entry("Polymaker", "PolyTerra", "PLA", "Salie", "#7fa37a", "", "6970000445566", 21.95, 210, 55),
+    ]
+    api("POST", "/api/filament-library/import", {"format": "printpricing-filament-library", "format_version": 1, "filaments": filaments})
+
+
 def seed(api):
     tariff = api("POST", "/api/tariffs", {"name": "Thuis (vast tarief)", "price_per_kwh": "0.28", "is_default": True})
     api("POST", "/api/tariffs", {"name": "Dalurentarief", "price_per_kwh": "0.21", "is_default": False})
@@ -198,6 +218,8 @@ def seed(api):
           part("oplader", "USB-C kabel", 1, "stuks", "1.40", accessory_id=extra["kabel"]["id"])],
          margin="110", url="https://makerworld.com/nl/models/987654")
     calc("Fietsbel-houder (TPU)", [fil("tpu", "TPU 95A Geel", 21)], 1.6, "a1", [], margin="200")
+
+    seed_library(api)
 
     projects = {p["name"]: p for p in api("GET", "/api/projects")}
     people = [
@@ -284,20 +306,30 @@ def dismiss_banners(page):
             button.first.click()
 
 
+def new_roll_form(page):
+    """The 'Nieuwe rol' form, open on the library pick-list at its top."""
+    page.get_by_role("button", name="Nieuwe rol").first.click()
+    page.wait_for_function("document.querySelector('#f-library')?.options.length > 1")
+    page.wait_for_timeout(400)
+
+
 def capture(browser, api, origin, project_id, raw):
     def prefs(**p):
         api("PUT", "/api/preferences", {"language": "nl", "business_mode": True, "navbar_glass": 55, **p})
 
-    routes = {"list": "berekeningen", "editor": f"berekeningen/{project_id}", "orders": "bestellingen", "filament": "filament"}
+    routes = {"list": "berekeningen", "editor": f"berekeningen/{project_id}", "orders": "bestellingen", "filament": "filament",
+              "library": "instellingen/filamenten", "newroll": "filament"}
 
     # Desktop: the editor in light and dark, the rest in light.
     for theme in ("light", "dark"):
         prefs(theme=theme, navbar_style="ios")
         ctx = open_context(browser, origin, api.token, width=DESKTOP["w"], height=DESKTOP["h"], scale=1.5)
         page = ctx.new_page()
-        for name in ("editor", "list", "filament", "orders") if theme == "light" else ("editor",):
+        for name in ("editor", "list", "filament", "orders", "library", "newroll") if theme == "light" else ("editor",):
             page.goto(f"{origin}/#/{routes[name]}")
             settle(page)
+            if name == "newroll":
+                new_roll_form(page)
             page.screenshot(path=str(raw / f"desktop-{name}-{theme}.png"))
         ctx.close()
 
@@ -312,6 +344,8 @@ def capture(browser, api, origin, project_id, raw):
             dismiss_banners(page)
             if name == "editor":
                 scroll_to_heading(page, "Kostprijs", 150 if kind == "ios" else 90)
+            elif name == "newroll":
+                new_roll_form(page)
             elif kind == "ios":
                 # As you would use it: the sticky title bar has to clear the status strip, which only shows once the page has scrolled.
                 page.evaluate("window.scrollTo(0, 64)")
@@ -385,7 +419,7 @@ def frame(browser, html, selector, out):
 
 def frames(browser, raw):
     OUT.mkdir(parents=True, exist_ok=True)
-    names = {"list": "calculations", "editor": "calculation", "orders": "orders", "filament": "filament"}
+    names = {"list": "calculations", "editor": "calculation", "orders": "orders", "filament": "filament", "library": "library", "newroll": "new-roll"}
     for kind in ("ios", "android"):
         for key, name in names.items():
             frame(browser, phone_html(kind, data_uri(raw / f"{kind}-{key}-light.png")), ".phone", OUT / f"{kind}-{name}.png")
