@@ -91,51 +91,76 @@ function invoiceDialog(invoice, onDone) {
   dialog.showModal();
 }
 
-/** What goes to GitHub as a contribution: the library file format with only the chosen filaments, without the empty fields (the address is short). */
+/** What goes to GitHub as a contribution: the library file format with only the chosen filaments. Empty fields and the values the server fills in
+ * again (`DEFAULTS` in filament_library.py) are left out, so more filaments fit in the address. */
 const FORMAT = 'printpricing-filament-library';
-const MAX_URL = 7000;                                     // what GitHub takes in an address; longer goes by the clipboard
+const MAX_URL = 7000;                                     // what GitHub takes in an address; a bigger contribution is pasted into the form instead
+const DEFAULTS = { roll_weight_g: 1000, diameter_mm: 1.75 };
 
-function contributionJson(entries) {
-  const slim = entries.map((e) => Object.fromEntries(Object.entries(e).filter(([, v]) => v !== null && v !== '' && v !== false)));
+export function contributionJson(entries) {
+  const slim = entries.map((e) => Object.fromEntries(Object.entries(e)
+    .filter(([key, v]) => v !== null && v !== '' && v !== false && !(key in DEFAULTS && Number(v) === DEFAULTS[key]))));
   return JSON.stringify({ format: FORMAT, format_version: 1, filaments: slim });
 }
 
 /** The filaments that the shared library lacks, to choose from. Opening GitHub is the only thing it does: nothing is sent from here, the person
- * reviews the issue there and presses the button themselves. Notes are not part of an entry; neither is anything about the rolls. */
+ * reviews the issue there and presses the button themselves. Notes are not part of an entry; neither is anything about the rolls. A contribution
+ * that does not fit in an address (about 20 filaments) is shown as a text to copy, and GitHub opens with an empty form to paste it in. */
 function contributeDialog({ entries, already_there: known }, base) {
   const rows = entries.map((entry) => ({
     entry, add: h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: true, 'aria-label': t('library.contribute_add') }) }));
   const error = h('p', { class: 'error', role: 'alert', hidden: true });
+  const body = h('div', { class: 'stack' });
+
+  // Too big for the address: the JSON to copy, then GitHub with an empty form. Nothing is hidden in a toast that can be missed.
+  const steps = (json, href, copied) => {
+    const box = h('textarea', { readonly: true, rows: 6, class: 'mono', 'aria-label': t('library.contribute_json'), onfocus: () => box.select() }, json);
+    const status = h('p', { class: 'notice', role: 'status' }, copied ? t('library.contribute_copied') : t('library.contribute_copy_hint'));
+    const copy = async () => {
+      try { await navigator.clipboard.writeText(json); status.textContent = t('library.contribute_copied'); } catch { box.focus(); status.textContent = t('library.contribute_copy_hint'); }
+    };
+    fill(body,
+      h('h2', {}, t('library.contribute_steps_title')),
+      h('p', { class: 'muted' }, t('library.contribute_steps_intro')),
+      h('ol', { class: 'steps' },
+        h('li', {}, t('library.contribute_step_copy')), h('li', {}, t('library.contribute_step_open')), h('li', {}, t('library.contribute_step_paste'))),
+      box, status,
+      h('div', { class: 'row end' },
+        h('button', { class: 'btn', type: 'button', onclick: copy }, t('library.contribute_copy')),
+        h('a', { class: 'btn primary', href, target: '_blank', rel: 'noopener noreferrer', onclick: () => dialog.close() }, t('library.contribute_open_github'))));
+  };
+
   const open = () => {
     const chosen = rows.filter((r) => r.add.checked).map((r) => r.entry);
     if (!chosen.length) { error.textContent = t('library.contribute_none'); error.hidden = false; return; }
     const json = contributionJson(chosen);
     const form = `${getLanguage() === 'nl' ? 'nl-' : ''}05-filament-library.yml`;
     const params = new URLSearchParams({ template: form, title: t('library.contribute_issue_title', { n: chosen.length }) });
+    const bare = `${base}?${params}`;
     params.set('contribution', json);
-    const long = `${base}?${params}`.length > MAX_URL;
-    if (long) params.delete('contribution');
-    const copied = long ? navigator.clipboard?.writeText(json) : null;           // started in the click, so the browser allows it
-    window.open(`${base}?${params}`, '_blank', 'noopener');
-    dialog.close();
-    if (!long) { toast(t('library.contribute_opened')); return; }
-    Promise.resolve(copied).then(() => toast(t('library.contribute_copied')), () => null).then(() => {
-      if (!copied) { saveBlob(new Blob([json], { type: 'application/json' }), 'filaments-contribution.json'); toast(t('library.contribute_saved')); }
-    });
+    if (`${base}?${params}`.length <= MAX_URL) {
+      window.open(`${base}?${params}`, '_blank', 'noopener');
+      dialog.close();
+      toast(t('library.contribute_opened'));
+      return;
+    }
+    const copied = navigator.clipboard?.writeText(json);                          // started in the click, so the browser allows it
+    steps(json, bare, false);
+    Promise.resolve(copied).then(() => { if (copied) body.querySelector('[role=status]').textContent = t('library.contribute_copied'); }, () => null);
   };
-  const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
-    h('div', { class: 'stack' },
-      h('h2', {}, t('library.contribute_title')),
-      h('p', { class: 'muted' }, t('library.contribute_intro', { n: entries.length, known })),
-      h('p', { class: 'hint' }, t('library.contribute_hint')),
-      h('ul', { class: 'plain-list' }, rows.map(({ entry, add }) => h('li', { class: 'list-row' },
-        h('div', { class: 'item-head' }, spoolIcon(colourOf(entry), 30),
-          h('div', { class: 'grow' }, h('strong', {}, libraryName(entry)), h('p', { class: 'muted' }, details(entry)))),
-        h('label', { class: 'check' }, add, t('library.contribute_add'))))),
-      error,
-      h('div', { class: 'row end' },
-        h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
-        h('button', { class: 'btn primary', type: 'button', onclick: open }, t('library.contribute_do'))))));
+  fill(body,
+    h('h2', {}, t('library.contribute_title')),
+    h('p', { class: 'muted' }, t('library.contribute_intro', { n: entries.length, known })),
+    h('p', { class: 'hint' }, t('library.contribute_hint')),
+    h('ul', { class: 'plain-list' }, rows.map(({ entry, add }) => h('li', { class: 'list-row' },
+      h('div', { class: 'item-head' }, spoolIcon(colourOf(entry), 30),
+        h('div', { class: 'grow' }, h('strong', {}, libraryName(entry)), h('p', { class: 'muted' }, details(entry)))),
+      h('label', { class: 'check' }, add, t('library.contribute_add'))))),
+    error,
+    h('div', { class: 'row end' },
+      h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
+      h('button', { class: 'btn primary', type: 'button', onclick: open }, t('library.contribute_do'))));
+  const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' }, body));
   dialog.addEventListener('close', () => dialog.remove());
   document.body.append(dialog);
   dialog.showModal();
