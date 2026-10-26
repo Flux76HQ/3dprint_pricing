@@ -64,6 +64,12 @@ class Adding(ContributionTestCase):
         code, out, _ = self.run_main(issue(NEW, {**NEW, "colour": " zwart "}))
         self.assertEqual((code, json.loads(out)["added"], json.loads(out)["skipped"]), (0, 1, 1))
 
+    def test_an_entry_without_the_defaults_the_app_leaves_out_gets_them_back(self):
+        slim = {key: value for key, value in NEW.items() if key not in ("roll_weight_g", "diameter_mm")}      # as the app writes a 1000 g, 1.75 mm roll
+        code, _, _ = self.run_main(issue(slim))
+        self.assertEqual(code, 0)
+        self.assertEqual((self.filaments()[-1]["roll_weight_g"], self.filaments()[-1]["diameter_mm"]), (1000.0, 1.75))
+
     def test_names_that_end_up_in_a_pull_request_are_one_line_without_backticks(self):
         _, out, _ = self.run_main(issue({**NEW, "brand": "Evil `@owner`\nSecond line", "barcode": ""}))
         [name] = json.loads(out)["names"]

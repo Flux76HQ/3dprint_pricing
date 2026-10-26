@@ -151,7 +151,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 ## 5. Branch topology and pull request workflow
 
 - **Pull requests go to `beta`, never directly to `main`.** `beta` is the integration branch: feature branches start from it and
-  merge into it. Set GitHub's Default branch to `beta` so a new pull request targets it.
+  merge into it. Set GitHub's Default branch to `beta` so a new pull request targets it, and because GitHub reads issue forms and `issues`-triggered workflows (`library-contribution`) only from the default branch.
 - `main` is the stable line. It only receives a pull request **from `beta`** (the promotion), when the owner asks for one, and that
   pull request is merged with a **merge commit**, never squashed or rebased (a squash leaves `beta` diverged from `main`). `only-from-beta`
   fails every other pull request into `main`. The owner makes `only-from-beta` required, and forbids pushing to `main` directly, in the
