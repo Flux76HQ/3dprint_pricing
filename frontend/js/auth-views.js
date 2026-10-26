@@ -1,7 +1,8 @@
 import { api, createPasskey, getPasskey, passkeySupport } from './api.js';
 import { t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
-import { betaBadge, h, toast } from './ui.js';
+import { codesBlock } from './password.js';
+import { betaBadge, fill, h, toast } from './ui.js';
 
 function shell(onLanguage, ...children) {
   return h('main', { id: 'main', class: 'auth-wrap' }, h('div', { class: 'glass card auth-card' },
@@ -107,7 +108,7 @@ function recoveryStep(codes, onDone) {
 
 // --- login ---------------------------------------------------------------------
 
-export function loginView(onDone, { passwordLogin = false, onLanguage } = {}) {
+export function loginView(onDone, { passwordLogin = false, nameRequired = false, onLanguage } = {}) {
   const error = errorBox();
   const problem = passkeySupport();
   const button = h('button', { class: 'btn primary big', type: 'button' }, h('span', {}, t('auth.login_passkey')));
@@ -144,12 +145,12 @@ export function loginView(onDone, { passwordLogin = false, onLanguage } = {}) {
   return shell(onLanguage, h('div', { class: 'stack' },
     h('h2', {}, t('auth.welcome_back')),
     problem ? h('p', { class: 'error', role: 'alert' }, problem) : null,
-    error, button, passwordLogin ? passwordSection(onDone) : null, toggle, panel));
+    error, button, passwordLogin ? passwordSection(onDone, nameRequired) : null, toggle, panel));
 }
 
-// Password + authenticator code. Only offered when the owner has switched it on in Settings; a session
-// exists only after both steps, so the first step shows the code field and nothing is signed in yet.
-function passwordSection(onDone) {
+// Name + password + authenticator code. Only offered when someone has switched it on in Settings; a session exists only after
+// both steps, so the first step shows the code field and nothing is signed in yet. The name is asked when there are several people.
+function passwordSection(onDone, nameRequired) {
   const error = errorBox();
   const body = h('div', { class: 'stack' });
   const panel = h('div', { id: 'password-panel', class: 'stack', hidden: true }, body);
@@ -161,15 +162,17 @@ function passwordSection(onDone) {
     } }, t('auth.login_password'));
 
   function stepPassword() {
+    const name = nameRequired ? h('input', { type: 'text', id: 'login-name', autocomplete: 'username', required: true, maxlength: 100 }) : null;
     const pw = h('input', { type: 'password', id: 'login-password', autocomplete: 'current-password', required: true });
     const submit = h('button', { class: 'btn', type: 'submit' }, t('auth.next'));
     body.replaceChildren(h('form', { class: 'stack', onsubmit: (e) => {
       e.preventDefault();
       guarded(error, submit, async () => {
-        const res = await api('POST', '/api/auth/password/login', { password: pw.value });
+        const res = await api('POST', '/api/auth/password/login', { name: name ? name.value : undefined, password: pw.value });
         stepCode(res.mfa_token);
       });
-    } }, h('div', { class: 'field' }, h('label', { for: 'login-password' }, t('auth.password')), pw), error, submit));
+    } }, name ? h('div', { class: 'field' }, h('label', { for: 'login-name' }, t('auth.your_name')), name) : null,
+    h('div', { class: 'field' }, h('label', { for: 'login-password' }, t('auth.password')), pw), error, submit));
   }
 
   function stepCode(token) {
@@ -200,4 +203,101 @@ function passwordSection(onDone) {
 
   stepPassword();
   return h('div', { class: 'stack' }, toggle, panel);
+}
+
+// --- invitation: a link from an administrator -> a name -> a passkey or a password -> codes to keep ------------------------
+// The link is `#invite=<token>`: the fragment is never sent to a server, and the token goes back in a header. Once finished it is
+// taken out of the address bar and the history.
+
+export const inviteToken = () => new URLSearchParams(location.hash.replace(/^#/, '')).get('invite');
+
+function leaveInvite() {
+  history.replaceState(null, '', location.pathname + location.search);
+}
+
+export function inviteView(token, onDone, onLanguage) {
+  const headers = { 'X-Invite-Token': token };
+  const post = (path, body) => api('POST', `/api/invites/${path}`, body, headers);
+  const root = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
+
+  const codesStep = (codes) => {
+    leaveInvite();
+    const saved = h('input', { type: 'checkbox', id: 'invite-saved' });
+    const proceed = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: onDone }, t('auth.continue_app'));
+    saved.addEventListener('change', () => { proceed.disabled = !saved.checked; });
+    root.replaceChildren(h('h2', {}, t('auth.save_recovery')),
+      h('p', {}, t('auth.recovery_intro'), ' ', h('strong', {}, t('auth.shown_once')), ' ', t('auth.each_code_once')),
+      ...codesBlock(codes), h('label', { class: 'check', for: 'invite-saved' }, saved, t('auth.codes_saved')), proceed);
+  };
+
+  function form(info) {
+    const reset = info.kind === 'reset';
+    const problem = passkeySupport();
+    const error = errorBox();
+    const name = h('input', { type: 'text', id: 'invite-name', autocomplete: 'username', required: true, maxlength: 60, value: info.name || '', readonly: reset });
+    const nameField = h('div', { class: 'field' }, h('label', { for: 'invite-name' }, t('auth.your_name')), name,
+      reset ? null : h('p', { class: 'hint' }, t('invite.name_hint')));
+
+    const passkey = h('button', { class: 'btn primary big', type: 'button', disabled: !!problem, title: problem || null }, t('invite.use_passkey'));
+    passkey.addEventListener('click', () => guarded(error, passkey, async () => {
+      const options = await post('passkey/options', { name: name.value });
+      const credential = await createPasskey(options);
+      const res = await post('passkey/verify', { credential, label: t('auth.first_passkey') });
+      codesStep(res.recovery_codes);
+    }));
+
+    // The same set-up as in Settings: a password of at least 12 characters, then an authenticator app, then backup codes.
+    const pw = h('input', { type: 'password', id: 'invite-password', autocomplete: 'new-password', required: true, minlength: 12 });
+    const again = h('input', { type: 'password', id: 'invite-password2', autocomplete: 'new-password', required: true });
+    const passwordError = errorBox();
+    const next = h('button', { class: 'btn', type: 'submit' }, t('common.continue'));
+    const passwordForm = h('form', { class: 'stack', hidden: true, id: 'invite-password-panel', onsubmit: (e) => {
+      e.preventDefault();
+      if (pw.value !== again.value) { showError(passwordError, t('pw.mismatch')); return; }
+      guarded(passwordError, next, async () => {
+        const res = await post('password/start', { name: name.value, password: pw.value });
+        authenticatorStep(res);
+      });
+    } },
+    h('p', { class: 'muted' }, t('pw.setup_intro')),
+    h('div', { class: 'field' }, h('label', { for: 'invite-password' }, t('pw.new')), pw, h('p', { class: 'hint' }, t('pw.new_hint'))),
+    h('div', { class: 'field' }, h('label', { for: 'invite-password2' }, t('pw.repeat')), again), passwordError, next);
+    const toggle = h('button', { class: 'link', type: 'button', 'aria-expanded': 'false', 'aria-controls': 'invite-password-panel', onclick: () => {
+      passwordForm.hidden = !passwordForm.hidden;
+      toggle.setAttribute('aria-expanded', String(!passwordForm.hidden));
+      if (!passwordForm.hidden) pw.focus();
+    } }, t('invite.use_password'));
+
+    function authenticatorStep({ qr, secret }) {
+      const code = h('input', { type: 'text', id: 'invite-totp', inputmode: 'numeric', autocomplete: 'one-time-code', pattern: '[0-9 ]*', required: true, maxlength: 7 });
+      const codeError = errorBox();
+      const confirm = h('button', { class: 'btn primary', type: 'submit' }, t('common.confirm'));
+      root.replaceChildren(h('form', { class: 'stack', onsubmit: (e) => {
+        e.preventDefault();
+        guarded(codeError, confirm, async () => {
+          const res = await post('password/confirm', { code: code.value });
+          codesStep(res.backup_codes);
+        });
+      } },
+      h('p', {}, t('pw.scan')),
+      h('div', { class: 'qr' }, h('img', { src: qr, alt: t('pw.qr_alt'), width: 200, height: 200 })),
+      h('p', { class: 'muted' }, t('pw.manual_key')),
+      h('p', { class: 'secret' }, secret.replace(/(.{4})/g, '$1 ').trim()),
+      h('div', { class: 'field' }, h('label', { for: 'invite-totp' }, t('pw.app_code')), code), codeError, confirm));
+      code.focus();
+    }
+
+    return [h('h2', {}, reset ? t('invite.reset_title') : t('invite.welcome_title')),
+      h('p', { class: 'muted' }, reset ? t('invite.reset_intro', { name: info.name }) : t('invite.welcome_intro', { by: info.invited_by || t('invite.someone') })),
+      nameField,
+      problem ? h('p', { class: 'hint', role: 'note' }, problem) : null,
+      error, passkey, toggle, passwordForm,
+      h('p', { class: 'hint' }, t('invite.never_known'))];
+  }
+
+  api('GET', '/api/invites/info', undefined, headers).then(
+    (info) => fill(root, form(info)),
+    (e) => root.replaceChildren(h('h2', {}, t('invite.invalid_title')), h('p', { class: 'error', role: 'alert' }, e.message),
+      h('button', { class: 'btn', type: 'button', onclick: () => { leaveInvite(); onDone(); } }, t('invite.to_login'))));
+  return shell(onLanguage, root);
 }

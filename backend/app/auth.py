@@ -1,8 +1,8 @@
 """Passkey authentication: onboarding, login, recovery codes, step-up.
 
-One owner signs in; the owner may hold several passkeys. Onboarding is closed as
-soon as the first user exists, and is guarded by SETUP_CODE from the environment
-so that whoever reaches the URL first cannot claim the app.
+The first person to set the app up is the owner (an administrator who cannot be removed); onboarding is closed as soon as
+that user exists, and is guarded by SETUP_CODE from the environment so that whoever reaches the URL first cannot claim the app.
+Everyone else comes in through an invitation (`invites.py`) and is managed in `users.py`. Everybody may hold several passkeys.
 """
 import hashlib
 import hmac
@@ -33,10 +33,13 @@ setup_limiter = RateLimiter(limit=10, window_seconds=900)
 # --- sessions ---------------------------------------------------------------
 
 def issue_session(response, user_id) -> None:
+    """Call after the transaction that made or changed the user has committed: the session carries the user's epoch as it is now."""
     cfg = config()
     now = datetime.now(timezone.utc)
+    with pool().connection() as conn:
+        epoch = conn.execute("SELECT session_epoch FROM users WHERE id = %s", (user_id,)).fetchone()["session_epoch"]
     token = jwt.encode(
-        {"sub": str(user_id), "iat": now, "exp": now + timedelta(hours=cfg.session_hours)},
+        {"sub": str(user_id), "ep": epoch, "iat": now, "exp": now + timedelta(hours=cfg.session_hours)},
         cfg.session_secret,
         algorithm="HS256",
     )
@@ -47,15 +50,22 @@ def issue_session(response, user_id) -> None:
 
 
 def load_session() -> None:
-    g.user_id = None
+    """Who is calling: the cookie says which user, the database says whether that user still exists, is still in the same
+    epoch (a reset signs a person out everywhere) and what role they have now (a demotion takes effect at once)."""
+    g.user_id, g.role, g.is_owner = None, None, False
     token = request.cookies.get(COOKIE)
-    if not token:
+    if not token or not request.path.startswith("/api/"):
         return
     try:
         claims = jwt.decode(token, config().session_secret, algorithms=["HS256"])
-        g.user_id = uuid.UUID(claims["sub"])
-    except (jwt.PyJWTError, ValueError, KeyError):
-        g.user_id = None
+        user_id = uuid.UUID(claims["sub"])
+        epoch = int(claims.get("ep", 0))            # a session from before epochs existed is epoch 0
+    except (jwt.PyJWTError, ValueError, KeyError, TypeError):
+        return
+    with pool().connection() as conn:
+        row = conn.execute("SELECT role, is_owner, session_epoch FROM users WHERE id = %s", (user_id,)).fetchone()
+    if row is not None and row["session_epoch"] == epoch:
+        g.user_id, g.role, g.is_owner = user_id, row["role"], row["is_owner"]
 
 
 # --- challenges ---------------------------------------------------------------
@@ -209,11 +219,14 @@ def status():
         onboarded = conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]
         user = None
         if g.user_id:
-            row = conn.execute("SELECT id, display_name FROM users WHERE id = %s", (g.user_id,)).fetchone()
-            user = {"id": str(row["id"]), "display_name": row["display_name"]} if row else None
+            row = conn.execute("SELECT id, display_name, role, is_owner FROM users WHERE id = %s", (g.user_id,)).fetchone()
+            user = ({"id": str(row["id"]), "display_name": row["display_name"], "role": row["role"], "is_owner": row["is_owner"]}
+                    if row else None)
         password_login = conn.execute("SELECT EXISTS (SELECT 1 FROM password_credentials WHERE enabled) AS e").fetchone()["e"]
+        # With one person a password login needs no name; with more the screen asks which of them is signing in.
+        several = conn.execute("SELECT count(*) > 1 AS m FROM users").fetchone()["m"]
     return jsonify({"onboarded": onboarded, "authenticated": user is not None, "user": user,
-                    "rp_id": config().rp_id, "password_login": password_login,
+                    "rp_id": config().rp_id, "password_login": password_login, "login_name_required": several,
                     "ai_images": config().ai_images_enabled})
 
 
@@ -248,7 +261,8 @@ def onboarding_verify():
             raise ApiError(409, "auth.onboarded")
         data = row["data"]
         user_id = uuid.UUID(data["user_id"])
-        conn.execute("INSERT INTO users (id, display_name) VALUES (%s, %s)", (user_id, data["display_name"]))
+        conn.execute("INSERT INTO users (id, display_name, role, is_owner) VALUES (%s, %s, 'admin', true)",
+                     (user_id, data["display_name"]))
         _save_credential(conn, user_id, result, cred, str(body.get("label") or "Eerste passkey"))
         codes = _create_recovery_codes(conn, user_id)
     response = make_response(jsonify({"ok": True, "recovery_codes": codes}))
@@ -258,8 +272,8 @@ def onboarding_verify():
 
 @bp.post("/login/options")
 def login_options():
-    # One owner, so every stored credential is theirs. Naming them lets a passkey that is not
-    # discoverable sign in too; with none registered yet the list is empty and the browser looks itself.
+    # Naming every stored credential lets a passkey that is not discoverable sign in too (a credential id is no secret);
+    # with none registered yet the list is empty and the browser looks itself.
     with pool().connection() as conn:
         creds = [r["credential_id"] for r in conn.execute(
             "SELECT credential_id FROM webauthn_credentials").fetchall()]
@@ -367,6 +381,8 @@ def _purpose(action: str, target: str | None) -> str:
         return "system:reset"
     if action in ("password-disable", "password-change", "password-backup-codes"):
         return f"password:{action.split('-', 1)[1]}"
+    if action in ("user-promote", "user-reset") and target:       # bound to the person it is done to
+        return f"user:{target}:{action.split('-', 1)[1]}"
     raise ApiError(400, "auth.unknown_action")
 
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import ai_images, api, auth, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invoice_template, orders, password_api, push, push_api, system, updates
+from . import access, ai_images, api, auth, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invites, invoice_template, orders, password_api, push, push_api, system, updates, users
 from .config import Config, build_channel, load_config
 from .db import make_pool
 from .http import ApiError, error_response
@@ -48,6 +48,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     @app.before_request
     def _guard():
         auth.load_session()
+        access.check(request.path, request.method)         # the routes only an administrator may call (access.py)
         # State-changing calls must come from our own origin. Together with the
         # SameSite=Strict cookie this is the CSRF defence.
         if request.method not in ("GET", "HEAD", "OPTIONS"):
@@ -84,6 +85,8 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     app.register_blueprint(ai_images.bp)
     app.register_blueprint(system.bp)
     app.register_blueprint(updates.bp)
+    app.register_blueprint(users.bp)
+    app.register_blueprint(invites.bp)
     app.extensions["update_checker"] = updates.Checker(VERSION, enabled=cfg.update_check)
     app.register_error_handler(ApiError, error_response)
 

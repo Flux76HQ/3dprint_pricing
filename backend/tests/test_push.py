@@ -282,6 +282,19 @@ def test_the_announcement_respects_the_opt_out(owner, pushapp):
     assert mocked.call_count == 0
 
 
+def test_a_new_release_is_announced_to_administrators_only(owner, pushapp):
+    from announce_release import announce
+    from tests.test_users import join_with_passkey
+    cfg, pool = pushapp.config["APP_CONFIG"], pushapp.extensions["pool"]
+    member = join_with_passkey(pushapp, owner)
+    subscribe(owner)
+    subscribe(member, "https://push.example/members-phone")
+    announce(pool, cfg, "v1 (a)")
+    with mock.patch("app.push.webpush") as mocked:
+        assert announce(pool, cfg, "v2 (b)") == 1                       # nobody can act on it but the administrator
+    assert [c.kwargs["subscription_info"]["endpoint"] for c in sent_calls(mocked)] == [ENDPOINT]
+
+
 # --- the service worker carries the release ----------------------------------------------------------------
 
 def test_the_service_worker_is_served_with_the_running_release(client, monkeypatch):
