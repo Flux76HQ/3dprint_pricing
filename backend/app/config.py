@@ -85,17 +85,27 @@ def _library_url() -> str:
     return url
 
 
-def _spoolman_url() -> str:
-    """The address of the Spoolman server; empty (the default) means there is no Spoolman. It is set here and nowhere else, so a request can
-    never make the server call a machine of its choosing. A home network runs Spoolman on plain http, so http is allowed; a trailing slash,
-    a path, a query and a login in the address are not: the app adds `/api/v1/...` itself."""
-    url = os.environ.get("SPOOLMAN_URL", "").strip().rstrip("/")
+def check_spoolman_url(value: str) -> str:
+    """A Spoolman address, tidied: empty means there is none. A home network runs Spoolman on plain http, so http is allowed; a trailing slash,
+    a query and a login in the address are not (a path is: Spoolman can sit under one): the app adds `/api/v1/...` itself. Used for `SPOOLMAN_URL` and for the address an
+    administrator types in the app, so both are held to the same rule."""
+    url = value.strip().rstrip("/")
     if not url:
         return ""
-    parts = urlparse(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
+    try:
+        parts = urlparse(url)
+        port = parts.port
+    except ValueError:
+        raise ConfigError("SPOOLMAN_URL must be an http(s) address such as http://spoolman:8000.") from None
+    if (parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment
+            or port == 0 or len(url) > 200):
         raise ConfigError("SPOOLMAN_URL must be an http(s) address such as http://spoolman:8000 (no login, query or fragment), or empty.")
     return url
+
+
+def _spoolman_url() -> str:
+    """`SPOOLMAN_URL` from .env; empty (the default) means that the address, if any, is the one typed in the app."""
+    return check_spoolman_url(os.environ.get("SPOOLMAN_URL", ""))
 
 
 def load_config() -> Config:

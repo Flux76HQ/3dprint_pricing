@@ -340,6 +340,8 @@
  "pwapi.not_on": "Wachtwoord-login staat niet aan.",
  "spoolman.bad_reply": "Spoolman gaf een antwoord dat deze app niet begrijpt. Controleer of SPOOLMAN_URL naar Spoolman wijst.",
  "spoolman.bad_status": "Spoolman weigerde het verzoek (status {status}).",
+ "spoolman.bad_url": "Dit is geen geldig adres. Gebruik bijvoorbeeld http://spoolman:8000, zonder inlog of vraagteken erin.",
+ "spoolman.locked": "Het adres staat in .env (SPOOLMAN_URL) en kan hier niet worden gewijzigd.",
  "spoolman.managed": "Deze rol komt uit Spoolman. Pas hem daar aan en synchroniseer daarna.",
  "spoolman.off": "Spoolman is niet ingesteld (SPOOLMAN_URL).",
  "spoolman.redirect": "Spoolman stuurt door naar een ander adres. Zet het uiteindelijke adres in SPOOLMAN_URL.",

@@ -47,6 +47,8 @@ class Spoolman:
         if self.answer:
             return self.answer
         path = url[len(URL + "/api/v1"):]
+        if method == "GET" and path == "/health":
+            return Reply(body=b'{"status": "healthy"}')
         if method == "GET" and path == "/spool":
             assert params["allow_archived"] == "true"
             page = self.spools[params["offset"]:params["offset"] + params["limit"]]
@@ -84,11 +86,18 @@ class Spoolman:
 
 
 @pytest.fixture
-def server(app, monkeypatch):
+def stand_in(monkeypatch):
+    """A Spoolman that no address points to yet."""
     fake = Spoolman()
     monkeypatch.setattr(requests, "request", fake.request)
-    app.config["APP_CONFIG"] = dataclasses.replace(app.config["APP_CONFIG"], spoolman_url=URL)
     return fake
+
+
+@pytest.fixture
+def server(app, stand_in):
+    """A Spoolman at the address `.env` gives."""
+    app.config["APP_CONFIG"] = dataclasses.replace(app.config["APP_CONFIG"], spoolman_url=URL)
+    return stand_in
 
 
 def sync(owner):
@@ -107,7 +116,8 @@ def test_the_address_is_read_from_the_environment(monkeypatch, value, expected):
     assert config_module._spoolman_url() == expected
 
 
-@pytest.mark.parametrize("value", ["spoolman:8000", "ftp://spoolman", "http://user:pw@spoolman:8000", "http://spoolman:8000?x=1", "http://"])
+@pytest.mark.parametrize("value", ["spoolman:8000", "ftp://spoolman", "http://user:pw@spoolman:8000", "http://spoolman:8000?x=1", "http://", "http://spoolman:0",
+                                   "http://spoolman:99999", "http://spoolman:8000#x", "http://" + "a" * 300])
 def test_an_address_that_is_not_plain_http_or_https_is_refused(monkeypatch, value):
     monkeypatch.setenv("SPOOLMAN_URL", value)
     with pytest.raises(ConfigError):
@@ -115,8 +125,78 @@ def test_an_address_that_is_not_plain_http_or_https_is_refused(monkeypatch, valu
 
 
 def test_without_an_address_there_is_no_spoolman(owner):
-    assert owner.get("/api/spoolman").get_json() == {"enabled": False}
+    assert owner.get("/api/spoolman").get_json() == {"enabled": False, "can_sync": True, "url": "", "from_env": False}
     assert sync(owner).status_code == 400
+
+
+# --- the address, typed in the app ----------------------------------------------------------------------------------
+
+def save_address(owner, url):
+    return owner.put("/api/spoolman/settings", json={"url": url}, headers={**H, **NL})
+
+
+def test_an_administrator_types_the_address_and_it_is_used(owner, stand_in):
+    assert save_address(owner, URL + "/").status_code == 200
+    status = owner.get("/api/spoolman").get_json()
+    assert status["enabled"] and status["url"] == URL and status["from_env"] is False and status["host"] == "spoolman.test:7912"
+    stand_in.spools = [spool(1)]
+    assert sync(owner).get_json()["created"] == 1
+    assert owner.post("/api/spoolman/test", json={}, headers=H).get_json() == {"ok": True}
+
+
+def test_a_path_in_the_address_is_kept_for_spoolman_behind_a_proxy(owner, stand_in, monkeypatch):
+    seen = []
+    original = stand_in.request
+
+    def request(method, url, **kwargs):
+        seen.append(url)
+        return original(method, url.replace("/spoolman/api", "/api").replace("http://spoolman.test:7912", URL), **kwargs)
+    monkeypatch.setattr(requests, "request", request)
+    save_address(owner, URL + "/spoolman")
+    owner.post("/api/spoolman/test", json={}, headers=H)
+    assert seen == [URL + "/spoolman/api/v1/health"]
+
+
+@pytest.mark.parametrize("bad", ["spoolman:8000", "ftp://x", "http://u:p@x", "http://x?y=1", "http://", 5, None, ["http://x"]])
+def test_an_address_that_is_not_one_is_refused_and_nothing_is_saved(owner, stand_in, bad):
+    assert save_address(owner, bad).status_code == 400
+    assert owner.get("/api/spoolman").get_json()["enabled"] is False
+
+
+def test_clearing_the_address_switches_spoolman_off(owner, stand_in):
+    save_address(owner, URL)
+    assert save_address(owner, "").get_json()["enabled"] is False
+    assert sync(owner).status_code == 400
+
+
+def test_the_address_in_env_wins_and_cannot_be_changed_in_the_app(owner, server):
+    res = save_address(owner, "http://other.test:1")
+    assert res.status_code == 409 and "SPOOLMAN_URL" in res.get_json()["error"]
+    status = owner.get("/api/spoolman").get_json()
+    assert status["from_env"] is True and status["url"] == URL
+
+
+def test_the_test_says_when_spoolman_is_not_there_and_only_the_verdict_is_passed_on(owner, stand_in):
+    assert owner.post("/api/spoolman/test", json={}, headers=H).status_code == 400
+    save_address(owner, URL)
+    stand_in.down = True
+    assert owner.post("/api/spoolman/test", json={}, headers=H).status_code == 502
+    stand_in.down = False
+    stand_in.answer = Reply(200, b'{"secret": "x"}')
+    assert owner.post("/api/spoolman/test", json={}, headers=H).get_json() == {"ok": True}
+
+
+def test_the_address_is_not_in_a_backup(owner, stand_in, app):
+    save_address(owner, URL)
+    assert sql(app, "SELECT url FROM spoolman_settings")[0]["url"] == URL
+    assert "spoolman.test" not in owner.get("/api/backup").get_data(as_text=True)
+
+
+def test_a_regular_user_does_not_get_the_address(app, owner, server):
+    member = join_with_passkey(app, owner)
+    status = member.get("/api/spoolman").get_json()
+    assert status["url"] is None and status["can_sync"] is False and status["host"] == "spoolman.test:7912"
+    assert member.put("/api/spoolman/settings", json={"url": URL}, headers=H).status_code == 403
 
 
 # --- the sync ----------------------------------------------------------------------------------------------------

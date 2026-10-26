@@ -24,7 +24,8 @@ from flask import Blueprint, g, jsonify, request
 
 from . import filament_library
 from .api import _serialise, _share_notify, stock_changed
-from .http import ApiError, config, login_required, pool
+from .config import ConfigError, check_spoolman_url
+from .http import ApiError, config, json_body, login_required, pool
 
 log = logging.getLogger(__name__)
 bp = Blueprint("spoolman", __name__, url_prefix="/api/spoolman")
@@ -56,12 +57,25 @@ def _guard():
     """Every route here needs a session; syncing is for administrators (`access.ADMIN_ONLY`)."""
 
 
+def address() -> str:
+    """Where Spoolman is: `SPOOLMAN_URL` when .env sets it, else the address an administrator typed in the app, else "" (no Spoolman). Read once
+    per request, and before a request holds a connection of its own, so the lookup never waits for a second one from the pool."""
+    if getattr(g, "spoolman_address", None) is None:
+        found = config().spoolman_url
+        if not found:
+            with pool().connection() as conn:
+                row = conn.execute("SELECT url FROM spoolman_settings").fetchone()
+            found = row["url"] if row else ""
+        g.spoolman_address = found
+    return g.spoolman_address
+
+
 def enabled() -> bool:
-    return bool(config().spoolman_url)
+    return bool(address())
 
 
 def _call(method: str, path: str, **kwargs):
-    url = config().spoolman_url + "/api/v1" + path
+    url = address() + "/api/v1" + path
     try:
         reply = requests.request(method, url, timeout=TIMEOUT, allow_redirects=False, stream=True, headers={"Accept": "application/json"}, **kwargs)
     except requests.RequestException as exc:
@@ -388,15 +402,48 @@ def run_push_rolls():
 
 @bp.get("")
 def status():
-    """Whether there is a Spoolman, where, when it was last read, and how much is waiting to be reported to it."""
+    """Whether there is a Spoolman, where, when it was last read, and how much is waiting to be reported to it. An administrator also gets the
+    whole address and whether it can be changed here (it cannot while .env sets it)."""
+    admin = getattr(g, "role", None) == "admin"
+    from_env = bool(config().spoolman_url)
     if not enabled():
-        return jsonify({"enabled": False})
-    parts = urlparse(config().spoolman_url)
+        return jsonify({"enabled": False, "can_sync": admin, "url": "" if admin else None, "from_env": False})
+    parts = urlparse(address())
     with pool().connection() as conn:
         row = conn.execute("SELECT count(*) AS rolls, max(spoolman_synced_at) AS last FROM filament_spools WHERE spoolman_id IS NOT NULL").fetchone()
         pending = conn.execute("SELECT count(*) AS n FROM spoolman_pending_use").fetchone()["n"]
     return jsonify(_serialise({"enabled": True, "host": parts.netloc, "rolls": row["rolls"], "last_sync": row["last"], "pending": pending,
-                                "can_sync": getattr(g, "role", None) == "admin"}))
+                               "can_sync": admin, "url": address() if admin else None, "from_env": from_env}))
+
+
+@bp.put("/settings")
+def save_settings():
+    """The administrator types the address of Spoolman. It is checked like `SPOOLMAN_URL`; empty removes it. Refused while .env sets it."""
+    if config().spoolman_url:
+        raise ApiError(409, "spoolman.locked")
+    value = json_body().get("url")
+    if not isinstance(value, str):
+        raise ApiError(400, "spoolman.bad_url")
+    try:
+        url = check_spoolman_url(value)
+    except ConfigError:
+        raise ApiError(400, "spoolman.bad_url") from None
+    with pool().connection() as conn:
+        conn.execute("INSERT INTO spoolman_settings (singleton, url) VALUES (true, %s) ON CONFLICT (singleton) DO UPDATE SET url = EXCLUDED.url", (url,))
+    g.spoolman_address = url
+    return status()
+
+
+@bp.post("/test")
+def test_connection():
+    """Ask the saved address whether it is a Spoolman that answers. Nothing from the answer is passed on but the verdict."""
+    if not enabled():
+        raise ApiError(400, "spoolman.off")
+    try:
+        _json("GET", "/health")
+    except SpoolmanError as exc:
+        raise exc.api() from None
+    return jsonify({"ok": True})
 
 
 @bp.post("/sync")

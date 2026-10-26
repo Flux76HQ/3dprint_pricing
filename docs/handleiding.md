@@ -557,9 +557,11 @@ De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg b
 
 ## Spoolman (optioneel)
 
-Gebruik je [Spoolman](https://github.com/Donkie/Spoolman) voor je spoelen, dan kan dat de **bron van de rollen en van wat er nog op zit** zijn, zodat je dat op één plek bijhoudt. Zet in `.env` het adres
-waarop de container van de app Spoolman bereikt, bijvoorbeeld `SPOOLMAN_URL=http://spoolman:8000` (zonder pad of inlog; `http` mag, Spoolman draait meestal binnen je eigen netwerk), en herstart. Leeg
-(de standaard) betekent: geen Spoolman, en alles blijft zoals het was. Het adres staat alleen in `.env` en komt nooit uit een verzoek. Spoolman heeft zelf geen inlog: zet het niet open op internet.
+Gebruik je [Spoolman](https://github.com/Donkie/Spoolman) voor je spoelen, dan kan dat de **bron van de rollen en van wat er nog op zit** zijn, zodat je dat op één plek bijhoudt. Je vult het adres in als beheerder
+onder *Instellingen → Filamenten* (veld *Adres van Spoolman*, met *Opslaan* en *Verbinding testen*), of je zet het in `.env` als `SPOOLMAN_URL=http://spoolman:8000`. Het moet het adres zijn waarop **de server van de app** Spoolman bereikt
+(dat kan een ander zijn dan in je browser, bijvoorbeeld `http://spoolman:8000` in hetzelfde Docker-netwerk of `http://192.168.1.20:7912` met de poort die je naar buiten zette); `http` mag, zonder inlog of vraagteken, en een pad mag
+als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles blijft zoals het was. Staat het in `.env`, dan **gaat dat voor**: de app toont het dan alleen-lezen. Het adres staat **niet in een back-up** (het hoort bij
+één netwerk) en alleen een beheerder kan het zien of wijzigen; de server doet met dit adres uitsluitend de vaste aanroepen onder `/api/v1/` van Spoolman en geeft van de test alleen het oordeel door. Spoolman heeft zelf geen inlog: zet het niet open op internet.
 
 - **Synchroniseren** (*Instellingen → Filamenten* en bovenaan *Filament*, alleen voor beheerders; iedereen ziet wanneer het voor het laatst gebeurde). De app leest alle spoelen uit Spoolman en maakt er elk een rol van,
   gekoppeld aan het spoolnummer van Spoolman: de volgende keer wordt die rol bijgewerkt, niet nog een keer toegevoegd. Merk, materiaal, kleur (naam en kleurcode), gewicht, prijs, diameter, temperaturen,

@@ -1,16 +1,41 @@
 import { api } from './api.js';
 import { formatDateTime, t } from './i18n.js';
-import { confirmDialog, fill, h, icon, toast } from './ui.js';
+import { confirmDialog, field, fill, h, icon, toast } from './ui.js';
 
-/** The Spoolman card: where the rolls come from, when they were last read, and the Sync button. It stays hidden while there is no Spoolman
- * (`SPOOLMAN_URL`), so an installation without one looks as before. `onSynced` runs after a sync that went through (to redraw a list). */
-export function spoolmanCard(onSynced = () => {}) {
+/** The Spoolman card: where the rolls come from, when they were last read, and the Sync button. It stays hidden while there is no Spoolman,
+ * so an installation without one looks as before; with `configure` (Settings) an administrator sees it anyway, with the field for the address.
+ * `onSynced` runs after a sync that went through (to redraw a list). */
+export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
   const card = h('div', { class: 'glass card stack', hidden: true });
 
   async function draw() {
     let status;
     try { status = await api('GET', '/api/spoolman'); } catch { return; }          // a convenience: the page works without it
-    if (!status.enabled) { card.hidden = true; return; }
+    const setup = configure && status.can_sync;
+    if (!status.enabled && !setup) { card.hidden = true; return; }
+    // The address: typed here by an administrator, unless .env sets it (then it is shown and cannot be changed).
+    const input = h('input', { type: 'text', inputmode: 'url', autocomplete: 'off', spellcheck: 'false', placeholder: 'http://spoolman:8000',
+      value: status.url || '', disabled: status.from_env });
+    const save = async () => {
+      try {
+        await api('PUT', '/api/spoolman/settings', { url: input.value });
+        toast(t('spoolman.saved'));
+      } catch (err) { toast(err.message, 'error'); }
+      draw();
+    };
+    const test = async () => {
+      try { await api('POST', '/api/spoolman/test'); toast(t('spoolman.test_ok')); } catch (err) { toast(err.message, 'error'); }
+    };
+    const address = !setup ? null : h('div', { class: 'stack' },
+      field(t('spoolman.address'), input, status.from_env ? t('spoolman.address_env') : t('spoolman.address_hint')),
+      h('div', { class: 'row' },
+        status.from_env ? null : h('button', { class: 'btn primary', type: 'button', onclick: save }, t('common.save')),
+        status.enabled ? h('button', { class: 'btn', type: 'button', onclick: test }, t('spoolman.test')) : null));
+    if (!status.enabled) {
+      fill(card, h('h2', {}, t('spoolman.title')), h('p', { class: 'muted' }, t('spoolman.setup_intro')), address);
+      card.hidden = false;
+      return;
+    }
     const sync = h('button', { class: 'btn primary', type: 'button', onclick: async (e) => {
       const button = e.currentTarget;
       button.disabled = true;
@@ -54,8 +79,9 @@ export function spoolmanCard(onSynced = () => {}) {
       status.can_sync ? h('div', { class: 'row' }, sync,
         h('button', { class: 'btn', type: 'button', onclick: push }, t('spoolman.push')),
         h('button', { class: 'btn', type: 'button', onclick: pushRolls }, t('spoolman.rolls'))) : h('p', { class: 'hint' }, t('spoolman.admin_only')),
-      status.can_sync ? h('p', { class: 'hint' }, t('spoolman.push_hint')) : null,
-      status.can_sync ? h('p', { class: 'hint' }, t('spoolman.rolls_hint')) : null);
+      setup ? h('p', { class: 'hint' }, t('spoolman.push_hint')) : null,
+      setup ? h('p', { class: 'hint' }, t('spoolman.rolls_hint')) : null,
+      address);
     card.hidden = false;
   }
   draw();
