@@ -2,6 +2,7 @@ import { api } from './api.js';
 import { getLanguage, t } from './i18n.js';
 import { colourOf, spoolIcon, stockTiles } from './filament-ui.js';
 import { scanBarcode } from './scanner.js';
+import { spoolmanCard } from './spoolman.js';
 import { askChoice, confirmDialog, enhanceDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
 
 // Declarative config for the three inventory/rate screens. Money and quantities are
@@ -62,14 +63,21 @@ function resources() {
       bar.firstChild.style.width = `${pct}%`;
       return {
         icon: spoolIcon(colourOf(item), 34),
-        title: spoolName(item, ' · '),
+        title: spoolName(item, ' · '), badge: item.spoolman_id ? t('spoolman.badge') : null,
         subtitle: [item.material, t('filament.per_roll_price', { price: eur(item.price) })].filter(Boolean).join(' · '),
         stats: [[t('filament.per_kg'), eur(perKg)], [t('filament.left'), `${fmt(item.remaining_g, 0)} g`], [t('filament.diameter_short'), `${fmt(item.diameter_mm)} mm`],
           ...(item.print_temp_c != null ? [[t('filament.print_temp_short'), `${item.print_temp_c} °C`]] : []),
           ...(item.bed_temp_c != null ? [[t('filament.bed_temp_short'), `${item.bed_temp_c} °C`]] : [])],
         extra: bar,
-        footnote: item.barcode ? t('filament.barcode_note', { code: item.barcode }) : null,
+        footnote: [item.barcode ? t('filament.barcode_note', { code: item.barcode }) : null, item.spoolman_id ? t('spoolman.note') : null].filter(Boolean).join(' · ') || null,
       };
+    },
+    // A roll from Spoolman is Spoolman's to change (the server refuses it): all that is left here is the low-stock alert.
+    actions(item, reload) {
+      if (!item.spoolman_id) return [];
+      return [h('button', { class: 'btn small', type: 'button', onclick: async () => {
+        try { await api('PATCH', `${this.path}/${item.id}`, { notify_low: !item.notify_low }); reload(); } catch (e) { toast(e.message, 'error'); }
+      } }, item.notify_low ? t('spoolman.notify_off') : t('spoolman.notify_on'))];
     },
   },
   verpakking: {
@@ -593,13 +601,13 @@ export function resourceView(key, sub) {
         c.extra || null,
         c.footnote ? h('p', { class: 'muted footnote' }, c.footnote) : null,
         h('div', { class: 'row' },
-          h('button', { class: 'btn small', type: 'button', onclick: () => openForm(config, item, load) }, t('common.edit')),
+          item.spoolman_id ? null : h('button', { class: 'btn small', type: 'button', onclick: () => openForm(config, item, load) }, t('common.edit')),
           ...extraActions,
-          config.archivable ? h('button', { class: 'btn small', type: 'button', onclick: async () => {
+          config.archivable && !item.spoolman_id ? h('button', { class: 'btn small', type: 'button', onclick: async () => {
             await api('PATCH', `${config.path}/${item.id}`, { archived: !item.archived });
             load();
           } }, item.archived ? t('common.restore') : t('common.archive')) : null,
-          h('button', { class: 'btn small danger', type: 'button', 'aria-label': t('common.delete_named', { name: c.title }),
+          item.spoolman_id ? null : h('button', { class: 'btn small danger', type: 'button', 'aria-label': t('common.delete_named', { name: c.title }),
             onclick: async () => {
               if (await confirmDialog(t('common.delete_confirm', { name: c.title }))) {
                 await api('DELETE', `${config.path}/${item.id}`);
@@ -650,6 +658,7 @@ export function resourceView(key, sub) {
       h('button', { class: 'btn primary', type: 'button', onclick: () => openForm(config, null, load) },
         icon('plus'), h('span', {}, t(`${config.id}.new`)))),
     h('p', { class: 'muted page-intro' }, config.intro),
+    key === 'filament' ? spoolmanCard(load) : null,
     key === 'filament' ? h('nav', { class: 'subnav', 'aria-label': t('filament.parts') },
       ...[['voorraad', 'filament.part_stock'], ['rollen', 'filament.part_rolls']].map(([to, label]) => h('a', { href: `#/filament/${to}`, 'aria-current': part === to ? 'page' : null }, t(label)))) : null,
     key === 'onderdelen' || key === 'accessoires' ? h('nav', { class: 'subnav', 'aria-label': t('parts.tabs') },

@@ -75,7 +75,7 @@ def export():
         doc["preferences"] = preferences.load(conn, g.user_id)      # the person's own, and the business's on top
         for key, resource in SECTIONS:
             table, fields, _order = (*RESOURCES[resource][:2], None)
-            columns = ["id", *fields, "created_at"]
+            columns = ["id", *fields, *(["spoolman_id"] if key == "spools" else []), "created_at"]         # the number keeps a restored roll linked to its spool in Spoolman
             rows = conn.execute(f"SELECT {', '.join(columns)} FROM {table} ORDER BY created_at, id").fetchall()
             doc[key] = [_serialise(r) for r in rows]
         rows = conn.execute(f"SELECT {', '.join(PROJECT_COLUMNS)} FROM projects ORDER BY created_at, id").fetchall()
@@ -194,6 +194,15 @@ def _rows(doc: dict, key: str) -> list:
     return rows
 
 
+def _spoolman_id(value, taken: set):
+    """The spool number in Spoolman, or None for a roll that is not from Spoolman. Two rolls cannot share one (the database insists)."""
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or not 0 < value < 2 ** 31 or value in taken:
+        raise Localized("backup.bad_spoolman_id")
+    return value
+
+
 def _row_error(key: str, n: int, error) -> ApiError:
     reason = error.msg if hasattr(error, "msg") else str(error)
     return ApiError(400, "backup.bad_row", section=L(f"backup.s.{key}"), n=n, reason=reason)
@@ -234,6 +243,8 @@ def _parse(doc, archive=None, progress=None) -> dict:
                 if not isinstance(row, dict):
                     raise Localized("backup.bad_row_type")
                 values = _validated(fields, row, partial=False)
+                if key == "spools":
+                    values["spoolman_id"] = _spoolman_id(row.get("spoolman_id"), {p["values"]["spoolman_id"] for p in parsed})
                 parsed.append({"id": _uuid(row.get("id") or uuid.uuid4(), key), "values": values,
                                "created_at": _when(row.get("created_at"))})
             except (ApiError, Localized) as exc:

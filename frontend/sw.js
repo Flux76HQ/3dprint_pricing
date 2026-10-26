@@ -7,7 +7,7 @@ const APP_VERSION = 'dev';
 // load, not the one after (stale-while-revalidate served the old interface once more).
 const CACHE = 'pp-shell-v2';
 const SHELL = ['/', '/css/app.css', '/js/main.js', '/js/api.js', '/js/ui.js', '/js/auth-views.js',
-  '/js/resources.js', '/js/projects.js', '/js/orders.js', '/js/customers.js', '/js/filament-ui.js', '/js/filament-library.js', '/js/mdi.js', '/js/settings.js', '/js/pwa.js', '/js/scanner.js', '/js/theme-boot.js', '/js/i18n.js', '/js/langswitch.js', '/lang/nl.json', '/lang/en.json', '/icons/icon.svg'];
+  '/js/resources.js', '/js/projects.js', '/js/orders.js', '/js/customers.js', '/js/filament-ui.js', '/js/filament-library.js', '/js/spoolman.js', '/js/mdi.js', '/js/settings.js', '/js/pwa.js', '/js/scanner.js', '/js/theme-boot.js', '/js/i18n.js', '/js/langswitch.js', '/lang/nl.json', '/lang/en.json', '/icons/icon.svg'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

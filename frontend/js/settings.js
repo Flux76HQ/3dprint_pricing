@@ -8,6 +8,7 @@ import { confirmIdentity, passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, forgetPush, pushSupport, thisDeviceFingerprint } from './push.js';
 import { applyNavGlass, confirmDialog, fmt, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast } from './ui.js';
 import { BUILD } from './build.js';
+import { spoolmanCard } from './spoolman.js';
 import { usersCards } from './users.js';
 import { checkRelease, initRelease, releaseStatus } from './release.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
@@ -704,7 +705,7 @@ export function settingsView(ctx, requested) {
             ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (ctx.prefs.price_rounding || 'none') === v }, t(l)))))),
         h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
       companyCard(ctx), qrCard(ctx), invoiceLogoCard(), invoiceTemplateCard()],
-    filamenten: () => filamentLibraryCards(),
+    filamenten: () => [spoolmanCard(), ...filamentLibraryCards()],
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
     ai: () => [aiSettingsCard(), aiLogCard()],

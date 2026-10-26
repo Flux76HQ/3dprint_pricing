@@ -208,6 +208,12 @@ def _share_notify(conn, row: dict, *, explicit: bool, creating: bool) -> dict:
     return row
 
 
+def _refuse_mirrored(conn, spool_id, *, allowed: bool) -> None:
+    """A roll that comes from Spoolman is Spoolman's to change (a sync would put it back); only `notify_low` is the app's own."""
+    if not allowed and conn.execute("SELECT 1 FROM filament_spools WHERE id = %s AND spoolman_id IS NOT NULL", (spool_id,)).fetchone():
+        raise ApiError(409, "spoolman.managed")
+
+
 def _register(path, table, fields, order):
     def list_all():
         with pool().connection() as conn:
@@ -246,6 +252,8 @@ def _register(path, table, fields, order):
             raise ApiError(400, "err.nothing_to_change")
         sets = ", ".join(f"{k} = %s" for k in values)
         with pool().connection() as conn:
+            if table == "filament_spools":
+                _refuse_mirrored(conn, item_id, allowed=set(values) <= {"notify_low"})
             if table == "filament_library":
                 from . import filament_library
                 filament_library.before_update(conn, item_id, values)
@@ -263,6 +271,8 @@ def _register(path, table, fields, order):
 
     def delete(item_id):
         with pool().connection() as conn:
+            if table == "filament_spools":
+                _refuse_mirrored(conn, item_id, allowed=False)
             row = conn.execute(f"DELETE FROM {table} WHERE id = %s RETURNING id", (item_id,)).fetchone()
         if row is None:
             raise ApiError(404, "err.not_found")
@@ -336,7 +346,7 @@ def spool_siblings(spool_id):
     """How many other rolls have the same barcode (none when this roll has no barcode)."""
     with pool().connection() as conn:
         barcode = _barcode_of(conn, spool_id)
-        count = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE barcode = %s AND id <> %s",
+        count = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL",
                              (barcode, spool_id)).fetchone()["n"] if barcode else 0
     return jsonify({"count": count})
 
@@ -354,7 +364,7 @@ def propagate_spool(spool_id):
             return jsonify({"updated": 0})
         row = conn.execute(f"SELECT {', '.join(fields)} FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
         sets = ", ".join(f"{name} = %s" for name in fields)
-        done = conn.execute(f"UPDATE filament_spools SET {sets} WHERE barcode = %s AND id <> %s RETURNING id",
+        done = conn.execute(f"UPDATE filament_spools SET {sets} WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL RETURNING id",
                             (*[row[name] for name in fields], barcode, spool_id)).fetchall()
     if "material" in fields:                                        # the rolls moved to another material's total
         stock_changed()
@@ -603,6 +613,7 @@ def delete_project(project_id):
 @bp.post("/projects/<uuid:project_id>/book-stock")
 def book_stock(project_id):
     """Subtract the project's filament grams from the spools it used, once."""
+    from . import spoolman                                  # imported here: that module imports this one
     with pool().connection() as conn:
         project = conn.execute("SELECT data, stock_booked_at FROM projects WHERE id = %s FOR UPDATE",
                                (project_id,)).fetchone()
@@ -617,7 +628,7 @@ def book_stock(project_id):
                 used[spool_id] = used.get(spool_id, Decimal(0)) + Decimal(str(line.get("grams") or 0))
         short = []
         for spool_id, grams in used.items():
-            row = conn.execute("SELECT brand, product_type, remaining_g FROM filament_spools WHERE id = %s FOR UPDATE",
+            row = conn.execute("SELECT brand, product_type, remaining_g, spoolman_id FROM filament_spools WHERE id = %s FOR UPDATE",
                                (spool_id,)).fetchone()
             if row is None:
                 continue  # spool was deleted since; nothing to subtract from
@@ -625,6 +636,9 @@ def book_stock(project_id):
                 short.append(tr("book.short_item", name=" ".join(x for x in (row["brand"], row["product_type"]) if x), left=row["remaining_g"], need=grams))
             conn.execute("UPDATE filament_spools SET remaining_g = GREATEST(remaining_g - %s, 0) WHERE id = %s",
                          (grams, spool_id))
+            if row["spoolman_id"] is not None:
+                spoolman.queue_use(conn, row["spoolman_id"], grams)       # owed to Spoolman, sent below once the booking is safe
         conn.execute("UPDATE projects SET stock_booked_at = now() WHERE id = %s", (project_id,))
+    spoolman.flush_after_booking()
     stock_changed()
     return jsonify({"ok": True, "spools_updated": len(used), "short": short})
