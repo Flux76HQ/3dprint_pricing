@@ -6,9 +6,9 @@ from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, g, jsonify, request
 
-from . import invoice_docs, invoice_numbers, lowstock, push, stock
+from . import invoice_docs, invoice_numbers, lowstock, preferences, push, stock
 from .calc import PART_UNITS, ROUNDINGS, calculate
-from .http import ApiError, config, json_body, login_required, pool
+from .http import ApiError, config, json_body, login_required, pool, require_admin
 from .i18n import LANGUAGES, L, tr
 
 bp = Blueprint("api", __name__, url_prefix="/api")
@@ -291,8 +291,7 @@ def spool_stock():
     announced and whether it is under that now."""
     with pool().connection() as conn:
         groups = stock.groups(stock.fetch(conn))
-        row = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()
-    limits = lowstock.settings(row["preferences"] if row else None)
+        limits = lowstock.settings(preferences.shared(conn))
     materials: dict[str, dict] = {}
     for g_ in groups:
         limit = lowstock.threshold_for(limits, lowstock.material_key(g_["material"])) if g_["notify_low"] else None
@@ -371,8 +370,7 @@ HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 @bp.get("/preferences")
 def get_preferences():
     with pool().connection() as conn:
-        row = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()
-    return jsonify(row["preferences"] if row else {})
+        return jsonify(preferences.load(conn, g.user_id))
 
 
 def validated_preferences(body: dict) -> dict:
@@ -483,12 +481,17 @@ def _validated_low_stock(value) -> dict:
 @bp.put("/preferences")
 def put_preferences():
     prefs = validated_preferences(json_body())
+    own, business = preferences.split(prefs)
+    if business:
+        require_admin()                                              # the company's details, VAT, rounding and thresholds are everybody's
     with pool().connection() as conn:
-        row = conn.execute("UPDATE users SET preferences = preferences || %s::jsonb WHERE id = %s "
-                           "RETURNING preferences", (json.dumps(prefs), g.user_id)).fetchone()
+        if own:
+            conn.execute("UPDATE users SET preferences = preferences || %s::jsonb WHERE id = %s", (json.dumps(own), g.user_id))
+        preferences.merge_shared(conn, business)
+        merged = preferences.load(conn, g.user_id)
     if "low_stock" in prefs:
         stock_changed()                                              # a raised threshold: what is under it now is announced now
-    return jsonify(row["preferences"])
+    return jsonify(merged)
 
 
 # --- calculations ---------------------------------------------------------------

@@ -11,7 +11,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template
+from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template, preferences
 from .api import _serialise, boolean, number, text
 from .http import ApiError, json_body, login_required, pool
 from .i18n import L
@@ -362,8 +362,7 @@ def make_invoice(order_id):
         order, lines = _fetch(conn, order_id, lock=True)
         if not lines:
             raise ApiError(409, "invoice.no_lines")
-        prefs = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()
-        business = ((prefs or {}).get("preferences") or {}).get("business") or {}
+        business = preferences.shared(conn).get("business") or {}
         if not order["invoice_number"]:
             today = date.today()
             invoice_date = order["invoice_date"] or today

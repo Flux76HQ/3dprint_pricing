@@ -26,9 +26,10 @@ as authoritative as the current one.
 
 3D Print Pricing is a self-hosted **PWA with a backend** for a 3D-print business: it calculates
 the cost price of a print (filament, parts, charger, printer depreciation, energy) and keeps the
-inventory those prices come from (filament rolls, printers, energy tariffs). One owner signs in
-with passkeys. It is a single-tenant app: there is no per-user data scoping, because there is one
-owner. If that ever changes, every query in `backend/app/api.py` needs a user filter first.
+inventory those prices come from (filament rolls, printers, energy tariffs). A few people can sign in
+(the owner who set it up, other administrators and regular users, section 6f), with passkeys or an
+optional password. It is still a single-tenant app: one business, so there is no per-user data scoping and
+everything people make is shared. If that ever changes, every query in `backend/app/api.py` needs a user filter first.
 
 Stack: Flask + Gunicorn, PostgreSQL 17, a no-build vanilla-JS frontend served by the same
 process, Docker Compose. Layout: `backend/` (API, auth, migrations, tests), `frontend/` (static
@@ -82,7 +83,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   picture, made by a background thread of the web worker that took the request (`ai_image_jobs` is the state the browser polls, so leaving the page stops nothing; a job that has not moved for 5 minutes is
   failed as interrupted when it is next read), every event and error goes to `ai_image_log` (message key + parameters, worded when read; text from OpenAI is scrubbed of anything key-like and cut short; never the key),
   neither is in a backup. The host is fixed, and `test_ai_images.py` mocks `requests.request` and runs the thread on the spot: never call OpenAI from a test. A frontend child that may be `null` goes through `fill()`, not a bare `replaceChildren`.
-- The filament library (`filament_library`, migration 0021, `backend/app/filament_library.py`, `bambu_invoice.py`, `bambu_store.py`) is a standalone list of the filaments that *exist* (specs, reference price excl. VAT); it never touches `filament_spools`, and nothing done to it (invoice, sync, JSON import) ever creates, changes or deletes a roll. A roll is only made *from* an entry by copying (the roll form's picker), never linked, so editing the library never rewrites a roll; a roll typed in by hand may be added to the library (`add_roll`, the `add_to_library` flag of `POST /api/spools`) and may complete an existing entry, and `POST /api/filament-library/from-rolls` (the *Rollen toevoegen aan bibliotheek* button) does the same for every roll that is not archived, through the same `add_roll`; it only reads the rolls.
+- The filament library (`filament_library`, migration 0021, `backend/app/filament_library.py`, `bambu_invoice.py`, `bambu_store.py`) is a standalone list of the filaments that *exist* (specs, reference price excl. VAT); it never touches `filament_spools`, and nothing done to it (invoice, sync, JSON import) ever creates, changes or deletes a roll. A roll is only made *from* an entry by copying (the roll form's picker), never linked, so editing the library never rewrites a roll; a roll typed in by hand may be added to the library (`add_roll`, the `add_to_library` flag of `POST /api/spools`) and may complete an existing entry, and `POST /api/filament-library/from-rolls` (the *Rollen toevoegen aan bibliotheek* button) does the same for every roll that is not archived, through the same `add_roll`; it only reads the rolls. A contribution to the central file (`POST /api/filament-library/contribution`, *Bijdragen*) is only computed here (the entries the shared file lacks by `keys()`, without `notes`) and leaves by the person's own hand: the browser opens a pre-filled GitHub issue (form `05-filament-library.yml`, `nl-` twin) and the app holds no GitHub token and calls only the fixed `FILAMENT_LIBRARY_URL`; the button exists only while that is the default. The workflow `library-contribution` turns the issue into a pull request into `beta` through `scripts/apply_library_contribution.py`, which treats the issue text as untrusted data (an environment variable and a file, never a shell line), validates it with `_parse_library`, caps it (`MAX_ENTRIES`, `MAX_BODY_BYTES`), only *adds* what `keys()` does not know and never edits an existing entry; nothing is merged without a maintainer.
   **One rule says what the same filament is** (`keys()`: SKU, barcode, supplier `filament_id` with `refill`, or brand/material/type/colour/refill/weight/diameter, case-insensitive) and every write goes through it under the advisory lock `LOCK`: the generic create/update (`before_create` / `before_update`), `_merge` (JSON import and sync), the invoice apply, `add_roll` and the backup restore (`first_clash`). Never add a way into the table that skips it. A copy is refused (409 `library.duplicate`); only a *new* clash counts (`Index.clash`), so entries that were already alike can still be edited. An existing entry is only ever *completed* (`complete`: the empty fields in `FILLABLE`, plus the reference price from an invoice), never overwritten; the JSON import and the sync overwrite only the fields the file lists, and never delete.
   A Bambu Lab invoice is an untrusted upload (pypdf only, size and page caps; `tests/bambu_invoices.py` is the synthetic fixture: never commit a real invoice, it holds a name and an address); its prices are incl. VAT and are turned into excl. VAT, and a discount is not part of the price. The sync address is `FILAMENT_LIBRARY_URL`, checked in `config.py` (https, a GitHub raw host), fetched by the server without following redirects and never taken from a request; `library/filaments.json` is the shared file that sync reads by default and must stay a valid library (tested). The roll form's Bambu Lab panel (`bambu_catalog.py`, `GET /api/bambu/products[/<slug>]`) lists the colours of one product of the fixed list `bambu_store.CATALOG` (a slug that is not in it is never fetched; a new product is one line). The invoice import also looks each filament up on the Bambu Lab web shop (`bambu_store.py`): the `id=` of its product address, which the owner uses as the *barcode*. Only `eu.store.bambulab.com` is ever contacted (a redirect to another host ends the lookup, because the other regions' IDs differ), the page's JSON-LD is the only thing read, a failure is a warning and never stops the import, and tests never reach the shop (`tests/bambu_invoices.py:Shop`).
 - Third-party browser code is vendored under `frontend/vendor/` (unmodified, with its licence and a
@@ -213,7 +214,7 @@ in the same commit (`backend/tests/test_i18n.py` fails otherwise) and give `{pla
 ## 6c. Backup and restore
 
 `backend/app/backup.py`. A backup never contains credentials (passkeys, recovery codes, the password and its TOTP secret,
-push subscriptions): `tests/test_backup.py` greps the file for them. Restore validates the whole file with the same
+push subscriptions), users or invitations: `tests/test_backup.py` and `tests/test_users.py` check the file for them. Restore validates the whole file with the same
 validators as the normal endpoints, recalculates calculations, re-reads print files, and swaps everything in one
 transaction. A new table or column that holds user data belongs in the backup and in its round-trip test.
 
@@ -240,13 +241,49 @@ warning in the process log: how many tables were emptied and how many files remo
 ## 6e. Update check
 
 Follows App-Guidance's [`shared/guidelines/update-check.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/update-check.md).
-`backend/app/updates.py` (`GET /api/update`, `POST /api/update/check`, signed in = the owner), `frontend/js/release.js` (banner, dot on the entries that lead to Settings,
+`backend/app/updates.py` (`GET /api/update`, `POST /api/update/check`, administrators only: `access.py`), `frontend/js/release.js` (banner, dot on the entries that lead to Settings,
 dismissed per version in `localStorage`) and the *Updatecontrole* card in Settings → Systeem (next to the factory reset in *Opruimen*). It reads the redirect of `github.com/Flux76HQ/3dprint_pricing/releases/latest`
 (never `api.github.com`: 60 anonymous requests an hour per IP address), so it sees stable releases only, which `docker.yml` creates as `vX.Y.Z` at every promotion; a beta
 never hears of a newer beta. It announces and nothing else: it never updates, restarts or downloads, and the request carries a fixed `User-Agent` and nothing about the installation.
 **It is switched off with `PRINTPRICING_UPDATE_CHECK=false`** (default on; documented in `.env.example`, both READMEs and the handleiding; `docker-compose.yml` needs no change, it
 passes `.env` through). The server answers with a reason *key* (`ERROR_KEYS`), never a sentence (section 6b); every key has a `release.err.*` text. This is not `frontend/js/updates.js`, which
 notices that the *server* was updated since the page loaded and offers to reload.
+
+## 6f. Users and roles
+
+Follows App-Guidance's [`shared/guidelines/user-management.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/user-management.md)
+(invitation links, reset links, removing a user), plus the one thing that guideline leaves out and this app needs: an administrator can
+**promote** a regular user to administrator. Code: `users.py` (administrator routes), `invites.py` (the guest's half, no session), `access.py`,
+`preferences.py`; migration `0024`; tests `tests/test_users.py`.
+
+- **Two roles, `admin` and `user`, and an owner.** The first user (onboarding) is `is_owner`: always an administrator, never reset, demoted or
+  removed (the database refuses a second owner or a non-administrator owner), so there is always one. Nobody changes their own role. A role is read
+  from the database on every request (`auth.load_session`), so a promotion or demotion works at once, and so does a removal.
+- **What is for administrators is one list: `access.ADMIN_ONLY`**, checked in `create_app`'s `_guard` before any handler runs. A new route under one of
+  its prefixes needs nothing else; a new administrator-only area is a new line there **and** a line in `ADMIN_ONLY_CALLS` in `test_users.py`. Hiding a tab in
+  `settings.js` (`ADMIN_SECTIONS`) is courtesy, never the control. Everything not listed is for any signed-in person. Handler-level checks use
+  `http.require_admin` / `admin_required` (for what a path cannot say, like `PUT /api/preferences` with a company key).
+- **Shared or personal.** `preferences.SHARED` (`business`, `vat_pct`, `price_rounding`, `low_stock`) is the company's, in `shared_preferences`, written by
+  administrators only; everything else in `users.preferences` is the person's own. A new preference key is one or the other: decide when you add it, and put a
+  company-wide one in `SHARED`. Code that needs the company's details reads `preferences.shared(conn)`, never one user's row. `GET /api/preferences` returns both
+  as one document, a backup holds both under `preferences` (the restoring administrator's own plus the company's), and a backup from before the split still restores.
+- **Sessions carry the user's `session_epoch`** (`ep` claim; a session without one is epoch 0). A reset bumps it, which ends that person's sessions on every device.
+  `issue_session` reads the epoch as it is now, so call it after the transaction that changed the user has committed.
+- **Invitations (`invitations`).** 32 random bytes, only the SHA-256 stored, shown once; the link is `<origin>/#invite=<token>` (a fragment: never sent, never logged;
+  the page sends it in `X-Invite-Token` and removes it from the address bar). One use (`_finish` claims it by deleting it), 7 days, one `reset` per person, caps of 50
+  users (open invitations for new people count) and 50 invitations. Unknown, expired and used tokens are one 404 (`invite.invalid`), checked **before** the body is
+  looked at. A reset changes nothing until the guest has finished (the password path keeps its pending state on the invitation, not in a user row). The origin in the link
+  is the request's own `Origin` when it is in `RP_ORIGINS`, else the first one: never the request's host. A passkey goes through the same `_registration_options`,
+  `_verify_registration`, `_save_credential` as onboarding (baseline §19): no second WebAuthn path.
+- **Confirmations.** Promoting someone and resetting an *administrator* each need a fresh passkey confirmation (or password plus code) bound to that person
+  (`auth._purpose` `user-promote` / `user-reset`, `password_api._confirm(body, action, target)`); demoting, removing and resetting a regular user do not.
+- **Names are the sign-in name for a password login**, unique case-insensitively (`users_name_unique`), also against names reserved by an open invitation.
+  `POST /api/auth/password/login` takes `name`; without one it only works while there is a single person (`status.login_name_required` tells the screen).
+- **Removing a person is the foreign keys.** Every table with a `user_id` must reference `users` with `ON DELETE CASCADE` (or `SET NULL` for an author);
+  `test_every_table_with_a_user_id_is_cleaned_by_removing_the_person` fails otherwise. What a person made belongs to the business and stays.
+- Backups and invitations: a backup never holds users, invitations or credentials (6c), and a restore does not touch who can sign in. A factory reset (6d) removes everybody.
+- Test a guard by breaking what it guards: `test_users.py` was checked by removing each guard in turn (the list entry, the owner check, the epoch check, the confirmation, the
+  company-preferences check, the single use) and watching a test fail. Do that for the next one too.
 
 ## 7. Work done in one client leaves the other clients correct
 

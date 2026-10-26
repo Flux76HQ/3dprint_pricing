@@ -48,6 +48,23 @@ def login_required(view):
     return wrapper
 
 
+def admin_required(view):
+    """Signed in as an administrator; a regular user is refused with 403."""
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        require_admin()
+        return view(*args, **kwargs)
+
+    return wrapper
+
+
+def require_admin() -> None:
+    if getattr(g, "user_id", None) is None:
+        raise ApiError(401, "err.not_logged_in")
+    if getattr(g, "role", None) != "admin":
+        raise ApiError(403, "err.admin_only")
+
+
 class RateLimiter:
     """In-memory sliding window, per worker. Enough to make guessing the setup code slow."""
 

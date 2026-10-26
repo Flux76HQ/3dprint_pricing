@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from . import push, stock
+from . import preferences, push, stock
 from .i18n import DEFAULT_LANGUAGE, translate, user_language
 
 log = logging.getLogger(__name__)
@@ -85,11 +85,12 @@ def check(pool, cfg, now: "datetime | None" = None) -> int:
 
 def _check(pool, cfg, now) -> int:
     with pool.connection() as conn:
-        users = conn.execute("SELECT id, preferences FROM users").fetchall()
+        users = conn.execute("SELECT id FROM users").fetchall()
+        limits = settings(preferences.shared(conn))                 # the thresholds are the business's: the same for everybody
         groups = stock.groups(stock.fetch(conn))
     queued = 0
     for user in users:
-        low = low_kinds(settings(user["preferences"]), groups)
+        low = low_kinds(limits, groups)
         keys = list(low)
         with pool.connection() as conn:
             # What is no longer low (or no longer watched, or gone) is forgotten, so the next drop is announced.

@@ -15,6 +15,7 @@ from flask import Blueprint, Response, jsonify, request
 
 from . import bambu_invoice, bambu_store
 from .api import RESOURCES, _validated
+from .config import CONTRIBUTE_URL, DEFAULT_LIBRARY_URL
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized, tr
 
@@ -329,10 +330,15 @@ def _remote() -> dict:
         raise ApiError(502, "library.sync_not_json") from None
 
 
+def _contribute_url() -> str:
+    """Where a contribution goes: only the shared library of this project has an issue form behind it, so a source of the owner's own has none."""
+    return CONTRIBUTE_URL if config().filament_library_url == DEFAULT_LIBRARY_URL else ""
+
+
 @bp.get("/source")
 def source():
-    """Where Sync reads from; empty when it is switched off."""
-    return jsonify({"url": config().filament_library_url})
+    """Where Sync reads from (empty when it is switched off) and where a contribution goes (empty when there is no place for it)."""
+    return jsonify({"url": config().filament_library_url, "contribute_url": _contribute_url()})
 
 
 @bp.post("/sync")
@@ -343,6 +349,20 @@ def sync():
     with pool().connection() as conn:
         counts = _merge(conn, items, write=not dry_run)
     return jsonify({"ok": True, "dry_run": dry_run, **counts})
+
+
+@bp.post("/contribution")
+def contribution():
+    """What this library has that the shared one lacks, to offer as a contribution: the entries as the export writes them, but without the
+    notes (they are the owner's own). Which filament is "the same" is `keys()`, as everywhere. Nothing is written and no roll is touched."""
+    if not _contribute_url():
+        raise ApiError(404, "library.contribute_off")
+    shared = Index({**BLANK, **DEFAULTS, **item} for item in _parse_library(_remote()))
+    with pool().connection() as conn:
+        rows = _rows(conn)
+    missing = [row for row in rows if shared.find(row) is None]
+    entries = [{k: _plain(row[k]) for k in FIELDS if k != "notes"} for row in missing]
+    return jsonify({"entries": entries, "already_there": len(rows) - len(missing)})
 
 
 # --- the rolls on the shelf ---------------------------------------------------------------------------------------

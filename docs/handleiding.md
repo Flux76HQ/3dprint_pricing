@@ -309,6 +309,56 @@ blijft werken. Aanzetten vraagt alleen dat je ingelogd bent (het moet ook werken
 met argon2id gehasht; het TOTP-geheim staat versleuteld met een sleutel afgeleid van `SESSION_SECRET`. Wijzig je
 `SESSION_SECRET`, dan werkt de tweestapscode niet meer en stel je wachtwoord-login opnieuw in (met je passkey).
 
+## Gebruikers en rollen
+
+De app is voor één bedrijf, maar er kunnen meer mensen mee werken. Wie de app instelt (de onboarding) is de **eigenaar**: een beheerder die nooit kan worden verwijderd, teruggezet of tot gewone gebruiker gemaakt, zodat de installatie altijd een beheerder heeft. Iedereen die later komt, krijgt een uitnodiging van een beheerder. Er zijn twee rollen; wat een rol mag staat op de server vast (`backend/app/access.py`), het verbergen van een tabblad op het scherm is alleen beleefdheid.
+
+| | Gebruiker | Beheerder |
+|---|---|---|
+| Berekeningen, bestellingen en facturen maken, klanten, voorraad, printers, tarieven, filamentbibliotheek, printbestanden | ✅ | ✅ |
+| Eigen voorkeuren (taal, thema, meldingen, stille uren), eigen passkeys, wachtwoord en herstelcodes | ✅ | ✅ |
+| Bedrijfsgegevens, btw en afronding, drempels voor *filament bijna op*, factuursjabloon en logo wijzigen | ❌ | ✅ |
+| Gebruikers uitnodigen, nieuwe inloglink maken, beheerder maken, verwijderen | ❌ | ✅ |
+| Back-up en herstel, fabrieksinstellingen, updatecontrole en melding *nieuwe versie*, OpenAI-sleutel | ❌ | ✅ |
+
+Wat een gewone gebruiker ziet maar niet wijzigt (bijvoorbeeld de btw bij een nieuwe bestelling of de bedrijfsgegevens op een factuur) komt uit de gedeelde bedrijfsinstellingen. Een gewone gebruiker kan wel facturen maken: die gebruiken de bedrijfsgegevens van het bedrijf. Gemaakte gegevens (berekeningen, bestellingen, klanten) horen bij het bedrijf, niet bij wie ze maakte: ze blijven staan als die persoon wordt verwijderd.
+
+### Iemand uitnodigen
+
+*Instellingen → Gebruikers → Iemand uitnodigen* (alleen beheerders). Vul eventueel een naam in als voorstel en kies *Maak link*. De app toont de link **één keer**, met een knop *Kopieer*; stuur hem via chat, mail of in het echt.
+
+- De gast opent de link, kiest een naam (het voorstel mag worden aangepast) en kiest zelf een **passkey** of een **wachtwoord met authenticator-app**. Zo weet de beheerder nooit iemands wachtwoord, en hoeft hij er ook nooit een door te geven. Met een passkey krijgt de gast 8 herstelcodes; met een wachtwoord de 8 back-upcodes van de tweestapsverificatie, net als bij *Wachtwoord en tweestapsverificatie*.
+- De link werkt **één keer** en vervalt na **7 dagen**; een openstaande uitnodiging trek je in onder *Openstaande uitnodigingen*. Een onbekende, verlopen of al gebruikte link geeft altijd dezelfde melding. Een naam die in een openstaande uitnodiging staat is gereserveerd. Er kunnen hooguit 50 gebruikers zijn (openstaande uitnodigingen voor nieuwe mensen tellen mee) en 50 openstaande uitnodigingen.
+- De link is `https://<adres>/#invite=<token>`. Het token staat achter de `#`, dus het gaat nooit mee naar een server, proxy of `Referer`; de pagina stuurt het in een kop (`X-Invite-Token`) terug, en de server bewaart alleen de SHA-256 ervan. Na gebruik verdwijnt het uit de adresbalk. Het adres in de link is het adres waarop de beheerder op dat moment is ingelogd, als dat in `RP_ORIGINS` staat (anders het eerste adres daar), nooit het adres dat een proxy achter de schermen gebruikt. Een passkey werkt alleen op een adres uit `RP_ORIGINS`.
+- Een uitnodiging is geen sessie: wie alleen de link heeft, kan niets in de app. En: er verandert niets zolang de gast niet klaar is. Opent iemand de link en loopt weg, dan is er niets aangemaakt of veranderd.
+
+### Inloggen met meer dan één persoon
+
+Met passkeys verandert er niets: de browser vindt de passkey zelf. Is **wachtwoord-login** aan, dan vraagt het inlogscherm zodra er meer dan één persoon is ook om je **naam** (hoofdletters maken niet uit), want elk heeft een eigen wachtwoord, authenticator, back-upcodes en blokkade na 5 mislukte pogingen. Met één persoon blijft de naam weg. Namen zijn uniek, ook zonder hoofdletters.
+
+### Opnieuw inloggen (de inloglink)
+
+Is iemands telefoon met de passkey weg, of is het wachtwoord vergeten, dan maakt een beheerder onder *Gebruikers* **Nieuwe inloglink** voor die persoon. Dezelfde soort link, dezelfde regels (één keer, 7 dagen, alleen de hash bewaard), met twee verschillen: de naam staat vast, en wat de persoon nu heeft om in te loggen (passkeys, herstelcodes, wachtwoord, authenticator, back-upcodes, meldingsaanmeldingen) blijft werken **tot het moment dat de nieuwe is ingesteld**. Dan worden de oude gewist en eindigen alle oude sessies op alle apparaten. Er is hooguit één inloglink per persoon; een nieuwe vervangt de oude. De eigenaar kan geen inloglink krijgen: zijn weg terug zijn de herstelcodes (bewaar ze goed), zodat één klik een installatie nooit van zijn beheerder berooft.
+
+### Beheerder maken
+
+Een beheerder kan een gewone gebruiker **beheerder maken** (*Maak beheerder* in de lijst) en dat ook weer terugdraaien (*Maak gewone gebruiker*). Een beheerder mag daarna alles, behalve de eigenaar aanraken; je kunt je eigen rol niet wijzigen. Beheerder maken geeft iemand alle rechten, dus de app vraagt dan om een **verse bevestiging** door degene die het doet, voor precies die persoon: een passkey, of (als wachtwoord-login aan staat) wachtwoord plus een code. Dezelfde bevestiging geldt voor een inloglink voor een andere beheerder. Gewone gebruiker maken, een gewone gebruiker verwijderen en een inloglink voor een gewone gebruiker vragen er niet om. Een rol geldt direct: een lopende sessie wint of verliest de rechten bij het eerstvolgende verzoek.
+
+### Een gebruiker verwijderen
+
+*Verwijderen* (prullenbak) wist de persoon en alles wat aan haar of hem hangt in één keer: passkeys, herstelcodes, wachtwoord en authenticator, meldingsaanmeldingen, een openstaande inloglink. De sessie eindigt direct. De eigenaar en jezelf kun je niet verwijderen.
+
+### Gedeeld of persoonlijk
+
+Per persoon blijven: taal, thema en accentkleur, de balk onderaan, in- of uitklappen van het menu, het verbergen van kostprijzen, de schakelaar *Zakelijk*, stille uren, en of je een melding over een nieuwe versie wilt. Gedeeld door iedereen (en alleen door een beheerder te wijzigen): `business` (bedrijfsgegevens, factuurnummerformaat, betaal-QR), `vat_pct`, `price_rounding` en `low_stock`. Ze staan in de tabel `shared_preferences`; bij het bijwerken naar deze versie verhuist wat de eigenaar tot nu toe had ingevuld daarheen. Een back-up bevat beide samen onder `preferences`, zoals altijd, en een oudere back-up herstelt dus gewoon.
+
+### Back-up, fabrieksinstellingen en de database
+
+- Een **back-up** bevat geen gebruikers, uitnodigingen of inloggegevens (zie *Back-up in de app*). Een herstel verandert niemands toegang: het zet de gegevens terug (en de bedrijfsinstellingen voor iedereen, plus de eigen voorkeuren van de beheerder die herstelt). Op een lege installatie begin je dus als eigenaar en nodig je de anderen opnieuw uit.
+- **Fabrieksinstellingen** wist ook alle andere gebruikers en uitnodigingen (zie *Fabrieksinstellingen*). Het mag elke beheerder, na het getypte woord en een verse bevestiging.
+- Database: `users.role` (`admin` of `user`), `users.is_owner` (hooguit één, altijd beheerder), `users.session_epoch`, de tabellen `invitations` en `shared_preferences` (migratie `0024`). Elke tabel met een `user_id` verwijst met `ON DELETE CASCADE` naar `users`; `test_users.py` controleert dat een nieuwe tabel dat ook doet.
+- **Nieuwe instellingen in `.env` of `docker-compose.yml`: geen.** Een bestaande installatie werkt zonder ingreep door; de bestaande gebruiker wordt eigenaar en beheerder en bestaande sessies blijven geldig.
+
 ## Talen (Nederlands en Engels)
 
 De app spreekt Nederlands en Engels. De taal van de browser is de standaard (een onbekende taal wordt Engels); met de vlaggen
@@ -336,10 +386,12 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 | **Algemeen** | kostprijs en marge blurren, de schakelaar **Zakelijk**, app installeren |
 | **Weergave** | taal, thema, accentkleur |
 | **Beveiliging** | passkeys en herstelcodes, wachtwoord en tweestapsverificatie |
-| **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon; alleen zichtbaar als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
+| **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon; alleen zichtbaar voor beheerders, en als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
 | **Filamenten** | de filamentbibliotheek: specificaties van filamenten, een Bambu Lab-factuur inlezen, JSON-export en -import en synchroniseren met GitHub; zie *Filamentbibliotheek* |
-| **Notificaties** | meldingen (dit apparaat, nieuwe versie, filament bijna op, testmelding, verbindingscontrole, apparatenlijst) en stille uren |
-| **Systeem** | back-up en herstel (zie *Back-up in de app*), de updatecontrole (zie *Meldingen en updates*) en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
+| **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
+| **Gebruikers** | alleen beheerders: wie mag inloggen, uitnodigen, nieuwe inloglink, beheerder maken, verwijderen; zie *Gebruikers en rollen* |
+| **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel en het logboek |
+| **Systeem** | alleen beheerders: back-up en herstel (zie *Back-up in de app*), de updatecontrole (zie *Meldingen en updates*) en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
 
 *Uitloggen* staat onderaan de zijbalk (op een telefoon onderaan *Meer*). *Zakelijk* verbergt alleen dat onderdeel van de instellingen; het menu
 *Bestellingen* blijft gewoon zichtbaar. Een onderdeel dat niet getoond wordt (bijvoorbeeld *Zakelijk* terwijl het uit staat) valt terug op
@@ -452,7 +504,7 @@ rollen in je voorraad. Voeg je onder *Filament* een **nieuwe rol** toe, dan kies
 kleur, gewicht, diameter, temperaturen, barcode en prijs worden ingevuld, de rol begint vol en je kunt alles nog aanpassen. Zonder bibliotheek
 (of met *Niet uit de bibliotheek*) werkt het formulier als altijd.
 
-Vier manieren om de bibliotheek te vullen zonder te typen:
+Vijf manieren om de bibliotheek te vullen of te delen zonder te typen:
 
 - **Bambu Lab-factuur importeren.** Kies de PDF-factuur uit de Bambu Lab-webshop. De app leest hem (alleen met `pypdf`, met een grens aan grootte en aantal
   pagina’s) en laat eerst zien wat erin staat: per filamentregel het merk, materiaal en type (*PLA* + *Basic*), de kleur, het filament-ID (het nummer tussen
@@ -471,6 +523,13 @@ Vier manieren om de bibliotheek te vullen zonder te typen:
   (exporteren of de gedeelde bibliotheek). Je ziet eerst hoeveel er nieuw komen en hoeveel bestaande vermeldingen iets missen. Per rol geldt dezelfde regel als bij *Ook aan de bibliotheek toevoegen*: staat het
   filament er nog niet in, dan komt het erin met wat de rol over het filament zegt (nooit de prijs of wat er over is); staat het er wel in, dan krijgt die vermelding alleen wat ze nog mist. Past een rol bij meer dan één vermelding
   (bijvulling én met spoel), dan wordt ze overgeslagen en genoemd. **De rollen zelf worden alleen gelezen, nooit gewijzigd.**
+- **Bijdragen aan de centrale bibliotheek.** De knop *Bijdragen aan de centrale bibliotheek* (naast *Synchroniseren*) haalt de gedeelde bibliotheek op, zoekt de filamenten van
+  jouw bibliotheek die daarin nog ontbreken (dezelfde regel als overal: SKU, barcode, filament-ID of naam met gewicht en diameter) en laat je kiezen wat je meestuurt. Daarna opent
+  GitHub met een **issue** die al is ingevuld; **jij** verstuurt hem (een GitHub-account is nodig), de app stuurt zelf niets en heeft geen token. Meegestuurd worden de specificaties en de
+  richtprijs; **notities en alles over je rollen blijven eruit**. Past de bijdrage niet in het adres, dan gaat de JSON naar het klembord (of wordt als bestand gedownload) en plak je hem in het veld.
+  Een workflow (`library-contribution`) controleert de issue met dezelfde regels als de app en opent een pull request naar `beta` die alleen filamenten **toevoegt** (een bestaand filament wordt
+  nooit gewijzigd, een bijdrage zonder nieuwe filamenten wordt gesloten) en die een beheerder beoordeelt. Wat is goedgekeurd, krijgt iedereen via *Synchroniseren* zodra `beta` is gepromoveerd naar `main`.
+  De knop staat er alleen zolang `FILAMENT_LIBRARY_URL` de standaardwaarde heeft, omdat het formulier bij deze repository hoort.
 - **Exporteren en importeren (JSON).** *Exporteren (JSON)* downloadt de bibliotheek (`printpricing-filaments-JJJJ-MM-DD.json`, zonder id’s, met getallen als getallen,
   dus ook met de hand te bewerken). *Importeren (JSON)* leest zo’n bestand, controleert het helemaal met dezelfde regels als handmatig invoeren (één fout regel stopt alles en
   noemt het regelnummer) en laat eerst zien hoeveel nieuw, bijgewerkt en ongewijzigd is. Wat het bestand voor een bekend filament vermeldt, wordt overschreven; wat het niet vermeldt blijft, en er wordt **nooit iets verwijderd**. Zou een regel een filament een kopie van een ander maken, dan stopt de import met dat regelnummer.
@@ -500,7 +559,7 @@ De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg b
 
 *Instellingen → Systeem → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`; met *Printbestanden (STL/3MF) meenemen* is het een ZIP-bestand, zie hieronder):
 je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, de filamentbibliotheek, filamentrollen,
-berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: passkeys, herstelcodes, het wachtwoord
+berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: gebruikers en uitnodigingen, passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
 mailen of bewaren mag de app niet kunnen openen. Na herstellen op een lege installatie log je dus gewoon in met je passkey.
 
@@ -529,7 +588,7 @@ Een volledige kopie van de database (`pg_dump`) en de map met uploads blijft de 
 
 *Instellingen → Systeem → Opruimen → Terug naar fabrieksinstellingen…* zet de app terug zoals direct na de installatie. Het verwijdert **alles**:
 berekeningen, bestellingen met factuurnummers, klanten, printers, tarieven, rollen, de filamentbibliotheek, instellingen, het factuursjabloon
-en logo, de geüploade bestanden, de OpenAI-sleutel, meldingsaanmeldingen en ook je passkeys, herstelcodes en wachtwoord. Alleen de database zelf en
+en logo, de geüploade bestanden, de OpenAI-sleutel, meldingsaanmeldingen en ook alle gebruikers en openstaande uitnodigingen, met hun passkeys, herstelcodes en wachtwoorden. Alleen de database zelf en
 je `.env` blijven staan. Het kan niet ongedaan worden gemaakt: download eerst een back-up (*Back-up en herstel*) als je iets wilt bewaren.
 
 De knop opent **eerst de waarschuwing** (wat verdwijnt, ook je eigen passkeys, en wat blijft), dan het veld waarin je het woord **`RESET`** typt; zonder dat woord doet de server niets, ook niet met een geldige bevestiging. Wat **blijft**: je `.env` (met `SETUP_CODE`, `SESSION_SECRET`, de VAPID-sleutels), de image, `DATA_PATH/backups` (de dumps van `scripts/update.sh`) en je accounts bij andere diensten (zoals OpenAI; alleen de sleutel in de app verdwijnt). Daarna volgt een laatste vraag (“alle gegevens worden nu definitief gewist”) en pas dan de bevestiging hieronder. Er is **geen herstart** nodig: alle toestand staat in de database en de uploadmap, en de server begint bij het volgende verzoek gewoon opnieuw met een lege database. De reset laat één regel achter in het logboek van de container (hoeveel tabellen zijn geleegd en hoeveel bestanden zijn verwijderd, met hun namen; nooit inhoud). Weet je het niet zeker: kopieer eerst de map `DATA_PATH` of maak een back-up; de reset biedt er zelf geen aan.

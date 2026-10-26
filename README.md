@@ -50,7 +50,7 @@ The full-width navigation bar with a pill behind the active icon.
 
 ### Filament: library, import and new rolls
 
-*Settings → Filaments* holds the filament library: add a filament, import a Bambu Lab invoice, add the rolls of your filament list, import or export the library as JSON, or sync it from GitHub. Under *Filament → New roll* you create a roll, either by hand, by scanning its barcode or by picking a filament from the library.
+*Settings → Filaments* holds the filament library: add a filament, import a Bambu Lab invoice, add the rolls of your filament list, import or export the library as JSON, sync it from GitHub, or contribute your filaments to the central library through a pre-filled GitHub issue. Under *Filament → New roll* you create a roll, either by hand, by scanning its barcode or by picking a filament from the library.
 
 | Library: import, export and sync | New roll |
 |:---:|:---:|
@@ -78,6 +78,7 @@ Selling 3D prints means knowing what each one costs: filament by the gram, machi
 - **Business-ready**: VAT on the selling price, a margin and a price rounding per order (to 5/10/50 cents, whole euros, or ending in ,95/,99, with your margin as the minimum), and a button to blur the costs when a customer looks over your shoulder.
 - **Customers, orders and invoices**: customers with a customer number, orders with several prints each, a status from *new* to *completed*, and a PDF invoice with your logo, a unique invoice number and a SEPA payment QR code. Bring your own Word or PDF letterhead if you like.
 - **Passkey login**: no password to leak. Optional password with two-step verification, and recovery codes for emergencies.
+- **More than one person**: an administrator invites people with a one-time link, and each chooses their own passkey or password, so nobody ever knows anyone else's. Regular users do the daily work; an administrator also manages users, the company details, backups and updates, and can promote a regular user to administrator.
 - **A real app on every device**: installs on the iPhone and Android home screen and on the desktop, works with the camera and with notifications, and speaks Dutch and English.
 - **Your data, your server**: backup and restore of everything from within the app, and your data stays on your own server. *Settings → System* can also put the app back to a new installation: it deletes everything in the database and the uploads (the passkeys too) after a typed word and a fresh passkey (or password and code) confirmation, and leaves `.env`, the image and `DATA_PATH/backups` alone. Make a backup first if you are not sure.
 
@@ -126,7 +127,7 @@ Set in `.env`; the file `.env.example` documents each value.
 | `DATA_PATH` | ✅ | - | Host folder for all data: the database (`postgres/`) and the uploaded files (`uploads/`). Plain folders, not Docker volumes. Must be an **absolute** folder of the Docker host (e.g. `/srv/printpricing`, on Unraid `/mnt/user/appdata/printpricing`), never `./data`; data that ended up elsewhere is moved by `scripts/migrate_data.sh` |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | ✅ | - | The database; use letters and digits only in the password |
 | `RP_ID` | ✅ | - | Domain the app runs on, without scheme or port. Passkeys are bound to it |
-| `RP_ORIGINS` | ✅ | - | Full origin(s), comma separated, for example `https://print.example.com` |
+| `RP_ORIGINS` | ✅ | - | Full origin(s), comma separated, for example `https://print.example.com`. Invitation links use the address the administrator is signed in on when it is listed here, otherwise the first one |
 | `SETUP_CODE` | ✅ | - | One-time code for the onboarding, so the first visitor cannot take over the app |
 | `SESSION_SECRET` | ✅ | - | Signs session cookies, at least 32 characters |
 | `RP_NAME` | ❌ | `3D Print Pricing` | Name shown in the passkey prompt |
@@ -188,7 +189,7 @@ Every change lands in `beta` first, and every push to `beta` builds a new beta i
 
 - Everything is stored on your own server: there is no account with us, no analytics and no tracking.
 - Signing in uses passkeys; the app never sees a password unless you switch the optional password login on.
-- Backups never contain credentials (passkeys, recovery codes, passwords, push subscriptions).
+- Backups never contain credentials (passkeys, recovery codes, passwords, push subscriptions) or invitations. An invitation link is shown once and only its hash is stored.
 - Report security issues to the maintainers directly (see Contact) rather than in a public issue.
 
 ## Contact
