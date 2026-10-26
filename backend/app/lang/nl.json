@@ -264,6 +264,7 @@
  "invoice.website_label": "Website:",
  "library.bad_list": "De lijst met filamenten klopt niet of is te groot (maximaal {max}).",
  "library.bad_row": "Regel {n}: {reason}",
+ "library.contribute_off": "De bijdrage staat uit: de bron is niet de gedeelde bibliotheek van dit project.",
  "library.duplicate": "Dit filament staat al in de bibliotheek: {name}.",
  "library.not_library": "Dit is geen filamentbibliotheek van deze app.",
  "library.sync_failed": "De bron is niet bereikbaar. Controleer de internetverbinding van de server.",

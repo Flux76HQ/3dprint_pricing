@@ -1,5 +1,5 @@
 import { api, downloadFile, upload } from './api.js';
-import { formatDate, t } from './i18n.js';
+import { formatDate, getLanguage, t } from './i18n.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
 import { libraryConfig, libraryName, openForm } from './resources.js';
 import { confirmDialog, enhanceDialog, eur, fill, fmt, h, icon, saveBlob, toast } from './ui.js';
@@ -91,6 +91,56 @@ function invoiceDialog(invoice, onDone) {
   dialog.showModal();
 }
 
+/** What goes to GitHub as a contribution: the library file format with only the chosen filaments, without the empty fields (the address is short). */
+const FORMAT = 'printpricing-filament-library';
+const MAX_URL = 7000;                                     // what GitHub takes in an address; longer goes by the clipboard
+
+function contributionJson(entries) {
+  const slim = entries.map((e) => Object.fromEntries(Object.entries(e).filter(([, v]) => v !== null && v !== '' && v !== false)));
+  return JSON.stringify({ format: FORMAT, format_version: 1, filaments: slim });
+}
+
+/** The filaments that the shared library lacks, to choose from. Opening GitHub is the only thing it does: nothing is sent from here, the person
+ * reviews the issue there and presses the button themselves. Notes are not part of an entry; neither is anything about the rolls. */
+function contributeDialog({ entries, already_there: known }, base) {
+  const rows = entries.map((entry) => ({
+    entry, add: h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: true, 'aria-label': t('library.contribute_add') }) }));
+  const error = h('p', { class: 'error', role: 'alert', hidden: true });
+  const open = () => {
+    const chosen = rows.filter((r) => r.add.checked).map((r) => r.entry);
+    if (!chosen.length) { error.textContent = t('library.contribute_none'); error.hidden = false; return; }
+    const json = contributionJson(chosen);
+    const form = `${getLanguage() === 'nl' ? 'nl-' : ''}05-filament-library.yml`;
+    const params = new URLSearchParams({ template: form, title: t('library.contribute_issue_title', { n: chosen.length }) });
+    params.set('contribution', json);
+    const long = `${base}?${params}`.length > MAX_URL;
+    if (long) params.delete('contribution');
+    const copied = long ? navigator.clipboard?.writeText(json) : null;           // started in the click, so the browser allows it
+    window.open(`${base}?${params}`, '_blank', 'noopener');
+    dialog.close();
+    if (!long) { toast(t('library.contribute_opened')); return; }
+    Promise.resolve(copied).then(() => toast(t('library.contribute_copied')), () => null).then(() => {
+      if (!copied) { saveBlob(new Blob([json], { type: 'application/json' }), 'filaments-contribution.json'); toast(t('library.contribute_saved')); }
+    });
+  };
+  const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
+    h('div', { class: 'stack' },
+      h('h2', {}, t('library.contribute_title')),
+      h('p', { class: 'muted' }, t('library.contribute_intro', { n: entries.length, known })),
+      h('p', { class: 'hint' }, t('library.contribute_hint')),
+      h('ul', { class: 'plain-list' }, rows.map(({ entry, add }) => h('li', { class: 'list-row' },
+        h('div', { class: 'item-head' }, spoolIcon(colourOf(entry), 30),
+          h('div', { class: 'grow' }, h('strong', {}, libraryName(entry)), h('p', { class: 'muted' }, details(entry)))),
+        h('label', { class: 'check' }, add, t('library.contribute_add'))))),
+      error,
+      h('div', { class: 'row end' },
+        h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
+        h('button', { class: 'btn primary', type: 'button', onclick: open }, t('library.contribute_do'))))));
+  dialog.addEventListener('close', () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
 /** Invoice, the rolls in stock, JSON file and GitHub sync: the ways to fill the library without typing. */
 function shareCard(state) {
   const pdf = h('input', { type: 'file', accept: '.pdf,application/pdf', hidden: true, 'aria-label': t('library.invoice'), onchange: async () => {
@@ -149,11 +199,22 @@ function shareCard(state) {
     } catch (e) { toast(e.message, 'error'); }
   };
 
+  // Offer the filaments that the shared library lacks as a contribution: GitHub opens with the issue filled in, nothing is sent from here.
+  const contribute = async (base) => {
+    try {
+      const offer = await api('POST', '/api/filament-library/contribution');
+      if (!offer.entries.length) { toast(t('library.contribute_nothing')); return; }
+      contributeDialog(offer, base);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
   const syncBox = h('div', { class: 'stack', hidden: true });
-  api('GET', '/api/filament-library/source').then(({ url }) => {
+  api('GET', '/api/filament-library/source').then(({ url, contribute_url: base }) => {
     if (!url) return;
-    fill(syncBox, h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: sync }, icon('sync'), h('span', {}, t('library.sync')))),
-      h('p', { class: 'hint breakable' }, t('library.sync_hint', { url })));
+    fill(syncBox, h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: sync }, icon('sync'), h('span', {}, t('library.sync'))),
+      base ? h('button', { class: 'btn', type: 'button', onclick: () => contribute(base) }, t('library.contribute')) : null),
+      h('p', { class: 'hint breakable' }, t('library.sync_hint', { url })),
+      base ? h('p', { class: 'hint' }, t('library.contribute_button_hint')) : null);
     syncBox.hidden = false;
   }).catch(() => { /* the button just stays away */ });
 

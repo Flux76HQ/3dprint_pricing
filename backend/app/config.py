@@ -16,6 +16,8 @@ class ConfigError(RuntimeError):
 # Where "Sync" in Settings -> Filaments reads the shared filament library from: a JSON file as the app exports it.
 DEFAULT_LIBRARY_URL = "https://raw.githubusercontent.com/Flux76HQ/3dprint_pricing/main/library/filaments.json"
 LIBRARY_HOSTS = ("raw.githubusercontent.com", "gist.githubusercontent.com")
+# Where "Bijdragen" opens GitHub (the app adds the issue form for the language: `05-filament-library.yml` or `nl-05-...`; a workflow turns the issue into a pull request). Only offered while the source above is the default one.
+CONTRIBUTE_URL = "https://github.com/Flux76HQ/3dprint_pricing/issues/new"
 
 
 def _required(name: str) -> str:

@@ -452,7 +452,7 @@ rollen in je voorraad. Voeg je onder *Filament* een **nieuwe rol** toe, dan kies
 kleur, gewicht, diameter, temperaturen, barcode en prijs worden ingevuld, de rol begint vol en je kunt alles nog aanpassen. Zonder bibliotheek
 (of met *Niet uit de bibliotheek*) werkt het formulier als altijd.
 
-Vier manieren om de bibliotheek te vullen zonder te typen:
+Vijf manieren om de bibliotheek te vullen of te delen zonder te typen:
 
 - **Bambu Lab-factuur importeren.** Kies de PDF-factuur uit de Bambu Lab-webshop. De app leest hem (alleen met `pypdf`, met een grens aan grootte en aantal
   pagina’s) en laat eerst zien wat erin staat: per filamentregel het merk, materiaal en type (*PLA* + *Basic*), de kleur, het filament-ID (het nummer tussen
@@ -471,6 +471,13 @@ Vier manieren om de bibliotheek te vullen zonder te typen:
   (exporteren of de gedeelde bibliotheek). Je ziet eerst hoeveel er nieuw komen en hoeveel bestaande vermeldingen iets missen. Per rol geldt dezelfde regel als bij *Ook aan de bibliotheek toevoegen*: staat het
   filament er nog niet in, dan komt het erin met wat de rol over het filament zegt (nooit de prijs of wat er over is); staat het er wel in, dan krijgt die vermelding alleen wat ze nog mist. Past een rol bij meer dan één vermelding
   (bijvulling én met spoel), dan wordt ze overgeslagen en genoemd. **De rollen zelf worden alleen gelezen, nooit gewijzigd.**
+- **Bijdragen aan de centrale bibliotheek.** De knop *Bijdragen aan de centrale bibliotheek* (naast *Synchroniseren*) haalt de gedeelde bibliotheek op, zoekt de filamenten van
+  jouw bibliotheek die daarin nog ontbreken (dezelfde regel als overal: SKU, barcode, filament-ID of naam met gewicht en diameter) en laat je kiezen wat je meestuurt. Daarna opent
+  GitHub met een **issue** die al is ingevuld; **jij** verstuurt hem (een GitHub-account is nodig), de app stuurt zelf niets en heeft geen token. Meegestuurd worden de specificaties en de
+  richtprijs; **notities en alles over je rollen blijven eruit**. Past de bijdrage niet in het adres, dan gaat de JSON naar het klembord (of wordt als bestand gedownload) en plak je hem in het veld.
+  Een workflow (`library-contribution`) controleert de issue met dezelfde regels als de app en opent een pull request naar `beta` die alleen filamenten **toevoegt** (een bestaand filament wordt
+  nooit gewijzigd, een bijdrage zonder nieuwe filamenten wordt gesloten) en die een beheerder beoordeelt. Wat is goedgekeurd, krijgt iedereen via *Synchroniseren* zodra `beta` is gepromoveerd naar `main`.
+  De knop staat er alleen zolang `FILAMENT_LIBRARY_URL` de standaardwaarde heeft, omdat het formulier bij deze repository hoort.
 - **Exporteren en importeren (JSON).** *Exporteren (JSON)* downloadt de bibliotheek (`printpricing-filaments-JJJJ-MM-DD.json`, zonder id’s, met getallen als getallen,
   dus ook met de hand te bewerken). *Importeren (JSON)* leest zo’n bestand, controleert het helemaal met dezelfde regels als handmatig invoeren (één fout regel stopt alles en
   noemt het regelnummer) en laat eerst zien hoeveel nieuw, bijgewerkt en ongewijzigd is. Wat het bestand voor een bekend filament vermeldt, wordt overschreven; wat het niet vermeldt blijft, en er wordt **nooit iets verwijderd**. Zou een regel een filament een kopie van een ander maken, dan stopt de import met dat regelnummer.

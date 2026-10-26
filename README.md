@@ -50,7 +50,7 @@ The full-width navigation bar with a pill behind the active icon.
 
 ### Filament: library, import and new rolls
 
-*Settings → Filaments* holds the filament library: add a filament, import a Bambu Lab invoice, add the rolls of your filament list, import or export the library as JSON, or sync it from GitHub. Under *Filament → New roll* you create a roll, either by hand, by scanning its barcode or by picking a filament from the library.
+*Settings → Filaments* holds the filament library: add a filament, import a Bambu Lab invoice, add the rolls of your filament list, import or export the library as JSON, sync it from GitHub, or contribute your filaments to the central library through a pre-filled GitHub issue. Under *Filament → New roll* you create a roll, either by hand, by scanning its barcode or by picking a filament from the library.
 
 | Library: import, export and sync | New roll |
 |:---:|:---:|

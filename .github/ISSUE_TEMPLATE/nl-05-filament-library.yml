@@ -1,0 +1,20 @@
+name: Bijdrage aan de filamentbibliotheek (Nederlands)
+description: Bied filamenten aan voor de gedeelde bibliotheek (gemaakt met Instellingen → Filamenten → Bijdragen in de app)
+title: "[Filament contribution]: "
+labels: ["library-contribution"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Meestal vult de app dit voor je in (**Instellingen → Filamenten → Bijdragen aan de centrale bibliotheek**); je hoeft alleen op *Submit new issue* te drukken.
+        Een workflow controleert de filamenten met dezelfde regels als de app en opent, als ze geldig en nieuw zijn, een pull request die een beheerder beoordeelt.
+        Alleen filamenten die nog niet in de bibliotheek staan worden toegevoegd; een bestaand filament wordt op deze manier nooit gewijzigd. Notities worden nooit overgenomen.
+
+  - type: textarea
+    id: contribution
+    attributes:
+      label: Filamenten (JSON)
+      description: Het bestand zoals de app het exporteert (`format` `printpricing-filament-library`). Plak het hier als de app daarom vroeg.
+      render: json
+    validations:
+      required: true

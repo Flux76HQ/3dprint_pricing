@@ -264,6 +264,7 @@
  "invoice.website_label": "Website:",
  "library.bad_list": "The list of filaments is not valid or too large (at most {max}).",
  "library.bad_row": "Line {n}: {reason}",
+ "library.contribute_off": "Contributing is off: the source is not this project's shared library.",
  "library.duplicate": "This filament is already in the library: {name}.",
  "library.not_library": "This is not a filament library from this app.",
  "library.sync_failed": "The source cannot be reached. Check the server's internet connection.",
