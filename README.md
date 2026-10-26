@@ -137,6 +137,7 @@ Set in `.env`; the file `.env.example` documents each value.
 | `VAPID_SUBJECT` | ❌ | `mailto:admin@<RP_ID>` | Contact address for the push services |
 | `AI_IMAGES_ENABLED` | ❌ | `FALSE` | Set to `TRUE` to show the optional *AI images* feature (product pictures from a photo, made with OpenAI GPT Image). The API key is entered in the app under Settings, not in `.env` |
 | `FILAMENT_LIBRARY_URL` | ❌ | this repository's `library/filaments.json` | Where *Settings → Filaments → Sync* reads the shared filament library from: a JSON file in the format of the library export, on `raw.githubusercontent.com`. Empty switches the Sync button off |
+| `SPOOLMAN_URL` | ❌ | empty (no Spoolman) | The address of your [Spoolman](https://github.com/Donkie/Spoolman) as the app's container reaches it, e.g. `http://spoolman:8000` (no path or login). With it, *Settings → Filaments → Sync* reads the rolls and what is left on them from Spoolman, booked filament is reported back, and the library can be pushed to it |
 | `PROXY_HOPS` | ❌ | `0` | Number of reverse proxies in front of the app |
 | `WEB_CONCURRENCY` | ❌ | `2` | Number of Gunicorn workers |
 | `PRINTPRICING_UPDATE_CHECK` | ❌ | `true` | The update check: the app asks GitHub whether a newer stable release exists and tells the owner with a banner and under *Settings → System → Update check*. It sends nothing about your installation and never updates anything. `false` (also `0`, `no`, `off`) switches it off, for an installation that must not call out. A beta build only sees stable releases |

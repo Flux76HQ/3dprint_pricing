@@ -58,6 +58,7 @@ class Config:
     vapid_subject: str = ""
     ai_images_enabled: bool = False
     filament_library_url: str = DEFAULT_LIBRARY_URL
+    spoolman_url: str = ""
     update_check: bool = True
 
     @property
@@ -84,6 +85,19 @@ def _library_url() -> str:
     return url
 
 
+def _spoolman_url() -> str:
+    """The address of the Spoolman server; empty (the default) means there is no Spoolman. It is set here and nowhere else, so a request can
+    never make the server call a machine of its choosing. A home network runs Spoolman on plain http, so http is allowed; a trailing slash,
+    a path, a query and a login in the address are not: the app adds `/api/v1/...` itself."""
+    url = os.environ.get("SPOOLMAN_URL", "").strip().rstrip("/")
+    if not url:
+        return ""
+    parts = urlparse(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
+        raise ConfigError("SPOOLMAN_URL must be an http(s) address such as http://spoolman:8000 (no login, query or fragment), or empty.")
+    return url
+
+
 def load_config() -> Config:
     origins = tuple(o.strip().rstrip("/") for o in _required("RP_ORIGINS").split(",") if o.strip())
     secret = _required("SESSION_SECRET")
@@ -106,5 +120,6 @@ def load_config() -> Config:
         vapid_subject=os.environ.get("VAPID_SUBJECT", "").strip() or f"mailto:admin@{_required('RP_ID')}",
         ai_images_enabled=_flag("AI_IMAGES_ENABLED"),
         filament_library_url=_library_url(),
+        spoolman_url=_spoolman_url(),
         update_check=_switch("PRINTPRICING_UPDATE_CHECK"),
     )
