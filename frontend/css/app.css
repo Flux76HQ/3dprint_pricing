@@ -114,7 +114,9 @@ a { color: var(--accent); }
 .tabbar a[aria-current="page"] { color: var(--accent); background: var(--accent-subtle); font-weight: 600; }
 .tabbar a { min-width: 0; padding-inline: 0; }
 .tabbar .nav-label { font-size: .68rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.nav-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; position: relative; }
+.nav-dot { position: absolute; top: 0; right: 0; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface-solid); box-sizing: content-box; }
+.nav-dot[hidden] { display: none; }
 .icon.mdi { fill: currentColor; stroke: none; }
 
 /* The bar at the bottom of a phone, in two styles (Settings > Appearance): "ios" floats as a glass capsule and "android" is the native bar:
@@ -393,8 +395,17 @@ html.standalone .sidebar { top: calc(12px + env(safe-area-inset-top)); height: c
 .banner { pointer-events: auto; width: min(100%, 560px); border-radius: var(--radius); padding: 12px 16px; display: flex;
   flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .banner p { margin: 0; flex: 1 1 240px; }
-.banner[data-banner="update"] { border-color: var(--accent); }
+.banner[data-banner="update"], .banner[data-banner="release"] { border-color: var(--accent); }
 .status-line { margin: 0; }
+.kv { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 24px; }
+.kv > span { min-width: 10em; }
+.notice { border: 1px solid var(--rand); border-radius: var(--radius-sm); padding: 12px 16px; }
+.notice p { margin: 0; }
+.notice ul { margin: 8px 0 0; padding-left: 1.2em; display: grid; gap: 4px; }
+.notice.muted { color: var(--text-muted); }
+.notice.info { border-color: var(--accent); background: var(--accent-subtle); }
+.notice.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.notice.danger, .notice.error { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 input[type=time], input[type=date] { font: inherit; color: var(--text); background: var(--surface-field); border: 1px solid var(--rand);
   border-radius: var(--radius-sm); padding: 8px 12px; min-height: 44px; width: 100%; }

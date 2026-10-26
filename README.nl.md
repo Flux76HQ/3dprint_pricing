@@ -79,7 +79,7 @@ Wie 3D-prints verkoopt moet weten wat elke print kost: filament per gram, machin
 - **Klanten, bestellingen en facturen**: klanten met klantnummer, bestellingen met meerdere prints, een status van *nieuw* tot *afgehandeld* en een factuur als PDF met je logo, een uniek factuurnummer en een SEPA-betaal-QR. Wil je je eigen briefpapier, dan kan dat als Word- of PDF-sjabloon.
 - **Inloggen met passkeys**: geen wachtwoord dat kan lekken. Optioneel een wachtwoord met tweestapsverificatie, en herstelcodes voor noodgevallen.
 - **Een echte app op elk apparaat**: te installeren op het beginscherm van iPhone en Android en op de desktop, werkt met de camera en met meldingen, en spreekt Nederlands en Engels.
-- **Jouw gegevens, jouw server**: back-up en herstel van alles vanuit de app, en je gegevens blijven op je eigen server.
+- **Jouw gegevens, jouw server**: back-up en herstel van alles vanuit de app, en je gegevens blijven op je eigen server. Onder *Instellingen → Systeem* zet je de app ook terug naar een nieuwe installatie: dat verwijdert alles in de database en de uploads (ook de passkeys), na een getypt woord en een verse bevestiging met passkey (of wachtwoord en code), en laat `.env`, de image en `DATA_PATH/backups` staan. Maak eerst een back-up als je het niet zeker weet.
 
 De volledige beschrijving van elke functie staat in de [handleiding](docs/handleiding.md).
 
@@ -138,9 +138,10 @@ Instellen in `.env`; het bestand `.env.example` documenteert elke waarde.
 | `FILAMENT_LIBRARY_URL` | ❌ | `library/filaments.json` van deze repository | Waar *Instellingen → Filamenten → Synchroniseren* de gedeelde filamentbibliotheek vandaan haalt: een JSON-bestand in het formaat van de bibliotheek-export, op `raw.githubusercontent.com`. Leeg zet de knop Synchroniseren uit |
 | `PROXY_HOPS` | ❌ | `0` | Aantal reverse proxies voor de app |
 | `WEB_CONCURRENCY` | ❌ | `2` | Aantal Gunicorn-workers |
+| `PRINTPRICING_UPDATE_CHECK` | ❌ | `true` | De updatecontrole: de app vraagt aan GitHub of er een nieuwere stabiele release is en meldt dat aan de eigenaar met een melding en onder *Instellingen → Systeem → Updatecontrole*. Er wordt niets over jouw installatie meegestuurd en er wordt nooit iets bijgewerkt. `false` (ook `0`, `no`, `off`) zet het uit, voor een installatie die niet naar buiten mag bellen. Een beta-build ziet alleen stabiele releases |
 | `PRINTPRICING_TAG` | ❌ | `latest` | Welke build draait: `latest` (stabiel), `beta` (de ontwikkelversie) of een versienummer zoals `0.26.15`. `docker-compose.yml` pullt `ghcr.io/flux76hq/3dprint_pricing:<tag>` en geeft dezelfde waarde aan de app, die op `beta` een **beta**-label naast zijn naam toont. Vervangt `APP_IMAGE` |
 
-Bijwerken doe je met `docker compose pull && docker compose up -d`. Health checks, back-up, meldingen en al het andere over het draaiende houden van de app staan in de [handleiding](docs/handleiding.md).
+Bijwerken doe je met `docker compose pull && docker compose up -d` (of `sh scripts/update.sh`, dat eerst de database dumpt). De app meldt zelf dat er een nieuwere release is: hij vraagt het aan GitHub (de nieuwste stabiele release van deze repository, er wordt niets over jouw installatie meegestuurd) en toont een melding en *Instellingen → Systeem → Updatecontrole*; hij meldt alleen en werkt nooit zelf bij. `PRINTPRICING_UPDATE_CHECK=false` zet het uit. Health checks, back-up, meldingen en al het andere over het draaiende houden van de app staan in de [handleiding](docs/handleiding.md).
 
 ## Tech stack
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import ai_images, api, auth, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invoice_template, orders, password_api, push, push_api, system
+from . import ai_images, api, auth, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invoice_template, orders, password_api, push, push_api, system, updates
 from .config import Config, build_channel, load_config
 from .db import make_pool
 from .http import ApiError, error_response
@@ -83,6 +83,8 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     app.register_blueprint(password_api.bp)
     app.register_blueprint(ai_images.bp)
     app.register_blueprint(system.bp)
+    app.register_blueprint(updates.bp)
+    app.extensions["update_checker"] = updates.Checker(VERSION, enabled=cfg.update_check)
     app.register_error_handler(ApiError, error_response)
 
     if cfg.push_configured and not app.testing and os.environ.get("PUSH_WORKER", "on") != "off":

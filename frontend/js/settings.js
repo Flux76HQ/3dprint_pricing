@@ -6,7 +6,9 @@ import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
 import { confirmIdentity, passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, forgetPush, pushSupport, thisDeviceFingerprint } from './push.js';
-import { applyNavGlass, confirmDialog, fmt, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast, versionLabel } from './ui.js';
+import { applyNavGlass, confirmDialog, fmt, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast } from './ui.js';
+import { BUILD } from './build.js';
+import { checkRelease, initRelease, releaseStatus } from './release.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
 
 // [value, label key]: labels are looked up when drawn, so they follow the language.
@@ -39,12 +41,49 @@ function installCard() {
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('install.app')), body);
 }
 
-function updatesCard() {
-  const v = loadedVersion();
-  return h('div', { class: 'glass card stack' }, h('h2', {}, t('updates.title')),
-    h('p', { class: 'status-line' }, t('updates.running'), ' ', h('strong', { id: 'app-version' }, v ? versionLabel(v) : t('updates.unknown'))),
-    h('p', { class: 'muted' }, t('updates.auto')),
-    h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => checkForUpdate({ manual: true }) }, t('updates.check'))));
+// The reasons the server can give for a failed check (updates.ERROR_KEYS), each with its sentence.
+const RELEASE_ERRORS = { rate_limit: 'release.err.rate_limit', ssl: 'release.err.ssl', timeout: 'release.err.timeout',
+  connection: 'release.err.connection', unexpected: 'release.err.unexpected' };
+
+/** Settings -> Systeem -> Updatecontrole (release.js): the installed and the latest version, which of the states it is in, when it was last
+ *  checked, and how to update. "Check now" also asks whether this screen is behind the server (updates.js), which shows its own banner. */
+function updateCard() {
+  const body = h('div', { class: 'stack' });
+  let busy = false;
+  const row = (label, value) => h('div', { class: 'kv' }, h('span', { class: 'muted' }, label), h('strong', {}, value));
+  const notice = (kind, text) => h('div', { class: `notice ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, h('p', {}, text));
+  const draw = () => {
+    const s = releaseStatus();
+    const loaded = loadedVersion();
+    const parts = [
+      row(t('release.installed'), s ? `v${s.current}` : loaded ? `v${loaded.version}` : t('updates.unknown')),
+      row(t('release.latest'), s?.latest ? `v${s.latest}` : '–'),
+    ];
+    if (!s) parts.push(notice('muted', t('release.unknown')));
+    else if (!s.enabled) parts.push(notice('muted', t('release.disabled')));
+    else {
+      if (s.error) parts.push(notice('error', t('release.failed', { reason: t(RELEASE_ERRORS[s.error] || RELEASE_ERRORS.unexpected, { detail: s.errorDetail }) })));
+      if (s.available) parts.push(notice('info', t('release.available', { latest: `v${s.latest}`, current: `v${s.current}` })), h('p', { class: 'muted' }, t('release.how')));
+      else if (s.latest) parts.push(notice('ok', t('release.uptodate')));
+      else if (!s.error) parts.push(notice('muted', t('release.none')));
+      if (s.checkedAt) parts.push(h('p', { class: 'hint' }, t('release.checked', { when: when(s.checkedAt) })));
+    }
+    if (BUILD.channel === 'beta') parts.push(h('p', { class: 'hint' }, t('release.beta')));
+    const buttons = [];
+    if (s?.enabled !== false) buttons.push(h('button', { class: 'btn primary', type: 'button', disabled: busy, onclick: check }, t('release.check')));
+    if (s?.url) buttons.push(h('a', { class: 'btn', href: s.url, target: '_blank', rel: 'noopener noreferrer' }, t('release.notes')));
+    if (buttons.length) parts.push(h('div', { class: 'row' }, buttons));
+    parts.push(h('p', { class: 'hint' }, t('release.privacy')));
+    body.replaceChildren(...parts);
+  };
+  async function check() {
+    busy = true; draw();
+    await Promise.all([checkRelease(), checkForUpdate()]);
+    busy = false; draw();
+  }
+  draw();
+  if (!releaseStatus()) initRelease().then(draw);               // opened before the first answer arrived
+  return h('div', { class: 'glass card stack' }, h('h2', {}, t('release.title')), h('p', { class: 'muted' }, t('release.intro')), body);
 }
 
 const DEFAULT_QUIET = () => ({ enabled: false, start: '22:00', end: '07:00', tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Amsterdam' });
@@ -324,22 +363,52 @@ function backupCard() {
     h('p', { class: 'muted' }, t('backup.not_included')));
 }
 
-/** Back to factory settings: everything is deleted, including the passkeys, and the app is set up again from the start. */
+const RESET_WORD = 'RESET';                  // typed by the owner; backend/app/system.py (CONFIRM_WORD) must hold the same word (test_system.py)
+
+/** Settings -> Systeem -> Opruimen: back to factory settings (App-Guidance shared/guidelines/factory-reset.md). The button opens the warning,
+ *  then the word to type; pressing the red button asks one last question and only then for the proof that it is the owner (a passkey, or the
+ *  password plus a code). Everything is deleted, the owner's own passkeys too, and the app is set up again from the start. No restart is
+ *  needed: all state lives in the database and the uploads folder. */
 function resetCard() {
+  const word = h('input', { type: 'text', autocomplete: 'off', autocapitalize: 'characters', spellcheck: false,
+    oninput: () => { erase.disabled = busy || word.value !== RESET_WORD; } });
+  const status = h('p', { class: 'status-line', role: 'status', hidden: true });
+  let busy = false;
+  const setBusy = (on) => {
+    busy = on;
+    word.disabled = cancel.disabled = on;
+    erase.disabled = on || word.value !== RESET_WORD;
+    status.textContent = on ? t('reset.busy') : '';
+    status.hidden = !on;
+  };
+  const close = () => { word.value = ''; erase.disabled = true; form.hidden = true; open.hidden = false; };
   async function reset() {
+    if (word.value !== RESET_WORD) return;
+    if (!(await confirmDialog(t('reset.last_warning'), t('reset.now')))) return;
     const proof = await confirmIdentity({ action: 'factory-reset', title: t('reset.confirm_title'), message: t('reset.confirm_msg'), confirmLabel: t('reset.now') });
-    if (!proof) return;
+    if (!proof) return;                                                                    // cancelled: the form stays usable
+    setBusy(true);
     try {
-      await api('POST', '/api/system/reset', proof);
-    } catch (e) { toast(e.message, 'error'); return; }
+      await api('POST', '/api/system/reset', { confirm: word.value, ...proof });
+    } catch (e) { setBusy(false); toast(e.message, 'error'); return; }
     try { localStorage.removeItem('pp-prefs'); } catch { /* private mode */ }               // the look of the old account must not be the look of the new one
     await forgetPush().catch(() => {});
     history.replaceState(null, '', window.location.pathname);                              // not back on the settings page afterwards
     window.location.reload();                                                               // the server now says "not set up": the welcome screen follows
   }
-  return h('div', { class: 'glass card stack' }, h('h2', {}, t('reset.title')),
-    h('p', { class: 'muted' }, t('reset.intro')),
-    h('div', { class: 'row' }, h('button', { class: 'btn danger', type: 'button', id: 'factory-reset', onclick: reset }, t('reset.button'))));
+  const erase = h('button', { class: 'btn danger', type: 'button', id: 'factory-reset', disabled: true, onclick: reset }, t('reset.now'));
+  const cancel = h('button', { class: 'btn', type: 'button', onclick: close }, t('common.cancel'));
+  const open = h('button', { class: 'btn danger', type: 'button', onclick: () => { form.hidden = false; open.hidden = true; word.focus(); } }, t('reset.button'));
+  const form = h('div', { class: 'stack', hidden: true },
+    h('div', { class: 'notice danger', role: 'alert' }, h('p', {}, h('strong', {}, t('reset.warn_title'))),
+      h('ul', {}, ['reset.warn_data', 'reset.warn_own', 'reset.warn_after'].map((key) => h('li', {}, t(key))))),
+    h('p', { class: 'muted' }, t('reset.warn_stays'), ' ', t('reset.backup_first')),
+    field(t('reset.word_label', { word: RESET_WORD }), word, t('reset.proof_hint')),
+    h('div', { class: 'row' }, erase, cancel),
+    status);
+  return h('div', { class: 'glass card stack' }, h('h2', {}, t('cleanup.title')), h('p', { class: 'muted' }, t('cleanup.intro')),
+    h('h3', {}, t('reset.title')), h('p', { class: 'muted' }, t('reset.intro')),
+    h('div', { class: 'row' }, open), form);
 }
 
 // The company details that go on an invoice. Each field is saved when it is left; `ctx.prefs` is read at that moment, never copied.
@@ -603,7 +672,7 @@ export function settingsView(ctx, requested) {
       h('div', { class: 'glass card stack' }, h('h2', {}, t('settings.tab_general')),
         switchRow(t('appearance.blur'), t('appearance.blur_hint'), !!ctx.prefs.blur_costs, (on) => setPrefs({ blur_costs: on })),
         switchRow(t('general.business'), t('general.business_hint'), businessOn(), async (on) => { await setPrefs({ business_mode: on }); drawSubnav(); })),
-      installCard(), updatesCard()],
+      installCard()],
     weergave: () => {
       drawAppearance();
       drawNav();
@@ -632,7 +701,7 @@ export function settingsView(ctx, requested) {
     filamenten: () => filamentLibraryCards(),
     notificaties: () => notificationsCards(ctx),
     ai: () => [aiSettingsCard(), aiLogCard()],
-    systeem: () => [backupCard(), resetCard()],
+    systeem: () => [backupCard(), updateCard(), resetCard()],
   };
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.settings')))),
