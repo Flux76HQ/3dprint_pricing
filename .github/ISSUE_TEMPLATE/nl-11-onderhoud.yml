@@ -1,0 +1,51 @@
+name: Onderhoud / technische schuld (Nederlands)
+description: Refactor, opruimen, dependency-upgrade of verbetering van de build
+title: "[Chore]: "
+labels: ["chore"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Wat voor werk is dit?
+      options:
+        - Refactor
+        - Dependency-upgrade
+        - Build of CI/CD
+        - Testdekking
+        - Code opruimen / dode code verwijderen
+        - Tooling of ontwikkelervaring
+        - Migratie of uitfasering
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Wat moet er gebeuren?
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Waarom nu?
+      description: Welk risico of welke last neemt dit weg?
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Betrokken onderdelen
+      description: Welke mappen, modules of workflows raakt dit? Beschermde paden (AGENTS.md sectie 2) betekenen een patch-release bij de volgende promotie.
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Geschat risico
+      options:
+        - Laag — geen gedragsverandering verwacht
+        - Middel — raakt bestaande functionaliteit
+        - Hoog — brekende wijziging of databasemigratie nodig
+    validations:
+      required: true

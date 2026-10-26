@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Question or discussion
+  - name: Vraag of discussie / Question or discussion
     url: https://github.com/Flux76HQ/3dprint_pricing/discussions
-    about: Ask usage questions and general discussion here, not as an issue.
-  - name: Report a security vulnerability
+    about: Stel gebruiksvragen en bespreek ideeën hier, niet als issue. / Ask usage questions and general discussion here, not as an issue.
+  - name: Beveiligingslek melden / Report a security vulnerability
     url: https://github.com/Flux76HQ/3dprint_pricing/security/advisories/new
-    about: Report vulnerabilities privately. Never open a public issue for these.
+    about: Meld kwetsbaarheden privé. Open hier nooit een openbaar issue voor. / Report vulnerabilities privately. Never open a public issue for these.

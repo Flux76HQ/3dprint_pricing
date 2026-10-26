@@ -1,0 +1,87 @@
+name: Featureverzoek (Nederlands)
+description: Stel een nieuwe functie of verbetering voor
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Welk probleem lost dit op?
+      description: Beschrijf de situatie waar je tegenaan loopt, in plaats van meteen een oplossing te geven.
+      placeholder: Ik print hetzelfde model in drie kleuren en voer de berekening drie keer in.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Voorgestelde oplossing
+      description: Hoe zou het volgens jou moeten werken?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Overwogen alternatieven
+      description: Zijn er andere manieren om dit op te lossen? Hoe werk je er nu omheen?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Welk onderdeel van de app?
+      multiple: true
+      options:
+        - Berekening (kostprijs)
+        - Bestellingen en facturen
+        - Klanten
+        - Filamentrollen en -bibliotheek
+        - Printers en energietarieven
+        - Printbestanden (STL / 3MF)
+        - Inloggen
+        - Back-up en herstel
+        - Notificaties
+        - AI-afbeeldingen
+        - Instellingen
+        - Iets nieuws
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Voor welk platform?
+      multiple: true
+      options:
+        - Browser (computer)
+        - Browser (mobiel)
+        - Geïnstalleerde app (iPhone / iPad)
+        - Geïnstalleerde app (Android)
+        - Alle platformen
+    validations:
+      required: true
+
+  - type: dropdown
+    id: importance
+    attributes:
+      label: Hoe belangrijk is dit voor jou?
+      options:
+        - Leuk om ooit te hebben
+        - Zou mijn gebruik van de app duidelijk verbeteren
+        - Ik loop er dagelijks tegenaan
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Aanvullende context
+      description: Schetsen, schermafbeeldingen van andere apps, links — alles wat helpt.
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Voor het versturen
+      options:
+        - label: Ik heb gezocht naar bestaande verzoeken voor deze functie
+          required: true

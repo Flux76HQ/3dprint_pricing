@@ -1,0 +1,35 @@
+name: Documentatie (Nederlands)
+description: Er klopt iets niet in de documentatie, of er ontbreekt iets
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Waar staat het?
+      description: Link naar de pagina of het bestand.
+      placeholder: "docs/handleiding.md of README.nl.md"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Wat is het probleem?
+      options:
+        - Informatie is onjuist
+        - Informatie ontbreekt
+        - Onduidelijk of verwarrend
+        - Verouderd
+        - README.md en README.nl.md verschillen
+        - Typfout of taalfout
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Beschrijving
+      description: Wat klopt er niet, en wat zou er in plaats daarvan moeten staan?
+    validations:
+      required: true
