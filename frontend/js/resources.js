@@ -2,7 +2,7 @@ import { api } from './api.js';
 import { getLanguage, t } from './i18n.js';
 import { colourOf, spoolIcon, stockTiles } from './filament-ui.js';
 import { scanBarcode } from './scanner.js';
-import { spoolmanCard } from './spoolman.js';
+import { spoolmanBar } from './spoolman.js';
 import { askChoice, confirmDialog, enhanceDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
 
 // Declarative config for the three inventory/rate screens. Money and quantities are
@@ -658,9 +658,10 @@ export function resourceView(key, sub) {
       h('button', { class: 'btn primary', type: 'button', onclick: () => openForm(config, null, load) },
         icon('plus'), h('span', {}, t(`${config.id}.new`)))),
     h('p', { class: 'muted page-intro' }, config.intro),
-    key === 'filament' ? spoolmanCard(load) : null,
-    key === 'filament' ? h('nav', { class: 'subnav', 'aria-label': t('filament.parts') },
-      ...[['voorraad', 'filament.part_stock'], ['rollen', 'filament.part_rolls']].map(([to, label]) => h('a', { href: `#/filament/${to}`, 'aria-current': part === to ? 'page' : null }, t(label)))) : null,
+    key === 'filament' ? h('div', { class: 'subbar' },
+      h('nav', { class: 'subnav', 'aria-label': t('filament.parts') },
+        ...[['voorraad', 'filament.part_stock'], ['rollen', 'filament.part_rolls']].map(([to, label]) => h('a', { href: `#/filament/${to}`, 'aria-current': part === to ? 'page' : null }, t(label)))),
+      spoolmanBar(load)) : null,
     key === 'onderdelen' || key === 'accessoires' ? h('nav', { class: 'subnav', 'aria-label': t('parts.tabs') },
       ...[['onderdelen', 'parts.title'], ['accessoires', 'accessories.title']].map(([to, label]) => h('a', { href: `#/onderdelen${to === 'accessoires' ? '/accessoires' : ''}`, 'aria-current': key === to ? 'page' : null }, t(label)))) : null,
     sortBar, filters ? h('details', { class: 'filters-details', open: filters.active() }, h('summary', {}, t('filter.title')), filters.bar) : null, stock?.panel || null, part === 'rollen' || !part ? archiveToggle : null, part === 'voorraad' ? null : list);

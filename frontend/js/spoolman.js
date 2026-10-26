@@ -2,6 +2,37 @@ import { api } from './api.js';
 import { formatDateTime, t } from './i18n.js';
 import { confirmDialog, field, fill, h, icon, toast } from './ui.js';
 
+/** Read every spool of Spoolman; says what came of it. True when it went through. */
+async function runSync() {
+  try {
+    toast(t('spoolman.done', await api('POST', '/api/spoolman/sync')));
+    return true;
+  } catch (err) { toast(err.message, 'error'); return false; }
+}
+
+/** The slim version for the Filament page, one line next to the Stock / Rolls tabs: when Spoolman was last read and a Sync button. The
+ * address, the library and the rolls going to Spoolman are in Settings. Hidden while there is no Spoolman. */
+export function spoolmanBar(onSynced = () => {}) {
+  const bar = h('div', { class: 'spoolman-bar', hidden: true });
+  async function draw() {
+    let status;
+    try { status = await api('GET', '/api/spoolman'); } catch { return; }          // a convenience: the page works without it
+    if (!status.enabled) { bar.hidden = true; return; }
+    const when = status.last_sync ? formatDateTime(status.last_sync, { dateStyle: 'short', timeStyle: 'short' }) : t('spoolman.never');
+    fill(bar, h('span', { class: 'muted' }, t('spoolman.bar', { when })),
+      status.pending ? h('span', { class: 'badge', title: t('spoolman.pending', { n: status.pending }) }, t('spoolman.pending_short', { n: status.pending })) : null,
+      status.can_sync ? h('button', { class: 'btn small', type: 'button', onclick: async (e) => {
+        const button = e.currentTarget;
+        button.disabled = true;
+        if (await runSync()) onSynced();
+        draw();
+      } }, icon('sync'), h('span', {}, t('spoolman.sync_short'))) : null);
+    bar.hidden = false;
+  }
+  draw();
+  return bar;
+}
+
 /** The Spoolman card: where the rolls come from, when they were last read, and the Sync button. It stays hidden while there is no Spoolman,
  * so an installation without one looks as before; with `configure` (Settings) an administrator sees it anyway, with the field for the address.
  * `onSynced` runs after a sync that went through (to redraw a list). */
@@ -39,11 +70,7 @@ export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
     const sync = h('button', { class: 'btn primary', type: 'button', onclick: async (e) => {
       const button = e.currentTarget;
       button.disabled = true;
-      try {
-        const done = await api('POST', '/api/spoolman/sync');
-        toast(t('spoolman.done', done));
-        onSynced();
-      } catch (err) { toast(err.message, 'error'); }
+      if (await runSync()) onSynced();
       button.disabled = false;
       draw();
     } }, icon('sync'), h('span', {}, t('spoolman.sync')));
