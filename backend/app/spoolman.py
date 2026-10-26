@@ -24,7 +24,8 @@ from flask import Blueprint, g, jsonify, request
 
 from . import filament_library
 from .api import _serialise, _share_notify, stock_changed
-from .http import ApiError, config, login_required, pool
+from .config import ConfigError, check_spoolman_url
+from .http import ApiError, config, json_body, login_required, pool
 
 log = logging.getLogger(__name__)
 bp = Blueprint("spoolman", __name__, url_prefix="/api/spoolman")
@@ -56,12 +57,25 @@ def _guard():
     """Every route here needs a session; syncing is for administrators (`access.ADMIN_ONLY`)."""
 
 
+def address() -> str:
+    """Where Spoolman is: `SPOOLMAN_URL` when .env sets it, else the address an administrator typed in the app, else "" (no Spoolman). Read once
+    per request, and before a request holds a connection of its own, so the lookup never waits for a second one from the pool."""
+    if getattr(g, "spoolman_address", None) is None:
+        found = config().spoolman_url
+        if not found:
+            with pool().connection() as conn:
+                row = conn.execute("SELECT url FROM spoolman_settings").fetchone()
+            found = row["url"] if row else ""
+        g.spoolman_address = found
+    return g.spoolman_address
+
+
 def enabled() -> bool:
-    return bool(config().spoolman_url)
+    return bool(address())
 
 
 def _call(method: str, path: str, **kwargs):
-    url = config().spoolman_url + "/api/v1" + path
+    url = address() + "/api/v1" + path
     try:
         reply = requests.request(method, url, timeout=TIMEOUT, allow_redirects=False, stream=True, headers={"Accept": "application/json"}, **kwargs)
     except requests.RequestException as exc:
@@ -270,14 +284,42 @@ def _same(filament: dict, vendor: str, wanted: dict) -> bool:
             and str(filament.get("material") or "").strip().lower() == wanted.get("material", "").lower())
 
 
+class Catalogue:
+    """Spoolman's vendors and filaments as they were when a run began, kept current as the run creates more, so two things that need the
+    same filament make it once. Only ever *adds*: a filament Spoolman has is found and left as it is."""
+
+    def __init__(self):
+        self.vendors = {str(v.get("name") or "").strip().lower(): v["id"] for v in _pages("/vendor")[0]}
+        self.known, _ = _pages("/filament")
+
+    def find(self, brand: str, wanted: dict) -> "dict | None":
+        return next((f for f in self.known if _same(f, brand, wanted)), None)
+
+    def ensure(self, brand: str, wanted: dict, *, dry_run: bool) -> tuple["int | None", bool, bool]:
+        """The id of the filament (None in a dry run that would create it), and whether a vendor and a filament had to be made for it."""
+        found = self.find(brand, wanted)
+        if found:
+            return found["id"], False, False
+        new_vendor = brand.lower() not in self.vendors
+        if new_vendor:
+            self.vendors[brand.lower()] = 0 if dry_run else _json("POST", "/vendor", json={"name": brand})[1]["id"]
+        made_id = None
+        if not dry_run:
+            made = _json("POST", "/filament", json={**wanted, "vendor_id": self.vendors[brand.lower()]})[1]
+            if not isinstance(made, dict) or not isinstance(made.get("id"), int):
+                raise SpoolmanError("spoolman.bad_reply", retry=False)
+            made_id = made["id"]
+        self.known.append({"id": made_id, "vendor": {"name": brand}, **wanted})
+        return made_id, new_vendor, True
+
+
 def push_library(conn, *, dry_run: bool) -> dict:
     """Put the filaments of the library in Spoolman that it does not have yet (a vendor first, when that is new too). Like everywhere in the
     library, what exists is only ever *completed*: a filament Spoolman already has is left as it is, and nothing is ever deleted there. It
-    creates filaments, not spools: the rolls on the shelf are Spoolman's own business (a spool is added in Spoolman, and arrives with a sync)."""
+    creates filaments, not spools: a spool is a roll on the shelf (see `push_rolls`, or add one in Spoolman and let a sync bring it)."""
     conn.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK_PUSH,))
     entries = filament_library._rows(conn)
-    vendors = {str(v.get("name") or "").strip().lower(): v["id"] for v in _pages("/vendor")[0]}
-    known, _ = _pages("/filament")
+    catalogue = Catalogue()
     created = existing = skipped = new_vendors = left = 0
     for entry in entries:
         brand = entry["brand"].strip()[:64]
@@ -285,25 +327,55 @@ def push_library(conn, *, dry_run: bool) -> dict:
         if not wanted.get("name") and not wanted.get("article_number"):
             skipped += 1                                  # nothing to tell it from the other filaments of the brand by
             continue
-        if any(_same(f, brand, wanted) for f in known):
+        if catalogue.find(brand, wanted):
             existing += 1
             continue
         if created >= MAX_CREATED:
             left += 1
             continue
+        _, new_vendor, _ = catalogue.ensure(brand, wanted, dry_run=dry_run)
         created += 1
-        if brand.lower() not in vendors:
-            new_vendors += 1
-            if dry_run:
-                vendors[brand.lower()] = 0
-            else:
-                vendors[brand.lower()] = _json("POST", "/vendor", json={"name": brand})[1]["id"]
-        if dry_run:
-            known.append({"vendor": {"name": brand}, **wanted})
-            continue
-        made = _json("POST", "/filament", json={**wanted, "vendor_id": vendors[brand.lower()]})[1]
-        known.append({"vendor": {"name": brand}, **wanted, **({"id": made["id"]} if isinstance(made, dict) and "id" in made else {})})
+        new_vendors += new_vendor
     return {"created": created, "existing": existing, "vendors": new_vendors, "skipped": skipped, "left": left}
+
+
+def push_rolls(*, dry_run: bool) -> dict:
+    """Make a spool in Spoolman of every roll typed in here (not archived, not yet from Spoolman) and link the roll to it, so the next sync
+    updates it instead of adding a second one. The filament is found in Spoolman, or made, the way `push_library` does. Each roll is its
+    own transaction, locked against a sync: the link is committed as soon as the spool exists, so a failure half way never leaves a spool
+    in Spoolman that a second run would make again."""
+    with pool().connection() as conn:
+        ids = [r["id"] for r in conn.execute("SELECT id FROM filament_spools WHERE spoolman_id IS NULL AND NOT archived ORDER BY created_at, id").fetchall()]
+    catalogue = Catalogue()
+    done = {"created": 0, "filaments": 0, "vendors": 0, "skipped": 0, "left": 0}
+    for roll_id in ids:
+        with pool().connection() as conn:
+            conn.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK,))
+            roll = conn.execute("SELECT * FROM filament_spools WHERE id = %s AND spoolman_id IS NULL AND NOT archived FOR UPDATE", (roll_id,)).fetchone()
+            if roll is None:
+                continue                                  # linked, archived or removed since the list was read
+            brand = roll["brand"].strip()[:64]
+            wanted = filament_of({**roll, "sku": "", "notes": ""})        # the roll's notes belong to the spool, not to the filament
+            if not wanted.get("name") and not wanted.get("article_number"):
+                done["skipped"] += 1                      # no name or barcode: every such roll would be a filament of its own
+                continue
+            if done["created"] >= MAX_CREATED:
+                done["left"] += 1
+                continue
+            filament_id, new_vendor, new_filament = catalogue.ensure(brand, wanted, dry_run=dry_run)
+            done["created"] += 1
+            done["vendors"] += new_vendor
+            done["filaments"] += new_filament
+            if dry_run:
+                continue
+            weight = roll["roll_weight_g"]
+            body = {"filament_id": filament_id, "initial_weight": float(weight), "remaining_weight": float(min(roll["remaining_g"], weight)),
+                    "price": float(roll["price"]), "comment": roll["notes"][:1024]}
+            made = _json("POST", "/spool", json={k: v for k, v in body.items() if v != ""})[1]
+            if not isinstance(made, dict) or not isinstance(made.get("id"), int):
+                raise SpoolmanError("spoolman.bad_reply", retry=False)
+            conn.execute("UPDATE filament_spools SET spoolman_id = %s, spoolman_synced_at = now() WHERE id = %s", (made["id"], roll_id))
+    return done
 
 
 @bp.post("/push-library")
@@ -318,17 +390,60 @@ def run_push_library():
         raise exc.api() from None
 
 
+@bp.post("/push-rolls")
+def run_push_rolls():
+    if not enabled():
+        raise ApiError(400, "spoolman.off")
+    try:
+        return jsonify(push_rolls(dry_run=request.args.get("dry_run") == "1"))
+    except SpoolmanError as exc:
+        raise exc.api() from None
+
+
 @bp.get("")
 def status():
-    """Whether there is a Spoolman, where, when it was last read, and how much is waiting to be reported to it."""
+    """Whether there is a Spoolman, where, when it was last read, and how much is waiting to be reported to it. An administrator also gets the
+    whole address and whether it can be changed here (it cannot while .env sets it)."""
+    admin = getattr(g, "role", None) == "admin"
+    from_env = bool(config().spoolman_url)
     if not enabled():
-        return jsonify({"enabled": False})
-    parts = urlparse(config().spoolman_url)
+        return jsonify({"enabled": False, "can_sync": admin, "url": "" if admin else None, "from_env": False})
+    parts = urlparse(address())
     with pool().connection() as conn:
         row = conn.execute("SELECT count(*) AS rolls, max(spoolman_synced_at) AS last FROM filament_spools WHERE spoolman_id IS NOT NULL").fetchone()
         pending = conn.execute("SELECT count(*) AS n FROM spoolman_pending_use").fetchone()["n"]
     return jsonify(_serialise({"enabled": True, "host": parts.netloc, "rolls": row["rolls"], "last_sync": row["last"], "pending": pending,
-                                "can_sync": getattr(g, "role", None) == "admin"}))
+                               "can_sync": admin, "url": address() if admin else None, "from_env": from_env}))
+
+
+@bp.put("/settings")
+def save_settings():
+    """The administrator types the address of Spoolman. It is checked like `SPOOLMAN_URL`; empty removes it. Refused while .env sets it."""
+    if config().spoolman_url:
+        raise ApiError(409, "spoolman.locked")
+    value = json_body().get("url")
+    if not isinstance(value, str):
+        raise ApiError(400, "spoolman.bad_url")
+    try:
+        url = check_spoolman_url(value)
+    except ConfigError:
+        raise ApiError(400, "spoolman.bad_url") from None
+    with pool().connection() as conn:
+        conn.execute("INSERT INTO spoolman_settings (singleton, url) VALUES (true, %s) ON CONFLICT (singleton) DO UPDATE SET url = EXCLUDED.url", (url,))
+    g.spoolman_address = url
+    return status()
+
+
+@bp.post("/test")
+def test_connection():
+    """Ask the saved address whether it is a Spoolman that answers. Nothing from the answer is passed on but the verdict."""
+    if not enabled():
+        raise ApiError(400, "spoolman.off")
+    try:
+        _json("GET", "/health")
+    except SpoolmanError as exc:
+        raise exc.api() from None
+    return jsonify({"ok": True})
 
 
 @bp.post("/sync")

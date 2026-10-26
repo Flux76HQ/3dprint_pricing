@@ -557,9 +557,11 @@ De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg b
 
 ## Spoolman (optioneel)
 
-Gebruik je [Spoolman](https://github.com/Donkie/Spoolman) voor je spoelen, dan kan dat de **bron van de rollen en van wat er nog op zit** zijn, zodat je dat op één plek bijhoudt. Zet in `.env` het adres
-waarop de container van de app Spoolman bereikt, bijvoorbeeld `SPOOLMAN_URL=http://spoolman:8000` (zonder pad of inlog; `http` mag, Spoolman draait meestal binnen je eigen netwerk), en herstart. Leeg
-(de standaard) betekent: geen Spoolman, en alles blijft zoals het was. Het adres staat alleen in `.env` en komt nooit uit een verzoek. Spoolman heeft zelf geen inlog: zet het niet open op internet.
+Gebruik je [Spoolman](https://github.com/Donkie/Spoolman) voor je spoelen, dan kan dat de **bron van de rollen en van wat er nog op zit** zijn, zodat je dat op één plek bijhoudt. Je vult het adres in als beheerder
+onder *Instellingen → Filamenten* (veld *Adres van Spoolman*, met *Opslaan* en *Verbinding testen*), of je zet het in `.env` als `SPOOLMAN_URL=http://spoolman:8000`. Het moet het adres zijn waarop **de server van de app** Spoolman bereikt
+(dat kan een ander zijn dan in je browser, bijvoorbeeld `http://spoolman:8000` in hetzelfde Docker-netwerk of `http://192.168.1.20:7912` met de poort die je naar buiten zette); `http` mag, zonder inlog of vraagteken, en een pad mag
+als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles blijft zoals het was. Staat het in `.env`, dan **gaat dat voor**: de app toont het dan alleen-lezen. Het adres staat **niet in een back-up** (het hoort bij
+één netwerk) en alleen een beheerder kan het zien of wijzigen; de server doet met dit adres uitsluitend de vaste aanroepen onder `/api/v1/` van Spoolman en geeft van de test alleen het oordeel door. Spoolman heeft zelf geen inlog: zet het niet open op internet.
 
 - **Synchroniseren** (*Instellingen → Filamenten* en bovenaan *Filament*, alleen voor beheerders; iedereen ziet wanneer het voor het laatst gebeurde). De app leest alle spoelen uit Spoolman en maakt er elk een rol van,
   gekoppeld aan het spoolnummer van Spoolman: de volgende keer wordt die rol bijgewerkt, niet nog een keer toegevoegd. Merk, materiaal, kleur (naam en kleurcode), gewicht, prijs, diameter, temperaturen,
@@ -574,6 +576,10 @@ waarop de container van de app Spoolman bereikt, bijvoorbeeld `SPOOLMAN_URL=http
   hoeveel er worden aangemaakt. Merken die Spoolman nog niet kent worden aangemaakt; een filament dat Spoolman al heeft (zelfde merk en artikelnummer, of zelfde merk, naam en materiaal) blijft **ongemoeid**, en er wordt in Spoolman
   **nooit iets verwijderd of overschreven**. De kleur (met het type ervoor) wordt de naam, barcode (anders SKU) het artikelnummer en de richtprijs de prijs. Spoolman eist een dichtheid: de app neemt een gangbare waarde per materiaal
   (PLA 1,24, PETG 1,27, ABS 1,04, ASA 1,07, TPU 1,21, PC 1,20, PA 1,14), die alleen gebruikt wordt om gram in meters om te rekenen. Per keer worden hoogstens 300 filamenten aangemaakt; de melding zegt of je het nog een keer moet doen.
+  Let op: dit zijn **filamenten** (in Spoolman onder *Filaments*), geen **spoelen**; de pagina *Spools* blijft leeg tot je daar een spoel toevoegt of *Rollen naar Spoolman* gebruikt.
+- **Rollen naar Spoolman.** De knop maakt in Spoolman een **spoel** van elke rol die je hier met de hand invoerde (niet gearchiveerd, met naam of barcode): het filament wordt gezocht of aangemaakt zoals hierboven, de spoel krijgt het gewicht dat er nog op zit
+  en de prijs, en de rol wordt meteen aan die spoel gekoppeld, zodat de volgende synchronisatie hem bijwerkt in plaats van er een tweede van te maken. Elke rol wordt apart vastgelegd: gaat het halverwege mis, dan blijven de al gekoppelde
+  rollen gekoppeld en maakt een tweede run ze niet opnieuw aan. Daarna komen merk, type en kleur van de rol uit Spoolman (het type komt daar vóór de kleur in de naam te staan). Hoogstens 300 spoelen per keer.
 - **De bibliotheek blijft.** Spoolman vervangt de bibliotheek niet: zonder `SPOOLMAN_URL` werkt alles als voorheen, en de bibliotheek (GitHub-sync, factuurimport, bijdragen) kan ernaast blijven bestaan.
 - **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft. De wachtrij met nog te melden verbruik zit er niet in (werk in uitvoering).
 

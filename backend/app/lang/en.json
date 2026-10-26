@@ -340,6 +340,8 @@
  "pwapi.not_on": "Password login is not turned on.",
  "spoolman.bad_reply": "Spoolman sent an answer this app does not understand. Check that SPOOLMAN_URL points to Spoolman.",
  "spoolman.bad_status": "Spoolman refused the request (status {status}).",
+ "spoolman.bad_url": "This is not a valid address. Use something like http://spoolman:8000, without a login or question mark in it.",
+ "spoolman.locked": "The address is set in .env (SPOOLMAN_URL) and cannot be changed here.",
  "spoolman.managed": "This roll comes from Spoolman. Change it there, then sync.",
  "spoolman.off": "Spoolman is not set up (SPOOLMAN_URL).",
  "spoolman.redirect": "Spoolman redirects to another address. Put the final address in SPOOLMAN_URL.",

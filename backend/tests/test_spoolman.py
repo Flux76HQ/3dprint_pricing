@@ -36,7 +36,7 @@ class Spoolman:
     """A stand-in for the Spoolman server: it holds spools, answers the pages, and takes the use calls. A test never reaches a real one."""
 
     def __init__(self):
-        self.vendors, self.filaments, self.created = [], [], []
+        self.vendors, self.filaments, self.created, self.made, self.spool_limit = [], [], [], [], None
         self.spools, self.used, self.down, self.answer, self.no_use = [], [], False, None, False
 
     def request(self, method, url, params=None, json=None, **kwargs):
@@ -47,6 +47,8 @@ class Spoolman:
         if self.answer:
             return self.answer
         path = url[len(URL + "/api/v1"):]
+        if method == "GET" and path == "/health":
+            return Reply(body=b'{"status": "healthy"}')
         if method == "GET" and path == "/spool":
             assert params["allow_archived"] == "true"
             page = self.spools[params["offset"]:params["offset"] + params["limit"]]
@@ -63,6 +65,15 @@ class Spoolman:
                 vendor = next(v for v in self.vendors if v["id"] == json["vendor_id"])
                 self.filaments.append({**made, "vendor": vendor})
             return Reply(body=jsonlib.dumps(made).encode())
+        if method == "POST" and path == "/spool":
+            if self.spool_limit is not None and len(self.made) >= self.spool_limit:
+                raise requests.ConnectionError("down")
+            filament = next(f for f in self.filaments if f["id"] == json["filament_id"])
+            made = {"id": 500 + len(self.made), "archived": False, "filament": filament, "price": json.get("price"),
+                    "remaining_weight": json["remaining_weight"], "initial_weight": json["initial_weight"], "comment": json.get("comment", "")}
+            self.made.append(json)
+            self.spools.append(made)
+            return Reply(body=jsonlib.dumps(made).encode())
         if method == "PUT" and path.endswith("/use"):
             if self.no_use:
                 raise requests.ConnectionError("down")
@@ -75,11 +86,18 @@ class Spoolman:
 
 
 @pytest.fixture
-def server(app, monkeypatch):
+def stand_in(monkeypatch):
+    """A Spoolman that no address points to yet."""
     fake = Spoolman()
     monkeypatch.setattr(requests, "request", fake.request)
-    app.config["APP_CONFIG"] = dataclasses.replace(app.config["APP_CONFIG"], spoolman_url=URL)
     return fake
+
+
+@pytest.fixture
+def server(app, stand_in):
+    """A Spoolman at the address `.env` gives."""
+    app.config["APP_CONFIG"] = dataclasses.replace(app.config["APP_CONFIG"], spoolman_url=URL)
+    return stand_in
 
 
 def sync(owner):
@@ -98,7 +116,8 @@ def test_the_address_is_read_from_the_environment(monkeypatch, value, expected):
     assert config_module._spoolman_url() == expected
 
 
-@pytest.mark.parametrize("value", ["spoolman:8000", "ftp://spoolman", "http://user:pw@spoolman:8000", "http://spoolman:8000?x=1", "http://"])
+@pytest.mark.parametrize("value", ["spoolman:8000", "ftp://spoolman", "http://user:pw@spoolman:8000", "http://spoolman:8000?x=1", "http://", "http://spoolman:0",
+                                   "http://spoolman:99999", "http://spoolman:8000#x", "http://" + "a" * 300])
 def test_an_address_that_is_not_plain_http_or_https_is_refused(monkeypatch, value):
     monkeypatch.setenv("SPOOLMAN_URL", value)
     with pytest.raises(ConfigError):
@@ -106,8 +125,78 @@ def test_an_address_that_is_not_plain_http_or_https_is_refused(monkeypatch, valu
 
 
 def test_without_an_address_there_is_no_spoolman(owner):
-    assert owner.get("/api/spoolman").get_json() == {"enabled": False}
+    assert owner.get("/api/spoolman").get_json() == {"enabled": False, "can_sync": True, "url": "", "from_env": False}
     assert sync(owner).status_code == 400
+
+
+# --- the address, typed in the app ----------------------------------------------------------------------------------
+
+def save_address(owner, url):
+    return owner.put("/api/spoolman/settings", json={"url": url}, headers={**H, **NL})
+
+
+def test_an_administrator_types_the_address_and_it_is_used(owner, stand_in):
+    assert save_address(owner, URL + "/").status_code == 200
+    status = owner.get("/api/spoolman").get_json()
+    assert status["enabled"] and status["url"] == URL and status["from_env"] is False and status["host"] == "spoolman.test:7912"
+    stand_in.spools = [spool(1)]
+    assert sync(owner).get_json()["created"] == 1
+    assert owner.post("/api/spoolman/test", json={}, headers=H).get_json() == {"ok": True}
+
+
+def test_a_path_in_the_address_is_kept_for_spoolman_behind_a_proxy(owner, stand_in, monkeypatch):
+    seen = []
+    original = stand_in.request
+
+    def request(method, url, **kwargs):
+        seen.append(url)
+        return original(method, url.replace("/spoolman/api", "/api").replace("http://spoolman.test:7912", URL), **kwargs)
+    monkeypatch.setattr(requests, "request", request)
+    save_address(owner, URL + "/spoolman")
+    owner.post("/api/spoolman/test", json={}, headers=H)
+    assert seen == [URL + "/spoolman/api/v1/health"]
+
+
+@pytest.mark.parametrize("bad", ["spoolman:8000", "ftp://x", "http://u:p@x", "http://x?y=1", "http://", 5, None, ["http://x"]])
+def test_an_address_that_is_not_one_is_refused_and_nothing_is_saved(owner, stand_in, bad):
+    assert save_address(owner, bad).status_code == 400
+    assert owner.get("/api/spoolman").get_json()["enabled"] is False
+
+
+def test_clearing_the_address_switches_spoolman_off(owner, stand_in):
+    save_address(owner, URL)
+    assert save_address(owner, "").get_json()["enabled"] is False
+    assert sync(owner).status_code == 400
+
+
+def test_the_address_in_env_wins_and_cannot_be_changed_in_the_app(owner, server):
+    res = save_address(owner, "http://other.test:1")
+    assert res.status_code == 409 and "SPOOLMAN_URL" in res.get_json()["error"]
+    status = owner.get("/api/spoolman").get_json()
+    assert status["from_env"] is True and status["url"] == URL
+
+
+def test_the_test_says_when_spoolman_is_not_there_and_only_the_verdict_is_passed_on(owner, stand_in):
+    assert owner.post("/api/spoolman/test", json={}, headers=H).status_code == 400
+    save_address(owner, URL)
+    stand_in.down = True
+    assert owner.post("/api/spoolman/test", json={}, headers=H).status_code == 502
+    stand_in.down = False
+    stand_in.answer = Reply(200, b'{"secret": "x"}')
+    assert owner.post("/api/spoolman/test", json={}, headers=H).get_json() == {"ok": True}
+
+
+def test_the_address_is_not_in_a_backup(owner, stand_in, app):
+    save_address(owner, URL)
+    assert sql(app, "SELECT url FROM spoolman_settings")[0]["url"] == URL
+    assert "spoolman.test" not in owner.get("/api/backup").get_data(as_text=True)
+
+
+def test_a_regular_user_does_not_get_the_address(app, owner, server):
+    member = join_with_passkey(app, owner)
+    status = member.get("/api/spoolman").get_json()
+    assert status["url"] is None and status["can_sync"] is False and status["host"] == "spoolman.test:7912"
+    assert member.put("/api/spoolman/settings", json={"url": URL}, headers=H).status_code == 403
 
 
 # --- the sync ----------------------------------------------------------------------------------------------------
@@ -263,6 +352,7 @@ def test_the_library_is_not_changed_by_a_push_and_a_missing_spoolman_is_reported
 
 def test_a_push_is_refused_without_spoolman(owner):
     assert push(owner).status_code == 400
+    assert owner.post("/api/spoolman/push-rolls", json={}, headers=H).status_code == 400
 
 
 def test_a_big_library_goes_over_in_runs(owner, server, monkeypatch):
@@ -273,6 +363,87 @@ def test_a_big_library_goes_over_in_runs(owner, server, monkeypatch):
     assert push(owner).get_json()["left"] == 3
     assert push(owner).get_json()["left"] == 1
     assert push(owner).get_json()["left"] == 0 and len(server.filaments) == 5
+
+
+# --- the rolls to Spoolman ---------------------------------------------------------------------------------------
+
+def push_rolls(owner, dry=False):
+    return owner.post("/api/spoolman/push-rolls" + ("?dry_run=1" if dry else ""), json={}, headers=H)
+
+
+def hand_roll(owner, **values):
+    return make(owner, "/api/spools", {"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Grijs", "colour_hex": "#8e9089",
+                                       "barcode": "43992833229019", "roll_weight_g": 1000, "price": 19.32, "remaining_g": 640, "notes": "plank 2", **values})
+
+
+def test_a_roll_typed_in_here_becomes_a_spool_in_spoolman_and_stays_one_roll(owner, server):
+    roll = hand_roll(owner)
+    res = push_rolls(owner)
+    assert res.status_code == 200 and res.get_json() == {"created": 1, "filaments": 1, "vendors": 1, "skipped": 0, "left": 0}
+    assert [path for path, _ in server.created] == ["/vendor", "/filament"]
+    assert server.made == [{"filament_id": 101, "initial_weight": 1000.0, "remaining_weight": 640.0, "price": 19.32, "comment": "plank 2"}]
+    assert server.created[1][1]["name"] == "Basic Grijs" and server.created[1][1]["article_number"] == "43992833229019"
+    assert "comment" not in server.created[1][1]                                                  # the roll's notes are the spool's
+    linked = [r for r in owner.get("/api/spools").get_json() if r["id"] == roll["id"]][0]
+    assert linked["spoolman_id"] == 500
+    sync(owner)                                                                                    # the spool comes back as the same roll
+    assert len(owner.get("/api/spools").get_json()) == 1 and rolls(owner)[500]["id"] == roll["id"]
+    assert push_rolls(owner).get_json()["created"] == 0 and len(server.made) == 1
+
+
+def test_a_dry_run_of_the_rolls_changes_nothing_here_or_in_spoolman(owner, server):
+    hand_roll(owner)
+    assert push_rolls(owner, dry=True).get_json() == {"created": 1, "filaments": 1, "vendors": 1, "skipped": 0, "left": 0}
+    assert server.created == [] and server.made == [] and rolls(owner) == {}
+
+
+def test_a_roll_uses_the_filament_spoolman_has_and_two_rolls_of_one_kind_make_it_once(owner, server):
+    server.vendors = [{"id": 5, "name": "Bambu Lab"}]
+    server.filaments = [{"id": 9, "name": "iets anders", "material": "PLA", "article_number": "43992833229019", "vendor": server.vendors[0]}]
+    hand_roll(owner)
+    hand_roll(owner, remaining_g=900)
+    res = push_rolls(owner).get_json()
+    assert res == {"created": 2, "filaments": 0, "vendors": 0, "skipped": 0, "left": 0} and server.created == []
+    assert [m["filament_id"] for m in server.made] == [9, 9]
+    hand_roll(owner, barcode="", colour="Blauw")
+    hand_roll(owner, barcode="", colour="Blauw", remaining_g=100)
+    res = push_rolls(owner).get_json()
+    assert (res["created"], res["filaments"]) == (2, 1) and len([c for c in server.created if c[0] == "/filament"]) == 1
+
+
+def test_rolls_that_are_archived_from_spoolman_or_without_a_name_are_left_alone(owner, server):
+    server.spools = [spool(1)]
+    sync(owner)
+    hand = hand_roll(owner)
+    owner.patch(f"/api/spools/{hand['id']}", json={"archived": True}, headers=H)
+    make(owner, "/api/spools", {"brand": "Naamloos", "roll_weight_g": 1000, "price": 10, "remaining_g": 500})
+    assert push_rolls(owner).get_json() == {"created": 0, "filaments": 0, "vendors": 0, "skipped": 1, "left": 0}
+    assert server.made == []
+
+
+def test_more_remaining_than_the_roll_weighs_is_sent_as_a_full_roll(owner, server):
+    hand_roll(owner, remaining_g=1500)
+    push_rolls(owner)
+    assert server.made[0]["remaining_weight"] == 1000.0
+
+
+def test_a_failure_half_way_keeps_the_links_so_a_second_run_does_not_make_the_first_spool_again(owner, server):
+    hand_roll(owner, barcode="A", colour="Een")
+    hand_roll(owner, barcode="B", colour="Twee")
+    server.spool_limit = 1
+    assert push_rolls(owner).status_code == 502
+    assert len(rolls(owner)) == 1 and len(server.made) == 1
+    server.spool_limit = None
+    assert push_rolls(owner).get_json()["created"] == 1 and len(server.made) == 2 and len(rolls(owner)) == 2
+
+
+def test_the_rolls_go_over_in_runs(owner, server, monkeypatch):
+    from app import spoolman
+    monkeypatch.setattr(spoolman, "MAX_CREATED", 1)
+    hand_roll(owner, barcode="A", colour="Een")
+    hand_roll(owner, barcode="B", colour="Twee")
+    assert push_rolls(owner).get_json()["left"] == 1
+    assert push_rolls(owner).get_json() == {"created": 1, "filaments": 1, "vendors": 0, "skipped": 0, "left": 0}
 
 
 # --- a roll from Spoolman is Spoolman's ----------------------------------------------------------------------------

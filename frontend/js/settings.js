@@ -705,7 +705,7 @@ export function settingsView(ctx, requested) {
             ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (ctx.prefs.price_rounding || 'none') === v }, t(l)))))),
         h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
       companyCard(ctx), qrCard(ctx), invoiceLogoCard(), invoiceTemplateCard()],
-    filamenten: () => [spoolmanCard(), ...filamentLibraryCards()],
+    filamenten: () => [spoolmanCard(undefined, { configure: true }), ...filamentLibraryCards()],
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
     ai: () => [aiSettingsCard(), aiLogCard()],

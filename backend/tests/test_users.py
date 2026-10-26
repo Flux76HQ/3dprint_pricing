@@ -113,7 +113,7 @@ ADMIN_ONLY_CALLS = [
     ("GET", "/api/update"), ("POST", "/api/update/check"),
     ("GET", "/api/ai-images/settings"), ("PUT", "/api/ai-images/settings"), ("DELETE", "/api/ai-images/key"),
     ("POST", "/api/ai-images/test"), ("GET", "/api/ai-images/log"),
-    ("POST", "/api/spoolman/sync"), ("POST", "/api/spoolman/push-library"), ("POST", "/api/invoice-template"), ("DELETE", "/api/invoice-template"),
+    ("POST", "/api/spoolman/sync"), ("POST", "/api/spoolman/push-library"), ("PUT", "/api/spoolman/settings"), ("POST", "/api/spoolman/test"), ("POST", "/api/spoolman/push-rolls"), ("POST", "/api/invoice-template"), ("DELETE", "/api/invoice-template"),
     ("POST", "/api/invoice-logo"), ("DELETE", "/api/invoice-logo"),
 ]
 
