@@ -231,14 +231,18 @@ def _register(path, table, fields, order):
                 cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
             row = conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks}) RETURNING *",
                                tuple(values.values())).fetchone()
+            library_status = None
             if table == "filament_spools":
                 row = _share_notify(conn, row, explicit="notify_low" in values, creating=True)
                 if body.get("add_to_library") is True:          # a roll typed in by hand may also be put in the library, if it is not there yet
                     from . import filament_library              # imported here: that module imports this one
-                    filament_library.add_roll(conn, row, body.get("library"))
+                    library_status = filament_library.add_roll(conn, row, body.get("library"))
         if table == "filament_spools":
             stock_changed()
-        return jsonify(_serialise(row)), 201
+        out = _serialise(row)
+        if library_status:
+            out["library"] = library_status                     # what happened to the library; "unclear" is the one the screen has to tell about
+        return jsonify(out), 201
 
     def update(item_id):
         values = _validated(fields, json_body(), partial=True)

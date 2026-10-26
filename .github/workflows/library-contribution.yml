@@ -46,7 +46,7 @@ jobs:
         run: |
           printf '%s' "$BODY" > "$RUNNER_TEMP/body.txt"
           if python scripts/apply_library_contribution.py library/filaments.json "$RUNNER_TEMP/body.txt" > "$RUNNER_TEMP/summary.json" 2> "$RUNNER_TEMP/error.txt"; then
-            echo "added=$(jq -r .added "$RUNNER_TEMP/summary.json")" >> "$GITHUB_OUTPUT"
+            echo "added=$(jq -r '.added + .completed' "$RUNNER_TEMP/summary.json")" >> "$GITHUB_OUTPUT"
           else
             echo "added=refused" >> "$GITHUB_OUTPUT"
           fi
@@ -80,9 +80,10 @@ jobs:
           {
             echo "## Summary"
             echo
-            echo "Adds $(jq -r .added "$RUNNER_TEMP/summary.json") filaments from #$NUMBER to \`library/filaments.json\` ($(jq -r .skipped "$RUNNER_TEMP/summary.json") already there, left as they are; notes are never taken over):"
+            echo "Adds $(jq -r .added "$RUNNER_TEMP/summary.json") filaments from #$NUMBER to \`library/filaments.json\` and completes $(jq -r .completed "$RUNNER_TEMP/summary.json") ($(jq -r .skipped "$RUNNER_TEMP/summary.json") already there, left as they are; a completion only fills fields that were blank, nothing is overwritten; notes are never taken over):"
             echo
-            jq -r '.names[] | "- `" + . + "`"' "$RUNNER_TEMP/summary.json"
+            jq -r '.names[] | "- new: `" + . + "`"' "$RUNNER_TEMP/summary.json"
+            jq -r '.completed_names[] | "- completed: `" + . + "`"' "$RUNNER_TEMP/summary.json"
             echo
             echo "Checked with the app's own rules (\`scripts/apply_library_contribution.py\`). Review the entries before merging."
             echo

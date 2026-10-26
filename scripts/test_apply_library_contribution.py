@@ -45,7 +45,7 @@ class Adding(ContributionTestCase):
         before = self.filaments()
         code, out, _ = self.run_main(issue(NEW))
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out), {"added": 1, "skipped": 0, "names": ["Sunlu · Basic · Zwart · PETG"]})
+        self.assertEqual(json.loads(out), {"added": 1, "completed": 0, "skipped": 0, "names": ["Sunlu · Basic · Zwart · PETG"], "completed_names": []})
         after = self.filaments()
         self.assertEqual(after[:-1], before)
         self.assertEqual(list(after[-1]), list(before[0]))                               # the same fields in the same order
@@ -59,6 +59,30 @@ class Adding(ContributionTestCase):
         code, out, _ = self.run_main(issue(offer))
         self.assertEqual((code, json.loads(out)["added"], json.loads(out)["skipped"]), (0, 0, 1))
         self.assertEqual(self.filaments()[0], known)
+
+    def test_a_known_filament_only_gets_the_blank_fields_filled_in(self):
+        known = {**self.filaments()[0], "print_temp_c": None, "bed_temp_c": None, "colour_hex": "#111111", "price": 19.32}
+        doc = json.loads(self.library.read_text(encoding="utf-8"))
+        doc["filaments"][0] = known
+        self.library.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        offer = {**known, "print_temp_c": 220, "bed_temp_c": 55, "colour_hex": "#999999", "price": 25, "colour": "Andere naam", "notes": "x"}
+        code, out, _ = self.run_main(issue(offer))
+        summary = json.loads(out)
+        self.assertEqual((code, summary["added"], summary["completed"], summary["skipped"]), (0, 0, 1, 0))
+        self.assertIn("print_temp_c, bed_temp_c", summary["completed_names"][0])
+        after = self.filaments()[0]
+        self.assertEqual((after["print_temp_c"], after["bed_temp_c"]), (220, 55))                    # blanks are filled
+        self.assertEqual((after["colour_hex"], after["price"], after["colour"], after["notes"]), ("#111111", 19.32, known["colour"], ""))  # the rest stays
+        self.assertEqual(list(after), list(known))                                                   # in the layout of the file
+
+    def test_a_completion_that_would_make_a_copy_is_left_out(self):
+        a = {**NEW, "colour": "A", "barcode": "A-1", "sku": ""}
+        b = {**NEW, "colour": "B", "barcode": "", "sku": "S-2"}
+        doc = {"format": "printpricing-filament-library", "format_version": 1, "filaments": [contribution.entry(a), contribution.entry(b)]}
+        self.library.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        code, out, _ = self.run_main(issue({**a, "sku": "S-2"}))                           # A, with the SKU that is B's: A would become a copy of B
+        self.assertEqual((code, json.loads(out)["completed"], json.loads(out)["skipped"]), (0, 0, 1))
+        self.assertEqual(self.filaments()[0]["sku"], "")
 
     def test_the_same_filament_twice_in_one_contribution_is_added_once(self):
         code, out, _ = self.run_main(issue(NEW, {**NEW, "colour": " zwart "}))

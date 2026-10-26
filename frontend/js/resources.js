@@ -524,15 +524,16 @@ export function openForm(config, item, reload) {
         const payload = toPayload(config, values);
         if (fresh && fromShop.filament_id) payload.library = { filament_id: fromShop.filament_id, refill: fromShop.refill };      // for "also add to the library"
         let passOn = [];
+        let saved = null;
         if (item) {
           passOn = await askToPassOn(config, item, payload);
           if (passOn === null) return;                                     // closed the question: back to the form
           await api('PATCH', `${config.path}/${item.id}`, payload);
-        } else await api('POST', config.path, payload);
+        } else saved = await api('POST', config.path, payload);
         let others = 0;
         if (passOn.length) others = (await api('POST', `${config.path}/${item.id}/propagate`, { fields: passOn })).updated;
         dialog.close();
-        toast(others ? t('propagate.done', { n: others }) : t('common.saved'));
+        toast(saved?.library === 'unclear' ? t('library.unclear') : others ? t('propagate.done', { n: others }) : t('common.saved'));       // "unclear": nothing went in the library
         reload();
       } catch (err) { error.textContent = err.message; error.hidden = false; }
     } },

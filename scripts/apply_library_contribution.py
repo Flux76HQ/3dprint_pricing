@@ -5,9 +5,9 @@
 
 The issue text is untrusted: it is only ever read as data here (never executed or interpolated into a shell line), checked with the same rules as
 typing a filament in or importing a file (`filament_library._parse_library`), and recognised against the library with the one rule that says what
-the same filament is (`filament_library.keys`). A contribution only *adds*: a filament that is already in the file (the same SKU, barcode or filament
-ID, or the same name, weight and diameter) is left as it is, whatever the contribution says, and the notes are dropped. New entries go at the end, in
-the layout of the export. Prints a JSON summary (`added`, `skipped`, `names`); exits 1 with the reason in Dutch and English when it refuses.
+the same filament is (`filament_library.keys`). A contribution only *adds* or *completes*: a filament that is already in the file (the same SKU, barcode
+or filament ID, or the same name, weight and diameter) only gets the fields that are blank there and filled in by the contribution, and is never
+overwritten; the notes are dropped. New entries go at the end, in the layout of the export. Prints a JSON summary (`added`, `completed`, `skipped`, `names`, `completed_names`); exits 1 with the reason in Dutch and English when it refuses.
 """
 import json
 import sys
@@ -67,19 +67,33 @@ def entry(item: dict) -> dict:
 
 
 def apply(library_doc: dict, items: list[dict]) -> dict:
-    """Add what the library lacks to `library_doc` (changed in place); returns the summary."""
+    """Add what the library lacks to `library_doc` (changed in place); returns the summary. A filament that is there already (see `keys`) is
+    only *completed*: the fields in `lib.FILLABLE` and the `price` that are blank in the file and filled in by the contribution; nothing that
+    is filled in is overwritten, and a completion that would make the entry a copy of another one is left out."""
     filaments = library_doc["filaments"]
-    index = lib.Index({**lib.BLANK, **lib.DEFAULTS, **row} for row in filaments)
-    names, skipped = [], 0
+    full_rows = [{**lib.BLANK, **lib.DEFAULTS, **row} for row in filaments]
+    index = lib.Index(full_rows)
+    row_of = {id(full): row for full, row in zip(full_rows, filaments)}           # the entry of the file that an indexed one stands for
+    names, completed, skipped = [], [], 0
     for item in items:
-        if index.find({**lib.BLANK, **lib.DEFAULTS, **item}):
+        full = {**lib.BLANK, **lib.DEFAULTS, **item}
+        other = index.find(full)
+        if other is None:
+            new = entry(item)
+            index.add({**lib.BLANK, **lib.DEFAULTS, **new})
+            filaments.append(new)
+            names.append(plain(lib.name_of(new)))
+            continue
+        fills = {key: full[key] for key in (*lib.FILLABLE, "price") if lib._blank(other[key]) and not lib._blank(full.get(key))}
+        if not fills or index.clash(other, {**other, **fills}):
             skipped += 1
             continue
-        new = entry(item)
-        index.add({**lib.BLANK, **lib.DEFAULTS, **new})
-        filaments.append(new)
-        names.append(plain(lib.name_of(new)))
-    return {"added": len(names), "skipped": skipped, "names": names}
+        index.drop(other)
+        other.update(fills)
+        index.add(other)
+        row_of[id(other)].update({key: lib._plain(value) for key, value in fills.items()})
+        completed.append(plain(f"{lib.name_of(other)} ({', '.join(fills)})"))
+    return {"added": len(names), "completed": len(completed), "skipped": skipped, "names": names, "completed_names": completed}
 
 
 def main(argv: list[str]) -> int:
@@ -94,7 +108,7 @@ def main(argv: list[str]) -> int:
     except Refused as exc:
         print(exc, file=sys.stderr)
         return 1
-    if summary["added"]:
+    if summary["added"] or summary["completed"]:
         library_path.write_text(json.dumps(library_doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False))
     return 0

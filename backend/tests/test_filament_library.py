@@ -365,7 +365,7 @@ def test_a_contribution_is_what_the_shared_library_lacks_without_the_notes(owner
 def test_a_filament_the_shared_library_knows_under_another_name_is_not_offered_again(owner, remote):
     remote.reply = shared({**GREY, "colour": "Gray"})                                                      # the same SKU, however it is named
     make(owner, "/api/filament-library", GREY)
-    assert owner.post("/api/filament-library/contribution", headers=H).get_json() == {"entries": [], "already_there": 1}
+    assert owner.post("/api/filament-library/contribution", headers=H).get_json() == {"entries": [], "completions": [], "already_there": 1}
 
 
 def test_a_contribution_is_not_offered_when_the_source_is_the_owners_own(owner, remote, app):
@@ -379,6 +379,55 @@ def test_a_contribution_with_an_unreachable_source_fails_cleanly(owner, remote):
     remote.reply = requests.ConnectionError("down")
     res = owner.post("/api/filament-library/contribution", headers={**H, **NL})
     assert res.status_code == 502 and "niet bereikbaar" in res.get_json()["error"]
+
+
+def contribution(owner, **headers):
+    return owner.post("/api/filament-library/contribution", headers={**H, **headers}).get_json()
+
+
+def test_a_roll_the_library_lacks_is_offered_as_new_and_nothing_is_written(owner, remote):
+    remote.reply = shared(GREY)
+    make(owner, "/api/spools", {**ROLL, "colour": "Roze", "barcode": "9001", "price": "12.5", "notes": "kast"})            # no add_to_library: not in the library
+    make(owner, "/api/spools", {**ROLL, "colour": "Roze", "barcode": "9001", "remaining_g": 10})                             # a second roll of the same filament
+    before = (library(owner), owner.get("/api/spools").get_json())
+    res = contribution(owner)
+    [entry] = res["entries"]
+    assert (entry["colour"], entry["barcode"], entry["source"]) == ("Roze", "9001", "roll")
+    assert entry["price"] is None and "notes" not in entry and "remaining_g" not in entry          # the price and the rest are the roll's
+    assert (library(owner), owner.get("/api/spools").get_json()) == before
+
+
+def test_an_archived_roll_and_a_roll_that_fits_two_entries_are_not_offered(owner, remote):
+    remote.reply = shared()
+    make(owner, "/api/spools", {**ROLL, "colour": "Blauw", "barcode": "", "archived": True})
+    make(owner, "/api/filament-library", GREY)
+    make(owner, "/api/filament-library", {**GREY, "sku": "A00-D0-1.75-1000-SPL", "refill": False, "filament_id": "10104"})
+    make(owner, "/api/spools", {**ROLL, "barcode": ""})                                            # the same filament as both entries: unclear which
+    assert sorted(e["colour"] for e in contribution(owner)["entries"]) == ["Grijs", "Grijs"]        # only the two library entries, no roll
+
+
+def test_a_filament_the_shared_library_lacks_fields_of_is_offered_as_a_completion_that_only_fills_blanks(owner, remote):
+    remote.reply = shared({**GREY, "colour_hex": "#111111"})                                       # the shared entry has a colour code but no temperatures
+    make(owner, "/api/filament-library", {**GREY, "print_temp_c": 220, "bed_temp_c": 55, "colour_hex": "#999999", "price": "25"})
+    res = contribution(owner)
+    assert res["entries"] == [] and res["already_there"] == 0
+    [item] = res["completions"]
+    assert item["fills"] == ["print_temp_c", "bed_temp_c"]                                          # colour code and price are filled in already
+    assert item["entry"]["print_temp_c"] == 220 and "notes" not in item["entry"]
+
+
+def test_an_entry_that_adds_nothing_to_the_shared_one_is_already_there(owner, remote):
+    remote.reply = shared({**GREY, "print_temp_c": 220, "bed_temp_c": 55, "colour_hex": "#9e9e9e"})
+    make(owner, "/api/filament-library", {**GREY, "print_temp_c": 220, "bed_temp_c": 55, "colour_hex": "#9e9e9e"})
+    assert contribution(owner) == {"entries": [], "completions": [], "already_there": 1}
+
+
+def test_saving_a_roll_tells_what_happened_to_the_library(owner):
+    assert "library" not in make(owner, "/api/spools", ROLL)                                       # not asked for
+    assert make(owner, "/api/spools", {**ROLL, "colour": "Rood", "barcode": "", "add_to_library": True})["library"] == "added"
+    make(owner, "/api/filament-library", GREY)
+    make(owner, "/api/filament-library", {**GREY, "sku": "A00-D0-1.75-1000-SPL", "refill": False, "filament_id": "10104"})
+    assert make(owner, "/api/spools", {**ROLL, "barcode": "", "add_to_library": True})["library"] == "unclear"
 
 
 # --- the rolls in the filament list go to the library in one go ----------------------------------------------------------

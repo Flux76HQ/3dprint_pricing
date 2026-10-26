@@ -96,19 +96,25 @@ function invoiceDialog(invoice, onDone) {
 const FORMAT = 'printpricing-filament-library';
 const MAX_URL = 7000;                                     // what GitHub takes in an address; a bigger contribution is pasted into the form instead
 const DEFAULTS = { roll_weight_g: 1000, diameter_mm: 1.75 };
+const FILL_LABELS = { sku: 'library.fill_sku', filament_id: 'library.fill_filament_id', barcode: 'library.fill_barcode', colour_hex: 'library.fill_colour_hex',
+  print_temp_c: 'library.fill_print_temp_c', bed_temp_c: 'library.fill_bed_temp_c', price: 'library.fill_price' };      // what a completion can fill in (SHARE_FILLS)
 
 export function contributionJson(entries) {
   const slim = entries.map((e) => Object.fromEntries(Object.entries(e)
-    .filter(([key, v]) => v !== null && v !== '' && v !== false && !(key in DEFAULTS && Number(v) === DEFAULTS[key]))));
+    .filter(([key, v]) => key !== 'source' && v !== null && v !== '' && v !== false && !(key in DEFAULTS && Number(v) === DEFAULTS[key]))));
   return JSON.stringify({ format: FORMAT, format_version: 1, filaments: slim });
 }
 
 /** The filaments that the shared library lacks, to choose from. Opening GitHub is the only thing it does: nothing is sent from here, the person
  * reviews the issue there and presses the button themselves. Notes are not part of an entry; neither is anything about the rolls. A contribution
  * that does not fit in an address (about 20 filaments) is shown as a text to copy, and GitHub opens with an empty form to paste it in. */
-function contributeDialog({ entries, already_there: known }, base) {
-  const rows = entries.map((entry) => ({
-    entry, add: h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: true, 'aria-label': t('library.contribute_add') }) }));
+function contributeDialog({ entries, completions, already_there: known }, base) {
+  const toggle = () => h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: true, 'aria-label': t('library.contribute_add') });
+  const rows = [
+    ...entries.map((entry) => ({ entry, add: toggle(), note: entry.source === 'roll' ? t('library.contribute_from_roll') : null, badge: t('library.contribute_new') })),
+    ...completions.map(({ entry, fills }) => ({ entry, add: toggle(), badge: t('library.contribute_fill'),
+      note: t('library.contribute_fills', { fields: fills.map((key) => t(FILL_LABELS[key])).join(', ') }) })),
+  ];
   const error = h('p', { class: 'error', role: 'alert', hidden: true });
   const body = h('div', { class: 'stack' });
 
@@ -150,11 +156,12 @@ function contributeDialog({ entries, already_there: known }, base) {
   };
   fill(body,
     h('h2', {}, t('library.contribute_title')),
-    h('p', { class: 'muted' }, t('library.contribute_intro', { n: entries.length, known })),
+    h('p', { class: 'muted' }, t('library.contribute_intro', { n: entries.length, filled: completions.length, known })),
     h('p', { class: 'hint' }, t('library.contribute_hint')),
-    h('ul', { class: 'plain-list' }, rows.map(({ entry, add }) => h('li', { class: 'list-row' },
+    h('ul', { class: 'plain-list' }, rows.map(({ entry, add, note, badge }) => h('li', { class: 'list-row' },
       h('div', { class: 'item-head' }, spoolIcon(colourOf(entry), 30),
-        h('div', { class: 'grow' }, h('strong', {}, libraryName(entry)), h('p', { class: 'muted' }, details(entry)))),
+        h('div', { class: 'grow' }, h('strong', {}, libraryName(entry), ' ', h('span', { class: 'badge muted' }, badge)), h('p', { class: 'muted' }, details(entry)),
+          note ? h('p', { class: 'hint' }, note) : null)),
       h('label', { class: 'check' }, add, t('library.contribute_add'))))),
     error,
     h('div', { class: 'row end' },
@@ -228,7 +235,7 @@ function shareCard(state) {
   const contribute = async (base) => {
     try {
       const offer = await api('POST', '/api/filament-library/contribution');
-      if (!offer.entries.length) { toast(t('library.contribute_nothing')); return; }
+      if (!offer.entries.length && !offer.completions.length) { toast(t('library.contribute_nothing')); return; }
       contributeDialog(offer, base);
     } catch (e) { toast(e.message, 'error'); }
   };

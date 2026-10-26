@@ -188,6 +188,25 @@ def complete(conn, index: Index, row: dict, source: dict, *, price=None) -> dict
     return updated
 
 
+def roll_spec(roll: dict, extra=None) -> "tuple[dict, bool | None]":
+    """What a roll says about its filament, as a library entry (never what it cost or what is left), and whether it is a refill when that is
+    known (`extra` is what the roll form knows: the supplier `filament_id` and `refill`)."""
+    extra = extra if isinstance(extra, dict) else {}
+    refill = extra["refill"] if isinstance(extra.get("refill"), bool) else None
+    spec = {**BLANK, **{k: roll[k] for k in ("brand", "product_type", "material", "colour", "colour_hex", "barcode", "roll_weight_g",
+                                              "diameter_mm", "print_temp_c", "bed_temp_c")},
+            "filament_id": str(extra.get("filament_id") or "").strip()[:20], "refill": bool(refill)}
+    return spec, refill
+
+
+def matches(rows: list[dict], spec: dict, refill: "bool | None") -> list[dict]:
+    """The entries a roll can be: the same barcode, else the same brand, material, type, colour, weight and diameter (as a refill or not
+    when that is known). More than one is "not clear which one"; none means the library lacks the filament."""
+    code = _n(spec, "barcode")
+    return [r for r in rows if code and _n(r, "barcode") == code] or \
+        [r for r in rows if _kind(r) == _kind(spec) and (refill is None or r["refill"] == refill)]
+
+
 def add_roll(conn, roll: dict, extra=None) -> str:
     """A roll typed in by hand may go in the library too: when the filament is not there yet it is added (what the roll says about the
     filament, never what it cost or what is left), and when it is, that entry gets what it was missing. The same barcode is the same
@@ -198,14 +217,8 @@ def add_roll(conn, roll: dict, extra=None) -> str:
     _lock(conn)
     rows = _rows(conn)
     index = Index(rows)
-    extra = extra if isinstance(extra, dict) else {}
-    refill = extra["refill"] if isinstance(extra.get("refill"), bool) else None
-    spec = {**BLANK, **{k: roll[k] for k in ("brand", "product_type", "material", "colour", "colour_hex", "barcode", "roll_weight_g",
-                                              "diameter_mm", "print_temp_c", "bed_temp_c")},
-            "filament_id": str(extra.get("filament_id") or "").strip()[:20], "refill": bool(refill)}
-    code = _n(spec, "barcode")
-    found = [r for r in rows if code and _n(r, "barcode") == code] or \
-        [r for r in rows if _kind(r) == _kind(spec) and (refill is None or r["refill"] == refill)]
+    spec, refill = roll_spec(roll, extra)
+    found = matches(rows, spec, refill)
     if not found:
         index.add(_insert(conn, {k: v for k, v in spec.items() if k in FIELDS and k not in ("price", "notes", "sku")}))
         return "added"
@@ -351,18 +364,47 @@ def sync():
     return jsonify({"ok": True, "dry_run": dry_run, **counts})
 
 
+SHARE_FILLS = (*FILLABLE, "price")                                  # what a contribution may fill in on a filament the shared library already has
+
+
+def _offer(row: dict, **extra) -> dict:
+    """An entry as the export writes it, without the notes (they are the owner's own)."""
+    return {**{k: _plain(row[k]) for k in FIELDS if k != "notes"}, **extra}
+
+
 @bp.post("/contribution")
 def contribution():
-    """What this library has that the shared one lacks, to offer as a contribution: the entries as the export writes them, but without the
-    notes (they are the owner's own). Which filament is "the same" is `keys()`, as everywhere. Nothing is written and no roll is touched."""
+    """What this installation can add to the shared library, to offer as a contribution. The candidates are the entries of the library and the
+    filaments of the rolls (not archived) that the library lacks, as `add_roll` would make them. Which filament is "the same" is `keys()`, as
+    everywhere. One the shared library does not know is a new entry (`entries`); one it knows, but lacks some of the fields in `SHARE_FILLS`
+    for, is a completion (`completions`, with the `fills`): only blanks are ever filled, nothing is overwritten. The rest is `already_there`.
+    Nothing is written, neither in the library nor in the rolls."""
     if not _contribute_url():
         raise ApiError(404, "library.contribute_off")
     shared = Index({**BLANK, **DEFAULTS, **item} for item in _parse_library(_remote()))
     with pool().connection() as conn:
         rows = _rows(conn)
-    missing = [row for row in rows if shared.find(row) is None]
-    entries = [{k: _plain(row[k]) for k in FIELDS if k != "notes"} for row in missing]
-    return jsonify({"entries": entries, "already_there": len(rows) - len(missing)})
+        rolls = conn.execute("SELECT * FROM filament_spools WHERE NOT archived ORDER BY created_at, id").fetchall()
+    candidates = [(row, {}) for row in rows]
+    seen = Index(rows)
+    for roll in rolls:
+        spec, refill = roll_spec(roll)
+        if matches(rows, spec, refill) or seen.find(spec):          # in the library already (or unclear which entry it is), or another roll said so
+            continue
+        seen.add(spec)
+        candidates.append((spec, {"source": "roll"}))
+    entries, completions, known = [], [], 0
+    for row, extra in candidates:
+        other = shared.find(row)
+        if other is None:
+            entries.append(_offer(row, **extra))
+            continue
+        fills = [k for k in SHARE_FILLS if _blank(other[k]) and not _blank(row.get(k))]
+        if fills and shared.clash(other, {**other, **{k: row[k] for k in fills}}) is None:
+            completions.append({"entry": _offer(row, **extra), "fills": fills})
+        else:
+            known += 1
+    return jsonify({"entries": entries, "completions": completions, "already_there": known})
 
 
 # --- the rolls on the shelf ---------------------------------------------------------------------------------------
