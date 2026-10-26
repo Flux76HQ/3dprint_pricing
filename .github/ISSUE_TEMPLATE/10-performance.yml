@@ -1,0 +1,83 @@
+name: Performance
+description: Slowness or high resource use
+title: "[Performance]: "
+labels: ["performance"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What is slow or heavy?
+      placeholder: Reading a 3MF file takes over a minute.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type of problem
+      multiple: true
+      options:
+        - Slow load time
+        - Slow calculation or save
+        - Slow upload or print-file reading
+        - Slow invoice (PDF) creation
+        - Slow back-up or restore
+        - Janky scrolling or animation
+        - High memory use
+        - Battery drain
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: When does it happen?
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: input
+    id: size
+    attributes:
+      label: Size of your data set
+      description: The number of orders, rolls or the size of the file helps us spot scaling problems.
+      placeholder: "400 orders, 3MF of 45 MB"
+
+  - type: input
+    id: measurement
+    attributes:
+      label: Measured value
+      description: For example load time in seconds or memory use in MB.
+      placeholder: "70 s to read the file"
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - Browser (desktop)
+        - Browser (mobile)
+        - Installed app (iPhone / iPad)
+        - Installed app (Android)
+        - Backend / API
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device and version
+      description: For the server side, also the machine the app runs on (for example a NAS model).
+      placeholder: "iPhone 13, iOS 18.5, app 0.26.19"
+    validations:
+      required: true
+
+  - type: textarea
+    id: profile
+    attributes:
+      label: Profiling data
+      description: Lighthouse score, DevTools performance profile, or a trace. Optional but very welcome.

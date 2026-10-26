@@ -1,0 +1,83 @@
+name: Prestaties (Nederlands)
+description: Traagheid of hoog verbruik van resources
+title: "[Performance]: "
+labels: ["performance"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Wat is traag of zwaar?
+      placeholder: Het uitlezen van een 3MF-bestand duurt langer dan een minuut.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Soort probleem
+      multiple: true
+      options:
+        - Langzaam laden
+        - Langzaam berekenen of opslaan
+        - Langzaam uploaden of printbestand uitlezen
+        - Langzaam een factuur (PDF) maken
+        - Langzaam back-up maken of terugzetten
+        - Haperend scrollen of haperende animatie
+        - Hoog geheugengebruik
+        - Batterij loopt snel leeg
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Wanneer gebeurt het?
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: input
+    id: size
+    attributes:
+      label: Omvang van je gegevens
+      description: Het aantal bestellingen of rollen, of de grootte van het bestand, helpt ons schaalproblemen te zien.
+      placeholder: "400 bestellingen, 3MF van 45 MB"
+
+  - type: input
+    id: measurement
+    attributes:
+      label: Gemeten waarde
+      description: Bijvoorbeeld laadtijd in seconden of geheugengebruik in MB.
+      placeholder: "70 s om het bestand uit te lezen"
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - Browser (computer)
+        - Browser (mobiel)
+        - Geïnstalleerde app (iPhone / iPad)
+        - Geïnstalleerde app (Android)
+        - Backend / API
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Apparaat en versie
+      description: Noem voor de serverkant ook de machine waarop de app draait (bijvoorbeeld een NAS-model).
+      placeholder: "iPhone 13, iOS 18.5, app 0.26.19"
+    validations:
+      required: true
+
+  - type: textarea
+    id: profile
+    attributes:
+      label: Profileringsgegevens
+      description: Lighthouse-score, DevTools-prestatieprofiel of een trace. Optioneel, maar zeer welkom.

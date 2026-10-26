@@ -1,0 +1,117 @@
+name: Bugmelding (Nederlands)
+description: Er werkt iets niet in 3D Print Pricing
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bedankt voor het melden. Kijk eerst of een
+        [bestaand issue](https://github.com/Flux76HQ/3dprint_pricing/issues?q=is%3Aissue)
+        dit probleem al beschrijft. Problemen met installeren of hosten horen in het
+        formulier *PWA / Self-hosting (Nederlands)*.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Wat ging er mis?
+      description: Beschrijf het probleem kort en concreet.
+      placeholder: Het totaal van een berekening klopt niet met de regels erboven.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Stappen om het te reproduceren
+      description: Hoe kunnen we het zelf zien gebeuren?
+      value: |
+        1. Ga naar '...'
+        2. Klik op '...'
+        3. Scroll naar '...'
+        4. Zie de fout
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Verwacht gedrag
+      description: Wat had er in plaats daarvan moeten gebeuren?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Welk onderdeel van de app?
+      multiple: true
+      options:
+        - Berekening (kostprijs)
+        - Bestellingen en facturen
+        - Klanten
+        - Filamentrollen en -bibliotheek
+        - Printers en energietarieven
+        - Printbestanden (STL / 3MF)
+        - Inloggen (passkeys, wachtwoord, tweestapsverificatie)
+        - Back-up en herstel
+        - Notificaties
+        - AI-afbeeldingen
+        - Instellingen
+        - Weet ik niet
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - Browser (computer)
+        - Browser (mobiel)
+        - Geïnstalleerde app (iPhone / iPad)
+        - Geïnstalleerde app (Android)
+        - Weet ik niet
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Appversie
+      description: Te vinden onder Instellingen → Systeem → Updatecontrole.
+      placeholder: "0.26.19"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Besturingssysteem / browser
+      placeholder: "Android 15 / Chrome 140 / iOS 18.5 Safari"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logboek of foutmeldingen
+      description: Plak relevante uitvoer van de console. Dit wordt automatisch als code opgemaakt. Haal geheimen, namen en adressen weg.
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Schermafbeeldingen
+      description: Sleep afbeeldingen hierheen als ze het probleem verduidelijken. Maak klantgegevens eerst onleesbaar.
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Voor het versturen
+      options:
+        - label: Ik heb gezocht naar bestaande meldingen van deze bug
+          required: true
+        - label: Ik gebruik de nieuwste versie van de app
+          required: false

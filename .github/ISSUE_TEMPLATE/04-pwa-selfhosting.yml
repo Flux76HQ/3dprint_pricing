@@ -1,0 +1,109 @@
+name: PWA / Self-hosting
+description: Problem with installing the app or with a self-hosted installation
+title: "[PWA]: "
+labels: ["bug", "platform:pwa", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for problems with installing 3D Print Pricing on a home screen,
+        with the Docker Compose set-up, the `.env` file, updating, the data folder
+        (`DATA_PATH`) or whatever sits in front of the app (a reverse proxy or CDN).
+        See the [handleiding](https://github.com/Flux76HQ/3dprint_pricing/blob/main/docs/handleiding.md)
+        first: it lists the limits a proxy has to allow.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What went wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: hosting
+    attributes:
+      label: How are you running 3D Print Pricing?
+      options:
+        - Docker Compose (docker-compose.yml)
+        - Docker Compose via Dockhand / Portainer / Unraid
+        - Docker without Compose
+        - Local development environment
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: App version and image tag
+      description: The version is under Settings → System → Update check; the tag is `PRINTPRICING_TAG` in your `.env`.
+      placeholder: "0.26.19 / latest"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: How are you using the app?
+      options:
+        - In a browser tab
+        - Installed as a PWA (desktop)
+        - Installed as a PWA (mobile)
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: "Chrome 140 / Safari 18.5 / Firefox 141"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: infra
+    attributes:
+      label: Relevant infrastructure (self-hosting only)
+      multiple: true
+      options:
+        - Reverse proxy (Nginx / Traefik / Caddy)
+        - Cloudflare or another CDN
+        - Custom TLS certificate
+        - Non-standard port or subpath
+        - NAS or Unraid share as DATA_PATH
+        - None of the above
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Browser console and network errors
+      description: Open DevTools → Console and Network, then paste any relevant errors.
+      render: shell
+
+  - type: textarea
+    id: serverlogs
+    attributes:
+      label: Server logs (self-hosting only)
+      description: For example `docker compose logs app --tail 100`. Please redact secrets and tokens.
+      render: shell
+
+  - type: checkboxes
+    id: tried
+    attributes:
+      label: Already tried
+      options:
+        - label: Hard refresh and cleared the cache
+        - label: Tested in a private window or a different browser
+        - label: Removed and re-added the app on the home screen
+        - label: I searched for existing reports of this problem
+          required: true
