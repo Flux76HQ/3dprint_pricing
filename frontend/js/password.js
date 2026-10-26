@@ -10,7 +10,7 @@ import { confirmDialog, enhanceDialog, h, switchRow, toast } from './ui.js';
 
 const group = (secret) => secret.replace(/(.{4})/g, '$1 ').trim();
 
-function codesBlock(codes) {
+export function codesBlock(codes) {
   const text = codes.join('\n');
   return [
     h('ul', { class: 'codes', 'aria-label': t('pw.backup_codes') }, codes.map((c) => h('li', {}, c))),
@@ -115,11 +115,11 @@ export function setupWizard() {
 }
 
 /**
- * Asks for proof it is really the owner: a passkey, or (for a device where no passkey works, e.g. after
+ * Asks for proof it is really the person signed in (and, with `target`, for what is done to that other person): a passkey, or (for a device where no passkey works, e.g. after
  * signing in with password and code) the password plus a code. Resolves with what the server expects in
  * the request body, or null when cancelled.
  */
-export function confirmIdentity({ action, title, message, confirmLabel }) {
+export function confirmIdentity({ action, target, title, message, confirmLabel }) {
   return new Promise((resolve) => {
     let proof = null;
     const error = h('p', { class: 'error', role: 'alert', hidden: true });
@@ -131,7 +131,7 @@ export function confirmIdentity({ action, title, message, confirmLabel }) {
       h('p', {}, message),
       h('button', { class: 'btn primary', type: 'button', onclick: async () => {
         fail('');
-        try { proof = { credential: await confirmWithPasskey(action) }; dialog.close(); }
+        try { proof = { credential: await confirmWithPasskey(action, target) }; dialog.close(); }
         catch (e) { fail(t('pw.passkey_failed', { message: e.message })); }
       } }, t('pw.confirm_passkey')),
       h('p', { class: 'muted' }, t('pw.or_without')),

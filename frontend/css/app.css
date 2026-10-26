@@ -297,6 +297,8 @@ output.cost { font-weight: 650; font-variant-numeric: tabular-nums; min-height: 
 .setup-help h3 { margin: 0; font-size: .95rem; }
 .setup-help p { margin: 0; }
 .setup-help ol { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 4px; }
+.steps { margin: 0; padding-left: 1.4em; display: grid; gap: 4px; }
+textarea.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; word-break: break-all; }
 .codes { list-style: none; margin: 0; padding: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;
   background: var(--surface-field); border: 1px solid var(--rand); border-radius: var(--radius-sm); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.05rem; letter-spacing: .04em; }
 
@@ -474,6 +476,12 @@ code { overflow-wrap: anywhere; white-space: normal; }
 
 /* The sub menu of the settings */
 .subnav { display: flex; gap: 8px; overflow-x: auto; margin: 0 0 16px; padding-bottom: 4px; scrollbar-width: thin; }
+/* The tabs of a page with something that belongs beside them (the Spoolman sync on Filament): one line, wrapping under the tabs on a narrow screen. */
+.subbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin: 0 0 16px; }
+.subbar .subnav { margin: 0; min-width: 0; }
+.spoolman-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; font-size: .875rem; }
+.spoolman-bar[hidden] { display: none; }
+@media (max-width: 600px) { .spoolman-bar { flex: 1 1 100%; justify-content: space-between; } }
 .subnav a { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 6px 16px; border: 1px solid var(--rand); border-radius: 99px;
   color: var(--text); text-decoration: none; background: var(--surface-field); white-space: nowrap; }
 .subnav a:hover { border-color: var(--accent); }

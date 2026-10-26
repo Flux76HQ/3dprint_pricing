@@ -22,7 +22,7 @@ def announce(pool, cfg, label: str) -> int:
                                (label, label)).fetchone()
         if claimed is None:
             return 0
-        users = conn.execute("SELECT id FROM users WHERE COALESCE(preferences->>'notify_release', 'true') <> 'false'").fetchall()
+        users = conn.execute("SELECT id FROM users WHERE role = 'admin' AND COALESCE(preferences->>'notify_release', 'true') <> 'false'").fetchall()
     if not cfg.push_configured:
         return 0
     sent = 0

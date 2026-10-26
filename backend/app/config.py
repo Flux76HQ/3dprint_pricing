@@ -16,6 +16,8 @@ class ConfigError(RuntimeError):
 # Where "Sync" in Settings -> Filaments reads the shared filament library from: a JSON file as the app exports it.
 DEFAULT_LIBRARY_URL = "https://raw.githubusercontent.com/Flux76HQ/3dprint_pricing/main/library/filaments.json"
 LIBRARY_HOSTS = ("raw.githubusercontent.com", "gist.githubusercontent.com")
+# Where "Bijdragen" opens GitHub (the app adds the issue form for the language: `05-filament-library.yml` or `nl-05-...`; a workflow turns the issue into a pull request). Only offered while the source above is the default one.
+CONTRIBUTE_URL = "https://github.com/Flux76HQ/3dprint_pricing/issues/new"
 
 
 def _required(name: str) -> str:
@@ -56,6 +58,7 @@ class Config:
     vapid_subject: str = ""
     ai_images_enabled: bool = False
     filament_library_url: str = DEFAULT_LIBRARY_URL
+    spoolman_url: str = ""
     update_check: bool = True
 
     @property
@@ -82,6 +85,29 @@ def _library_url() -> str:
     return url
 
 
+def check_spoolman_url(value: str) -> str:
+    """A Spoolman address, tidied: empty means there is none. A home network runs Spoolman on plain http, so http is allowed; a trailing slash,
+    a query and a login in the address are not (a path is: Spoolman can sit under one): the app adds `/api/v1/...` itself. Used for `SPOOLMAN_URL` and for the address an
+    administrator types in the app, so both are held to the same rule."""
+    url = value.strip().rstrip("/")
+    if not url:
+        return ""
+    try:
+        parts = urlparse(url)
+        port = parts.port
+    except ValueError:
+        raise ConfigError("SPOOLMAN_URL must be an http(s) address such as http://spoolman:8000.") from None
+    if (parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment
+            or port == 0 or len(url) > 200):
+        raise ConfigError("SPOOLMAN_URL must be an http(s) address such as http://spoolman:8000 (no login, query or fragment), or empty.")
+    return url
+
+
+def _spoolman_url() -> str:
+    """`SPOOLMAN_URL` from .env; empty (the default) means that the address, if any, is the one typed in the app."""
+    return check_spoolman_url(os.environ.get("SPOOLMAN_URL", ""))
+
+
 def load_config() -> Config:
     origins = tuple(o.strip().rstrip("/") for o in _required("RP_ORIGINS").split(",") if o.strip())
     secret = _required("SESSION_SECRET")
@@ -104,5 +130,6 @@ def load_config() -> Config:
         vapid_subject=os.environ.get("VAPID_SUBJECT", "").strip() or f"mailto:admin@{_required('RP_ID')}",
         ai_images_enabled=_flag("AI_IMAGES_ENABLED"),
         filament_library_url=_library_url(),
+        spoolman_url=_spoolman_url(),
         update_check=_switch("PRINTPRICING_UPDATE_CHECK"),
     )

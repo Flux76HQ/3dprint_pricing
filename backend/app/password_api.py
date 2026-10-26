@@ -57,13 +57,26 @@ def _new_backup_codes(conn, user_id) -> list[str]:
 
 # --- login (no session yet) -----------------------------------------------------------------------------
 
+def _credential_of(conn, name: str):
+    """The password login of the person who types this name (the name they were given, any case). Without a name it is the only
+    person there is; with several people a name is needed, and a missing or unknown one finds nothing, like a wrong password."""
+    if name:
+        return conn.execute("SELECT c.user_id, c.password_hash, c.locked_until FROM password_credentials c "
+                            "JOIN users u ON u.id = c.user_id WHERE c.enabled AND lower(u.display_name) = lower(%s)", (name,)).fetchone()
+    if conn.execute("SELECT count(*) > 1 AS m FROM users").fetchone()["m"]:
+        return None
+    return conn.execute("SELECT user_id, password_hash, locked_until FROM password_credentials WHERE enabled").fetchone()
+
+
 @bp.post("/login")
 def login():
     ip_limiter.check(_client_ip())
-    password = str(json_body().get("password", ""))[:passwords.MAX_LENGTH + 1]
+    body = json_body()
+    password = str(body.get("password", ""))[:passwords.MAX_LENGTH + 1]
+    name = str(body.get("name", "")).strip()[:100]
     refusal = None
     with pool().connection() as conn:
-        row = conn.execute("SELECT user_id, password_hash, locked_until FROM password_credentials WHERE enabled").fetchone()
+        row = _credential_of(conn, name)
         if row is None:
             passwords.burn_time(password)                   # same cost as a real check
             refusal = ApiError(401, FAILED)
@@ -170,13 +183,13 @@ def _reauthenticate(body: dict) -> None:
     raise refusal                                            # outside the block: the failure must commit
 
 
-def _confirm(body: dict, action: str) -> None:
-    """A fresh passkey confirmation for exactly this action, or the password plus a code. Call it before
-    opening the connection that does the work, so a refused attempt is still counted."""
+def _confirm(body: dict, action: str, target: str | None = None) -> None:
+    """A fresh passkey confirmation for exactly this action (and, for one done to another person, exactly that person), or the
+    password plus a code. Call it before opening the connection that does the work, so a refused attempt is still counted."""
     cred = body.get("credential")
     if isinstance(cred, dict) and isinstance(cred.get("response"), dict):
         with pool().connection() as conn:
-            _verify_assertion(conn, cred, "confirm", purpose=_purpose(action, None), user_id=g.user_id)
+            _verify_assertion(conn, cred, "confirm", purpose=_purpose(action, target), user_id=g.user_id)
     elif "current_password" in body:
         _reauthenticate(body)
     else:

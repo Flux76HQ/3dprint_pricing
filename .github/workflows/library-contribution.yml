@@ -1,0 +1,103 @@
+name: library-contribution
+
+# An issue made by Settings -> Filaments -> Contribute (issue form 05-filament-library.yml) becomes a pull request that adds the new filaments to
+# library/filaments.json. The issue text is untrusted: it only reaches the script through an environment variable and a file, is checked with the app's
+# own rules (scripts/apply_library_contribution.py) and is never run. Nothing is merged here: a maintainer reviews the pull request.
+#
+# Needs "Allow GitHub Actions to create and approve pull requests" in the repository settings. A pull request made with the default token does not start
+# the other workflows, so set the secret LIBRARY_BOT_TOKEN (a fine-grained token with contents and pull-requests write) to have the checks run on it.
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: library-contribution-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  contribution:
+    if: contains(github.event.issue.labels.*.name, 'library-contribution') || startsWith(github.event.issue.title, '[Filament contribution]')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.LIBRARY_BOT_TOKEN || github.token }}
+      NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: beta
+          token: ${{ secrets.LIBRARY_BOT_TOKEN || github.token }}
+      - name: Make sure the label exists
+        run: gh label create library-contribution --force --color 1d76db --description "A contribution to the shared filament library"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r backend/requirements.txt
+      - name: Add the new filaments
+        id: apply
+        env:
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.txt"
+          if python scripts/apply_library_contribution.py library/filaments.json "$RUNNER_TEMP/body.txt" > "$RUNNER_TEMP/summary.json" 2> "$RUNNER_TEMP/error.txt"; then
+            echo "added=$(jq -r .added "$RUNNER_TEMP/summary.json")" >> "$GITHUB_OUTPUT"
+          else
+            echo "added=refused" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Say why it was refused
+        if: steps.apply.outputs.added == 'refused'
+        run: |
+          {
+            echo "Deze bijdrage is niet overgenomen / This contribution was not taken:"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/error.txt"
+            echo '```'
+            echo
+            echo "Pas de issue aan en sla hem op, dan wordt hij opnieuw gecontroleerd. / Edit the issue and save it to have it checked again."
+          } > "$RUNNER_TEMP/comment.md"
+          gh issue comment "$NUMBER" --body-file "$RUNNER_TEMP/comment.md"
+      - name: Say that there is nothing new
+        if: steps.apply.outputs.added == '0'
+        run: |
+          gh issue close "$NUMBER" --reason "not planned" --comment "Alle filamenten uit deze bijdrage staan al in de bibliotheek. / All filaments in this contribution are already in the library."
+      - name: Open or update the pull request
+        if: steps.apply.outputs.added != 'refused' && steps.apply.outputs.added != '0'
+        run: |
+          branch="library/contribution-$NUMBER"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add library/filaments.json
+          git commit -m "Add filaments from contribution #$NUMBER to the shared library"
+          git push --force origin "HEAD:refs/heads/$branch"
+          {
+            echo "## Summary"
+            echo
+            echo "Adds $(jq -r .added "$RUNNER_TEMP/summary.json") filaments from #$NUMBER to \`library/filaments.json\` ($(jq -r .skipped "$RUNNER_TEMP/summary.json") already there, left as they are; notes are never taken over):"
+            echo
+            jq -r '.names[] | "- `" + . + "`"' "$RUNNER_TEMP/summary.json"
+            echo
+            echo "Checked with the app's own rules (\`scripts/apply_library_contribution.py\`). Review the entries before merging."
+            echo
+            echo "Closes #$NUMBER"
+            echo
+            echo "## Deployment files"
+            echo
+            echo "No deployment-file changes in this PR."
+            echo
+            echo "## Limits"
+            echo
+            echo "No limit changes in this PR."
+          } > "$RUNNER_TEMP/pr.md"
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')" ]; then
+            gh pr edit "$branch" --body-file "$RUNNER_TEMP/pr.md"
+          else
+            gh pr create --base beta --head "$branch" --title "Add filaments from contribution #$NUMBER" --body-file "$RUNNER_TEMP/pr.md" --label library-contribution
+          fi

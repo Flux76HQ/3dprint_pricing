@@ -60,7 +60,8 @@ def test_a_price_and_a_weight_are_checked(owner):
 
 def test_the_library_needs_a_session(client):
     for method, path in (("get", "/api/filament-library"), ("get", "/api/filament-library/export"), ("post", "/api/filament-library/sync"),
-                         ("post", "/api/filament-library/import"), ("post", "/api/filament-library/invoice")):
+                         ("post", "/api/filament-library/import"), ("post", "/api/filament-library/invoice"),
+                         ("post", "/api/filament-library/from-rolls"), ("post", "/api/filament-library/contribution")):
         assert getattr(client, method)(path, headers=H).status_code == 401
 
 
@@ -242,7 +243,7 @@ def test_a_source_that_fails_or_is_not_a_library_changes_nothing(owner, remote, 
 
 def test_sync_is_off_without_an_address_and_the_address_is_never_taken_from_the_request(owner, remote, app):
     app.config["APP_CONFIG"] = dataclasses.replace(app.config["APP_CONFIG"], filament_library_url="")
-    assert owner.get("/api/filament-library/source").get_json() == {"url": ""}
+    assert owner.get("/api/filament-library/source").get_json() == {"url": "", "contribute_url": ""}
     assert owner.post("/api/filament-library/sync", json={"url": "https://evil.example/x.json"}, headers=H).status_code == 404
     assert remote.calls == []
 
@@ -343,6 +344,81 @@ def test_changing_a_roll_never_touches_the_library(owner):
     roll = make(owner, "/api/spools", ROLL)
     assert owner.patch(f"/api/spools/{roll['id']}", json={"colour": "Rood", "add_to_library": True}, headers=H).status_code == 200
     assert library(owner) == []
+
+
+# --- a contribution to the shared library -----------------------------------------------------------------------------
+
+def test_a_contribution_is_what_the_shared_library_lacks_without_the_notes(owner, remote):
+    remote.reply = shared(GREY)
+    make(owner, "/api/filament-library", {**GREY, "notes": "kast 2"})                                  # in the shared library already
+    make(owner, "/api/filament-library", {"brand": "Sunlu", "material": "PETG", "colour": "Zwart", "roll_weight_g": 1000, "price": "14.5",
+                                          "barcode": "123", "notes": "mijn eigen tekst"})
+    before = library(owner)
+    res = owner.post("/api/filament-library/contribution", headers=H).get_json()
+    assert res["already_there"] == 1 and len(res["entries"]) == 1
+    [entry] = res["entries"]
+    assert (entry["brand"], entry["colour"], entry["barcode"], entry["price"]) == ("Sunlu", "Zwart", "123", 14.5)
+    assert "notes" not in entry and "id" not in entry and "created_at" not in entry
+    assert library(owner) == before                                                                        # nothing is written
+
+
+def test_a_filament_the_shared_library_knows_under_another_name_is_not_offered_again(owner, remote):
+    remote.reply = shared({**GREY, "colour": "Gray"})                                                      # the same SKU, however it is named
+    make(owner, "/api/filament-library", GREY)
+    assert owner.post("/api/filament-library/contribution", headers=H).get_json() == {"entries": [], "already_there": 1}
+
+
+def test_a_contribution_is_not_offered_when_the_source_is_the_owners_own(owner, remote, app):
+    assert owner.get("/api/filament-library/source").get_json()["contribute_url"].startswith("https://github.com/Flux76HQ/3dprint_pricing/issues/new")
+    app.config["APP_CONFIG"] = dataclasses.replace(app.config["APP_CONFIG"], filament_library_url="https://gist.githubusercontent.com/me/x/raw/f.json")
+    assert owner.get("/api/filament-library/source").get_json()["contribute_url"] == ""
+    assert owner.post("/api/filament-library/contribution", headers=H).status_code == 404 and remote.calls == []
+
+
+def test_a_contribution_with_an_unreachable_source_fails_cleanly(owner, remote):
+    remote.reply = requests.ConnectionError("down")
+    res = owner.post("/api/filament-library/contribution", headers={**H, **NL})
+    assert res.status_code == 502 and "niet bereikbaar" in res.get_json()["error"]
+
+
+# --- the rolls in the filament list go to the library in one go ----------------------------------------------------------
+
+def from_rolls(owner, query=""):
+    return owner.post(f"/api/filament-library/from-rolls{query}", headers=H).get_json()
+
+
+def test_syncing_the_rolls_adds_each_missing_filament_once_and_leaves_the_rolls_alone(owner):
+    first = make(owner, "/api/spools", ROLL)
+    make(owner, "/api/spools", {**ROLL, "remaining_g": 100})                                      # a second roll of the same filament
+    make(owner, "/api/spools", {**ROLL, "colour": "Rood", "barcode": "", "colour_hex": "#ff0000"})
+    before = owner.get("/api/spools").get_json()
+    dry = from_rolls(owner, "?dry_run=1")
+    assert (dry["dry_run"], dry["added"], dry["unchanged"]) == (True, 2, 1) and library(owner) == []      # a dry run writes nothing
+    done = from_rolls(owner)
+    assert (done["added"], done["updated"], done["unchanged"], done["unclear"]) == (2, 0, 1, 0)
+    assert sorted(e["colour"] for e in library(owner)) == ["Grijs", "Rood"]
+    assert all(e["price"] is None and e["notes"] == "" for e in library(owner))                   # the price and notes are the roll's
+    assert owner.get("/api/spools").get_json() == before and any(r["id"] == first["id"] for r in before)
+    again = from_rolls(owner)
+    assert (again["added"], again["updated"], again["unchanged"]) == (0, 0, 3)
+
+
+def test_syncing_the_rolls_skips_archived_ones_and_completes_known_entries(owner):
+    make(owner, "/api/spools", {**ROLL, "colour": "Blauw", "barcode": "", "archived": True})
+    mine = make(owner, "/api/filament-library", {**GREY, "print_temp_c": None, "bed_temp_c": None, "colour_hex": ""})
+    make(owner, "/api/spools", {**ROLL, "barcode": ""})                                           # the same filament as GREY, which lacks the temperatures
+    done = from_rolls(owner)
+    assert (done["added"], done["updated"]) == (0, 1)
+    [entry] = library(owner)
+    assert entry["id"] == mine["id"] and (entry["print_temp_c"], entry["bed_temp_c"], entry["colour_hex"]) == (220, 55, "#9e9e9e")
+    assert entry["sku"] == GREY["sku"] and entry["price"] == mine["price"]                        # nothing that was filled in is overwritten
+
+
+def test_a_roll_that_fits_two_entries_is_counted_as_unclear_and_touches_nothing(owner):
+    make(owner, "/api/filament-library", GREY)
+    make(owner, "/api/filament-library", {**GREY, "sku": "A00-D0-1.75-1000-SPL", "refill": False, "filament_id": "10104"})
+    make(owner, "/api/spools", {**ROLL, "barcode": ""})
+    assert from_rolls(owner)["unclear"] == 1 and len(library(owner)) == 2
 
 
 # --- no filament twice ------------------------------------------------------------------------------------------------

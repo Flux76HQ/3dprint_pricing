@@ -1,0 +1,20 @@
+name: Filament library contribution
+description: Offer filaments to the shared library (made by Settings → Filaments → Contribute in the app)
+title: "[Filament contribution]: "
+labels: ["library-contribution"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Normally the app fills this in for you (**Settings → Filaments → Contribute to the central library**); you only press *Submit new issue*.
+        A workflow checks the filaments with the same rules as the app and, if they are valid and new, opens a pull request that a maintainer reviews.
+        Only filaments that are not in the library yet are added; an existing filament is never changed this way. Notes are never taken over.
+
+  - type: textarea
+    id: contribution
+    attributes:
+      label: Filaments (JSON)
+      description: The file as the app exports it (`format` `printpricing-filament-library`). Paste it here if the app asked you to.
+      render: json
+    validations:
+      required: true

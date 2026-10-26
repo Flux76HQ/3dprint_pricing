@@ -8,6 +8,8 @@ import { confirmIdentity, passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, forgetPush, pushSupport, thisDeviceFingerprint } from './push.js';
 import { applyNavGlass, confirmDialog, fmt, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast } from './ui.js';
 import { BUILD } from './build.js';
+import { spoolmanCard } from './spoolman.js';
+import { usersCards } from './users.js';
 import { checkRelease, initRelease, releaseStatus } from './release.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
 
@@ -168,10 +170,11 @@ function notificationsCards(ctx) {
     if (sub) {
       const result = h('p', { class: 'status-line', role: 'status' }, lastResult);
       const stock = await api('GET', '/api/spools/stock').catch(() => null);      // the materials there are, for their own thresholds
+      const admin = ctx.user.role === 'admin';                            // a new version and the thresholds are the administrator's concern
       rows.push(
-        switchRow(t('notify.release'), t('notify.release_hint'), ctx.prefs.notify_release !== false,
-          (on) => setPrefs({ notify_release: on })),
-        ...lowStockRows(ctx, stock, draw),
+        admin ? switchRow(t('notify.release'), t('notify.release_hint'), ctx.prefs.notify_release !== false,
+          (on) => setPrefs({ notify_release: on })) : null,
+        ...(admin ? lowStockRows(ctx, stock, draw) : []),
         h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
           try {
             const r = await api('POST', '/api/push/test');
@@ -551,13 +554,17 @@ function invoiceTemplateCard() {
 }
 
 // The parts of the settings, in the order of the sub menu: [route, label key]. "Zakelijk" is only there when it is switched on.
+// A regular user does not see the parts that are for administrators (the server refuses them whatever the screen shows).
 const SECTIONS = [['algemeen', 'settings.tab_general'], ['weergave', 'settings.tab_appearance'], ['beveiliging', 'settings.tab_security'],
-  ['zakelijk', 'settings.tab_business'], ['filamenten', 'settings.tab_filaments'], ['notificaties', 'settings.tab_notifications'], ['ai', 'settings.tab_ai'], ['systeem', 'settings.tab_system']];
+  ['zakelijk', 'settings.tab_business'], ['filamenten', 'settings.tab_filaments'], ['notificaties', 'settings.tab_notifications'],
+  ['gebruikers', 'settings.tab_users'], ['ai', 'settings.tab_ai'], ['systeem', 'settings.tab_system']];
+const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'ai', 'systeem'];
 
 export function settingsView(ctx, requested) {
   const { setPrefs, user, highlightPasskey } = ctx;
   const businessOn = () => !!ctx.prefs.business_mode;
-  const shown = () => SECTIONS.filter(([key]) => (key !== 'zakelijk' || businessOn()) && (key !== 'ai' || ctx.aiImages));   // "AI-afbeeldingen" only when .env switches it on
+  const admin = user.role === 'admin';
+  const shown = () => SECTIONS.filter(([key]) => (admin || !ADMIN_SECTIONS.includes(key)) && (key !== 'zakelijk' || businessOn()) && (key !== 'ai' || ctx.aiImages));   // "AI-afbeeldingen" only when .env switches it on
   const wanted = requested === 'backup' ? 'systeem' : requested;                          // the address this part had before it was renamed
   const section = shown().some(([key]) => key === wanted) ? wanted : 'algemeen';
   // The address says what is shown: a part that is not there (Business while it is off) must not stay in the URL, or clicking its tab later would change nothing.
@@ -671,7 +678,7 @@ export function settingsView(ctx, requested) {
     algemeen: () => [
       h('div', { class: 'glass card stack' }, h('h2', {}, t('settings.tab_general')),
         switchRow(t('appearance.blur'), t('appearance.blur_hint'), !!ctx.prefs.blur_costs, (on) => setPrefs({ blur_costs: on })),
-        switchRow(t('general.business'), t('general.business_hint'), businessOn(), async (on) => { await setPrefs({ business_mode: on }); drawSubnav(); })),
+        admin ? switchRow(t('general.business'), t('general.business_hint'), businessOn(), async (on) => { await setPrefs({ business_mode: on }); drawSubnav(); }) : null),
       installCard()],
     weergave: () => {
       drawAppearance();
@@ -698,14 +705,16 @@ export function settingsView(ctx, requested) {
             ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (ctx.prefs.price_rounding || 'none') === v }, t(l)))))),
         h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
       companyCard(ctx), qrCard(ctx), invoiceLogoCard(), invoiceTemplateCard()],
-    filamenten: () => filamentLibraryCards(),
+    filamenten: () => [spoolmanCard(undefined, { configure: true }), ...filamentLibraryCards()],
     notificaties: () => notificationsCards(ctx),
+    gebruikers: () => usersCards(),
     ai: () => [aiSettingsCard(), aiLogCard()],
     systeem: () => [backupCard(), updateCard(), resetCard()],
   };
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.settings')))),
-    h('p', { class: 'muted page-intro' }, t('settings.signed_in_as', { name: user.display_name })),
+    h('p', { class: 'muted page-intro' }, t('settings.signed_in_as', { name: user.display_name }), ' ',
+      h('span', { class: `badge${admin ? '' : ' muted'}` }, user.is_owner ? t('users.owner') : admin ? t('users.admin') : t('users.user'))),
     subnav,
     highlightPasskey && section === 'beveiliging' ? h('p', { class: 'notice', role: 'status' }, t('settings.recovered')) : null,
     ...parts[section]());

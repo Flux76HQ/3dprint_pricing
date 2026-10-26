@@ -452,7 +452,7 @@ def main():
         port = free_port()
         app, origin, server = start_app(url, str(work / "uploads"), port)
         with psycopg.connect(url, autocommit=True) as conn:
-            user_id = conn.execute("INSERT INTO users (display_name) VALUES ('Demo') RETURNING id").fetchone()[0]
+            user_id = conn.execute("INSERT INTO users (display_name, role, is_owner) VALUES ('Demo', 'admin', true) RETURNING id").fetchone()[0]
         api = Api(app, origin, user_id)
         project_id = seed(api)
 
