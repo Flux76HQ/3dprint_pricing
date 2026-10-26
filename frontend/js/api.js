@@ -7,13 +7,13 @@ export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-export async function api(method, path, body) {
+export async function api(method, path, body, headers = {}) {
   let res;
   try {
     res = await fetch(path, {
       method,
       credentials: 'same-origin',
-      headers: body === undefined ? langHeader() : { ...langHeader(), 'Content-Type': 'application/json' },
+      headers: body === undefined ? { ...langHeader(), ...headers } : { ...langHeader(), ...headers, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {

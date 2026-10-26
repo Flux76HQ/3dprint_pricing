@@ -26,7 +26,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, current_app, g, jsonify, request, send_file
 
-from . import ai_images, customers, filament_library, invoice_docs, invoice_logo, invoice_template, orders, printfile
+from . import ai_images, customers, filament_library, invoice_docs, invoice_logo, invoice_template, orders, preferences, printfile
 from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized, render, request_language
@@ -72,8 +72,7 @@ def export():
     doc = {"format": FORMAT, "format_version": FORMAT_VERSION, "app_version": _app_version(),
            "created_at": datetime.now(timezone.utc).isoformat(), "includes_files": include_files}
     with pool().connection() as conn:
-        prefs = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()
-        doc["preferences"] = (prefs or {}).get("preferences") or {}
+        doc["preferences"] = preferences.load(conn, g.user_id)      # the person's own, and the business's on top
         for key, resource in SECTIONS:
             table, fields, _order = (*RESOURCES[resource][:2], None)
             columns = ["id", *fields, "created_at"]
@@ -846,7 +845,9 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
             if plan["logo"]:
                 lg = plan["logo"]
                 invoice_logo.replace(conn, filename=lg["filename"], kind=lg["kind"], content=lg["content"], width=lg["width"], height=lg["height"])
-            conn.execute("UPDATE users SET preferences = %s::jsonb WHERE id = %s", (json.dumps(plan["preferences"]), user_id))
+            own, business = preferences.split(plan["preferences"])
+            conn.execute("UPDATE users SET preferences = %s::jsonb WHERE id = %s", (json.dumps(own), user_id))     # the person who restores
+            preferences.replace_shared(conn, business)
             if job:
                 conn.execute("UPDATE backup_jobs SET status = 'done', phase = 'done', step = %s, steps = %s, summary = %s::jsonb, replacing_seconds = %s, "
                              "finished_at = now(), updated_at = now() WHERE id = %s", (job[2], job[2], json.dumps(job[1]), round(time.monotonic() - started, 1), job[0]))

@@ -26,9 +26,10 @@ as authoritative as the current one.
 
 3D Print Pricing is a self-hosted **PWA with a backend** for a 3D-print business: it calculates
 the cost price of a print (filament, parts, charger, printer depreciation, energy) and keeps the
-inventory those prices come from (filament rolls, printers, energy tariffs). One owner signs in
-with passkeys. It is a single-tenant app: there is no per-user data scoping, because there is one
-owner. If that ever changes, every query in `backend/app/api.py` needs a user filter first.
+inventory those prices come from (filament rolls, printers, energy tariffs). A few people can sign in
+(the owner who set it up, other administrators and regular users, section 6f), with passkeys or an
+optional password. It is still a single-tenant app: one business, so there is no per-user data scoping and
+everything people make is shared. If that ever changes, every query in `backend/app/api.py` needs a user filter first.
 
 Stack: Flask + Gunicorn, PostgreSQL 17, a no-build vanilla-JS frontend served by the same
 process, Docker Compose. Layout: `backend/` (API, auth, migrations, tests), `frontend/` (static
@@ -213,7 +214,7 @@ in the same commit (`backend/tests/test_i18n.py` fails otherwise) and give `{pla
 ## 6c. Backup and restore
 
 `backend/app/backup.py`. A backup never contains credentials (passkeys, recovery codes, the password and its TOTP secret,
-push subscriptions): `tests/test_backup.py` greps the file for them. Restore validates the whole file with the same
+push subscriptions), users or invitations: `tests/test_backup.py` and `tests/test_users.py` check the file for them. Restore validates the whole file with the same
 validators as the normal endpoints, recalculates calculations, re-reads print files, and swaps everything in one
 transaction. A new table or column that holds user data belongs in the backup and in its round-trip test.
 
@@ -240,13 +241,49 @@ warning in the process log: how many tables were emptied and how many files remo
 ## 6e. Update check
 
 Follows App-Guidance's [`shared/guidelines/update-check.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/update-check.md).
-`backend/app/updates.py` (`GET /api/update`, `POST /api/update/check`, signed in = the owner), `frontend/js/release.js` (banner, dot on the entries that lead to Settings,
+`backend/app/updates.py` (`GET /api/update`, `POST /api/update/check`, administrators only: `access.py`), `frontend/js/release.js` (banner, dot on the entries that lead to Settings,
 dismissed per version in `localStorage`) and the *Updatecontrole* card in Settings → Systeem (next to the factory reset in *Opruimen*). It reads the redirect of `github.com/Flux76HQ/3dprint_pricing/releases/latest`
 (never `api.github.com`: 60 anonymous requests an hour per IP address), so it sees stable releases only, which `docker.yml` creates as `vX.Y.Z` at every promotion; a beta
 never hears of a newer beta. It announces and nothing else: it never updates, restarts or downloads, and the request carries a fixed `User-Agent` and nothing about the installation.
 **It is switched off with `PRINTPRICING_UPDATE_CHECK=false`** (default on; documented in `.env.example`, both READMEs and the handleiding; `docker-compose.yml` needs no change, it
 passes `.env` through). The server answers with a reason *key* (`ERROR_KEYS`), never a sentence (section 6b); every key has a `release.err.*` text. This is not `frontend/js/updates.js`, which
 notices that the *server* was updated since the page loaded and offers to reload.
+
+## 6f. Users and roles
+
+Follows App-Guidance's [`shared/guidelines/user-management.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/user-management.md)
+(invitation links, reset links, removing a user), plus the one thing that guideline leaves out and this app needs: an administrator can
+**promote** a regular user to administrator. Code: `users.py` (administrator routes), `invites.py` (the guest's half, no session), `access.py`,
+`preferences.py`; migration `0024`; tests `tests/test_users.py`.
+
+- **Two roles, `admin` and `user`, and an owner.** The first user (onboarding) is `is_owner`: always an administrator, never reset, demoted or
+  removed (the database refuses a second owner or a non-administrator owner), so there is always one. Nobody changes their own role. A role is read
+  from the database on every request (`auth.load_session`), so a promotion or demotion works at once, and so does a removal.
+- **What is for administrators is one list: `access.ADMIN_ONLY`**, checked in `create_app`'s `_guard` before any handler runs. A new route under one of
+  its prefixes needs nothing else; a new administrator-only area is a new line there **and** a line in `ADMIN_ONLY_CALLS` in `test_users.py`. Hiding a tab in
+  `settings.js` (`ADMIN_SECTIONS`) is courtesy, never the control. Everything not listed is for any signed-in person. Handler-level checks use
+  `http.require_admin` / `admin_required` (for what a path cannot say, like `PUT /api/preferences` with a company key).
+- **Shared or personal.** `preferences.SHARED` (`business`, `vat_pct`, `price_rounding`, `low_stock`) is the company's, in `shared_preferences`, written by
+  administrators only; everything else in `users.preferences` is the person's own. A new preference key is one or the other: decide when you add it, and put a
+  company-wide one in `SHARED`. Code that needs the company's details reads `preferences.shared(conn)`, never one user's row. `GET /api/preferences` returns both
+  as one document, a backup holds both under `preferences` (the restoring administrator's own plus the company's), and a backup from before the split still restores.
+- **Sessions carry the user's `session_epoch`** (`ep` claim; a session without one is epoch 0). A reset bumps it, which ends that person's sessions on every device.
+  `issue_session` reads the epoch as it is now, so call it after the transaction that changed the user has committed.
+- **Invitations (`invitations`).** 32 random bytes, only the SHA-256 stored, shown once; the link is `<origin>/#invite=<token>` (a fragment: never sent, never logged;
+  the page sends it in `X-Invite-Token` and removes it from the address bar). One use (`_finish` claims it by deleting it), 7 days, one `reset` per person, caps of 50
+  users (open invitations for new people count) and 50 invitations. Unknown, expired and used tokens are one 404 (`invite.invalid`), checked **before** the body is
+  looked at. A reset changes nothing until the guest has finished (the password path keeps its pending state on the invitation, not in a user row). The origin in the link
+  is the request's own `Origin` when it is in `RP_ORIGINS`, else the first one: never the request's host. A passkey goes through the same `_registration_options`,
+  `_verify_registration`, `_save_credential` as onboarding (baseline §19): no second WebAuthn path.
+- **Confirmations.** Promoting someone and resetting an *administrator* each need a fresh passkey confirmation (or password plus code) bound to that person
+  (`auth._purpose` `user-promote` / `user-reset`, `password_api._confirm(body, action, target)`); demoting, removing and resetting a regular user do not.
+- **Names are the sign-in name for a password login**, unique case-insensitively (`users_name_unique`), also against names reserved by an open invitation.
+  `POST /api/auth/password/login` takes `name`; without one it only works while there is a single person (`status.login_name_required` tells the screen).
+- **Removing a person is the foreign keys.** Every table with a `user_id` must reference `users` with `ON DELETE CASCADE` (or `SET NULL` for an author);
+  `test_every_table_with_a_user_id_is_cleaned_by_removing_the_person` fails otherwise. What a person made belongs to the business and stays.
+- Backups and invitations: a backup never holds users, invitations or credentials (6c), and a restore does not touch who can sign in. A factory reset (6d) removes everybody.
+- Test a guard by breaking what it guards: `test_users.py` was checked by removing each guard in turn (the list entry, the owner check, the epoch check, the confirmation, the
+  company-preferences check, the single use) and watching a test fail. Do that for the next one too.
 
 ## 7. Work done in one client leaves the other clients correct
 

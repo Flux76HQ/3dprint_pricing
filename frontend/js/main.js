@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { loginView, onboardingView } from './auth-views.js';
+import { inviteToken, inviteView, loginView, onboardingView } from './auth-views.js';
 import { customerEditorView, customerListView } from './customers.js';
 import { orderEditorView, orderListView } from './orders.js';
 import { projectEditorView, projectListView } from './projects.js';
@@ -164,6 +164,13 @@ function route() {
 // --- boot ----------------------------------------------------------------------
 
 async function start() {
+  const invitation = inviteToken();                  // an administrator's link: the page is for the guest, whoever else may be signed in here
+  if (invitation) {
+    stopRelease();
+    session = { user: null };
+    root.replaceChildren(inviteView(invitation, start, chooseLanguage));
+    return;
+  }
   let status;
   try {
     status = await api('GET', '/api/auth/status');
@@ -177,7 +184,7 @@ async function start() {
   if (!status.onboarded) { session = { user: null }; root.replaceChildren(onboardingView(start, chooseLanguage)); return; }
   if (!status.authenticated) {
     session = { user: null };
-    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen/beveiliging'); start(); }, { passwordLogin: status.password_login, onLanguage: chooseLanguage }));
+    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen/beveiliging'); start(); }, { passwordLogin: status.password_login, nameRequired: status.login_name_required, onLanguage: chooseLanguage }));
     return;
   }
   session = { user: status.user, aiImages: !!status.ai_images };
@@ -189,13 +196,13 @@ async function start() {
   if (prefs.language) setLanguage(prefs.language);
   else setPrefs({ language: getLanguage() });
   route();
-  initRelease();
+  if (session.user.role === 'admin') initRelease();   // only an administrator can act on a new version, and only they may ask the server for it
   maybeShowInstallBanner();
   maybeOfferPush();
 }
 
 installNativeBehaviour();
-window.addEventListener('hashchange', route);
+window.addEventListener('hashchange', () => { if (inviteToken()) start(); else route(); });
 window.addEventListener('auth:expired', () => { if (session.user) { toast(t('app.session_expired'), 'error'); start(); } });
 
 if ('serviceWorker' in navigator) {
