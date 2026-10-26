@@ -1,0 +1,84 @@
+name: Promotion checklist
+description: Standard checklist for promoting beta to main (a stable release)
+title: "Promotion beta → main"
+labels: ["release"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A promotion happens when the owner asks for it. The version number is not
+        chosen here: the `docker` workflow raises `VERSION` after the merge, and the
+        release notes are generated from the merged pull requests. See
+        [AGENTS.md](https://github.com/Flux76HQ/3dprint_pricing/blob/main/AGENTS.md)
+        section 5 and the
+        [promotion runbook](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/promotion-runbook.md).
+
+  - type: input
+    id: previous
+    attributes:
+      label: Previous stable version
+      description: The version the promotion pull request compares against ("since the previous stable version").
+      placeholder: "0.26.19"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: bump
+    attributes:
+      label: Expected version bump
+      description: Put the matching label on the promotion pull request.
+      options:
+        - Patch (default, protected paths changed)
+        - Minor (label version:minor)
+        - Major (label version:major)
+        - None (documentation only)
+    validations:
+      required: true
+
+  - type: textarea
+    id: highlights
+    attributes:
+      label: Main changes since the previous stable version
+      description: Short list for the promotion pull request.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: preparation
+    attributes:
+      label: Preparation
+      options:
+        - label: Nothing that belongs in this release is still open as a pull request into beta
+        - label: beta merges cleanly into main
+        - label: CI is green on the latest commit of beta, including the beta image build
+        - label: Database migrations are forward-only and tested on a copy of real data
+        - label: Deployment-file changes (docker-compose.yml, .env.example) are named in the pull request, or "none"
+
+  - type: checkboxes
+    id: testing
+    attributes:
+      label: Testing
+      options:
+        - label: "`cd backend && PYTHONPATH=. python -m pytest -q` passes"
+        - label: Frontend syntax check and `python -m unittest discover -s scripts -p "test_*.py"` pass
+        - label: The beta image was installed and used (browser and installed app)
+        - label: Update from the previous stable version tested, including back-up and restore
+        - label: Both languages (nl, en) checked
+
+  - type: checkboxes
+    id: rollout
+    attributes:
+      label: Rollout
+      options:
+        - label: Promotion pull request opened from beta to main and merged with a merge commit (never squashed)
+        - label: Release vX.Y.Z exists and is marked latest
+        - label: The latest and X.Y.Z images were built
+        - label: main was merged back into beta so beta carries the new VERSION
+
+  - type: checkboxes
+    id: after
+    attributes:
+      label: After release
+      options:
+        - label: The update check in a running installation reports the new version
+        - label: Documentation (docs/handleiding.md, README.md, README.nl.md) is up to date

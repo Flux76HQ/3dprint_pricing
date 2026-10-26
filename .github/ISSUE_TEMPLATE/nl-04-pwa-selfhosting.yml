@@ -1,0 +1,110 @@
+name: PWA / Self-hosting (Nederlands)
+description: Probleem met het installeren van de app of met een zelf gehoste installatie
+title: "[PWA]: "
+labels: ["bug", "platform:pwa", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gebruik dit voor problemen met het installeren van 3D Print Pricing op een
+        beginscherm, met de Docker Compose-opzet, het `.env`-bestand, het bijwerken,
+        de datamap (`DATA_PATH`) of wat er voor de app staat (een reverse proxy of CDN).
+        Lees eerst de
+        [handleiding](https://github.com/Flux76HQ/3dprint_pricing/blob/main/docs/handleiding.md):
+        daar staan de limieten die een proxy moet toestaan.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Wat ging er mis?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Stappen om het te reproduceren
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: hosting
+    attributes:
+      label: Hoe draai je 3D Print Pricing?
+      options:
+        - Docker Compose (docker-compose.yml)
+        - Docker Compose via Dockhand / Portainer / Unraid
+        - Docker zonder Compose
+        - Lokale ontwikkelomgeving
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Appversie en image-tag
+      description: De versie staat onder Instellingen → Systeem → Updatecontrole; de tag is `PRINTPRICING_TAG` in je `.env`.
+      placeholder: "0.26.19 / latest"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Hoe gebruik je de app?
+      options:
+        - In een browsertabblad
+        - Geïnstalleerd als PWA (computer)
+        - Geïnstalleerd als PWA (mobiel)
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser en versie
+      placeholder: "Chrome 140 / Safari 18.5 / Firefox 141"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: infra
+    attributes:
+      label: Relevante infrastructuur (alleen bij self-hosting)
+      multiple: true
+      options:
+        - Reverse proxy (Nginx / Traefik / Caddy)
+        - Cloudflare of een andere CDN
+        - Eigen TLS-certificaat
+        - Afwijkende poort of subpad
+        - NAS- of Unraid-share als DATA_PATH
+        - Niets hiervan
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Fouten in de browserconsole en het netwerk
+      description: Open DevTools → Console en Network en plak relevante fouten.
+      render: shell
+
+  - type: textarea
+    id: serverlogs
+    attributes:
+      label: Serverlogboek (alleen bij self-hosting)
+      description: Bijvoorbeeld `docker compose logs app --tail 100`. Haal geheimen en tokens weg.
+      render: shell
+
+  - type: checkboxes
+    id: tried
+    attributes:
+      label: Al geprobeerd
+      options:
+        - label: Geforceerd vernieuwd en de cache geleegd
+        - label: Getest in een privévenster of een andere browser
+        - label: De app van het beginscherm verwijderd en opnieuw toegevoegd
+        - label: Ik heb gezocht naar bestaande meldingen van dit probleem
+          required: true

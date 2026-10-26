@@ -1,0 +1,84 @@
+name: Promotie-checklist (Nederlands)
+description: Standaardchecklist om beta naar main te promoveren (een stabiele release)
+title: "Promotie beta → main"
+labels: ["release"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Een promotie gebeurt wanneer de eigenaar erom vraagt. Het versienummer kies je
+        hier niet: de `docker`-workflow verhoogt `VERSION` na de merge, en de release
+        notes worden gegenereerd uit de gemergede pull requests. Zie
+        [AGENTS.md](https://github.com/Flux76HQ/3dprint_pricing/blob/main/AGENTS.md)
+        sectie 5 en het
+        [promotion-runbook](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/promotion-runbook.md).
+
+  - type: input
+    id: previous
+    attributes:
+      label: Vorige stabiele versie
+      description: De versie waarmee de promotie-pull request vergelijkt ("sinds de vorige stabiele versie").
+      placeholder: "0.26.19"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: bump
+    attributes:
+      label: Verwachte versieverhoging
+      description: Zet het bijbehorende label op de promotie-pull request.
+      options:
+        - Patch (standaard, beschermde paden gewijzigd)
+        - Minor (label version:minor)
+        - Major (label version:major)
+        - Geen (alleen documentatie)
+    validations:
+      required: true
+
+  - type: textarea
+    id: highlights
+    attributes:
+      label: Belangrijkste wijzigingen sinds de vorige stabiele versie
+      description: Korte lijst voor de promotie-pull request.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: preparation
+    attributes:
+      label: Voorbereiding
+      options:
+        - label: Niets wat in deze release hoort staat nog open als pull request naar beta
+        - label: beta laat zich zonder conflicten in main mergen
+        - label: CI is groen op de laatste commit van beta, inclusief de bouw van het beta-image
+        - label: Databasemigraties zijn forward-only en getest op een kopie van echte gegevens
+        - label: Wijzigingen in deployment-bestanden (docker-compose.yml, .env.example) staan in de pull request, of "geen"
+
+  - type: checkboxes
+    id: testing
+    attributes:
+      label: Testen
+      options:
+        - label: "`cd backend && PYTHONPATH=. python -m pytest -q` slaagt"
+        - label: De frontend-syntaxcontrole en `python -m unittest discover -s scripts -p "test_*.py"` slagen
+        - label: Het beta-image is geïnstalleerd en gebruikt (browser en geïnstalleerde app)
+        - label: Bijwerken vanaf de vorige stabiele versie getest, inclusief back-up en herstel
+        - label: Beide talen (nl, en) gecontroleerd
+
+  - type: checkboxes
+    id: rollout
+    attributes:
+      label: Uitrol
+      options:
+        - label: Promotie-pull request van beta naar main geopend en gemerged met een merge commit (nooit squashen)
+        - label: Release vX.Y.Z bestaat en is gemarkeerd als latest
+        - label: De images latest en X.Y.Z zijn gebouwd
+        - label: main is teruggemerged in beta, zodat beta de nieuwe VERSION draagt
+
+  - type: checkboxes
+    id: after
+    attributes:
+      label: Na de release
+      options:
+        - label: De updatecontrole in een draaiende installatie meldt de nieuwe versie
+        - label: Documentatie (docs/handleiding.md, README.md, README.nl.md) is bijgewerkt

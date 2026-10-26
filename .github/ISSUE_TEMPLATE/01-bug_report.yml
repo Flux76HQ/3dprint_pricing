@@ -1,0 +1,117 @@
+name: Bug report
+description: Something isn't working in 3D Print Pricing
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Please check whether an
+        [existing issue](https://github.com/Flux76HQ/3dprint_pricing/issues?q=is%3Aissue)
+        already covers this problem. Problems with installing or hosting the app
+        belong in the *PWA / Self-hosting* form.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What went wrong?
+      description: Describe the problem briefly and concretely.
+      placeholder: The total of a calculation does not match the lines above it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we see this happen ourselves?
+      value: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Scroll to '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      multiple: true
+      options:
+        - Calculation (cost price)
+        - Orders and invoices
+        - Customers
+        - Filament rolls and library
+        - Printers and energy tariffs
+        - Print files (STL / 3MF)
+        - Sign-in (passkeys, password, two-step)
+        - Back-up and restore
+        - Notifications
+        - AI product images
+        - Settings
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - Browser (desktop)
+        - Browser (mobile)
+        - Installed app (iPhone / iPad)
+        - Installed app (Android)
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Found under Settings → System → Update check.
+      placeholder: "0.26.19"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system / browser
+      placeholder: "Android 15 / Chrome 140 / iOS 18.5 Safari"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error messages
+      description: Paste any relevant console output. This is automatically formatted as code. Redact secrets, names and addresses.
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag images here if they help explain the problem. Blur customer details first.
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched for existing reports of this bug
+          required: true
+        - label: I am running the latest version of the app
+          required: false

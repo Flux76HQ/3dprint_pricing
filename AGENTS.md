@@ -169,6 +169,9 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
 - Give a new feature its own worktree and its own agent session.
 - Check for an existing open PR before opening a new one; never push without a PR; never add
   commits to a branch whose PR is already merged — rebase and open a new one.
+- Issues and pull requests use the templates in `.github/ISSUE_TEMPLATE/` and `.github/PULL_REQUEST_TEMPLATE.md` (adopted from App-Guidance's
+  `shared/templates/github/`). The pull request template is where the deployment-file and limit statements are answered: fill every section, and
+  write "nothing to do" rather than leaving one blank. Every English form has a Dutch twin (`nl-*.yml`, and `.github/PULL_REQUEST_TEMPLATE/nl.md`, opened with `?template=nl.md`); change both together, with the same field ids and labels. There is no Change Spec block: release notes are generated (see the promotion bullet below).
 - Keep a branch current with `python scripts/update_branch.py` (base `origin/beta`), not a hand-made `git merge origin/beta`: it merges the base and
   settles the conflicts that are only bookkeeping (a migration whose number `beta` took meanwhile is renumbered, a screenshot in
   `docs/assets/` becomes the base's, a stray `VERSION` change becomes the base's). Run it before the first
