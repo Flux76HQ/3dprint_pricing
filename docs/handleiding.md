@@ -504,7 +504,7 @@ rollen in je voorraad. Voeg je onder *Filament* een **nieuwe rol** toe, dan kies
 kleur, gewicht, diameter, temperaturen, barcode en prijs worden ingevuld, de rol begint vol en je kunt alles nog aanpassen. Zonder bibliotheek
 (of met *Niet uit de bibliotheek*) werkt het formulier als altijd.
 
-Drie manieren om de bibliotheek te vullen zonder te typen:
+Vier manieren om de bibliotheek te vullen zonder te typen:
 
 - **Bambu Lab-factuur importeren.** Kies de PDF-factuur uit de Bambu Lab-webshop. De app leest hem (alleen met `pypdf`, met een grens aan grootte en aantal
   pagina’s) en laat eerst zien wat erin staat: per filamentregel het merk, materiaal en type (*PLA* + *Basic*), de kleur, het filament-ID (het nummer tussen
@@ -519,6 +519,10 @@ Drie manieren om de bibliotheek te vullen zonder te typen:
   (`eu.store.bambulab.com`): stuurt de webshop de server door naar de winkel van een andere regio (waar de ID’s anders zijn) of is hij niet bereikbaar, dan wordt er niets opgeslagen en staat er een
   waarschuwing; de import werkt dan gewoon door zonder barcodes. Er wordt alleen die ene host benaderd, nooit een adres uit een verzoek. Let op: rollen met een barcode vormen in de voorraad één soort per
   barcode; een rol die je eerder zonder barcode invoerde, is dus een andere soort dan een rol met die barcode.
+- **Rollen toevoegen aan bibliotheek.** De knop zet de filamenten van alle rollen in je filamentlijst (gearchiveerde rollen niet) in de bibliotheek, zodat je ze met anderen kunt delen
+  (exporteren of de gedeelde bibliotheek). Je ziet eerst hoeveel er nieuw komen en hoeveel bestaande vermeldingen iets missen. Per rol geldt dezelfde regel als bij *Ook aan de bibliotheek toevoegen*: staat het
+  filament er nog niet in, dan komt het erin met wat de rol over het filament zegt (nooit de prijs of wat er over is); staat het er wel in, dan krijgt die vermelding alleen wat ze nog mist. Past een rol bij meer dan één vermelding
+  (bijvulling én met spoel), dan wordt ze overgeslagen en genoemd. **De rollen zelf worden alleen gelezen, nooit gewijzigd.**
 - **Exporteren en importeren (JSON).** *Exporteren (JSON)* downloadt de bibliotheek (`printpricing-filaments-JJJJ-MM-DD.json`, zonder id’s, met getallen als getallen,
   dus ook met de hand te bewerken). *Importeren (JSON)* leest zo’n bestand, controleert het helemaal met dezelfde regels als handmatig invoeren (één fout regel stopt alles en
   noemt het regelnummer) en laat eerst zien hoeveel nieuw, bijgewerkt en ongewijzigd is. Wat het bestand voor een bekend filament vermeldt, wordt overschreven; wat het niet vermeldt blijft, en er wordt **nooit iets verwijderd**. Zou een regel een filament een kopie van een ander maken, dan stopt de import met dat regelnummer.

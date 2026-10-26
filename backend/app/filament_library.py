@@ -187,13 +187,13 @@ def complete(conn, index: Index, row: dict, source: dict, *, price=None) -> dict
     return updated
 
 
-def add_roll(conn, roll: dict, extra=None) -> None:
+def add_roll(conn, roll: dict, extra=None) -> str:
     """A roll typed in by hand may go in the library too: when the filament is not there yet it is added (what the roll says about the
     filament, never what it cost or what is left), and when it is, that entry gets what it was missing. The same barcode is the same
     filament; without one, the same brand, material, type, colour, weight and diameter, as a refill or not. When that is more than one
     entry (a refill and a roll with spool), it is not clear which one this roll is, so none is touched. `extra` is what the form knows
     about the filament that a roll does not hold: its supplier `filament_id` and whether it is a `refill` (from the Bambu Lab shop); with a
-    `refill` the match is exact, so that is no longer unclear."""
+    `refill` the match is exact, so that is no longer unclear. Returns what happened: `added`, `updated`, `unchanged` or `unclear`."""
     _lock(conn)
     rows = _rows(conn)
     index = Index(rows)
@@ -207,11 +207,14 @@ def add_roll(conn, roll: dict, extra=None) -> None:
         [r for r in rows if _kind(r) == _kind(spec) and (refill is None or r["refill"] == refill)]
     if not found:
         index.add(_insert(conn, {k: v for k, v in spec.items() if k in FIELDS and k not in ("price", "notes", "sku")}))
-    elif len(found) == 1:
-        try:
-            complete(conn, index, found[0], spec)
-        except ApiError:                                              # it would clash with another entry: leave the entry as it is
-            pass
+        return "added"
+    if len(found) > 1:
+        return "unclear"
+    try:
+        updated = complete(conn, index, found[0], spec)
+    except ApiError:                                              # it would clash with another entry: leave the entry as it is
+        return "unclear"
+    return "unchanged" if updated is found[0] else "updated"
 
 
 # --- export / import as JSON -------------------------------------------------------------------------------------
@@ -339,6 +342,25 @@ def sync():
     dry_run = request.args.get("dry_run") == "1"
     with pool().connection() as conn:
         counts = _merge(conn, items, write=not dry_run)
+    return jsonify({"ok": True, "dry_run": dry_run, **counts})
+
+
+# --- the rolls on the shelf ---------------------------------------------------------------------------------------
+
+@bp.post("/from-rolls")
+def from_rolls():
+    """Put the filaments of the rolls in the filament list (not archived: those are on the shelf) in the library, so they can be shared too.
+    Each roll goes through `add_roll`: a filament that is not there yet is added with what the roll says about it (never its price or what is
+    left), one that is there only gets what it lacked, and a roll that cannot be told from more than one entry is left out and counted as
+    `unclear`. The rolls themselves are only read. With `dry_run=1` everything is done and then rolled back, so the counts are exact."""
+    dry_run = request.args.get("dry_run") == "1"
+    counts = {"added": 0, "updated": 0, "unchanged": 0, "unclear": 0}
+    with pool().connection() as conn:
+        _lock(conn)
+        for roll in conn.execute("SELECT * FROM filament_spools WHERE NOT archived ORDER BY created_at, id").fetchall():
+            counts[add_roll(conn, roll)] += 1
+        if dry_run:
+            conn.rollback()
     return jsonify({"ok": True, "dry_run": dry_run, **counts})
 
 

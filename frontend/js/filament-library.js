@@ -91,7 +91,7 @@ function invoiceDialog(invoice, onDone) {
   dialog.showModal();
 }
 
-/** Invoice, JSON file and GitHub sync: the ways to fill the library without typing. */
+/** Invoice, the rolls in stock, JSON file and GitHub sync: the ways to fill the library without typing. */
 function shareCard(state) {
   const pdf = h('input', { type: 'file', accept: '.pdf,application/pdf', hidden: true, 'aria-label': t('library.invoice'), onchange: async () => {
     const chosen = pdf.files[0];
@@ -136,6 +136,19 @@ function shareCard(state) {
     } catch (e) { toast(e.message, 'error'); }
   };
 
+  // The rolls in the filament list (not archived) go in the library, so they can be shared too. Asked first, with the numbers, like Sync.
+  const fromRolls = async () => {
+    try {
+      const counts = await api('POST', '/api/filament-library/from-rolls?dry_run=1');
+      const unclear = counts.unclear ? ` ${t('library.from_rolls_unclear', counts)}` : '';
+      if (!counts.added && !counts.updated) { toast(t('library.from_rolls_nothing') + unclear); return; }
+      if (!(await confirmDialog(t('library.from_rolls_confirm', counts) + unclear, t('library.from_rolls_do')))) return;
+      const done = await api('POST', '/api/filament-library/from-rolls');
+      toast(t('library.from_rolls_done', done));
+      state.reload();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
   const syncBox = h('div', { class: 'stack', hidden: true });
   api('GET', '/api/filament-library/source').then(({ url }) => {
     if (!url) return;
@@ -147,6 +160,8 @@ function shareCard(state) {
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('library.share_title')),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => pdf.click() }, t('library.invoice')), pdf),
     h('p', { class: 'hint' }, t('library.invoice_hint')),
+    h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: fromRolls }, icon('sync'), h('span', {}, t('library.from_rolls')))),
+    h('p', { class: 'hint' }, t('library.from_rolls_hint')),
     syncBox,
     h('div', { class: 'row' },
       h('button', { class: 'btn', type: 'button', onclick: exportFile }, t('library.export')),
