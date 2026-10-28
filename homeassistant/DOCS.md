@@ -52,4 +52,4 @@ Changes take effect after a restart of the app.
 ## Updating
 
 A new release shows up as an update of this app. Updating rebuilds the app on your device and restarts it; migrations run on start. The
-architecture is **amd64** only for now (the published image is built for that).
+architectures are **amd64** and **aarch64** (the published image is built for both, so it also runs on a Raspberry Pi 4/5 or an ARM mini PC).

@@ -143,8 +143,10 @@ tabblad Documentatie van de app (`homeassistant/DOCS.md`).
   ander hoofdnummer opent PostgreSQL niet, en `run.py` weigert te starten in plaats van eraan te komen.
 - **Geen Ingress.** Passkeys zijn gebonden aan het domein waarop de app staat, en de app is gemaakt om op de root van een eigen domein te draaien. Gebruikers
   zetten er een reverse proxy met https voor (poort 6080) en vullen `rp_id` in.
-- **Alleen amd64**, zolang `docker.yml` de image alleen daarvoor bouwt. `scripts/test_homeassistant_addon.py` laat de test falen zodra `docker.yml` platformen
-  noemt en `arch` niet is bijgewerkt.
+- **amd64 en aarch64.** `docker.yml` en `docker-beta.yml` bouwen de image voor `linux/amd64` en `linux/arm64` onder één tag (een manifestlijst); Docker en de
+  Supervisor halen zelf de helft die past. `arch` in `config.yaml` heet in Home Assistant `amd64` en `aarch64`. `scripts/test_homeassistant_addon.py` laat de test
+  falen zodra de platformen in de workflows en `arch` niet precies gelijk zijn. De job `docker-build` bouwt de image ook voor arm64 (onder QEMU), zodat een
+  wijziging die alleen daar breekt op de pull request opvalt; de app-image zelf wordt in CI alleen op amd64 gestart.
 - **Test.** De job `docker-build` bouwt de app op de zojuist gebouwde image, start hem met een voorbeeld-`options.json`, wacht op `/readyz` en stopt hem weer
   (afsluitcode 0).
 

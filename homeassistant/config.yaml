@@ -8,6 +8,7 @@ description: Cost price calculator and inventory for a 3D-print business, with i
 url: https://github.com/Flux76HQ/3dprint_pricing
 arch:
   - amd64
+  - aarch64
 init: true
 startup: application
 boot: auto
