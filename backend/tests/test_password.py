@@ -1,5 +1,5 @@
-"""Optional password login with mandatory TOTP: off by default, switched on only with a fresh passkey
-confirmation and a confirmed authenticator code, and no session until both factors have passed."""
+"""Optional password login: off by default; a password alone signs in; with two-step verification (TOTP) switched on there is no
+session until both factors have passed; and nothing that weakens it is done without a fresh confirmation."""
 import base64
 from datetime import datetime, timedelta, timezone
 
@@ -35,8 +35,13 @@ def confirmation(client, action):
 
 
 def start(client, password=PASSWORD):
-    body = {"password": password}
-    return post(client, "/api/auth/password/setup/start", body)
+    """Give the person a password login (no second factor)."""
+    return post(client, "/api/auth/password/setup", {"password": password})
+
+
+def start_totp(client):
+    """Begin adding an authenticator app: the secret to put in it."""
+    return post(client, "/api/auth/password/totp/start")
 
 
 def secret_of(started) -> bytes:
@@ -48,11 +53,18 @@ def code_for(secret, offset=0):
     return passwords.totp_code(secret, passwords.current_step() + offset)
 
 
+def enable_password(client, password=PASSWORD):
+    done = start(client, password)
+    assert done.status_code == 200, done.get_json()
+
+
 def enable(client, password=PASSWORD):
-    started = start(client, password)
+    """A password and an authenticator app: returns the app's secret and the backup codes."""
+    enable_password(client, password)
+    started = start_totp(client)
     assert started.status_code == 200, started.get_json()
     secret = secret_of(started)
-    confirmed = post(client, "/api/auth/password/setup/confirm", {"code": code_for(secret)})
+    confirmed = post(client, "/api/auth/password/totp/confirm", {"code": code_for(secret)})
     assert confirmed.status_code == 200, confirmed.get_json()
     return secret, confirmed.get_json()["backup_codes"]
 
@@ -152,7 +164,7 @@ def test_password_login_is_off_by_default_and_says_nothing_else(owner):
 
 
 def test_management_endpoints_need_a_session(client):
-    for path in ("status", "setup/start", "setup/confirm", "setup/cancel", "disable", "change", "backup-codes/regenerate"):
+    for path in ("status", "setup", "totp/start", "totp/confirm", "totp/disable", "disable", "change", "backup-codes/regenerate"):
         method = client.get if path == "status" else (lambda p, **kw: client.post(p, json={}, headers=H))
         assert method(f"/api/auth/password/{path}").status_code == 401, path
 
@@ -162,62 +174,147 @@ def test_management_endpoints_need_a_session(client):
 def test_turning_it_on_needs_a_session_but_no_passkey_confirmation(owner, client):
     # It has to work on a device that cannot do a passkey ceremony: the session you are in is enough.
     assert start(owner).status_code == 200
-    assert post(owner, "/api/auth/stepup/options", {"action": "password-enable"}).status_code == 400   # no such step-up any more
+    assert post(owner, "/api/auth/stepup/options", {"action": "password-enable"}).status_code == 400   # no such step-up
     signed_out(owner)
     assert start(owner).status_code == 401                                                              # but never without a session
 
 
 def test_turning_it_on_twice_is_refused_while_it_is_on(owner):
-    enable(owner)
+    enable_password(owner)
     assert start(owner).status_code == 409
 
 
-def test_setup_returns_a_qr_and_the_manual_key_and_stores_nothing_readable(owner, app):
-    started = start(owner)
-    body = started.get_json()
-    assert started.status_code == 200 and body["qr"].startswith("data:image/svg+xml")
-    assert body["uri"].startswith("otpauth://totp/") and f"secret={body['secret']}" in body["uri"] and "issuer=3D%20Print%20Pricing" in body["uri"]
+def test_a_password_is_stored_as_a_hash_with_no_second_factor_to_begin_with(owner, app):
+    assert start(owner).status_code == 200
     with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
-        stored_hash, sealed, enabled = conn.execute("SELECT password_hash, totp_secret, enabled FROM password_credentials").fetchone()
+        stored_hash, secret, pending, enabled = conn.execute(
+            "SELECT password_hash, totp_secret, pending_totp_secret, enabled FROM password_credentials").fetchone()
     assert stored_hash.startswith("$argon2id$") and PASSWORD not in stored_hash
-    assert body["secret"].encode() not in bytes(sealed) and secret_of(started) not in bytes(sealed)
-    assert enabled is False
+    assert secret is None and pending is None and enabled is True
+    assert owner.get("/api/auth/password/status").get_json() == {"enabled": True, "totp": False, "backup_codes_remaining": 0, "passkeys": 1}
+    assert owner.get("/api/auth/status").get_json()["password_login"] is True
 
 
 def test_a_weak_password_is_refused_with_a_reason(owner):
     for weak in ("kort", "password1234"):
         res = start(owner, weak)
         assert res.status_code == 400 and res.get_json()["error"]
+    assert owner.get("/api/auth/password/status").get_json()["enabled"] is False
 
 
-def test_nothing_works_until_the_second_factor_is_confirmed(owner):
-    start(owner)
-    assert owner.get("/api/auth/password/status").get_json()["pending"] is True
+def test_the_authenticator_app_needs_a_password_first(owner):
+    assert start_totp(owner).status_code == 409
+    assert post(owner, "/api/auth/password/totp/confirm", {"code": "000000"}).status_code == 409
+
+
+def test_totp_setup_returns_a_qr_and_the_manual_key_and_stores_nothing_readable(owner, app):
+    enable_password(owner)
+    started = start_totp(owner)
+    body = started.get_json()
+    assert started.status_code == 200 and body["qr"].startswith("data:image/svg+xml")
+    assert body["uri"].startswith("otpauth://totp/") and f"secret={body['secret']}" in body["uri"] and "issuer=3D%20Print%20Pricing" in body["uri"]
+    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+        active, sealed = conn.execute("SELECT totp_secret, pending_totp_secret FROM password_credentials").fetchone()
+    assert active is None                                                                   # nothing changes until a code is confirmed
+    assert body["secret"].encode() not in bytes(sealed) and secret_of(started) not in bytes(sealed)
+
+
+def test_a_pending_authenticator_app_changes_nothing_about_signing_in(owner):
+    enable_password(owner)
+    start_totp(owner)
     signed_out(owner)
-    assert owner.get("/api/auth/status").get_json()["password_login"] is False               # pending is not enabled
-    assert password_login(owner).status_code == 401
+    first = password_login(owner)
+    assert first.status_code == 200 and "mfa_required" not in first.get_json() and authenticated(owner)     # the password still signs in
 
 
 def test_a_wrong_code_does_not_switch_it_on_and_the_right_one_does(owner):
-    secret = secret_of(start(owner))
-    wrong = post(owner, "/api/auth/password/setup/confirm", {"code": "000000"})
-    assert wrong.status_code == 400 and owner.get("/api/auth/password/status").get_json()["enabled"] is False
-    done = post(owner, "/api/auth/password/setup/confirm", {"code": code_for(secret)})
+    enable_password(owner)
+    secret = secret_of(start_totp(owner))
+    wrong = post(owner, "/api/auth/password/totp/confirm", {"code": "000000"})
+    assert wrong.status_code == 400 and owner.get("/api/auth/password/status").get_json()["totp"] is False
+    done = post(owner, "/api/auth/password/totp/confirm", {"code": code_for(secret)})
     codes = done.get_json()["backup_codes"]
     assert done.status_code == 200 and len(codes) == 8 and len(set(codes)) == 8
-    assert owner.get("/api/auth/password/status").get_json() == {"enabled": True, "pending": False, "backup_codes_remaining": 8}
-    assert owner.get("/api/auth/status").get_json()["password_login"] is True
-    assert start(owner).status_code == 409                                                    # already on
-    assert post(owner, "/api/auth/password/setup/confirm", {"code": code_for(secret, 1)}).status_code == 409
+    assert owner.get("/api/auth/password/status").get_json() == {"enabled": True, "totp": True, "backup_codes_remaining": 8, "passkeys": 1}
+    assert start_totp(owner).status_code == 409                                             # already on
+    assert post(owner, "/api/auth/password/totp/confirm", {"code": code_for(secret, 1)}).status_code == 409
 
 
-def test_cancelling_removes_the_half_finished_setup_but_never_an_enabled_one(owner):
-    start(owner)
-    post(owner, "/api/auth/password/setup/cancel")
-    assert owner.get("/api/auth/password/status").get_json()["pending"] is False
-    enable(owner)
-    post(owner, "/api/auth/password/setup/cancel")
-    assert owner.get("/api/auth/password/status").get_json()["enabled"] is True
+def test_starting_again_replaces_the_pending_secret(owner):
+    enable_password(owner)
+    first, second = secret_of(start_totp(owner)), secret_of(start_totp(owner))
+    assert first != second
+    assert post(owner, "/api/auth/password/totp/confirm", {"code": code_for(first)}).status_code == 400
+    assert post(owner, "/api/auth/password/totp/confirm", {"code": code_for(second)}).status_code == 200
+
+
+# --- a password on its own -------------------------------------------------------------------------------------
+
+def test_a_password_alone_signs_in_when_there_is_no_second_factor(owner):
+    enable_password(owner)
+    signed_out(owner)
+    res = password_login(owner)
+    assert res.status_code == 200 and res.get_json() == {"ok": True}
+    assert "HttpOnly" in res.headers["Set-Cookie"] and authenticated(owner)
+    signed_out(owner)
+    assert password_login(owner, "not the password at all").status_code == 401 and not authenticated(owner)
+
+
+def test_a_password_alone_is_still_locked_after_five_failures(owner):
+    enable_password(owner)
+    signed_out(owner)
+    for _ in range(5):
+        assert password_login(owner, "wrong wrong wrong wrong").status_code == 401
+    assert password_login(owner).status_code == 429 and not authenticated(owner)
+
+
+def test_the_second_step_refuses_a_token_once_the_second_factor_is_gone(owner):
+    secret, _ = enable(owner)
+    signed_out(owner)
+    token = password_login(owner).get_json()["mfa_token"]
+    options = post(owner, "/api/auth/login/options").get_json()
+    assert post(owner, "/api/auth/login/verify", {"credential": owner.passkey.assert_(options)}).status_code == 200
+    assert post(owner, "/api/auth/password/totp/disable", {"credential": confirmation(owner, "password-totp-disable")}).status_code == 200
+    signed_out(owner)
+    res = post(owner, "/api/auth/password/mfa", {"mfa_token": token, "code": code_for(secret, 1)})       # a code that has never been used
+    assert res.status_code == 401 and not authenticated(owner)
+
+
+def test_switching_off_the_authenticator_app_keeps_the_password_and_drops_the_backup_codes(owner, app):
+    secret, _ = enable(owner)
+    assert post(owner, "/api/auth/password/totp/disable", {}).status_code == 400                                         # needs a confirmation
+    assert post(owner, "/api/auth/password/totp/disable", {"credential": confirmation(owner, "password-disable")}).status_code == 403   # for this action only
+    assert post(owner, "/api/auth/password/totp/disable", {"credential": confirmation(owner, "password-totp-disable")}).status_code == 200
+    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+        assert conn.execute("SELECT totp_secret, pending_totp_secret, enabled FROM password_credentials").fetchone() == (None, None, True)
+        assert conn.execute("SELECT count(*) FROM mfa_backup_codes").fetchone()[0] == 0
+    signed_out(owner)
+    assert password_login(owner).status_code == 200 and authenticated(owner)
+    assert post(owner, "/api/auth/password/totp/disable", {"credential": confirmation(owner, "password-totp-disable")}).status_code == 409
+
+
+def test_new_backup_codes_need_the_authenticator_app(owner):
+    enable_password(owner)
+    res = post(owner, "/api/auth/password/backup-codes/regenerate", {"credential": confirmation(owner, "password-backup-codes")})
+    assert res.status_code == 409
+
+
+def test_confirming_with_the_password_alone_works_without_a_second_factor_and_not_with_one(owner):
+    enable_password(owner)
+    new = "een-heel-ander-wachtwoord-77"
+    assert post(owner, "/api/auth/password/change", {"current_password": PASSWORD, "password": new}).status_code == 200
+    post(owner, "/api/auth/password/totp/confirm", {"code": code_for(secret_of(start_totp(owner)))})
+    refused = post(owner, "/api/auth/password/change", {"current_password": new, "password": "nog-een-ander-wachtwoord-88"})
+    assert refused.status_code == 401                                                       # now a code is part of it
+
+
+def test_the_password_cannot_be_switched_off_while_it_is_the_only_way_in(app, client):
+    from tests.test_auth_api import SETUP_CODE
+    created = post(client, "/api/auth/onboarding/password", {"setup_code": SETUP_CODE, "display_name": "Owner", "password": PASSWORD})
+    assert created.status_code == 200
+    refused = post(client, "/api/auth/password/disable", {"current_password": PASSWORD})
+    assert refused.status_code == 409 and "passkey" in refused.get_json()["error"].lower()
+    assert client.get("/api/auth/password/status").get_json()["enabled"] is True
 
 
 # --- logging in --------------------------------------------------------------------------------------------------

@@ -3,7 +3,8 @@
 
     python scripts/init_env.py --port 6090 --domain print.example.com
 
-Without --domain it configures http://localhost:<port>, which is enough to try the app.
+Without --domain it leaves RP_ID and RP_ORIGINS empty: the app then follows the address it is opened on, which is enough to try
+it (also on an IP address, with a password; a passkey needs a domain and https).
 Refuses to overwrite an existing .env.
 """
 import argparse
@@ -21,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=6080, help="web port (WEB_PORT)")
-    parser.add_argument("--domain", help="public domain for passkeys, e.g. print.example.com (uses https)")
+    parser.add_argument("--domain", help="public domain to pin the app to, e.g. print.example.com (uses https; passkeys are bound to it)")
     parser.add_argument("--data-path", default=str(ROOT / "data"), help="ABSOLUTE folder of the host for the database (postgres/) and the uploads (uploads/); default: data/ in this checkout")
     args = parser.parse_args()
     if not args.data_path.startswith("/"):
@@ -32,10 +33,7 @@ def main() -> int:
         print(".env already exists; not overwriting it.", file=sys.stderr)
         return 1
 
-    if args.domain:
-        rp_id, origin = args.domain, f"https://{args.domain}"
-    else:
-        rp_id, origin = "localhost", f"http://localhost:{args.port}"
+    rp_id, origin = (args.domain, f"https://{args.domain}") if args.domain else ("", "")
 
     values = {
         "WEB_PORT": str(args.port),
@@ -52,7 +50,7 @@ def main() -> int:
         text = re.sub(rf"^{key}=.*$", f"{key}={value}", text, flags=re.M)
     target.write_text(text, encoding="utf-8")
     target.chmod(0o600)
-    print(f"Wrote .env (port {args.port}, origin {origin}).")
+    print(f"Wrote .env (port {args.port}, {'origin ' + origin if origin else 'no domain: RP_ID and RP_ORIGINS are empty'}).")
     print(f"Setup code for onboarding: {values['SETUP_CODE']}")
     print("Enter it in the 'Setup code' field on the first screen of the app. It stays in .env as SETUP_CODE=.")
     return 0

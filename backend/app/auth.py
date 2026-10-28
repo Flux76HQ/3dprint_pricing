@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from flask import Blueprint, g, jsonify, make_response, request
 
+from . import passwords, relying_party as rp
 from . import webauthn as wa
 from .http import ApiError, RateLimiter, config, json_body, login_required, pool
 
@@ -45,7 +46,7 @@ def issue_session(response, user_id) -> None:
     )
     response.set_cookie(
         COOKIE, token, max_age=cfg.session_hours * 3600, httponly=True,
-        secure=cfg.cookie_secure, samesite="Strict", path="/",
+        secure=rp.cookie_secure(), samesite="Strict", path="/",
     )
 
 
@@ -109,7 +110,7 @@ def _registration_options(user_id, name, display_name, challenge, exclude) -> di
     cfg = config()
     return {
         "challenge": wa.b64u_encode(challenge),
-        "rp": {"id": cfg.rp_id, "name": cfg.rp_name},
+        "rp": {"id": rp.rp_id(), "name": cfg.rp_name},
         "user": {"id": wa.b64u_encode(user_id.bytes), "name": name, "displayName": display_name},
         "pubKeyCredParams": [{"type": "public-key", "alg": -7}],
         "authenticatorSelection": {"residentKey": "preferred", "userVerification": "preferred"},
@@ -128,9 +129,8 @@ def _verify_registration(conn, cred: dict, challenge_row_kind, *, purpose=None, 
     except (KeyError, wa.WebAuthnError, ValueError):
         raise ApiError(400, "auth.bad_passkey_data") from None
     row = _consume_challenge(conn, client_data, challenge_row_kind, purpose=purpose, user_id=user_id)
-    cfg = config()
     try:
-        result = wa.verify_registration(cred, bytes(row["challenge"]), cfg.rp_id, cfg.rp_origins)
+        result = wa.verify_registration(cred, bytes(row["challenge"]), rp.rp_id(), rp.rp_origins())
     except wa.WebAuthnError as exc:
         raise ApiError(400, "auth.passkey_refused", reason=exc) from None
     if result["credential_id"] != raw_id:
@@ -158,9 +158,8 @@ def _verify_assertion(conn, cred: dict, kind, *, purpose=None, user_id=None):
         row = _consume_challenge(conn, client_data, kind, purpose=purpose, user_id=user_id)
     except ApiError:
         raise fail from None
-    cfg = config()
     try:
-        count = wa.verify_assertion(cred, bytes(row["challenge"]), cfg.rp_id, cfg.rp_origins,
+        count = wa.verify_assertion(cred, bytes(row["challenge"]), rp.rp_id(), rp.rp_origins(),
                                     bytes(stored["public_key"]), stored["sign_count"])
     except wa.WebAuthnError:
         raise fail from None
@@ -223,24 +222,42 @@ def status():
             user = ({"id": str(row["id"]), "display_name": row["display_name"], "role": row["role"], "is_owner": row["is_owner"]}
                     if row else None)
         password_login = conn.execute("SELECT EXISTS (SELECT 1 FROM password_credentials WHERE enabled) AS e").fetchone()["e"]
+        passkey_login = conn.execute("SELECT EXISTS (SELECT 1 FROM webauthn_credentials) AS e").fetchone()["e"]
         # With one person a password login needs no name; with more the screen asks which of them is signing in.
         several = conn.execute("SELECT count(*) > 1 AS m FROM users").fetchone()["m"]
     return jsonify({"onboarded": onboarded, "authenticated": user is not None, "user": user,
-                    "rp_id": config().rp_id, "password_login": password_login, "login_name_required": several,
+                    "rp_id": rp.rp_id(), "passkey_problem": rp.passkey_problem(), "passkey_login": passkey_login,
+                    "password_login": password_login, "login_name_required": several,
                     "ai_images": config().ai_images_enabled})
 
 
-@bp.post("/onboarding/options")
-def onboarding_options():
-    body = json_body()
+def _check_setup_code(body: dict) -> None:
+    """Whoever reaches the URL first must not be able to claim the app: the code is in `.env`, on the server."""
     setup_limiter.check(request.remote_addr or "?")
     supplied = hashlib.sha256(str(body.get("setup_code", "")).encode()).digest()
     expected = hashlib.sha256(config().setup_code.encode()).digest()
     if not hmac.compare_digest(supplied, expected):
         raise ApiError(403, "auth.bad_setup_code")
+
+
+def _owner_name(body: dict) -> str:
     display_name = str(body.get("display_name", "")).strip()
     if not 1 <= len(display_name) <= 60:
         raise ApiError(400, "auth.name_required")
+    return display_name
+
+
+def store_password(conn, user_id, password: str) -> None:
+    """Give a person a password login (no second factor yet). The caller has checked the policy and that they have none."""
+    conn.execute("INSERT INTO password_credentials (user_id, password_hash, enabled) VALUES (%s, %s, true)",
+                 (user_id, passwords.hash_password(password)))
+
+
+@bp.post("/onboarding/options")
+def onboarding_options():
+    body = json_body()
+    _check_setup_code(body)
+    display_name = _owner_name(body)
     with pool().connection() as conn:
         if conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]:
             raise ApiError(409, "auth.onboarded")
@@ -270,6 +287,31 @@ def onboarding_verify():
     return response
 
 
+@bp.post("/onboarding/password")
+def onboarding_password():
+    """The owner's way in when no passkey can work on the address in use: a name and a password, guarded by the same setup code.
+    Two-step verification can be added afterwards (Settings); the recovery codes are the way back in."""
+    body = json_body()
+    _check_setup_code(body)
+    display_name = _owner_name(body)
+    password = str(body.get("password", ""))
+    try:
+        passwords.check_policy(password, display_name)
+    except ValueError as exc:
+        raise ApiError(400, exc) from None
+    with pool().connection() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(7603002)")  # two onboardings at once: one wins (the passkey path takes the same lock)
+        if conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]:
+            raise ApiError(409, "auth.onboarded")
+        user_id = uuid.uuid4()
+        conn.execute("INSERT INTO users (id, display_name, role, is_owner) VALUES (%s, %s, 'admin', true)", (user_id, display_name))
+        store_password(conn, user_id, password)
+        codes = _create_recovery_codes(conn, user_id)
+    response = make_response(jsonify({"ok": True, "recovery_codes": codes}))
+    issue_session(response, user_id)
+    return response
+
+
 @bp.post("/login/options")
 def login_options():
     # Naming every stored credential lets a passkey that is not discoverable sign in too (a credential id is no secret);
@@ -279,7 +321,7 @@ def login_options():
             "SELECT credential_id FROM webauthn_credentials").fetchall()]
         challenge = _store_challenge(conn, "login")
     return jsonify({
-        "challenge": wa.b64u_encode(challenge), "rpId": config().rp_id,
+        "challenge": wa.b64u_encode(challenge), "rpId": rp.rp_id(),
         "userVerification": "preferred", "timeout": 120000,
         "allowCredentials": [{"type": "public-key", "id": wa.b64u_encode(bytes(c))} for c in creds],
     })
@@ -379,7 +421,7 @@ def _purpose(action: str, target: str | None) -> str:
         return "recovery:regenerate"
     if action == "factory-reset":
         return "system:reset"
-    if action in ("password-disable", "password-change", "password-backup-codes"):
+    if action in ("password-disable", "password-change", "password-backup-codes", "password-totp-disable"):
         return f"password:{action.split('-', 1)[1]}"
     if action in ("user-promote", "user-reset") and target:       # bound to the person it is done to
         return f"user:{target}:{action.split('-', 1)[1]}"
@@ -396,7 +438,7 @@ def stepup_options():
     with pool().connection() as conn:
         challenge = _store_challenge(conn, "confirm", purpose=purpose, user_id=g.user_id)
     return jsonify({
-        "challenge": wa.b64u_encode(challenge), "rpId": config().rp_id,
+        "challenge": wa.b64u_encode(challenge), "rpId": rp.rp_id(),
         "userVerification": "preferred", "timeout": 120000, "allowCredentials": [],
     })
 
@@ -414,8 +456,8 @@ def delete_credential(credential_id):
                           user_id=g.user_id)
         count = conn.execute("SELECT count(*) AS n FROM webauthn_credentials WHERE user_id = %s",
                              (g.user_id,)).fetchone()["n"]
-        if count <= 1:
-            raise ApiError(409, "auth.last_passkey")
+        if count <= 1 and not conn.execute("SELECT 1 FROM password_credentials WHERE user_id = %s AND enabled", (g.user_id,)).fetchone():
+            raise ApiError(409, "auth.last_passkey")                # the last way in; with a password there is another
         deleted = conn.execute("DELETE FROM webauthn_credentials WHERE id = %s AND user_id = %s",
                                (target, g.user_id)).rowcount
         if not deleted:
@@ -426,9 +468,8 @@ def delete_credential(credential_id):
 @bp.post("/recovery/regenerate")
 @login_required
 def recovery_regenerate():
-    cred = _credential_payload(json_body())
+    from .password_api import _confirm                          # a person without a passkey confirms with their password
+    _confirm(json_body(), "regenerate-recovery")
     with pool().connection() as conn:
-        _verify_assertion(conn, cred, "confirm", purpose=_purpose("regenerate-recovery", None),
-                          user_id=g.user_id)
         codes = _create_recovery_codes(conn, g.user_id)
     return jsonify({"recovery_codes": codes})

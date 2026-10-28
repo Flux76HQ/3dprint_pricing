@@ -89,7 +89,7 @@ Wie 3D-prints verkoopt moet weten wat elke print kost: filament per gram, machin
 - **Prijzen die blijven staan**: een opgeslagen berekening bewaart de prijzen van het moment van opslaan, dus een latere prijswijziging van een rol herschrijft je geschiedenis niet.
 - **Zakelijk bruikbaar**: btw over de verkoopprijs, een marge en een afronding van de prijs per bestelling (op 5/10/50 cent, hele euro's of eindigend op ,95/,99, met je marge als minimum), en een knop om de kosten te blurren als een klant meekijkt.
 - **Klanten, bestellingen en facturen**: klanten met klantnummer, bestellingen met meerdere prints, een status van *nieuw* tot *afgehandeld* en een factuur als PDF met je logo, een uniek factuurnummer en een SEPA-betaal-QR. Wil je je eigen briefpapier, dan kan dat als Word- of PDF-sjabloon.
-- **Inloggen met passkeys**: geen wachtwoord dat kan lekken. Optioneel een wachtwoord met tweestapsverificatie, en herstelcodes voor noodgevallen.
+- **Inloggen met passkeys**: geen wachtwoord dat kan lekken. Of een wachtwoord waar een passkey niet kan werken (een IP-adres in je eigen netwerk), optioneel met tweestapsverificatie, en herstelcodes voor noodgevallen.
 - **Met meer dan één persoon**: een beheerder nodigt mensen uit met een link voor eenmalig gebruik en iedereen kiest zelf een passkey of wachtwoord, zodat niemand dat van een ander kent. Gewone gebruikers doen het dagelijkse werk; een beheerder beheert ook de gebruikers, de bedrijfsgegevens, back-ups en updates en kan een gewone gebruiker tot beheerder maken.
 - **Een echte app op elk apparaat**: te installeren op het beginscherm van iPhone en Android en op de desktop, werkt met de camera en met meldingen, en spreekt Nederlands en Engels.
 - **Jouw gegevens, jouw server**: back-up en herstel van alles vanuit de app, en je gegevens blijven op je eigen server. Onder *Instellingen → Systeem* zet je de app ook terug naar een nieuwe installatie: dat verwijdert alles in de database en de uploads (ook de passkeys), na een getypt woord en een verse bevestiging met passkey (of wachtwoord en code), en laat `.env`, de image en `DATA_PATH/backups` staan. Maak eerst een back-up als je het niet zeker weet.
@@ -119,21 +119,21 @@ python scripts/init_env.py --port 6090 --domain print.voorbeeld.nl   # maakt .en
 docker compose up -d
 ```
 
-`init_env.py` is de makkelijkste weg; `.env.example` kopiëren naar `.env` en aanpassen werkt net zo goed. Een server heeft alleen `docker-compose.yml` en `.env` nodig: de image wordt van `ghcr.io/flux76hq/3dprint_pricing` gepulld. Zonder `--domain` wordt `http://localhost:<poort>` ingesteld, genoeg om het uit te proberen.
+`init_env.py` is de makkelijkste weg; `.env.example` kopiëren naar `.env` en aanpassen werkt net zo goed. Een server heeft alleen `docker-compose.yml` en `.env` nodig: de image wordt van `ghcr.io/flux76hq/3dprint_pricing` gepulld. Zonder `--domain` blijven `RP_ID` en `RP_ORIGINS` leeg en volgt de app het adres waarop je hem opent (ook een IP-adres), genoeg om het uit te proberen.
 
 Open daarna het adres en doorloop de onboarding:
 
-1. Vul de **setupcode** en je naam in. De setupcode is de waarde achter `SETUP_CODE=` in het `.env`-bestand op je server (`init_env.py` toonde hem ook; `grep SETUP_CODE .env` toont hem opnieuw). Typ of plak hem in het veld *Setupcode* van het eerste scherm; je hebt hem alleen voor deze eerste keer nodig, daarna log je in met je passkey. Het onboarding-scherm legt dit ook uit.
-2. Maak je **passkey** aan (vingerafdruk, gezicht of apparaatcode).
+1. Vul de **setupcode** en je naam in. De setupcode is de waarde achter `SETUP_CODE=` in het `.env`-bestand op je server (`init_env.py` toonde hem ook; `grep SETUP_CODE .env` toont hem opnieuw). Typ of plak hem in het veld *Setupcode* van het eerste scherm; je hebt hem alleen voor deze eerste keer nodig, daarna log je in met je passkey of wachtwoord. Het onboarding-scherm legt dit ook uit.
+2. Kies hoe je inlogt: maak een **passkey** aan (vingerafdruk, gezicht of apparaatcode), of kies **een wachtwoord** (minstens 12 tekens). Werkt een passkey niet op het adres dat je gebruikt (een IP-adres, zonder https), dan zegt het scherm dat en staat het wachtwoord al open.
 3. **Bewaar de 8 herstelcodes.** Ze worden één keer getoond en werken elk één keer.
 
-Zet een reverse proxy met TLS voor de app en stel `RP_ID` en `RP_ORIGINS` in op dat domein: passkeys, installeren, de camera en meldingen werken alleen via https (behalve op `localhost`).
+Een wachtwoord werkt op elk adres, ook in je eigen netwerk. Zet voor passkeys, installeren, de camera en meldingen een reverse proxy met TLS voor de app en stel `RP_ID` en `RP_ORIGINS` in op dat domein: ze werken alleen via https (behalve op `localhost`).
 
 ### Installatie als Home Assistant-app
 
 Voeg op Home Assistant OS of Supervised `https://github.com/Flux76HQ/3dprint_pricing` toe onder **Instellingen > Apps > App installeren > Repositories** en
 installeer *3D Print Pricing*: de app brengt zijn eigen PostgreSQL mee en bewaart zijn data in de map van de app, die Home Assistant meeneemt in zijn back-ups.
-Passkeys vragen nog steeds een domein met https voor de poort van de app, dus vul `rp_id` in op het tabblad Configuratie. De stappen staan op het tabblad
+Passkeys vragen nog steeds een domein met https voor de poort van de app, dus vul daarvoor `rp_id` in op het tabblad Configuratie; met een wachtwoord werkt de app ook op `http://<adres van Home Assistant>:6080`. De stappen staan op het tabblad
 Documentatie van de app ([`homeassistant/DOCS.md`](homeassistant/DOCS.md)). Draait op amd64 en aarch64 (Raspberry Pi 4/5, ARM-minipc's).
 
 ### Configuratie
@@ -145,15 +145,15 @@ Instellen in `.env`; het bestand `.env.example` documenteert elke waarde.
 | `WEB_PORT` | ✅ | - | Poort van de app; compose publiceert en de app luistert op deze waarde |
 | `DATA_PATH` | ✅ | - | Map op de host voor alle data: de database (`postgres/`) en de geüploade bestanden (`uploads/`). Gewone mappen, geen Docker-volumes. Moet een **absolute** map van de Docker-host zijn (bijv. `/srv/printpricing`, op Unraid `/mnt/user/appdata/printpricing`), nooit `./data`; data die ergens anders terecht is gekomen verplaatst `scripts/migrate_data.sh` |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | ✅ | - | De database; gebruik een wachtwoord met alleen letters en cijfers |
-| `RP_ID` | ✅ | - | Domein waarop de app draait, zonder schema of poort. Passkeys zijn eraan gebonden |
-| `RP_ORIGINS` | ✅ | - | Volledige origin(s), komma-gescheiden, bijvoorbeeld `https://print.voorbeeld.nl`. Uitnodigingslinks gebruiken het adres waarop de beheerder is ingelogd als dat hier staat, anders het eerste |
+| `RP_ID` | ❌ | leeg | Domein waarop de app draait, zonder schema of poort. Passkeys zijn eraan gebonden, dus zet het vast zodra je ze gebruikt. Leeg: het adres waarop de app wordt geopend |
+| `RP_ORIGINS` | ❌ | leeg | Volledige origin(s), komma-gescheiden, bijvoorbeeld `https://print.voorbeeld.nl`. Gezet: schrijvende verzoeken van een andere origin worden geweigerd, en uitnodigingslinks gebruiken het adres waarop de beheerder is ingelogd als dat hier staat, anders het eerste. Leeg: het adres waarop de app wordt geopend |
 | `SETUP_CODE` | ✅ | - | Eenmalige code voor de onboarding, zodat niet de eerste bezoeker de app overneemt |
 | `SESSION_SECRET` | ✅ | - | Ondertekent sessiecookies, minimaal 32 tekens |
 | `RP_NAME` | ❌ | `3D Print Pricing` | Naam die in de passkey-prompt staat |
 | `SESSION_HOURS` | ❌ | `24` | Levensduur van een sessie |
 | `MAX_UPLOAD_MB` | ❌ | `50` | Grootste STL/3MF-upload in MB |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | ❌ | leeg | Sleutelpaar voor push-meldingen (`python scripts/generate_vapid.py`); leeg betekent meldingen uit |
-| `VAPID_SUBJECT` | ❌ | `mailto:admin@<RP_ID>` | Contactadres voor de pushdiensten |
+| `VAPID_SUBJECT` | ❌ | `mailto:admin@<RP_ID>` (`mailto:admin@localhost` zonder `RP_ID`) | Contactadres voor de pushdiensten |
 | `AI_IMAGES_ENABLED` | ❌ | `FALSE` | Zet op `TRUE` om de optionele functie *AI-afbeeldingen* te tonen (productafbeeldingen uit een foto, gemaakt met OpenAI GPT Image). De API-sleutel voer je in de app in onder Instellingen, niet in `.env` |
 | `FILAMENT_LIBRARY_URL` | ❌ | `library/filaments.json` van deze repository | Waar *Instellingen → Filamenten → Synchroniseren* de gedeelde filamentbibliotheek vandaan haalt: een JSON-bestand in het formaat van de bibliotheek-export, op `raw.githubusercontent.com`. Leeg zet de knop Synchroniseren uit |
 | `SPOOLMAN_URL` | ❌ | leeg (vul het in de app in) | Het adres van je [Spoolman](https://github.com/Donkie/Spoolman) zoals de container van de app het bereikt, bijvoorbeeld `http://spoolman:8000` (zonder inlog). Daarmee leest *Instellingen → Filamenten → Synchroniseren* de rollen en wat er nog op zit uit Spoolman, wordt geboekt filament teruggemeld en kunnen de bibliotheek en je eigen rollen erheen worden gezet. Laat het leeg om het adres in de app in te vullen (beheerders, *Instellingen → Filamenten*); staat het hier, dan gaat dat voor en toont de app het alleen-lezen |
@@ -208,7 +208,7 @@ Elke wijziging komt eerst in `beta`, en elke push naar `beta` bouwt een nieuwe b
 ## Privacy & beveiliging
 
 - Alles staat op je eigen server: geen account bij ons, geen analytics en geen tracking.
-- Inloggen gaat met passkeys; de app ziet nooit een wachtwoord, tenzij je de optionele wachtwoord-login aanzet.
+- Inloggen gaat met passkeys of, waar een passkey niet kan werken, met een wachtwoord (gehasht met argon2id), optioneel met tweestapsverificatie.
 - Back-ups bevatten nooit inloggegevens (passkeys, herstelcodes, wachtwoorden, pushaanmeldingen) of uitnodigingen. Een uitnodigingslink wordt één keer getoond en alleen de hash ervan wordt bewaard.
 - Meld beveiligingsproblemen rechtstreeks bij de beheerders (zie Contact) en niet in een openbare issue.
 

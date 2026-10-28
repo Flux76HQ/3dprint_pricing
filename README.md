@@ -89,7 +89,7 @@ Selling 3D prints means knowing what each one costs: filament by the gram, machi
 - **Prices that stay put**: a saved calculation keeps the prices of the moment you saved it, so changing a roll price later never rewrites your history.
 - **Business-ready**: VAT on the selling price, a margin and a price rounding per order (to 5/10/50 cents, whole euros, or ending in ,95/,99, with your margin as the minimum), and a button to blur the costs when a customer looks over your shoulder.
 - **Customers, orders and invoices**: customers with a customer number, orders with several prints each, a status from *new* to *completed*, and a PDF invoice with your logo, a unique invoice number and a SEPA payment QR code. Bring your own Word or PDF letterhead if you like.
-- **Passkey login**: no password to leak. Optional password with two-step verification, and recovery codes for emergencies.
+- **Passkey login**: no password to leak. Or a password where a passkey cannot work (an IP address on your own network), optionally with two-step verification, and recovery codes for emergencies.
 - **More than one person**: an administrator invites people with a one-time link, and each chooses their own passkey or password, so nobody ever knows anyone else's. Regular users do the daily work; an administrator also manages users, the company details, backups and updates, and can promote a regular user to administrator.
 - **A real app on every device**: installs on the iPhone and Android home screen and on the desktop, works with the camera and with notifications, and speaks Dutch and English.
 - **Your data, your server**: backup and restore of everything from within the app, and your data stays on your own server. *Settings → System* can also put the app back to a new installation: it deletes everything in the database and the uploads (the passkeys too) after a typed word and a fresh passkey (or password and code) confirmation, and leaves `.env`, the image and `DATA_PATH/backups` alone. Make a backup first if you are not sure.
@@ -119,21 +119,21 @@ python scripts/init_env.py --port 6090 --domain print.example.com   # creates .e
 docker compose up -d
 ```
 
-`init_env.py` is the easy route; copying `.env.example` to `.env` and editing it works just as well. A server only needs `docker-compose.yml` and `.env`: the image is pulled from `ghcr.io/flux76hq/3dprint_pricing`. Without `--domain` the app is set up for `http://localhost:<port>`, enough to try it out.
+`init_env.py` is the easy route; copying `.env.example` to `.env` and editing it works just as well. A server only needs `docker-compose.yml` and `.env`: the image is pulled from `ghcr.io/flux76hq/3dprint_pricing`. Without `--domain`, `RP_ID` and `RP_ORIGINS` stay empty and the app follows the address you open it on (also an IP address), enough to try it out.
 
 Then open the address and go through the onboarding:
 
-1. Enter the **setup code** and your name. The setup code is the value after `SETUP_CODE=` in the `.env` file on your server (`init_env.py` printed it too; `grep SETUP_CODE .env` shows it again). Type or paste it into the *Setup code* field of the first screen; you only need it for this first setup, afterwards you sign in with your passkey. The onboarding screen explains this as well.
-2. Create your **passkey** (fingerprint, face or device code).
+1. Enter the **setup code** and your name. The setup code is the value after `SETUP_CODE=` in the `.env` file on your server (`init_env.py` printed it too; `grep SETUP_CODE .env` shows it again). Type or paste it into the *Setup code* field of the first screen; you only need it for this first setup, afterwards you sign in with your passkey or password. The onboarding screen explains this as well.
+2. Choose how you sign in: create a **passkey** (fingerprint, face or device code), or choose **a password** (at least 12 characters). Where a passkey cannot work (an IP address, no https) the screen says so and the password is already open.
 3. **Save the 8 recovery codes.** They are shown once and each works once.
 
-Put a reverse proxy with TLS in front of the app and set `RP_ID` and `RP_ORIGINS` to that domain: passkeys, installing, the camera and notifications only work over https (except on `localhost`).
+A password works on any address, also on your own network. For passkeys, installing, the camera and notifications put a reverse proxy with TLS in front of the app and set `RP_ID` and `RP_ORIGINS` to that domain: they only work over https (except on `localhost`).
 
 ### Installation as a Home Assistant app
 
 On Home Assistant OS or Supervised, add `https://github.com/Flux76HQ/3dprint_pricing` under **Settings > Apps > Install app > Repositories** and install
 *3D Print Pricing*: the app brings its own PostgreSQL and keeps its data in the app's folder, which Home Assistant backs up. Passkeys still need a
-domain with https in front of the app's port, so set `rp_id` on the Configuration tab. The steps are on the app's Documentation tab ([`homeassistant/DOCS.md`](homeassistant/DOCS.md)). Runs on amd64 and aarch64 (Raspberry Pi 4/5, ARM mini PCs).
+domain with https in front of the app's port, so set `rp_id` on the Configuration tab for them; with a password the app also works on `http://<address of Home Assistant>:6080`. The steps are on the app's Documentation tab ([`homeassistant/DOCS.md`](homeassistant/DOCS.md)). Runs on amd64 and aarch64 (Raspberry Pi 4/5, ARM mini PCs).
 
 ### Configuration
 
@@ -144,15 +144,15 @@ Set in `.env`; the file `.env.example` documents each value.
 | `WEB_PORT` | ✅ | - | Port of the app; compose publishes it and the app listens on it |
 | `DATA_PATH` | ✅ | - | Host folder for all data: the database (`postgres/`) and the uploaded files (`uploads/`). Plain folders, not Docker volumes. Must be an **absolute** folder of the Docker host (e.g. `/srv/printpricing`, on Unraid `/mnt/user/appdata/printpricing`), never `./data`; data that ended up elsewhere is moved by `scripts/migrate_data.sh` |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | ✅ | - | The database; use letters and digits only in the password |
-| `RP_ID` | ✅ | - | Domain the app runs on, without scheme or port. Passkeys are bound to it |
-| `RP_ORIGINS` | ✅ | - | Full origin(s), comma separated, for example `https://print.example.com`. Invitation links use the address the administrator is signed in on when it is listed here, otherwise the first one |
+| `RP_ID` | ❌ | empty | Domain the app runs on, without scheme or port. Passkeys are bound to it, so set it once you use them. Empty: the address the app is opened on |
+| `RP_ORIGINS` | ❌ | empty | Full origin(s), comma separated, for example `https://print.example.com`. When set, writes from any other origin are refused, and invitation links use the address the administrator is signed in on when it is listed here, otherwise the first one. Empty: the address the app is opened on |
 | `SETUP_CODE` | ✅ | - | One-time code for the onboarding, so the first visitor cannot take over the app |
 | `SESSION_SECRET` | ✅ | - | Signs session cookies, at least 32 characters |
 | `RP_NAME` | ❌ | `3D Print Pricing` | Name shown in the passkey prompt |
 | `SESSION_HOURS` | ❌ | `24` | Lifetime of a session |
 | `MAX_UPLOAD_MB` | ❌ | `50` | Largest STL/3MF upload in MB |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | ❌ | empty | Key pair for push notifications (`python scripts/generate_vapid.py`); empty means notifications are off |
-| `VAPID_SUBJECT` | ❌ | `mailto:admin@<RP_ID>` | Contact address for the push services |
+| `VAPID_SUBJECT` | ❌ | `mailto:admin@<RP_ID>` (`mailto:admin@localhost` without `RP_ID`) | Contact address for the push services |
 | `AI_IMAGES_ENABLED` | ❌ | `FALSE` | Set to `TRUE` to show the optional *AI images* feature (product pictures from a photo, made with OpenAI GPT Image). The API key is entered in the app under Settings, not in `.env` |
 | `FILAMENT_LIBRARY_URL` | ❌ | this repository's `library/filaments.json` | Where *Settings → Filaments → Sync* reads the shared filament library from: a JSON file in the format of the library export, on `raw.githubusercontent.com`. Empty switches the Sync button off |
 | `SPOOLMAN_URL` | ❌ | empty (type it in the app) | The address of your [Spoolman](https://github.com/Donkie/Spoolman) as the app's container reaches it, e.g. `http://spoolman:8000` (no login). With it, *Settings → Filaments → Sync* reads the rolls and what is left on them from Spoolman, booked filament is reported back, and the library and your own rolls can be pushed to it. Leave it empty to type the address in the app instead (administrators, *Settings → Filaments*); when it is set here, it wins and the app shows it read-only |
@@ -207,7 +207,7 @@ Every change lands in `beta` first, and every push to `beta` builds a new beta i
 ## Privacy & security
 
 - Everything is stored on your own server: there is no account with us, no analytics and no tracking.
-- Signing in uses passkeys; the app never sees a password unless you switch the optional password login on.
+- Signing in uses passkeys or, where a passkey cannot work, a password (hashed with argon2id), optionally with two-step verification.
 - Backups never contain credentials (passkeys, recovery codes, passwords, push subscriptions) or invitations. An invitation link is shown once and only its hash is stored.
 - Report security issues to the maintainers directly (see Contact) rather than in a public issue.
 
