@@ -644,3 +644,42 @@ dialog.sheet { border: 1px solid var(--lijn-strong); border-radius: 20px; box-sh
 .brand h1 { letter-spacing: -.02em; }
 @media (max-width: 480px) { .auth-card.glass { padding: 20px; } }
 .segmented { border-color: var(--lijn-strong); }
+
+/* Settings: the parts as a menu with icons and groups. A column beside the page on a wide screen, a row to swipe on a phone. */
+.settings-layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.settings-content { min-width: 0; }
+.settings-nav { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px; padding: 2px 16px 6px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.settings-nav::-webkit-scrollbar { display: none; }
+.settings-group { display: contents; }
+.settings-group-title { display: none; }
+.settings-nav a { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 14px; border-radius: 99px; scroll-snap-align: center;
+  border: 1px solid var(--lijn-strong); background: var(--surface-solid); color: var(--text); text-decoration: none; white-space: nowrap;
+  transition: background-color .15s var(--ease), border-color .15s var(--ease); }
+.settings-nav a .icon { width: 20px; height: 20px; color: var(--text-muted); }
+.settings-nav a:hover { border-color: var(--accent); }
+.settings-nav a[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 650; }
+.settings-nav a[aria-current="page"] .icon { color: inherit; }
+@media (min-width: 860px) {
+  .settings-layout { grid-template-columns: 236px minmax(0, 1fr); gap: 24px; }
+  .settings-nav { flex-direction: column; gap: 2px; overflow: visible; margin: 0; padding: 8px; position: sticky; top: 88px;
+    background: var(--surface-solid); border: 1px solid var(--lijn-strong); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .settings-group { display: flex; flex-direction: column; gap: 2px; }
+  .settings-group + .settings-group { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--lijn); }
+  .settings-group-title { display: block; margin: 6px 12px 4px; font-size: .7rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
+  .settings-nav a { border: 0; border-radius: 10px; background: none; padding: 8px 12px; gap: 12px; }
+  .settings-nav a:hover { background: var(--accent-subtle); }
+  .settings-nav a[aria-current="page"] { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }   /* active is not colour alone */
+  .settings-nav a[aria-current="page"] .icon { color: var(--accent); }
+}
+
+/* A card that folds away: only its heading stays while the button is not expanded */
+.fold-head { margin: 0; }
+.fold-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; margin: -8px 0; padding: 8px 0;
+  background: none; border: 0; border-radius: 10px; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.fold-toggle .icon { color: var(--text-muted); transition: transform .2s var(--ease), color .15s var(--ease); }
+.fold-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
+.fold-toggle:hover .icon { color: var(--text); }
+.card:has(> .fold-head [aria-expanded="false"]) > :not(.fold-head) { display: none; }
+.card:has(> .fold-head [aria-expanded="false"]) { gap: 0; }
+.list-row > .item-head { flex: 1 1 18rem; min-width: 0; }       /* the text takes what is left and wraps, so the buttons stay on its right while there is room */
+.list-row > .row { flex: none; }

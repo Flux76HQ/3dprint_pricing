@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import { formatDateTime, t } from './i18n.js';
-import { confirmDialog, field, fill, h, icon, toast } from './ui.js';
+import { confirmDialog, field, fill, foldHead, h, icon, toast } from './ui.js';
 
 /** Read every spool of Spoolman; says what came of it. True when it went through. */
 async function runSync() {
@@ -63,7 +63,7 @@ export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
         status.from_env ? null : h('button', { class: 'btn primary', type: 'button', onclick: save }, t('common.save')),
         status.enabled ? h('button', { class: 'btn', type: 'button', onclick: test }, t('spoolman.test')) : null));
     if (!status.enabled) {
-      fill(card, h('h2', {}, t('spoolman.title')), h('p', { class: 'muted' }, t('spoolman.setup_intro')), address);
+      fill(card, foldHead('spoolman', t('spoolman.title'), { open: false }), h('p', { class: 'muted' }, t('spoolman.setup_intro')), address);
       card.hidden = false;
       return;
     }
@@ -98,7 +98,7 @@ export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
       } catch (err) { toast(err.message, 'error'); }
       draw();
     };
-    fill(card, h('h2', {}, t('spoolman.title')),
+    fill(card, foldHead('spoolman', t('spoolman.title'), { open: false }),
       h('p', { class: 'muted' }, t('spoolman.intro')),
       h('p', { class: 'hint breakable' }, t('spoolman.status', { host: status.host, n: status.rolls,
         when: status.last_sync ? formatDateTime(status.last_sync, { dateStyle: 'short', timeStyle: 'short' }) : t('spoolman.never') })),
