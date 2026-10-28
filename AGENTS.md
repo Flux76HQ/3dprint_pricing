@@ -33,7 +33,7 @@ everything people make is shared. If that ever changes, every query in `backend/
 
 Stack: Flask + Gunicorn, PostgreSQL 17, a no-build vanilla-JS frontend served by the same
 process, Docker Compose. Layout: `backend/` (API, auth, migrations, tests), `frontend/` (static
-PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
+PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistant/` (the Home Assistant app, section 6g).
 
 ## 1. Before you change code
 
@@ -117,7 +117,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling).
   A push to `beta` never raises it and publishes no release, only the `beta` image (section 5).
 - A promotion that changed protected paths raises the **patch** number; put the label `version:minor` or `version:major` on the
   **promotion pull request** (`beta` → `main`, the pull request the bump reads) to raise that part instead. A promotion of documentation only (`*.md`, `*.txt`) keeps the number.
-- Protected paths: `backend/`, `frontend/`, `deploy/`, `scripts/`, `.github/workflows/`,
+- Protected paths: `backend/`, `frontend/`, `deploy/`, `homeassistant/`, `repository.yaml`, `scripts/`, `.github/workflows/`,
   `.github/copilot-instructions.md`, `Dockerfile`, `docker-compose.yml`, `docker-compose.build.yml`, `.env.example`
   (`scripts/check_version_bump.py` holds the list).
 - The workflow needs to push to `main`: github-actions must be allowed to bypass the branch protection, if there is any. Without it
@@ -285,6 +285,24 @@ Follows App-Guidance's [`shared/guidelines/user-management.md`](https://github.c
 - Backups and invitations: a backup never holds users, invitations or credentials (6c), and a restore does not touch who can sign in. A factory reset (6d) removes everybody.
 - Test a guard by breaking what it guards: `test_users.py` was checked by removing each guard in turn (the list entry, the owner check, the epoch check, the confirmation, the
   company-preferences check, the single use) and watching a test fail. Do that for the next one too.
+
+## 6g. Home Assistant app
+
+`repository.yaml` (root) and `homeassistant/` make this repository an app repository for Home Assistant OS / Supervised: the user adds
+`https://github.com/Flux76HQ/3dprint_pricing` under Settings > Apps > Repositories. Home Assistant runs one container per app, so
+`homeassistant/Dockerfile` builds on the published image (`FROM ghcr.io/flux76hq/3dprint_pricing:${BUILD_VERSION}`) and adds PostgreSQL 17; `run.py`
+starts it, then the image's own `entrypoint.sh`, and stops both if either dies. Operational detail: `docs/handleiding.md`, section *Home Assistant-app*.
+
+- **`version` in `homeassistant/config.yaml` is the image tag it is built on.** It equals `VERSION`, is raised by `scripts/bump_version.py` in the same
+  release commit, and is never edited by hand or in a pull request (`scripts/test_homeassistant_addon.py` fails when it differs from `VERSION`). The tag exists only
+  once the `docker` workflow has pushed it, so an update can fail for the minutes between the release commit and the end of that build.
+- **The options are the variables of `.env.example`**, not a second configuration: a variable that must be settable in Home Assistant is added to `config.yaml`
+  (`options` + `schema`), `run.py` (`settings()`), and both `translations/` files in one change; the test checks them against each other. Secrets that `.env`
+  would hold are made once by `run.py` and kept in `/data/secrets.json`; never log one except the generated setup code.
+- `/data` is `DATA_PATH` with the layout of `docker-compose.yml` (`postgres/`, `uploads/`): the data rules of section 1 hold here too, and the PostgreSQL major
+  version in the Dockerfile follows `docker-compose.yml`. `backup: cold` stays while the database runs inside the container.
+- No Ingress (passkeys are bound to the domain the app is served on). `arch` follows the platforms `docker.yml` builds; today that is amd64 only.
+- The `docker-build` job builds the app on the fresh image and starts it; keep that step working when the Dockerfile, `run.py` or the entrypoint changes.
 
 ## 7. Work done in one client leaves the other clients correct
 

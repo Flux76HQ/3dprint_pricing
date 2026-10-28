@@ -83,6 +83,19 @@ class BumpAfterMergeTest(RepoTestCase):
         self.bump()
         self.assertEqual(self.version(), "1.2.4")
 
+    def test_the_home_assistant_app_follows_the_version(self):
+        self.write("homeassistant/config.yaml", 'name: x\nversion: "1.2.3"\nslug: y\n')
+        self.commit("app")
+        self.bump()
+        self.assertEqual(self.version(), "1.2.4")
+        self.assertEqual((self.root / "homeassistant/config.yaml").read_text(), 'name: x\nversion: "1.2.4"\nslug: y\n')
+
+    def test_a_change_to_the_home_assistant_app_counts_as_code(self):
+        self.write("homeassistant/run.py", "x = 1\n")
+        self.commit("app")
+        self.bump()
+        self.assertEqual(self.version(), "1.2.4")
+
     def test_a_first_push_counts_everything_as_new(self):
         self.write("backend/app.py", "x = 3\n")
         self.commit("code")

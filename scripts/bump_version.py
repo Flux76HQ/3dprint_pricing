@@ -9,7 +9,8 @@ and commits the new number itself.
 
 A push that changed a protected, non-documentation path raises VERSION by `--part` (the PR label `version:minor` / `version:major`
 chooses; patch is the default). A push of documentation only leaves it alone. Prints the version that now stands, writes it to
-VERSION and exits 0; it never commits (the workflow does).
+VERSION (and to the Home Assistant app, `homeassistant/config.yaml`, whose version names the image tag it is built on) and exits 0;
+it never commits (the workflow does).
 """
 import argparse
 import re
@@ -20,6 +21,8 @@ from pathlib import Path
 from check_version_bump import is_doc_only, is_protected, normalize
 
 PARTS = ("patch", "minor", "major")
+ADDON_CONFIG = Path("homeassistant/config.yaml")
+ADDON_VERSION = re.compile(r'^version: "\d+\.\d+\.\d+"$', re.M)
 
 
 def changed_files(before: str, after: str) -> list:
@@ -42,6 +45,16 @@ def bump(version: tuple, part: str) -> tuple:
     return {"major": (major + 1, 0, 0), "minor": (major, minor + 1, 0), "patch": (major, minor, patch + 1)}[part]
 
 
+def write_addon_version(version: str) -> None:
+    """The Home Assistant app is built on the image of the same number (homeassistant/Dockerfile), so its version moves with VERSION."""
+    if not ADDON_CONFIG.exists():
+        return
+    text = ADDON_CONFIG.read_text(encoding="utf-8")
+    if not ADDON_VERSION.search(text):
+        raise ValueError(f'{ADDON_CONFIG} has no line `version: "X.Y.Z"` to raise.')
+    ADDON_CONFIG.write_text(ADDON_VERSION.sub(f'version: "{version}"', text, count=1), encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--before", required=True, help="the commit main had before this push")
@@ -57,6 +70,7 @@ def main() -> int:
         return 0
     new = ".".join(map(str, bump(parse_version(current), args.part)))
     path.write_text(new, encoding="utf-8")
+    write_addon_version(new)
     print(f"VERSION bumped ({args.part}): {current} -> {new}")
     return 0
 

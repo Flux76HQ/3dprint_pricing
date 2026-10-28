@@ -1,0 +1,31 @@
+configuration:
+  rp_id:
+    name: Domein voor passkeys (RP_ID)
+    description: >-
+      De domeinnaam waarop de app wordt geopend, zonder https:// en poort, bijvoorbeeld print.voorbeeld.nl. Passkeys zijn eraan gebonden,
+      dus als je het later wijzigt werken bestaande passkeys niet meer. Verplicht.
+  rp_origins:
+    name: Adres(sen) waarop de app wordt geopend (RP_ORIGINS)
+    description: >-
+      Het volledige adres dat de browser gebruikt, kommagescheiden, bijvoorbeeld https://print.voorbeeld.nl. Leeg betekent https:// plus het domein hierboven.
+  setup_code:
+    name: Setupcode
+    description: >-
+      Wordt ingetypt op het eerste scherm bij het maken van de eerste passkey. Leeg laat er een maken en zet die in het tabblad Logboek van deze app.
+  proxy_hops:
+    name: Reverse proxy's voor de app
+    description: Hoeveel reverse proxy's er tussen browser en app staan (0 als de app rechtstreeks op zijn poort wordt geopend).
+  max_upload_mb:
+    name: Grootste upload (MB)
+    description: Het grootste STL/3MF-bestand dat de app accepteert. Een proxy ervoor moet minstens zoveel toestaan.
+  ai_images_enabled:
+    name: AI-productafbeeldingen
+    description: Zet de optionele AI-productafbeeldingen aan. De OpenAI-sleutel vul je in de app in, onder Instellingen.
+  spoolman_url:
+    name: Spoolman-adres
+    description: Adres van een Spoolman, bijvoorbeeld http://homeassistant.local:7912. Leeg betekent dat je het in de app zelf invult.
+  update_check:
+    name: Controleren op nieuwe versies
+    description: Laat de app bij GitHub nagaan of er een nieuwere versie is en meldt dat aan de eigenaar. Er wordt nooit iets automatisch bijgewerkt.
+network:
+  6080/tcp: Webinterface

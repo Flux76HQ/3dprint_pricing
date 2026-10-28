@@ -45,7 +45,7 @@ jobs:
           if ! git diff --quiet VERSION; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Release $(tr -d '[:space:]' < VERSION)" VERSION
+            git commit -m "Release $(tr -d '[:space:]' < VERSION)" VERSION homeassistant/config.yaml
             pushed=false
             for attempt in 1 2 3; do
               if git push origin HEAD:main; then pushed=true; break; fi
