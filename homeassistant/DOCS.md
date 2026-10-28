@@ -1,0 +1,55 @@
+# 3D Print Pricing
+
+This app runs [3D Print Pricing](https://github.com/Flux76HQ/3dprint_pricing) inside Home Assistant. The app and its PostgreSQL database
+run in this one container; everything they store lives in the app's own data folder, which Home Assistant includes in its backups.
+
+## Install
+
+1. In Home Assistant open **Settings > Apps > Install app**, then the menu (⋮) > **Repositories**, and add
+   `https://github.com/Flux76HQ/3dprint_pricing`.
+2. Choose **3D Print Pricing** and **Install**. Home Assistant builds the app on your device, which takes a few minutes the first time.
+3. Fill in **rp_id** on the **Configuration** tab (see below), save, and **Start** the app.
+4. Open the **Log** tab: the setup code for the first screen is printed there (or type your own under *Setup code*).
+5. Open the app at `https://<your domain>` and go through the onboarding: setup code, your name, a passkey, and save the 8 recovery codes.
+
+## Domain and https: needed for passkeys
+
+Signing in uses passkeys. A browser only creates them on a page served over **https**, on a **domain name** (not an IP address and not
+`http://homeassistant.local:6080`; `http://localhost` is the one exception). So the app has to be reachable on an https address you
+control, and that address is what you enter:
+
+| Option | What to enter |
+|---|---|
+| **rp_id** | The domain only, for example `print.example.com`. Required. Passkeys are bound to it: changing it later makes existing passkeys unusable (recovery codes still work). |
+| **rp_origins** | The full address(es), comma separated, for example `https://print.example.com`. Empty means `https://` plus the domain. |
+| **proxy_hops** | `1` when one reverse proxy sits in front of the app (the usual case), `0` when the app is opened on its port directly. |
+
+Put a reverse proxy with a certificate in front of port **6080** of this app (for example the Nginx Proxy Manager or Caddy app, a
+Cloudflare Tunnel, or Tailscale serve). Home Assistant Cloud (Nabu Casa) only forwards Home Assistant itself, not other ports. The app is
+not offered through the Home Assistant sidebar (Ingress): it is made to be served from the root of its own domain, which is what passkeys are bound to.
+
+## Options
+
+| Option | Meaning |
+|---|---|
+| **setup_code** | Typed once on the first screen. Empty makes one and prints it in the Log. |
+| **max_upload_mb** | Largest STL/3MF upload. A proxy in front has to allow at least as much. |
+| **ai_images_enabled** | Switches on the optional AI product images. The OpenAI key is entered in the app, under Settings. |
+| **spoolman_url** | Address of a Spoolman, for example `http://homeassistant.local:7912`. Empty: type it in the app (Settings > Filaments). |
+| **update_check** | The app asks GitHub whether a newer release exists and tells the owner. It never updates anything; updating is done here, in Home Assistant. |
+
+Changes take effect after a restart of the app.
+
+## Data, backups and moving
+
+- The database is in `/data/postgres`, the uploads in `/data/uploads` and the generated secrets (session key, database password, push keys)
+  in `/data/secrets.json`. Home Assistant stops the app while it makes a backup (a running database is not a consistent copy), so a backup
+  takes the app offline for a moment.
+- The app also has its own backup and restore (Settings > System), which is the way to move an installation between this app and the Docker
+  Compose installation, in either direction. A backup file never contains passkeys or users: the person restoring signs up again.
+- The database is PostgreSQL 17. A data folder cannot be opened by another major version; the app refuses to start rather than touch it.
+
+## Updating
+
+A new release shows up as an update of this app. Updating rebuilds the app on your device and restarts it; migrations run on start. The
+architecture is **amd64** only for now (the published image is built for that).

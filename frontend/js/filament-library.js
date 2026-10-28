@@ -2,7 +2,7 @@ import { api, downloadFile, upload } from './api.js';
 import { formatDate, getLanguage, t } from './i18n.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
 import { libraryConfig, libraryName, openForm } from './resources.js';
-import { confirmDialog, enhanceDialog, eur, fill, fmt, h, icon, saveBlob, toast } from './ui.js';
+import { confirmDialog, enhanceDialog, eur, fill, fmt, foldHead, h, icon, saveBlob, toast } from './ui.js';
 
 const norm = (v) => String(v || '').trim().toLowerCase();
 
@@ -243,7 +243,7 @@ function shareCard(state) {
     syncBox.hidden = false;
   }).catch(() => { /* the button just stays away */ });
 
-  return h('div', { class: 'glass card stack' }, h('h2', {}, t('library.share_title')),
+  return h('div', { class: 'glass card stack' }, foldHead('library-share', t('library.share_title'), { open: false }),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => pdf.click() }, t('library.invoice')), pdf),
     h('p', { class: 'hint' }, t('library.invoice_hint')),
     h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: fromRolls }, icon('sync'), h('span', {}, t('library.from_rolls')))),

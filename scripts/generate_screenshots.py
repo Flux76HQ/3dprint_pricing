@@ -315,23 +315,32 @@ def new_roll_form(page):
 
 def capture(browser, api, origin, project_id, raw):
     def prefs(**p):
-        api("PUT", "/api/preferences", {"language": "nl", "business_mode": True, "navbar_glass": 55, **p})
+        api("PUT", "/api/preferences", {"language": "nl", "business_mode": True, "navbar_glass": 55, "accent": ACCENT, **p})
 
     routes = {"list": "berekeningen", "editor": f"berekeningen/{project_id}", "orders": "bestellingen", "filament": "filament",
-              "library": "instellingen/filamenten", "newroll": "filament"}
+              "library": "instellingen/filamenten", "settings": "instellingen/weergave", "newroll": "filament"}
 
     # Desktop: the editor in light and dark, the rest in light.
     for theme in ("light", "dark"):
         prefs(theme=theme, navbar_style="ios")
         ctx = open_context(browser, origin, api.token, width=DESKTOP["w"], height=DESKTOP["h"], scale=1.5)
         page = ctx.new_page()
-        for name in ("editor", "list", "filament", "orders", "library", "newroll") if theme == "light" else ("editor",):
+        for name in ("editor", "list", "filament", "orders", "library", "settings", "newroll") if theme == "light" else ("editor",):
             page.goto(f"{origin}/#/{routes[name]}")
             settle(page)
             if name == "newroll":
                 new_roll_form(page)
             page.screenshot(path=str(raw / f"desktop-{name}-{theme}.png"))
         ctx.close()
+
+    # The accent colour recolours the whole interface: Settings -> Display in dark, in teal.
+    prefs(theme="dark", navbar_style="ios", accent="#0c9aa6")
+    ctx = open_context(browser, origin, api.token, width=DESKTOP["w"], height=DESKTOP["h"], scale=1.5)
+    page = ctx.new_page()
+    page.goto(f"{origin}/#/{routes['settings']}")
+    settle(page)
+    page.screenshot(path=str(raw / "desktop-settings-dark.png"))
+    ctx.close()
 
     # Phones, in light: the navigation bar style is the point, so each platform gets its own.
     for kind, device in (("ios", IOS), ("android", ANDROID)):
@@ -419,13 +428,14 @@ def frame(browser, html, selector, out):
 
 def frames(browser, raw):
     OUT.mkdir(parents=True, exist_ok=True)
-    names = {"list": "calculations", "editor": "calculation", "orders": "orders", "filament": "filament", "library": "library", "newroll": "new-roll"}
+    names = {"list": "calculations", "editor": "calculation", "orders": "orders", "filament": "filament", "library": "library", "newroll": "new-roll", "settings": "settings"}
     for kind in ("ios", "android"):
         for key, name in names.items():
             frame(browser, phone_html(kind, data_uri(raw / f"{kind}-{key}-light.png")), ".phone", OUT / f"{kind}-{name}.png")
     for key, name in names.items():
         frame(browser, window_html(data_uri(raw / f"desktop-{key}-light.png"), "light"), ".win", OUT / f"desktop-{name}.png")
     frame(browser, window_html(data_uri(raw / "desktop-editor-dark.png"), "dark"), ".win", OUT / "desktop-calculation-dark.png")
+    frame(browser, window_html(data_uri(raw / "desktop-settings-dark.png"), "dark"), ".win", OUT / "desktop-settings-dark.png")
 
 
 # --- main -----------------------------------------------------------------------------------------------------------

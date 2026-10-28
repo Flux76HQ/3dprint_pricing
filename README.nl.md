@@ -48,6 +48,18 @@ De navigatiebalk over de volle breedte met een pil achter het actieve icoon.
 |:---:|:---:|:---:|:---:|
 | <img src="docs/assets/android-calculations.png" width="200" alt="Android: berekeningen" /> | <img src="docs/assets/android-calculation.png" width="200" alt="Android: kostprijs van een berekening" /> | <img src="docs/assets/android-orders.png" width="200" alt="Android: bestellingen" /> | <img src="docs/assets/android-filament.png" width="200" alt="Android: filamentvoorraad" /> |
 
+### Instellingen en je eigen kleur
+
+*Instellingen* is gegroepeerd in *Persoonlijk*, *Gegevens* en *Beheer*, elk onderdeel met een icoon (wat je ziet hangt af van je rol). Op een telefoon vormen de onderdelen een rij die je kunt vegen. Onder *Weergave* kies je de taal, licht of donker en je **accentkleur**: elf voorinstellingen, waaronder bordeaux en grafiet, of een kleur naar keuze. Het hele scherm kleurt mee, niet alleen de knoppen. Onder *Filamenten* klappen de blokken Spoolman en *Importeren en delen* in.
+
+| Weergave: licht, met het standaardpaars | Weergave: donker, met teal |
+|:---:|:---:|
+| <img src="docs/assets/desktop-settings.png" width="440" alt="Desktop: Instellingen, Weergave, licht met de paarse accentkleur" /> | <img src="docs/assets/desktop-settings-dark.png" width="440" alt="Desktop: Instellingen, Weergave, donker met de teal accentkleur" /> |
+
+| iPhone: instellingen | Android: instellingen |
+|:---:|:---:|
+| <img src="docs/assets/ios-settings.png" width="200" alt="iOS: Instellingen met het veegbare menu" /> | <img src="docs/assets/android-settings.png" width="200" alt="Android: Instellingen met het veegbare menu" /> |
+
 ### Filament: bibliotheek, import en nieuwe rollen
 
 *Instellingen → Filamenten* bevat de filamentbibliotheek: voeg een filament toe, importeer een Bambu Lab-factuur, importeer of exporteer de bibliotheek als JSON, of synchroniseer haar met GitHub. Onder *Filament → Nieuwe rol* maak je een rol aan, met de hand, door de barcode te scannen of door een filament uit de bibliotheek te kiezen.
@@ -116,6 +128,13 @@ Open daarna het adres en doorloop de onboarding:
 3. **Bewaar de 8 herstelcodes.** Ze worden één keer getoond en werken elk één keer.
 
 Zet een reverse proxy met TLS voor de app en stel `RP_ID` en `RP_ORIGINS` in op dat domein: passkeys, installeren, de camera en meldingen werken alleen via https (behalve op `localhost`).
+
+### Installatie als Home Assistant-app
+
+Voeg op Home Assistant OS of Supervised `https://github.com/Flux76HQ/3dprint_pricing` toe onder **Instellingen > Apps > App installeren > Repositories** en
+installeer *3D Print Pricing*: de app brengt zijn eigen PostgreSQL mee en bewaart zijn data in de map van de app, die Home Assistant meeneemt in zijn back-ups.
+Passkeys vragen nog steeds een domein met https voor de poort van de app, dus vul `rp_id` in op het tabblad Configuratie. De stappen staan op het tabblad
+Documentatie van de app ([`homeassistant/DOCS.md`](homeassistant/DOCS.md)). Voorlopig alleen amd64.
 
 ### Configuratie
 

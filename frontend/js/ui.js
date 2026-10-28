@@ -80,6 +80,21 @@ export function applyNavGlass(glass, el = document.documentElement) {
 /** The icon of a destination in the navigation: filled while it is the page you are on, as an outline otherwise (when there is one). */
 export const navIcon = (name, active) => icon(!active && MDI[`${name}-outline`] ? `${name}-outline` : name);
 
+/** The heading of a card that can be folded away: a button with the title and a chevron. While it is not expanded the card shows only this
+    heading (css: `.card:has(> .fold-head [aria-expanded="false"])`). The choice is remembered in this browser under `key`; `open` is
+    what a first visit gets. */
+export function foldHead(key, title, { open = true } = {}) {
+  const store = `pp-fold-${key}`;
+  let isOpen = open;
+  try { const saved = localStorage.getItem(store); if (saved === '1' || saved === '0') isOpen = saved === '1'; } catch { /* storage blocked: the default */ }
+  const button = h('button', { type: 'button', class: 'fold-toggle', 'aria-expanded': String(isOpen), onclick: () => {
+    const now = button.getAttribute('aria-expanded') !== 'true';
+    button.setAttribute('aria-expanded', String(now));
+    try { localStorage.setItem(store, now ? '1' : '0'); } catch { /* not remembered */ }
+  } }, h('span', {}, title), icon('chevron-down'));
+  return h('h2', { class: 'fold-head' }, button);
+}
+
 export const eur = (value) => new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'EUR' }).format(Number(value) || 0);
 
 export function fmt(value, digits = 2) {

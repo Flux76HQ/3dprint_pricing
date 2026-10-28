@@ -64,6 +64,22 @@ jobs:
         run: |
           docker run --rm --user 10001 --entrypoint python printpricing:ci -c \
             "from app import invoice_docs; pdf = invoice_docs.docx_to_pdf(invoice_docs.sample_docx()); assert pdf.startswith(b'%PDF'), pdf[:20]; print('pdf bytes:', len(pdf))"
+      - name: The Home Assistant app builds on that image, starts its own PostgreSQL and the app, and stops cleanly
+        run: |
+          docker tag printpricing:ci ghcr.io/flux76hq/3dprint_pricing:ci
+          docker build --build-arg BUILD_VERSION=ci -t printpricing-addon:ci homeassistant
+          mkdir -p "$RUNNER_TEMP/addon-data"
+          echo '{"rp_id": "localhost", "rp_origins": "http://localhost:6080", "proxy_hops": 0, "max_upload_mb": 50, "ai_images_enabled": false, "update_check": false}' > "$RUNNER_TEMP/addon-data/options.json"
+          docker run -d --name addon -v "$RUNNER_TEMP/addon-data:/data" -p 6080:6080 printpricing-addon:ci
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:6080/readyz; then ready=1; break; fi
+            sleep 2
+          done
+          docker logs addon
+          [ "$ready" = 1 ] || { echo "::error::The Home Assistant app did not become ready."; exit 1; }
+          docker stop -t 60 addon
+          [ "$(docker inspect --format '{{.State.ExitCode}}' addon)" = 0 ] || { echo "::error::The Home Assistant app did not stop cleanly."; exit 1; }
       - name: Compose files are valid for the example env
         run: |
           cp .env.example .env

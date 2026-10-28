@@ -1,5 +1,7 @@
 {
  "accent.blue": "Blue",
+ "accent.bordeaux": "Bordeaux",
+ "accent.graphite": "Graphite",
  "accent.green": "Green",
  "accent.indigo": "Indigo",
  "accent.orange": "Orange",
@@ -802,6 +804,9 @@
  "security.title": "Security",
  "session.logout": "Sign out",
  "session.title": "Session",
+ "settings.group_admin": "Administration",
+ "settings.group_data": "Data",
+ "settings.group_personal": "Personal",
  "settings.recovered": "You signed in with a recovery code. Add a new passkey to this device now.",
  "settings.sections": "Parts of the settings",
  "settings.signed_in_as": "Signed in as {name}",

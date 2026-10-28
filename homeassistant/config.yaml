@@ -1,0 +1,37 @@
+# Home Assistant app (add-on) for 3D Print Pricing. Reference: https://contributors.home-assistant.io/apps/reference/configuration/
+# `version` is the version of the app image this app is built on (ghcr.io/flux76hq/3dprint_pricing:<version>): the `docker` workflow
+# raises it together with VERSION (scripts/bump_version.py), and homeassistant/Dockerfile builds on that tag. Never edit it by hand.
+name: 3D Print Pricing
+version: "0.26.20"
+slug: printpricing
+description: Cost price calculator and inventory for a 3D-print business, with its own PostgreSQL database
+url: https://github.com/Flux76HQ/3dprint_pricing
+arch:
+  - amd64
+init: true
+startup: application
+boot: auto
+# One container holds the app and its PostgreSQL. A running database is not a consistent file copy, so the app is stopped for a backup.
+backup: cold
+# Stopping has to give gunicorn and PostgreSQL time to finish cleanly.
+timeout: 60
+ports:
+  6080/tcp: 6080
+ports_description:
+  6080/tcp: Web interface
+watchdog: "http://[HOST]:[PORT:6080]/healthz"
+# /data of this app is the app's DATA_PATH: the database in /data/postgres, the uploads in /data/uploads, the generated secrets in /data/secrets.json.
+options:
+  proxy_hops: 0
+  max_upload_mb: 50
+  ai_images_enabled: false
+  update_check: true
+schema:
+  rp_id: "str?"
+  rp_origins: "str?"
+  setup_code: "password?"
+  proxy_hops: "int(0,5)"
+  max_upload_mb: "int(1,500)"
+  ai_images_enabled: bool
+  spoolman_url: "url?"
+  update_check: bool

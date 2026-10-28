@@ -121,6 +121,33 @@ Eén barcode hoort bij een *product*: meerdere rollen van hetzelfde filament mog
 werkt niet. Zet er een reverse proxy met TLS voor en stel `RP_ID`/`RP_ORIGINS` in op dat domein. Wijzig
 je `RP_ID` later, dan werken bestaande passkeys niet meer; log dan in met een herstelcode.
 
+## Home Assistant-app
+
+De app is ook als Home Assistant-app (voorheen add-on) te installeren, voor Home Assistant OS en Supervised. Voeg onder
+**Instellingen > Apps > App installeren > Repositories** het adres `https://github.com/Flux76HQ/3dprint_pricing` toe en installeer *3D Print Pricing*.
+Home Assistant bouwt de app dan op het apparaat (`homeassistant/Dockerfile`, op de image van dezelfde versie); de stappen voor de gebruiker staan op het
+tabblad Documentatie van de app (`homeassistant/DOCS.md`).
+
+- **Eén container, twee processen.** Home Assistant draait één container per app, dus `homeassistant/run.py` start PostgreSQL 17 (alleen op `127.0.0.1`)
+  en daarna de eigen `entrypoint.sh` van de image (migraties, gunicorn). Stopt een van beide, dan stopt het andere en eindigt `run.py`, zodat de watchdog van
+  Home Assistant de app herstart. De map `/data` van de app is `DATA_PATH`, ingedeeld als in `docker-compose.yml`: de database in `/data/postgres`, de
+  uploads in `/data/uploads`. De geheimen die in `.env` zouden staan (sessiesleutel, databasewachtwoord, push-sleutels) maakt `run.py` één keer en bewaart
+  ze in `/data/secrets.json`; de opties van de app (`rp_id`, `rp_origins`, `setup_code`, `proxy_hops`, `max_upload_mb`, `ai_images_enabled`, `spoolman_url`,
+  `update_check`) zijn de variabelen uit `.env.example` met dezelfde betekenis. Een nieuwe variabele in `.env.example` die in Home Assistant instelbaar moet
+  zijn, wordt dus ook een optie in `homeassistant/config.yaml`, `run.py` en beide `translations/`.
+- **Back-up.** `backup: cold`: Home Assistant stopt de app tijdens een back-up, want een draaiende database is geen consistente kopie. Verplaatsen tussen
+  Docker Compose en Home Assistant gaat met de back-up in de app (Instellingen > Systeem).
+- **Versie.** `version` in `homeassistant/config.yaml` is de versie van de image waarop de app gebouwd wordt. Die zet de pijplijn (`scripts/bump_version.py`)
+  gelijk met `VERSION`; een pull request raakt hem niet aan. Een wijziging in `homeassistant/` telt als code en verhoogt het versienummer bij de promotie.
+- **PostgreSQL 17.** Hetzelfde hoofdnummer als `postgres:17-alpine` in de compose-file; de Dockerfile vraagt `postgresql-17` met name. Een datamap van een
+  ander hoofdnummer opent PostgreSQL niet, en `run.py` weigert te starten in plaats van eraan te komen.
+- **Geen Ingress.** Passkeys zijn gebonden aan het domein waarop de app staat, en de app is gemaakt om op de root van een eigen domein te draaien. Gebruikers
+  zetten er een reverse proxy met https voor (poort 6080) en vullen `rp_id` in.
+- **Alleen amd64**, zolang `docker.yml` de image alleen daarvoor bouwt. `scripts/test_homeassistant_addon.py` laat de test falen zodra `docker.yml` platformen
+  noemt en `arch` niet is bijgewerkt.
+- **Test.** De job `docker-build` bouwt de app op de zojuist gebouwde image, start hem met een voorbeeld-`options.json`, wacht op `/readyz` en stopt hem weer
+  (afsluitcode 0).
+
 ## Installeren als app (iPhone, iPad en Android)
 
 **Android (Chrome, Edge, Samsung Internet) en computer:** open het https-adres; er verschijnt een melding “Installeer de app”,

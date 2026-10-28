@@ -48,6 +48,18 @@ The full-width navigation bar with a pill behind the active icon.
 |:---:|:---:|:---:|:---:|
 | <img src="docs/assets/android-calculations.png" width="200" alt="Android: calculations" /> | <img src="docs/assets/android-calculation.png" width="200" alt="Android: cost price of a calculation" /> | <img src="docs/assets/android-orders.png" width="200" alt="Android: orders" /> | <img src="docs/assets/android-filament.png" width="200" alt="Android: filament stock" /> |
 
+### Settings and your own colour
+
+*Settings* is grouped into *Personal*, *Data* and *Administration*, each part with an icon (what you see depends on your role). On a phone the parts form a row you swipe. Under *Display* you choose the language, light or dark, and your **accent colour**: eleven presets, bordeaux and graphite among them, or any colour of your own. The whole interface follows it, not only the buttons. On *Filaments*, the Spoolman and *Import and share* blocks fold away.
+
+| Display: light, with the default violet | Display: dark, with teal |
+|:---:|:---:|
+| <img src="docs/assets/desktop-settings.png" width="440" alt="Desktop: Settings, Display, light with the violet accent colour" /> | <img src="docs/assets/desktop-settings-dark.png" width="440" alt="Desktop: Settings, Display, dark with the teal accent colour" /> |
+
+| iPhone: settings | Android: settings |
+|:---:|:---:|
+| <img src="docs/assets/ios-settings.png" width="200" alt="iOS: Settings with the swipeable menu" /> | <img src="docs/assets/android-settings.png" width="200" alt="Android: Settings with the swipeable menu" /> |
+
 ### Filament: library, import and new rolls
 
 *Settings → Filaments* holds the filament library: add a filament, import a Bambu Lab invoice, add the rolls of your filament list, import or export the library as JSON, sync it from GitHub, or contribute your filaments to the central library through a pre-filled GitHub issue. Under *Filament → New roll* you create a roll, either by hand, by scanning its barcode or by picking a filament from the library.
@@ -116,6 +128,12 @@ Then open the address and go through the onboarding:
 3. **Save the 8 recovery codes.** They are shown once and each works once.
 
 Put a reverse proxy with TLS in front of the app and set `RP_ID` and `RP_ORIGINS` to that domain: passkeys, installing, the camera and notifications only work over https (except on `localhost`).
+
+### Installation as a Home Assistant app
+
+On Home Assistant OS or Supervised, add `https://github.com/Flux76HQ/3dprint_pricing` under **Settings > Apps > Install app > Repositories** and install
+*3D Print Pricing*: the app brings its own PostgreSQL and keeps its data in the app's folder, which Home Assistant backs up. Passkeys still need a
+domain with https in front of the app's port, so set `rp_id` on the Configuration tab. The steps are on the app's Documentation tab ([`homeassistant/DOCS.md`](homeassistant/DOCS.md)). Amd64 only for now.
 
 ### Configuration
 

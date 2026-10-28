@@ -1,0 +1,31 @@
+configuration:
+  rp_id:
+    name: Domain for passkeys (RP_ID)
+    description: >-
+      The domain name the app is opened on, without https:// or a port, for example print.example.com. Passkeys are bound to it, so
+      changing it later makes existing passkeys unusable. Required.
+  rp_origins:
+    name: Address(es) the app is opened on (RP_ORIGINS)
+    description: >-
+      The full address browsers use, comma separated, for example https://print.example.com. Empty means https:// plus the domain above.
+  setup_code:
+    name: Setup code
+    description: >-
+      Typed on the first screen when the first passkey is created. Empty generates one and prints it in the Log tab of this app.
+  proxy_hops:
+    name: Reverse proxies in front of the app
+    description: How many reverse proxies sit between the browser and the app (0 when it is opened on its port directly).
+  max_upload_mb:
+    name: Largest upload (MB)
+    description: The largest STL/3MF file the app accepts. A proxy in front of it has to allow at least this much.
+  ai_images_enabled:
+    name: AI product images
+    description: Switch on the optional AI product images. The OpenAI key is entered in the app, under Settings.
+  spoolman_url:
+    name: Spoolman address
+    description: Address of a Spoolman, for example http://homeassistant.local:7912. Empty means it is typed in the app instead.
+  update_check:
+    name: Check for new releases
+    description: Let the app ask GitHub whether a newer release exists and tell the owner. It never updates anything by itself.
+network:
+  6080/tcp: Web interface
