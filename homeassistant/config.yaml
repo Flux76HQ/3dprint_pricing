@@ -2,7 +2,7 @@
 # `version` is the version of the app image this app is built on (ghcr.io/flux76hq/3dprint_pricing:<version>): the `docker` workflow
 # raises it together with VERSION (scripts/bump_version.py), and homeassistant/Dockerfile builds on that tag. Never edit it by hand.
 name: 3D Print Pricing
-version: "0.26.21"
+version: "0.26.22"
 slug: printpricing
 description: Cost price calculator and inventory for a 3D-print business, with its own PostgreSQL database
 url: https://github.com/Flux76HQ/3dprint_pricing
