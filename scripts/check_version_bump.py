@@ -15,6 +15,8 @@ PROTECTED_PATTERNS = (
     re.compile(r"^backend/"),
     re.compile(r"^frontend/"),
     re.compile(r"^deploy/"),
+    re.compile(r"^homeassistant/"),
+    re.compile(r"^repository\.yaml$"),
     re.compile(r"^scripts/"),
     re.compile(r"^\.github/workflows/"),
     re.compile(r"^\.github/copilot-instructions\.md$"),
