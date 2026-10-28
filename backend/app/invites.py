@@ -5,7 +5,7 @@ token is in the fragment, so no server, proxy or Referer ever sees it, and the p
 which keeps it out of access logs. Only its SHA-256 is stored. Every unknown, expired or used token gets the same 404.
 
 Two ways in, ending the same way: a passkey (`/passkey/options` and `/passkey/verify`, the onboarding ceremony with the same checks),
-or a password with two-step verification (`/password/start` and `/password/confirm`, the same setup as in Settings). Both end in
+or a password (`/password`, one step; two-step verification can be added afterwards in Settings). Both end in
 `_finish`: it claims the invitation (deleting it, so it is used once), then creates the person, or for a reset removes what they
 could sign in with before and bumps their session epoch. Until that moment nothing has changed: someone who opens the link and walks
 away has cost the person it was made for nothing.
@@ -16,9 +16,8 @@ import psycopg
 from flask import Blueprint, jsonify, make_response, request
 
 from . import passwords
-from .auth import _create_recovery_codes, _credential_payload, _registration_options, _save_credential, _store_challenge, _verify_registration, issue_session
-from .http import ApiError, RateLimiter, config, json_body, pool
-from .password_api import _new_backup_codes
+from .auth import _create_recovery_codes, _credential_payload, _registration_options, _save_credential, _store_challenge, _verify_registration, issue_session, store_password
+from .http import ApiError, RateLimiter, json_body, pool
 from .users import clean_name, name_taken, token_hash
 
 bp = Blueprint("invites", __name__, url_prefix="/api/invites")
@@ -107,9 +106,9 @@ def passkey_verify():
     return response
 
 
-@bp.post("/password/start")
-def password_start():
-    """Check the name and the password and keep them on the invitation, to be used once the authenticator code is confirmed."""
+@bp.post("/password")
+def choose_password():
+    """A name and a password, in one step: the person is made (or, for a reset, their old sign-in cleared) and signed in."""
     limiter.check(request.remote_addr or "?")
     body = json_body()
     password = str(body.get("password", ""))
@@ -117,32 +116,12 @@ def password_start():
         inv = _invitation(conn, lock=True)
         name = _chosen_name(conn, inv, body)
         try:
-            passwords.check_policy(password, name)
+            passwords.check_policy(password, name)                          # before the invitation is claimed: a weak password costs the guest nothing
         except ValueError as exc:
             raise ApiError(400, exc) from None
-        secret = passwords.new_secret()
-        conn.execute("UPDATE invitations SET pending_name = %s, pending_password_hash = %s, pending_totp_secret = %s WHERE id = %s",
-                     (name, passwords.hash_password(password), passwords.seal(config().session_secret, secret), inv["id"]))
-        uri = passwords.otpauth_uri(secret, name)
-    return jsonify({"secret": passwords.b32(secret), "uri": uri, "qr": passwords.qr_data_uri(uri)})
-
-
-@bp.post("/password/confirm")
-def password_confirm():
-    limiter.check(request.remote_addr or "?")
-    code = str(json_body().get("code", ""))
-    with pool().connection() as conn:
-        inv = _invitation(conn, lock=True)
-        if not inv["pending_password_hash"]:
-            raise ApiError(409, "invite.no_setup")
-        secret = passwords.unseal(config().session_secret, inv["pending_totp_secret"])
-        step = passwords.verify_totp(secret, code) if secret else None
-        if step is None:
-            raise ApiError(400, "pwapi.bad_code")
-        user_id = _finish(conn, inv, inv["pending_name"], inv["user_id"] or uuid.uuid4())
-        conn.execute("INSERT INTO password_credentials (user_id, password_hash, totp_secret, enabled, last_totp_step) "
-                     "VALUES (%s, %s, %s, true, %s)", (user_id, inv["pending_password_hash"], inv["pending_totp_secret"], step))
-        codes = _new_backup_codes(conn, user_id)
-    response = make_response(jsonify({"ok": True, "backup_codes": codes}))
+        user_id = _finish(conn, inv, name, inv["user_id"] or uuid.uuid4())
+        store_password(conn, user_id, password)
+        codes = _create_recovery_codes(conn, user_id)
+    response = make_response(jsonify({"ok": True, "recovery_codes": codes}))
     issue_session(response, user_id)
     return response

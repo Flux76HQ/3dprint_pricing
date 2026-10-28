@@ -85,3 +85,14 @@ jobs:
           cp .env.example .env
           docker compose config -q
           docker compose -f docker-compose.yml -f docker-compose.build.yml config -q
+      # Last, on purpose: setting up buildx makes `docker build` stop loading images into the local daemon, which the steps above rely on.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: The image also builds for arm64 (Raspberry Pi, Apple silicon, Ampere); publishing builds both
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: false
+          cache-from: type=gha,scope=ci-arm64
+          cache-to: type=gha,scope=ci-arm64,mode=max

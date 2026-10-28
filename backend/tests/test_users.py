@@ -192,7 +192,7 @@ def test_an_unknown_expired_used_or_missing_token_all_get_the_same_answer(app, o
     answers = {guest.get("/api/invites/info", headers=h).get_data(as_text=True)
                for h in (as_guest("x" * 43), as_guest(expired["token"]), as_guest(used["token"]), {}, as_guest(""), as_guest("short"))}
     assert len(answers) == 1 and guest.get("/api/invites/info", headers=as_guest("x" * 43)).status_code == 404
-    for path in ("/api/invites/passkey/options", "/api/invites/password/start", "/api/invites/passkey/verify", "/api/invites/password/confirm"):
+    for path in ("/api/invites/passkey/options", "/api/invites/password", "/api/invites/passkey/verify"):
         assert guest.post(path, json={"name": "Z", "password": PASSWORD, "credential": {}, "code": "1"}, headers=as_guest(expired["token"])).status_code == 404, path
 
 
@@ -310,15 +310,18 @@ def test_a_passkey_from_another_origin_is_refused_and_the_invitation_survives(ap
 
 # --- joining with a password ---------------------------------------------------------------------------------------
 
-def join_with_password(app, admin, name="Bea", password=PASSWORD):
+def join_with_password(app, admin, name="Bea", password=PASSWORD, two_step=True):
+    """The guest chooses a password (one step, signed in at once); with `two_step` they then add an authenticator app, as Settings offers."""
     made = invite(admin)
     guest = app.test_client()
-    started = guest.post("/api/invites/password/start", json={"name": name, "password": password}, headers=as_guest(made["token"]))
-    assert started.status_code == 200, started.get_json()
-    secret = secret_of(started)
-    done = guest.post("/api/invites/password/confirm", json={"code": code_for(secret)}, headers=as_guest(made["token"]))
+    done = guest.post("/api/invites/password", json={"name": name, "password": password}, headers=as_guest(made["token"]))
     assert done.status_code == 200, done.get_json()
-    return guest, secret, done.get_json()["backup_codes"], made
+    if not two_step:
+        return guest, None, done.get_json()["recovery_codes"], made
+    secret = secret_of(post(guest, "/api/auth/password/totp/start"))
+    confirmed = post(guest, "/api/auth/password/totp/confirm", {"code": code_for(secret)})
+    assert confirmed.status_code == 200, confirmed.get_json()
+    return guest, secret, confirmed.get_json()["backup_codes"], made
 
 
 def test_a_guest_can_choose_a_password_with_two_step_verification_and_is_signed_in(app, owner):
@@ -331,23 +334,27 @@ def test_a_guest_can_choose_a_password_with_two_step_verification_and_is_signed_
     assert listed["password"] is True and listed["passkeys"] == 0
 
 
-def test_nothing_exists_until_the_authenticator_code_has_been_confirmed(app, owner):
-    made = invite(owner)
-    guest = app.test_client()
-    guest.post("/api/invites/password/start", json={"name": "Bea", "password": PASSWORD}, headers=as_guest(made["token"]))
-    assert sql(app, "SELECT count(*) AS n FROM users")[0]["n"] == 1                       # still only the owner
-    wrong = guest.post("/api/invites/password/confirm", json={"code": "000000"}, headers=as_guest(made["token"]))
-    assert wrong.status_code == 400 and sql(app, "SELECT count(*) AS n FROM users")[0]["n"] == 1
-    assert app.test_client().post("/api/invites/password/confirm", json={"code": "123456"}, headers=as_guest(invite(owner)["token"])).status_code == 409
+def test_a_password_alone_is_enough_to_join_and_the_authenticator_app_is_a_later_choice(app, owner):
+    guest, secret, recovery, made = join_with_password(app, owner, two_step=False)
+    assert secret is None and len(recovery) == 8
+    me = guest.get("/api/auth/status").get_json()["user"]
+    assert me["display_name"] == "Bea" and me["role"] == "user"
+    assert sql(app, "SELECT count(*) AS n FROM invitations")[0]["n"] == 0                  # used
+    assert guest.get("/api/auth/password/status").get_json()["totp"] is False
+    assert sql(app, "SELECT count(*) AS n FROM mfa_backup_codes")[0]["n"] == 0
+    other = app.test_client()
+    assert post(other, "/api/auth/password/login", {"name": "Bea", "password": PASSWORD}).status_code == 200      # no second step
+    assert other.get("/api/auth/status").get_json()["user"]["display_name"] == "Bea"
 
 
-def test_a_weak_password_is_refused_and_nothing_is_kept(app, owner):
+def test_a_weak_password_is_refused_and_the_invitation_is_not_spent(app, owner):
     made = invite(owner)
-    res = app.test_client().post("/api/invites/password/start", json={"name": "Bea", "password": "short"}, headers=as_guest(made["token"]))
+    res = app.test_client().post("/api/invites/password", json={"name": "Bea", "password": "short"}, headers=as_guest(made["token"]))
     assert res.status_code == 400
-    assert sql(app, "SELECT pending_password_hash FROM invitations")[0]["pending_password_hash"] is None
-    named = app.test_client().post("/api/invites/password/start", json={"name": "Beatrice", "password": "xxbeatricexx-1234"}, headers=as_guest(made["token"]))
+    assert sql(app, "SELECT count(*) AS n FROM invitations")[0]["n"] == 1 and sql(app, "SELECT count(*) AS n FROM users")[0]["n"] == 1
+    named = app.test_client().post("/api/invites/password", json={"name": "Beatrice", "password": "xxbeatricexx-1234"}, headers=as_guest(made["token"]))
     assert named.status_code == 400                                                       # the policy refers to the name
+    assert app.test_client().post("/api/invites/password", json={"name": "Beatrice", "password": PASSWORD}, headers=as_guest(made["token"])).status_code == 200
 
 
 def test_with_several_people_the_password_login_needs_the_name_and_each_person_has_their_own(app, owner):
@@ -494,14 +501,13 @@ def test_a_reset_also_replaces_a_password_and_its_two_step_verification(app, own
     guest, secret, codes, _ = join_with_password(app, owner, "Bea")
     bea_id = user_list(owner)["Bea"]["id"]
     made = post(owner, f"/api/users/{bea_id}/reset").get_json()
-    fresh, new_secret = app.test_client(), None
-    started = fresh.post("/api/invites/password/start", json={"password": "another long password 77"}, headers=as_guest(made["token"]))
-    new_secret = secret_of(started)
-    done = fresh.post("/api/invites/password/confirm", json={"code": code_for(new_secret)}, headers=as_guest(made["token"]))
+    fresh = app.test_client()
+    done = fresh.post("/api/invites/password", json={"password": "another long password 77"}, headers=as_guest(made["token"]))
     assert done.status_code == 200 and guest.get("/api/projects").status_code == 401
     assert post(app.test_client(), "/api/auth/password/login", {"name": "Bea", "password": PASSWORD}).status_code == 401
-    assert post(app.test_client(), "/api/auth/password/login", {"name": "Bea", "password": "another long password 77"}).status_code == 200
-    assert sql(app, "SELECT count(*) AS n FROM mfa_backup_codes WHERE user_id = %s", (bea_id,))[0]["n"] == 8
+    again = post(app.test_client(), "/api/auth/password/login", {"name": "Bea", "password": "another long password 77"})
+    assert again.status_code == 200 and again.get_json() == {"ok": True}             # the old authenticator app went with the old sign-in
+    assert sql(app, "SELECT count(*) AS n FROM mfa_backup_codes WHERE user_id = %s", (bea_id,))[0]["n"] == 0
 
 
 def test_there_is_one_reset_link_per_person_and_a_new_one_replaces_the_old(app, owner):
@@ -671,7 +677,7 @@ def test_the_migration_moves_the_owners_business_settings_to_the_shared_row_and_
     work = tmp_path / "migrations"
     work.mkdir()
     for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        if not path.name.startswith("0024"):
+        if path.name[:4] < "0024":                  # the database as it was before this migration; later ones need what it makes
             shutil.copy(path, work / path.name)
     run_migrations(fresh_db, work)
     with psycopg.connect(fresh_db, autocommit=True) as conn:

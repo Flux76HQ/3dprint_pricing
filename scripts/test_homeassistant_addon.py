@@ -40,11 +40,14 @@ class RepositoryTest(unittest.TestCase):
         self.assertEqual(CONFIG["version"], (ROOT / "VERSION").read_text(encoding="utf-8").strip())
 
     def test_only_architectures_the_published_image_is_built_for(self):
-        workflows = (ROOT / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")
-        if "platforms:" in workflows:                               # the image is amd64 only until the workflows say otherwise
-            self.assertNotEqual(CONFIG["arch"], ["amd64"], "docker.yml builds more platforms: offer them in arch")
-        else:
-            self.assertEqual(CONFIG["arch"], ["amd64"])
+        # Home Assistant names the architectures amd64 and aarch64; Docker names the same platforms linux/amd64 and linux/arm64.
+        names = {"linux/amd64": "amd64", "linux/arm64": "aarch64"}
+        for workflow in ("docker.yml", "docker-beta.yml"):
+            text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+            match = re.search(r"^\s*platforms:\s*(\S+)", text, re.MULTILINE)
+            self.assertTrue(match, f"{workflow} has no platforms: a single-platform image is amd64 only")
+            built = sorted(names[platform] for platform in match.group(1).split(","))
+            self.assertEqual(built, sorted(CONFIG["arch"]), f"{workflow} builds {built}: arch in config.yaml must offer exactly those")
 
     def test_the_app_is_stopped_for_a_backup_because_the_database_runs_inside_it(self):
         self.assertEqual(CONFIG["backup"], "cold")
@@ -124,8 +127,15 @@ class LauncherTest(unittest.TestCase):
         env = self.run_py.settings({"rp_id": "print.example.com", "rp_origins": "https://a.nl, https://b.nl"}, self.kept)
         self.assertEqual(env["RP_ORIGINS"], "https://a.nl, https://b.nl")
 
-    def test_no_domain_or_a_domain_with_a_scheme_or_port_stops_the_start(self):
-        for bad in ({}, {"rp_id": ""}, {"rp_id": "https://print.example.com"}, {"rp_id": "print.example.com:6080"}, {"rp_id": "a/b"}):
+    def test_no_domain_is_fine_the_app_then_follows_the_address_it_is_opened_on(self):
+        for options in ({}, {"rp_id": ""}, {"rp_id": "  "}):
+            env = self.run_py.settings(options, self.kept)
+            self.assertEqual((env["RP_ID"], env["RP_ORIGINS"]), ("", ""), str(options))
+        env = self.run_py.settings({"rp_origins": "http://192.168.1.20:6080"}, self.kept)
+        self.assertEqual((env["RP_ID"], env["RP_ORIGINS"]), ("", "http://192.168.1.20:6080"))
+
+    def test_a_domain_with_a_scheme_or_port_stops_the_start(self):
+        for bad in ({"rp_id": "https://print.example.com"}, {"rp_id": "print.example.com:6080"}, {"rp_id": "a/b"}):
             with self.assertRaises(SystemExit, msg=str(bad)):
                 self.run_py.settings(bad, self.kept)
 

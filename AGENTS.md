@@ -27,8 +27,8 @@ as authoritative as the current one.
 3D Print Pricing is a self-hosted **PWA with a backend** for a 3D-print business: it calculates
 the cost price of a print (filament, parts, charger, printer depreciation, energy) and keeps the
 inventory those prices come from (filament rolls, printers, energy tariffs). A few people can sign in
-(the owner who set it up, other administrators and regular users, section 6f), with passkeys or an
-optional password. It is still a single-tenant app: one business, so there is no per-user data scoping and
+(the owner who set it up, other administrators and regular users, section 6f), with passkeys or a
+password. It is still a single-tenant app: one business, so there is no per-user data scoping and
 everything people make is shared. If that ever changes, every query in `backend/app/api.py` needs a user filter first.
 
 Stack: Flask + Gunicorn, PostgreSQL 17, a no-build vanilla-JS frontend served by the same
@@ -136,7 +136,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
   | `agent-instructions-lint` | that this file stays canonical and unduplicated |
   | `backend-tests` | calculator, WebAuthn, migrations, API; fails if any test was skipped |
   | `frontend-syntax` | every frontend module parses, checked as an ES module (a copy named `.mjs`: `node --check` on a `.js` file that uses `import` reports nothing, even for a broken one); the manifest is valid JSON |
-  | `docker-build` | the image builds, a Word invoice template is turned into a PDF inside it (LibreOffice, as the unprivileged user), and both compose files are valid for `.env.example` |
+  | `docker-build` | the image builds (also for arm64), a Word invoice template is turned into a PDF inside it (LibreOffice, as the unprivileged user), and both compose files are valid for `.env.example` |
 
 - A control has to be findable on the pull request under the name a document cites it by.
 - Migrations are forward-only: never edit an applied `NNNN_*.sql`; add a new one. The runner
@@ -199,12 +199,25 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
 - `backend/tests/fake_authenticator.py` is a software passkey; use it for any auth test.
 - Test a guard by breaking what it guards before trusting it.
 
-## 6a. Password login
+## 6a. Password login and relying party
 
-Optional, off by default, always with TOTP (`backend/app/passwords.py`, `password_api.py`). Never create a session before
-both factors pass, never weaken the lockout or the TOTP replay guard (`last_totp_step`), keep refusals generic
-("Inloggen mislukt."), and keep changing/disabling/regenerating backup codes behind a fresh passkey confirmation or the full password-plus-code check (`_reauthenticate`: same lock, counter and replay guard as logging in) (enabling needs only the session, by design: it must work without a passkey on that device). The login view shows the
-option only when `/api/auth/status` reports `password_login`.
+Follows the reference in App-Guidance's `shared/framework/technical-framework/auth-passkeys-password-mfa.md` (MealieShopper): a password is a door of its own, two-step verification (TOTP) is a second, separate choice, and
+`RP_ID` / `RP_ORIGINS` are optional (`backend/app/passwords.py`, `password_api.py`, `relying_party.py`).
+
+- **A password alone signs in** (`password_credentials` row, `enabled`); with an authenticator app (`totp_secret` not NULL) it takes the password and then a code, and **no session exists before both pass**
+  (`/password/login` answers `mfa_required` and a token that is no session; `/password/mfa` finishes). Never weaken the lockout (5 failures, then 15 minutes and doubling, per person, plus the per-address limiter) or the TOTP
+  replay guard (`last_totp_step`), and keep refusals generic ("Inloggen mislukt."). The TOTP secret being set up waits in `pending_totp_secret` until a code is confirmed; the confirmed one keeps working until then.
+- **Turning a thing on needs only the session** (a password: `POST /password/setup`; the app: `/totp/start` + `/totp/confirm`; it must work on a device without a passkey). **Anything that weakens or changes it needs a fresh
+  confirmation**: `password_api._confirm` takes a passkey assertion bound to the action (`auth._purpose`), or the password plus a code *when there is an authenticator app* (`_reauthenticate`: same lock, counter and replay
+  guard as logging in). That covers changing the password, turning it or the authenticator app off, new backup codes, new recovery codes (`/recovery/regenerate`), promoting and resetting users, and the factory reset.
+- **Nobody is locked out by their own hand**: the password cannot be turned off without a passkey (409 `pwapi.last_method`), and the last passkey cannot be deleted without a password (409 `auth.last_passkey`).
+- **The owner may start with a password** (`POST /api/auth/onboarding/password`: same setup code, same limiter, same advisory lock as the passkey path), for an address where no passkey can work. Invitations offer both ways too
+  (`/api/invites/password` is one step; no pending state is kept). Both paths hand out the 8 recovery codes.
+- **`RP_ID` and `RP_ORIGINS` are optional.** `relying_party.py` is the only place that decides them: configured values win; empty, the relying party is the host of the request and the origin is `scheme://host` as the browser used it
+  (`X-Forwarded-Host` / `X-Forwarded-Proto` first, so a proxy that terminates TLS is believed), and the session cookie's `Secure` follows the request. Everything that used `cfg.rp_id` / `cfg.rp_origins` goes through it; do not read the config
+  directly. The CSRF check in `create_app`'s `_guard` is `relying_party.origin_allowed`: pinned, the origin must be one of `RP_ORIGINS`; unpinned, it must be the address the page was served from. `/api/auth/status`
+  reports `passkey_problem` (a message key, only for what is certain: an IP address, or no https outside localhost) and `passkey_login` (is any passkey registered), and the screens use them to open the password and explain why. Push needs a contact: `VAPID_SUBJECT`, else `mailto:admin@<RP_ID>`, else `mailto:admin@localhost`.
+- The login view shows the password option only when `/api/auth/status` reports `password_login`, and the passkey button only while a passkey exists (or there is no password).
 
 ## 6b. Texts
 
@@ -273,8 +286,8 @@ Follows App-Guidance's [`shared/guidelines/user-management.md`](https://github.c
 - **Invitations (`invitations`).** 32 random bytes, only the SHA-256 stored, shown once; the link is `<origin>/#invite=<token>` (a fragment: never sent, never logged;
   the page sends it in `X-Invite-Token` and removes it from the address bar). One use (`_finish` claims it by deleting it), 7 days, one `reset` per person, caps of 50
   users (open invitations for new people count) and 50 invitations. Unknown, expired and used tokens are one 404 (`invite.invalid`), checked **before** the body is
-  looked at. A reset changes nothing until the guest has finished (the password path keeps its pending state on the invitation, not in a user row). The origin in the link
-  is the request's own `Origin` when it is in `RP_ORIGINS`, else the first one: never the request's host. A passkey goes through the same `_registration_options`,
+  looked at. A reset changes nothing until the guest has finished (the password path is one step, `/api/invites/password`). The origin in the link
+  is the request's own `Origin` when it is in `RP_ORIGINS`, else the first one (with no `RP_ORIGINS`: the address the administrator opened the app on, `relying_party.public_origin`): never a host the request merely claims. A passkey goes through the same `_registration_options`,
   `_verify_registration`, `_save_credential` as onboarding (baseline §19): no second WebAuthn path.
 - **Confirmations.** Promoting someone and resetting an *administrator* each need a fresh passkey confirmation (or password plus code) bound to that person
   (`auth._purpose` `user-promote` / `user-reset`, `password_api._confirm(body, action, target)`); demoting, removing and resetting a regular user do not.

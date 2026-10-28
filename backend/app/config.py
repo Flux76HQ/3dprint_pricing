@@ -109,7 +109,11 @@ def _spoolman_url() -> str:
 
 
 def load_config() -> Config:
-    origins = tuple(o.strip().rstrip("/") for o in _required("RP_ORIGINS").split(",") if o.strip())
+    # RP_ID and RP_ORIGINS are optional: empty means "the address the app is opened on" (relying_party.py).
+    origins = tuple(o.strip().rstrip("/") for o in os.environ.get("RP_ORIGINS", "").split(",") if o.strip())
+    rp_id = os.environ.get("RP_ID", "").strip().lower()
+    if "://" in rp_id or "/" in rp_id or ":" in rp_id:
+        raise ConfigError("RP_ID must be a domain name only, without https://, a path or a port (for example print.example.com).")
     secret = _required("SESSION_SECRET")
     if len(secret) < 32:
         raise ConfigError("SESSION_SECRET must be at least 32 characters (generate: openssl rand -hex 32).")
@@ -117,17 +121,17 @@ def load_config() -> Config:
         database_url=_required("DATABASE_URL"),
         session_secret=secret,
         setup_code=_required("SETUP_CODE"),
-        rp_id=_required("RP_ID"),
+        rp_id=rp_id,
         rp_name=os.environ.get("RP_NAME", "3D Print Pricing"),
         rp_origins=origins,
         session_hours=int(os.environ.get("SESSION_HOURS", "24")),
-        cookie_secure=all(o.startswith("https://") for o in origins),
+        cookie_secure=bool(origins) and all(o.startswith("https://") for o in origins),   # unpinned: decided per request
         static_dir=os.environ.get("STATIC_DIR", os.path.join(os.path.dirname(__file__), "..", "static")),
         upload_dir=os.environ.get("UPLOAD_DIR", "/data/uploads"),
         max_upload_mb=int(os.environ.get("MAX_UPLOAD_MB", "50")),
         vapid_public_key=os.environ.get("VAPID_PUBLIC_KEY", "").strip(),
         vapid_private_key=os.environ.get("VAPID_PRIVATE_KEY", "").strip(),
-        vapid_subject=os.environ.get("VAPID_SUBJECT", "").strip() or f"mailto:admin@{_required('RP_ID')}",
+        vapid_subject=os.environ.get("VAPID_SUBJECT", "").strip() or f"mailto:admin@{rp_id or 'localhost'}",
         ai_images_enabled=_flag("AI_IMAGES_ENABLED"),
         filament_library_url=_library_url(),
         spoolman_url=_spoolman_url(),

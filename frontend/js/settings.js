@@ -644,8 +644,9 @@ export function settingsView(ctx, requested) {
   async function regenerate() {
     if (!(await confirmDialog(t('recovery.regen_confirm'), t('recovery.new_codes')))) return;
     try {
-      const credential = await confirmWithPasskey('regenerate-recovery');
-      const { recovery_codes: codes } = await api('POST', '/api/auth/recovery/regenerate', { credential });
+      const proof = await confirmIdentity({ action: 'regenerate-recovery', title: t('recovery.confirm_title'), message: t('recovery.confirm_msg'), confirmLabel: t('recovery.new_codes') });
+      if (!proof) return;
+      const { recovery_codes: codes } = await api('POST', '/api/auth/recovery/regenerate', proof);
       codesBox.replaceChildren(
         h('p', {}, h('strong', {}, t('recovery.save_now')), ' ', t('recovery.not_shown_again')),
         h('ul', { class: 'codes' }, codes.map((c) => h('li', {}, c))));
@@ -656,13 +657,14 @@ export function settingsView(ctx, requested) {
   async function loadSecurity(keepCodes = false) {
     try {
       const { credentials, recovery_codes_remaining: remaining } = await api('GET', '/api/auth/credentials');
+      const { enabled: hasPassword } = await api('GET', '/api/auth/password/status');       // with a password the last passkey may go: there is another way in
       if (!keepCodes) codesBox.replaceChildren();
       fill(security,
         h('ul', { class: 'plain-list' }, credentials.map((c) => h('li', { class: 'list-row' },
           h('div', {}, h('strong', {}, c.label),
             h('p', { class: 'muted' }, t('passkey.added_on', { date: formatDate(c.created_at) }) +
               (c.last_used_at ? ` · ${t('passkey.last_used', { date: formatDate(c.last_used_at) })}` : ''))),
-          credentials.length > 1
+          credentials.length > 1 || hasPassword
             ? h('button', { class: 'btn small danger', type: 'button', 'aria-label': t('common.delete_named', { name: c.label }), onclick: () => removePasskey(c) }, icon('trash'))
             : null))),
         h('div', { class: 'row' }, h('button', { class: `btn${highlightPasskey ? ' primary' : ''}`, type: 'button', onclick: addPasskey }, icon('key'), h('span', {}, t('passkey.add')))),

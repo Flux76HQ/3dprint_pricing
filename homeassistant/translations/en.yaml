@@ -3,15 +3,15 @@ configuration:
     name: Domain for passkeys (RP_ID)
     description: >-
       The domain name the app is opened on, without https:// or a port, for example print.example.com. Passkeys are bound to it, so
-      changing it later makes existing passkeys unusable. Required.
+      changing it later makes existing passkeys unusable. Optional: empty means the address the app is opened on (then sign in with a password; a passkey needs a domain and https).
   rp_origins:
     name: Address(es) the app is opened on (RP_ORIGINS)
     description: >-
-      The full address browsers use, comma separated, for example https://print.example.com. Empty means https:// plus the domain above.
+      The full address browsers use, comma separated, for example https://print.example.com. Empty means https:// plus the domain above, or the address the app is opened on when there is no domain.
   setup_code:
     name: Setup code
     description: >-
-      Typed on the first screen when the first passkey is created. Empty generates one and prints it in the Log tab of this app.
+      Typed on the first screen when the first passkey or password is created. Empty generates one and prints it in the Log tab of this app.
   proxy_hops:
     name: Reverse proxies in front of the app
     description: How many reverse proxies sit between the browser and the app (0 when it is opened on its port directly).

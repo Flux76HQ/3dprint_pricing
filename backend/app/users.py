@@ -16,9 +16,10 @@ import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, g, jsonify
 
-from .http import ApiError, config, json_body, pool, require_admin
+from . import relying_party
+from .http import ApiError, json_body, pool, require_admin
 from .password_api import _confirm
 
 bp = Blueprint("users", __name__, url_prefix="/api/users")
@@ -52,15 +53,6 @@ def name_taken(conn, name: str, *, except_user=None, except_invite=None) -> bool
         return True
     return conn.execute("SELECT 1 FROM invitations WHERE kind = 'new' AND lower(display_name) = lower(%s) AND id IS DISTINCT FROM %s",
                         (name, except_invite)).fetchone() is not None
-
-
-def public_origin() -> str:
-    """The address a guest opens the link on. The origin the administrator is using right now when it is one of the configured
-    ones (it is also the one passkeys are made for), otherwise the first of them: never the request's own host, which behind a
-    proxy can be an internal address."""
-    origins = config().rp_origins
-    asked = (request.headers.get("Origin") or "").rstrip("/")
-    return asked if asked in origins else origins[0]
 
 
 def _target(conn, user_id, *, lock=False):
@@ -114,7 +106,7 @@ def _make_invitation(conn, *, kind, name, user_id=None):
     row = conn.execute(
         "INSERT INTO invitations (token_hash, kind, user_id, display_name, created_by, expires_at) VALUES (%s, %s, %s, %s, %s, %s) "
         "RETURNING id, expires_at", (token_hash(token), kind, user_id, name, g.user_id, now + INVITE_TTL)).fetchone()
-    return {"id": str(row["id"]), "token": token, "url": f"{public_origin()}/#invite={token}", "expires_at": row["expires_at"].isoformat()}
+    return {"id": str(row["id"]), "token": token, "url": f"{relying_party.public_origin()}/#invite={token}", "expires_at": row["expires_at"].isoformat()}
 
 
 @bp.post("/invites")
