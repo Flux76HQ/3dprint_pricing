@@ -148,7 +148,7 @@ def test_calculation_errors_name_the_line_in_the_requested_language(client):
 
 def test_password_and_login_messages_follow_the_language(client):
     onboard(client)
-    weak = client.post("/api/auth/password/setup/start", json={"password": "short"}, headers={**H, **EN})
+    weak = client.post("/api/auth/password/setup", json={"password": "short"}, headers={**H, **EN})
     assert weak.get_json()["error"] == "The password must have at least 12 characters."
     assert client.post("/api/auth/password/login", json={"password": "x"}, headers={**H, **EN}).get_json()["error"] == "Sign-in failed."
     assert client.post("/api/auth/password/login", json={"password": "x"}, headers={**H, **NL}).get_json()["error"] == "Inloggen mislukt."

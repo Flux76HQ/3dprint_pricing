@@ -103,12 +103,13 @@ const toB64u = (buf) => {
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 };
 
-export function passkeySupport() {
+/** Why a passkey cannot be made or used here, as a sentence, or null. `serverProblem` is the message key the server gives for the address in use (`/api/auth/status`). */
+export function passkeySupport(serverProblem = null) {
   if (!window.isSecureContext) {
     return t('passkey.https_only');
   }
   if (!window.PublicKeyCredential) return t('passkey.unsupported');
-  return null;
+  return serverProblem ? t(serverProblem) : null;
 }
 
 async function ceremony(run) {

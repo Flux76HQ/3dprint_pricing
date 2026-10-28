@@ -211,3 +211,81 @@ def test_unauthenticated_api_is_401_and_tampered_cookie_is_ignored(client):
     assert client.get("/api/printers").status_code == 401
     client.set_cookie("pp_session", "garbage", domain="localhost")
     assert client.get("/api/printers").status_code == 401
+
+
+# --- onboarding with a password (no passkey can work on the address in use) -----------------------------------
+
+OWNER_PASSWORD = "correct horse battery staple"
+
+
+def onboard_with_password(client, name="Helmer", password=OWNER_PASSWORD, code=SETUP_CODE):
+    return post(client, "/api/auth/onboarding/password", {"setup_code": code, "display_name": name, "password": password})
+
+
+def test_the_owner_can_start_with_a_password_and_is_signed_in_with_recovery_codes(client):
+    res = onboard_with_password(client)
+    assert res.status_code == 200 and len(res.get_json()["recovery_codes"]) == 8
+    cookie = res.headers["Set-Cookie"]
+    assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
+    status = client.get("/api/auth/status").get_json()
+    assert status["onboarded"] and status["authenticated"] and status["password_login"] is True
+    assert status["user"]["display_name"] == "Helmer" and status["user"]["role"] == "admin" and status["user"]["is_owner"] is True
+    assert status["passkey_login"] is False
+
+
+def test_the_owner_with_a_password_signs_in_again_with_name_or_without(client):
+    onboard_with_password(client)
+    post(client, "/api/auth/logout")
+    assert post(client, "/api/auth/password/login", {"password": "not the password at all"}).status_code == 401
+    assert post(client, "/api/auth/password/login", {"password": OWNER_PASSWORD}).status_code == 200
+    assert client.get("/api/auth/status").get_json()["authenticated"] is True
+
+
+def test_onboarding_with_a_password_needs_the_setup_code_a_name_and_a_good_password(client):
+    assert onboard_with_password(client, code="wrong").status_code == 403
+    assert onboard_with_password(client, name="  ").status_code == 400
+    assert onboard_with_password(client, password="short").status_code == 400
+    assert onboard_with_password(client, password="password1234").status_code == 400
+    assert onboard_with_password(client, name="Helmer", password="my name is helmer!").status_code == 400    # the policy refers to the name
+    assert client.get("/api/auth/status").get_json()["onboarded"] is False                                   # nothing was made
+
+
+def test_onboarding_is_closed_once_there_is_an_owner_whichever_way_it_was_done(client):
+    assert onboard_with_password(client).status_code == 200
+    assert onboard_with_password(client, name="Other").status_code == 409
+    options = post(client, "/api/auth/onboarding/options", {"setup_code": SETUP_CODE, "display_name": "Other"})
+    assert options.status_code == 409
+
+
+def test_the_setup_code_attempts_are_limited_for_the_password_way_too(client):
+    for _ in range(10):
+        assert onboard_with_password(client, code="wrong").status_code == 403
+    assert onboard_with_password(client, code=SETUP_CODE).status_code == 429
+
+
+def test_a_password_owner_can_add_a_passkey_and_then_remove_the_password(client):
+    onboard_with_password(client)
+    auth = FakeAuthenticator()
+    options = post(client, "/api/auth/credentials/options").get_json()
+    assert post(client, "/api/auth/credentials/verify", {"credential": auth.register(options)}).status_code == 200
+    step = post(client, "/api/auth/stepup/options", {"action": "password-disable"}).get_json()
+    assert post(client, "/api/auth/password/disable", {"credential": auth.assert_(step)}).status_code == 200
+    assert client.get("/api/auth/status").get_json()["password_login"] is False
+
+
+def test_recovery_codes_can_be_made_again_with_the_password_when_there_is_no_passkey(client):
+    old = onboard_with_password(client).get_json()["recovery_codes"]
+    assert post(client, "/api/auth/recovery/regenerate", {}).status_code == 400
+    assert post(client, "/api/auth/recovery/regenerate", {"current_password": "not the password at all"}).status_code == 401
+    new = post(client, "/api/auth/recovery/regenerate", {"current_password": OWNER_PASSWORD})
+    assert new.status_code == 200 and not set(new.get_json()["recovery_codes"]) & set(old)
+
+
+def test_the_last_passkey_may_go_when_there_is_a_password_and_not_otherwise(client):
+    auth, _ = onboard(client)
+    cred = client.get("/api/auth/credentials").get_json()["credentials"][0]["id"]
+    step = post(client, "/api/auth/stepup/options", {"action": "delete-credential", "target": cred}).get_json()
+    assert client.delete(f"/api/auth/credentials/{cred}", json={"credential": auth.assert_(step)}, headers=H).status_code == 409
+    assert post(client, "/api/auth/password/setup", {"password": OWNER_PASSWORD}).status_code == 200
+    step = post(client, "/api/auth/stepup/options", {"action": "delete-credential", "target": cred}).get_json()
+    assert client.delete(f"/api/auth/credentials/{cred}", json={"credential": auth.assert_(step)}, headers=H).status_code == 200

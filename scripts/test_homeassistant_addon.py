@@ -124,8 +124,15 @@ class LauncherTest(unittest.TestCase):
         env = self.run_py.settings({"rp_id": "print.example.com", "rp_origins": "https://a.nl, https://b.nl"}, self.kept)
         self.assertEqual(env["RP_ORIGINS"], "https://a.nl, https://b.nl")
 
-    def test_no_domain_or_a_domain_with_a_scheme_or_port_stops_the_start(self):
-        for bad in ({}, {"rp_id": ""}, {"rp_id": "https://print.example.com"}, {"rp_id": "print.example.com:6080"}, {"rp_id": "a/b"}):
+    def test_no_domain_is_fine_the_app_then_follows_the_address_it_is_opened_on(self):
+        for options in ({}, {"rp_id": ""}, {"rp_id": "  "}):
+            env = self.run_py.settings(options, self.kept)
+            self.assertEqual((env["RP_ID"], env["RP_ORIGINS"]), ("", ""), str(options))
+        env = self.run_py.settings({"rp_origins": "http://192.168.1.20:6080"}, self.kept)
+        self.assertEqual((env["RP_ID"], env["RP_ORIGINS"]), ("", "http://192.168.1.20:6080"))
+
+    def test_a_domain_with_a_scheme_or_port_stops_the_start(self):
+        for bad in ({"rp_id": "https://print.example.com"}, {"rp_id": "print.example.com:6080"}, {"rp_id": "a/b"}):
             with self.assertRaises(SystemExit, msg=str(bad)):
                 self.run_py.settings(bad, self.kept)
 

@@ -3,15 +3,15 @@ configuration:
     name: Domein voor passkeys (RP_ID)
     description: >-
       De domeinnaam waarop de app wordt geopend, zonder https:// en poort, bijvoorbeeld print.voorbeeld.nl. Passkeys zijn eraan gebonden,
-      dus als je het later wijzigt werken bestaande passkeys niet meer. Verplicht.
+      dus als je het later wijzigt werken bestaande passkeys niet meer. Optioneel: leeg betekent het adres waarop de app wordt geopend (log dan in met een wachtwoord; een passkey vraagt een domein en https).
   rp_origins:
     name: Adres(sen) waarop de app wordt geopend (RP_ORIGINS)
     description: >-
-      Het volledige adres dat de browser gebruikt, kommagescheiden, bijvoorbeeld https://print.voorbeeld.nl. Leeg betekent https:// plus het domein hierboven.
+      Het volledige adres dat de browser gebruikt, kommagescheiden, bijvoorbeeld https://print.voorbeeld.nl. Leeg betekent https:// plus het domein hierboven, of het adres waarop de app wordt geopend als er geen domein is.
   setup_code:
     name: Setupcode
     description: >-
-      Wordt ingetypt op het eerste scherm bij het maken van de eerste passkey. Leeg laat er een maken en zet die in het tabblad Logboek van deze app.
+      Wordt ingetypt op het eerste scherm bij het maken van de eerste passkey of het eerste wachtwoord. Leeg laat er een maken en zet die in het tabblad Logboek van deze app.
   proxy_hops:
     name: Reverse proxy's voor de app
     description: Hoeveel reverse proxy's er tussen browser en app staan (0 als de app rechtstreeks op zijn poort wordt geopend).

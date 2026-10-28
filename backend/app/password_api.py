@@ -1,15 +1,17 @@
-"""Optional password login with mandatory two-step verification (TOTP).
+"""Optional password login, with optional two-step verification (TOTP).
 
-Off by default. Turning it on needs only the session; changing it, turning it off and new backup codes need a
-fresh passkey confirmation, or (where no passkey works) the password plus a code. It only switches on once an authenticator code has been confirmed, so a password never exists without its
-second factor. Logging in takes password then code; the session is issued only after both.
+Off by default. A password is something a person adds (Settings), chooses when invited, or the owner starts with when no passkey
+can work on the address in use (an IP address on a home network). Two-step verification is a second, separate choice: with it,
+logging in takes the password and then a code, and the session is issued only after both; without it the password alone signs in.
+Turning either on needs only the session; changing the password, turning it or the second factor off and new backup codes need a
+fresh passkey confirmation, or the password (plus a code when there is a second factor).
 """
 import uuid
 
 from flask import Blueprint, g, jsonify, make_response
 
 from . import passwords
-from .auth import _hash_code, _purpose, _verify_assertion, generate_code, issue_session, normalise_code
+from .auth import _hash_code, _purpose, _verify_assertion, generate_code, issue_session, normalise_code, store_password
 from .http import ApiError, RateLimiter, config, json_body, login_required, pool
 from .i18n import L
 
@@ -61,11 +63,11 @@ def _credential_of(conn, name: str):
     """The password login of the person who types this name (the name they were given, any case). Without a name it is the only
     person there is; with several people a name is needed, and a missing or unknown one finds nothing, like a wrong password."""
     if name:
-        return conn.execute("SELECT c.user_id, c.password_hash, c.locked_until FROM password_credentials c "
+        return conn.execute("SELECT c.user_id, c.password_hash, c.totp_secret, c.locked_until FROM password_credentials c "
                             "JOIN users u ON u.id = c.user_id WHERE c.enabled AND lower(u.display_name) = lower(%s)", (name,)).fetchone()
     if conn.execute("SELECT count(*) > 1 AS m FROM users").fetchone()["m"]:
         return None
-    return conn.execute("SELECT user_id, password_hash, locked_until FROM password_credentials WHERE enabled").fetchone()
+    return conn.execute("SELECT user_id, password_hash, totp_secret, locked_until FROM password_credentials WHERE enabled").fetchone()
 
 
 @bp.post("/login")
@@ -83,6 +85,12 @@ def login():
         elif _lock_minutes(row):
             refusal = ApiError(429, _locked_message(_lock_minutes(row)))
         elif passwords.verify_password(row["password_hash"], password):
+            if row["totp_secret"] is None:                   # no second factor: the password is the whole login
+                conn.execute("UPDATE password_credentials SET failed_count = 0, locked_until = NULL, updated_at = now() "
+                             "WHERE user_id = %s", (row["user_id"],))
+                response = make_response(jsonify({"ok": True}))
+                issue_session(response, row["user_id"])
+                return response
             token = passwords.make_mfa_token(config().session_secret, row["user_id"])
             return jsonify({"mfa_required": True, "mfa_token": token})
         else:
@@ -102,8 +110,8 @@ def mfa():
         raise refusal
     with pool().connection() as conn:
         row = conn.execute("SELECT user_id, totp_secret, last_totp_step, locked_until FROM password_credentials "
-                           "WHERE user_id = %s AND enabled", (uuid.UUID(user_id),)).fetchone()
-        if row is None:
+                           "WHERE user_id = %s AND enabled AND totp_secret IS NOT NULL", (uuid.UUID(user_id),)).fetchone()
+        if row is None:                                      # also: the second factor was switched off since the password step
             raise refusal
         if _lock_minutes(row):
             refusal = ApiError(429, _locked_message(_lock_minutes(row)))
@@ -157,9 +165,9 @@ def _client_ip() -> str:
 # --- managing it (signed in, fresh passkey confirmation) ------------------------------------------------------
 
 def _reauthenticate(body: dict) -> None:
-    """Confirm with the password and a second-factor code: for a device where the passkey cannot be used
-    (you signed in with password and code). It is the whole login again, with the same lock, the same
-    failure counter, the same replay guard; nothing is cheaper than logging in."""
+    """Confirm with the password (and a second-factor code, when the person has one): for a device where the passkey cannot be
+    used. It is the whole login again, with the same lock, the same failure counter, the same replay guard; nothing is cheaper
+    than logging in."""
     ip_limiter.check(_client_ip())
     password = str(body.get("current_password", ""))[:passwords.MAX_LENGTH + 1]
     code = str(body.get("code", ""))
@@ -174,7 +182,7 @@ def _reauthenticate(body: dict) -> None:
             refusal = ApiError(429, _locked_message(_lock_minutes(row)))
         elif not passwords.verify_password(row["password_hash"], password):
             _register_failure(conn, row["user_id"])
-        elif not _check_second_factor(conn, row, code):          # only reached with the right password: no code is burnt otherwise
+        elif row["totp_secret"] is not None and not _check_second_factor(conn, row, code):   # only reached with the right password: no code is burnt otherwise
             _register_failure(conn, row["user_id"])
         else:
             conn.execute("UPDATE password_credentials SET failed_count = 0, locked_until = NULL, updated_at = now() "
@@ -200,67 +208,87 @@ def _confirm(body: dict, action: str, target: str | None = None) -> None:
 @login_required
 def status():
     with pool().connection() as conn:
-        row = conn.execute("SELECT enabled FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
+        row = conn.execute("SELECT enabled, totp_secret IS NOT NULL AS totp FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
         remaining = conn.execute("SELECT count(*) AS n FROM mfa_backup_codes WHERE user_id = %s AND used_at IS NULL",
                                  (g.user_id,)).fetchone()["n"]
-    return jsonify({"enabled": bool(row and row["enabled"]), "pending": bool(row and not row["enabled"]),
-                    "backup_codes_remaining": remaining})
+        passkeys = conn.execute("SELECT count(*) AS n FROM webauthn_credentials WHERE user_id = %s", (g.user_id,)).fetchone()["n"]
+    on = bool(row and row["enabled"])
+    return jsonify({"enabled": on, "totp": on and row["totp"], "backup_codes_remaining": remaining, "passkeys": passkeys})
 
 
-@bp.post("/setup/start")
+@bp.post("/setup")
 @login_required
-def setup_start():
-    body = json_body()
-    password = str(body.get("password", ""))
+def setup():
+    password = str(json_body().get("password", ""))
     with pool().connection() as conn:
-        existing = conn.execute("SELECT enabled FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
-        if existing and existing["enabled"]:
-            raise ApiError(409, "pwapi.already_on")
         user = conn.execute("SELECT display_name FROM users WHERE id = %s", (g.user_id,)).fetchone()
         try:
             passwords.check_policy(password, user["display_name"])
         except ValueError as exc:
             raise ApiError(400, exc) from None
+        if conn.execute("SELECT 1 FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone():
+            raise ApiError(409, "pwapi.already_on")
+        store_password(conn, g.user_id, password)
+    return jsonify({"ok": True})
+
+
+@bp.post("/totp/start")
+@login_required
+def totp_start():
+    """Begin adding an authenticator app. The secret waits as pending: nothing about signing in changes until a code is confirmed."""
+    with pool().connection() as conn:
+        row = conn.execute("SELECT totp_secret FROM password_credentials WHERE user_id = %s FOR UPDATE", (g.user_id,)).fetchone()
+        if row is None:
+            raise ApiError(409, "pwapi.not_on")
+        if row["totp_secret"] is not None:
+            raise ApiError(409, "pwapi.totp_already_on")
+        user = conn.execute("SELECT display_name FROM users WHERE id = %s", (g.user_id,)).fetchone()
         secret = passwords.new_secret()
-        conn.execute(
-            "INSERT INTO password_credentials (user_id, password_hash, totp_secret, enabled) VALUES (%s, %s, %s, false) "
-            "ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, totp_secret = EXCLUDED.totp_secret, "
-            "enabled = false, last_totp_step = 0, failed_count = 0, locked_until = NULL, updated_at = now()",
-            (g.user_id, passwords.hash_password(password), passwords.seal(config().session_secret, secret)))
+        conn.execute("UPDATE password_credentials SET pending_totp_secret = %s, updated_at = now() WHERE user_id = %s",
+                     (passwords.seal(config().session_secret, secret), g.user_id))
         uri = passwords.otpauth_uri(secret, user["display_name"])
     return jsonify({"secret": passwords.b32(secret), "uri": uri, "qr": passwords.qr_data_uri(uri)})
 
 
-@bp.post("/setup/confirm")
+@bp.post("/totp/confirm")
 @login_required
-def setup_confirm():
+def totp_confirm():
     code = str(json_body().get("code", ""))
     with pool().connection() as conn:
-        row = conn.execute("SELECT totp_secret, enabled FROM password_credentials WHERE user_id = %s FOR UPDATE",
+        row = conn.execute("SELECT pending_totp_secret, totp_secret FROM password_credentials WHERE user_id = %s FOR UPDATE",
                            (g.user_id,)).fetchone()
-        if row is None or row["enabled"]:
+        if row is None or row["pending_totp_secret"] is None or row["totp_secret"] is not None:
             raise ApiError(409, "pwapi.no_setup")
-        secret = passwords.unseal(config().session_secret, row["totp_secret"])
+        secret = passwords.unseal(config().session_secret, row["pending_totp_secret"])
         step = passwords.verify_totp(secret, code) if secret else None
         if step is None:
             raise ApiError(400, "pwapi.bad_code")
-        conn.execute("UPDATE password_credentials SET enabled = true, last_totp_step = %s, failed_count = 0, "
-                     "locked_until = NULL, updated_at = now() WHERE user_id = %s", (step, g.user_id))
+        conn.execute("UPDATE password_credentials SET totp_secret = pending_totp_secret, pending_totp_secret = NULL, last_totp_step = %s, "
+                     "failed_count = 0, locked_until = NULL, updated_at = now() WHERE user_id = %s", (step, g.user_id))
         codes = _new_backup_codes(conn, g.user_id)
     return jsonify({"ok": True, "backup_codes": codes})
 
 
-@bp.post("/setup/cancel")
+@bp.post("/totp/disable")
 @login_required
-def setup_cancel():
+def totp_disable():
+    _confirm(json_body(), "password-totp-disable")
     with pool().connection() as conn:
-        conn.execute("DELETE FROM password_credentials WHERE user_id = %s AND NOT enabled", (g.user_id,))
+        row = conn.execute("SELECT totp_secret FROM password_credentials WHERE user_id = %s FOR UPDATE", (g.user_id,)).fetchone()
+        if row is None or row["totp_secret"] is None:
+            raise ApiError(409, "pwapi.no_totp")
+        conn.execute("UPDATE password_credentials SET totp_secret = NULL, pending_totp_secret = NULL, last_totp_step = 0, updated_at = now() "
+                     "WHERE user_id = %s", (g.user_id,))
+        conn.execute("DELETE FROM mfa_backup_codes WHERE user_id = %s", (g.user_id,))
     return jsonify({"ok": True})
 
 
 @bp.post("/disable")
 @login_required
 def disable():
+    with pool().connection() as conn:                         # before a confirmation is spent: without a passkey the password is their only way in
+        if not conn.execute("SELECT 1 FROM webauthn_credentials WHERE user_id = %s", (g.user_id,)).fetchone():
+            raise ApiError(409, "pwapi.last_method")
     _confirm(json_body(), "password-disable")
     with pool().connection() as conn:
         conn.execute("DELETE FROM password_credentials WHERE user_id = %s", (g.user_id,))
@@ -293,8 +321,10 @@ def change():
 def regenerate_backup_codes():
     _confirm(json_body(), "password-backup-codes")
     with pool().connection() as conn:
-        row = conn.execute("SELECT enabled FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
-        if not row or not row["enabled"]:
+        row = conn.execute("SELECT totp_secret FROM password_credentials WHERE user_id = %s AND enabled", (g.user_id,)).fetchone()
+        if not row:
             raise ApiError(409, "pwapi.not_on")
+        if row["totp_secret"] is None:
+            raise ApiError(409, "pwapi.no_totp")
         codes = _new_backup_codes(conn, g.user_id)
     return jsonify({"backup_codes": codes})

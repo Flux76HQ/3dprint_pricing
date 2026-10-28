@@ -47,14 +47,11 @@ def read_options() -> dict:
 
 
 def settings(options: dict, kept: dict) -> dict:
-    """The environment of the app, from the options and the kept secrets. Stops with a readable message when the domain is not set."""
+    """The environment of the app, from the options and the kept secrets. The domain is optional: without one the app follows the address it is opened on."""
     rp_id = str(options.get("rp_id") or "").strip().lower()
     if "://" in rp_id or "/" in rp_id or ":" in rp_id:
         fail("rp_id must be a domain name only, without https://, a path or a port (for example print.example.com).")
     origins = str(options.get("rp_origins") or "").strip() or (f"https://{rp_id}" if rp_id else "")
-    if not rp_id or not origins:
-        fail("Set rp_id (the domain the app is opened on, for example print.example.com) on the Configuration tab of this app, then start it again. "
-             "Passkeys are bound to that domain and only work over https (see the Documentation tab).")
     code = str(options.get("setup_code") or "").strip() or kept["setup_code"]
     env = {
         "DATABASE_URL": f"postgresql://{DB_USER}:{kept['postgres_password']}@127.0.0.1:{PGPORT}/{DB_NAME}",

@@ -168,7 +168,9 @@ async function start() {
   if (invitation) {
     stopRelease();
     session = { user: null };
-    root.replaceChildren(inviteView(invitation, start, chooseLanguage));
+    let passkeyProblem = null;
+    try { passkeyProblem = (await api('GET', '/api/auth/status')).passkey_problem; } catch { /* the page says what is wrong when the link is used */ }
+    root.replaceChildren(inviteView(invitation, start, chooseLanguage, { passkeyProblem }));
     return;
   }
   let status;
@@ -181,10 +183,10 @@ async function start() {
     return;
   }
   if (!status.onboarded || !status.authenticated) stopRelease();
-  if (!status.onboarded) { session = { user: null }; root.replaceChildren(onboardingView(start, chooseLanguage)); return; }
+  if (!status.onboarded) { session = { user: null }; root.replaceChildren(onboardingView(start, chooseLanguage, { passkeyProblem: status.passkey_problem })); return; }
   if (!status.authenticated) {
     session = { user: null };
-    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen/beveiliging'); start(); }, { passwordLogin: status.password_login, nameRequired: status.login_name_required, onLanguage: chooseLanguage }));
+    root.replaceChildren(loginView((result) => { flags = result; if (result.recovered) goTo('#/instellingen/beveiliging'); start(); }, { passwordLogin: status.password_login, nameRequired: status.login_name_required, passkeyLogin: status.passkey_login, passkeyProblem: status.passkey_problem, onLanguage: chooseLanguage }));
     return;
   }
   session = { user: status.user, aiImages: !!status.ai_images };

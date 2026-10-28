@@ -4,7 +4,7 @@
 > Een korte presentatie met schermafbeeldingen staat in de [README](../README.nl.md) ([English](../README.md)).
 
 Zelf-gehoste PWA om de **kostprijs van 3D-prints** uit te rekenen en de voorraad en tarieven bij
-te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** (geen wachtwoord).
+te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of, waar die niet kunnen (bijvoorbeeld op een IP-adres in je eigen netwerk), met een **wachtwoord**.
 
 - **3D Modellen** (menu; voorheen *Berekeningen*) — de berekening per model: filament, onderdelen, accessoires (kabels/laders), printerafschrijving en
   energie → totale kostprijs, optioneel met marge voor een adviesverkoopprijs. Opgeslagen berekeningen
@@ -73,7 +73,7 @@ GIT_COMMIT=$(git rev-parse --short HEAD) docker compose -f docker-compose.yml -f
 
 (`GIT_COMMIT` verschijnt naast het versienummer; zonder staat er `dev`. CI zet hem automatisch.)
 
-Zonder `--domain` wordt `http://localhost:<poort>` ingesteld, genoeg om het uit te proberen.
+Zonder `--domain` blijven `RP_ID` en `RP_ORIGINS` leeg: de app volgt dan het adres waarop je hem opent, ook een IP-adres, genoeg om het uit te proberen. Een passkey vraagt wel een domein met https (zie hieronder).
 Handmatig kan ook: `cp .env.example .env` en de waarden invullen.
 
 Open daarna het adres en doorloop de **onboarding**:
@@ -83,11 +83,11 @@ Open daarna het adres en doorloop de **onboarding**:
    - *Waar staat hij?* Op de server, in het bestand `.env` naast `docker-compose.yml`, op de regel `SETUP_CODE=…`. Alles achter het is-teken is de code. `init_env.py` toonde hem na het aanmaken; opnieuw tonen kan met `grep SETUP_CODE .env`.
    - *Waar vul je hem in?* In het veld **Setupcode** op het eerste scherm van de app (dat scherm legt het ook uit), samen met je naam. Je hebt hem alleen voor deze eerste keer nodig.
    - Heb je `SETUP_CODE` in `.env` aangepast terwijl de app al draaide? Voer `docker compose up -d` uit, zodat de app de nieuwe waarde leest.
-2. Maak je **passkey** aan (vingerafdruk, gezicht of apparaatcode).
+2. Kies hoe je inlogt: maak een **passkey** aan (vingerafdruk, gezicht of apparaatcode), of kies **een wachtwoord** (minstens 12 tekens). Werkt een passkey niet op het adres dat je gebruikt (een IP-adres, of zonder https), dan zegt het scherm dat en staat het wachtwoord al open.
 3. **Bewaar de 8 herstelcodes** — ze worden één keer getoond en werken elk één keer.
 
 Daarna is de onboarding gesloten. Meer passkeys voeg je toe onder *Instellingen → Beveiliging*;
-verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.
+verwijderen of nieuwe herstelcodes vraagt een verse bevestiging (een passkey, of je wachtwoord als je geen passkey hebt).
 
 ### Instellingen (`.env`)
 
@@ -97,14 +97,14 @@ verwijderen of nieuwe herstelcodes vraagt een verse passkey-bevestiging.
 | `DATA_PATH` | Map op de host voor alle data: de database (`postgres/`) en de geüploade bestanden (`uploads/`); blijft bestaan bij herbouwen en updaten. Zie *Waar de data staat* |
 | `MAX_UPLOAD_MB` | Grootste STL/3MF-upload in MB (standaard 50) |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Database; gebruik een wachtwoord met alleen letters en cijfers |
-| `RP_ID` | Domein waarop de app draait, zonder schema of poort; passkeys zijn eraan gebonden |
-| `RP_ORIGINS` | Volledige origin(s), komma-gescheiden, bijv. `https://print.voorbeeld.nl` |
+| `RP_ID` | Optioneel. Domein waarop de app draait, zonder schema of poort; passkeys zijn eraan gebonden. Leeg = het adres waarop de app wordt geopend |
+| `RP_ORIGINS` | Optioneel. Volledige origin(s), komma-gescheiden, bijv. `https://print.voorbeeld.nl`. Gezet: schrijvende verzoeken van een andere origin worden geweigerd. Leeg = het adres waarop de app wordt geopend |
 | `RP_NAME` | Naam die in de passkey-prompt staat |
 | `SETUP_CODE` | Eenmalige code voor de onboarding, zodat niet de eerste bezoeker de app overneemt |
 | `SESSION_SECRET` | Ondertekent sessiecookies, minimaal 32 tekens |
 | `SESSION_HOURS` | Levensduur van een sessie (standaard 24) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Sleutelpaar voor push-meldingen (`python scripts/generate_vapid.py`); leeg = meldingen uit. De private sleutel is geheim; een ander paar maakt bestaande aanmeldingen onbruikbaar |
-| `VAPID_SUBJECT` | Contactadres voor de pushdiensten (`mailto:…` of https-url); leeg = `mailto:admin@<RP_ID>` |
+| `VAPID_SUBJECT` | Contactadres voor de pushdiensten (`mailto:…` of https-url); leeg = `mailto:admin@<RP_ID>` (zonder `RP_ID`: `mailto:admin@localhost`; zet het zelf als je meldingen gebruikt) |
 | `AI_IMAGES_ENABLED` | `TRUE` toont de optionele functie *AI-afbeeldingen* (zie [AI-afbeeldingen](#ai-afbeeldingen-optioneel)); alles anders, of leeg, laat haar uit. Standaard `FALSE` |
 | `PROXY_HOPS` | Aantal reverse proxies ervoor (vertrouwt `X-Forwarded-*`) |
 | `WEB_CONCURRENCY` | Aantal Gunicorn-workers (standaard 2) |
@@ -118,8 +118,10 @@ Rechten → Camera → *Alleen tijdens gebruik van de app*) en een knop *Opnieuw
 Eén barcode hoort bij een *product*: meerdere rollen van hetzelfde filament mogen dezelfde barcode hebben.
 
 **Passkeys vragen https** (behalve op `http://localhost`) en een **domeinnaam**: openen via een IP-adres
-werkt niet. Zet er een reverse proxy met TLS voor en stel `RP_ID`/`RP_ORIGINS` in op dat domein. Wijzig
-je `RP_ID` later, dan werken bestaande passkeys niet meer; log dan in met een herstelcode.
+werkt niet, en dan log je in met een wachtwoord. Wil je passkeys, zet er dan een reverse proxy met TLS voor en stel `RP_ID`/`RP_ORIGINS` in op
+dat domein: een passkey is aan `RP_ID` gebonden, dus zet het vast zodra je passkeys gebruikt. Zonder `RP_ID` en `RP_ORIGINS` volgt de app het adres waarop hij wordt
+geopend (`X-Forwarded-Host` en `X-Forwarded-Proto` van je proxy tellen mee); schrijvende verzoeken moeten dan van een pagina komen die de app zelf van dat adres heeft
+geleverd. Wijzig je `RP_ID` later, dan werken bestaande passkeys niet meer; log dan in met een herstelcode.
 
 ## Home Assistant-app
 
@@ -142,7 +144,7 @@ tabblad Documentatie van de app (`homeassistant/DOCS.md`).
 - **PostgreSQL 17.** Hetzelfde hoofdnummer als `postgres:17-alpine` in de compose-file; de Dockerfile vraagt `postgresql-17` met name. Een datamap van een
   ander hoofdnummer opent PostgreSQL niet, en `run.py` weigert te starten in plaats van eraan te komen.
 - **Geen Ingress.** Passkeys zijn gebonden aan het domein waarop de app staat, en de app is gemaakt om op de root van een eigen domein te draaien. Gebruikers
-  zetten er een reverse proxy met https voor (poort 6080) en vullen `rp_id` in.
+  zetten er voor passkeys een reverse proxy met https voor (poort 6080) en vullen `rp_id` in; met een wachtwoord werkt de app ook op `http://<adres van Home Assistant>:6080`.
 - **Alleen amd64**, zolang `docker.yml` de image alleen daarvoor bouwt. `scripts/test_homeassistant_addon.py` laat de test falen zodra `docker.yml` platformen
   noemt en `arch` niet is bijgewerkt.
 - **Test.** De job `docker-build` bouwt de app op de zojuist gebouwde image, start hem met een voorbeeld-`options.json`, wacht op `/readyz` en stopt hem weer
@@ -327,14 +329,20 @@ Er zit geen CDN of proxy in deze repository; wat ervoor staat bepaalt de werkeli
 
 ## Wachtwoord en tweestapsverificatie (optioneel)
 
-Standaard **uit**; passkeys blijven de aanbevolen manier van inloggen en werken altijd, ook als je het wachtwoord inschakelt.
-Aanzetten kan onder *Instellingen → Beveiliging → Wachtwoord en tweestapsverificatie*, ook als er al passkeys actief zijn, en vraagt:
-een wachtwoord (minstens 12 tekens) en een authenticator-app (TOTP, 6 cijfers). Er is geen
-wachtwoord-login zonder die tweede stap en er komt pas een sessie nadat wachtwoord én code kloppen. Je krijgt 8 back-upcodes
-(elk één keer bruikbaar). Na 5 mislukte pogingen blokkeert wachtwoord-login 15 minuten (daarna steeds langer); je passkey
-blijft werken. Aanzetten vraagt alleen dat je ingelogd bent (het moet ook werken op een toestel zonder passkey); wijzigen, uitschakelen en nieuwe back-upcodes vragen een verse passkey-bevestiging, of, op een toestel waar de passkey niet werkt, je wachtwoord plus een code (authenticator of back-upcode); dat telt voor de blokkade net als inloggen. Wachtwoorden zijn
-met argon2id gehasht; het TOTP-geheim staat versleuteld met een sleutel afgeleid van `SESSION_SECRET`. Wijzig je
-`SESSION_SECRET`, dan werkt de tweestapscode niet meer en stel je wachtwoord-login opnieuw in (met je passkey).
+Standaard **uit**; passkeys blijven de aanbevolen manier van inloggen en werken altijd, ook als je een wachtwoord instelt. Een wachtwoord is de weg
+voor plekken waar een passkey niet kan werken (een IP-adres in je eigen netwerk, of zonder https). De eigenaar kan er bij de onboarding mee beginnen; daarna zet je
+het aan onder *Instellingen → Beveiliging → Wachtwoord en tweestapsverificatie*, en een uitgenodigde gast kiest het zelf.
+
+- **Een wachtwoord** (minstens 12 tekens) is genoeg om in te loggen. Het vraagt alleen dat je ingelogd bent (het moet ook werken op een toestel zonder passkey).
+- **Tweestapsverificatie** is een aparte keuze, onder dezelfde kaart: je koppelt een authenticator-app (TOTP, 6 cijfers) en krijgt 8 back-upcodes (elk één keer bruikbaar).
+  Daarna komt er pas een sessie nadat wachtwoord én code kloppen. Aanzetten vraagt alleen een sessie; uitzetten, nieuwe back-upcodes en alles wat je wachtwoord raakt vragen een verse bevestiging.
+- **Bevestigen** doe je met een passkey, of met je wachtwoord (plus een code uit de app of een back-upcode als je tweestapsverificatie hebt); dat telt voor de blokkade net als inloggen.
+- **Blokkade.** Na 5 mislukte pogingen blokkeert wachtwoord-login 15 minuten (daarna steeds langer); een passkey blijft werken.
+- **Niet buitengesloten.** Het wachtwoord uitzetten kan alleen als je een passkey hebt, en je laatste passkey verwijderen alleen als je een wachtwoord hebt.
+  Bij een eigenaar die met een wachtwoord begon zijn de herstelcodes de weg terug als het wachtwoord kwijt is; bewaar ze. Nieuwe herstelcodes maak je met je wachtwoord als je geen passkey hebt.
+
+Wachtwoorden zijn met argon2id gehasht; het TOTP-geheim staat versleuteld met een sleutel afgeleid van `SESSION_SECRET`. Wijzig je
+`SESSION_SECRET`, dan werkt de tweestapscode niet meer: zet tweestapsverificatie uit met een passkey of een back-upcode en stel hem opnieuw in.
 
 ## Gebruikers en rollen
 
@@ -354,9 +362,9 @@ Wat een gewone gebruiker ziet maar niet wijzigt (bijvoorbeeld de btw bij een nie
 
 *Instellingen → Gebruikers → Iemand uitnodigen* (alleen beheerders). Vul eventueel een naam in als voorstel en kies *Maak link*. De app toont de link **één keer**, met een knop *Kopieer*; stuur hem via chat, mail of in het echt.
 
-- De gast opent de link, kiest een naam (het voorstel mag worden aangepast) en kiest zelf een **passkey** of een **wachtwoord met authenticator-app**. Zo weet de beheerder nooit iemands wachtwoord, en hoeft hij er ook nooit een door te geven. Met een passkey krijgt de gast 8 herstelcodes; met een wachtwoord de 8 back-upcodes van de tweestapsverificatie, net als bij *Wachtwoord en tweestapsverificatie*.
+- De gast opent de link, kiest een naam (het voorstel mag worden aangepast) en kiest zelf een **passkey** of een **wachtwoord**. Zo weet de beheerder nooit iemands wachtwoord, en hoeft hij er ook nooit een door te geven. In beide gevallen krijgt de gast 8 herstelcodes; tweestapsverificatie met een authenticator-app zet de gast daarna zelf aan, onder *Wachtwoord en tweestapsverificatie*. Werkt een passkey niet op het adres dat de gast gebruikt, dan staat het wachtwoord al open.
 - De link werkt **één keer** en vervalt na **7 dagen**; een openstaande uitnodiging trek je in onder *Openstaande uitnodigingen*. Een onbekende, verlopen of al gebruikte link geeft altijd dezelfde melding. Een naam die in een openstaande uitnodiging staat is gereserveerd. Er kunnen hooguit 50 gebruikers zijn (openstaande uitnodigingen voor nieuwe mensen tellen mee) en 50 openstaande uitnodigingen.
-- De link is `https://<adres>/#invite=<token>`. Het token staat achter de `#`, dus het gaat nooit mee naar een server, proxy of `Referer`; de pagina stuurt het in een kop (`X-Invite-Token`) terug, en de server bewaart alleen de SHA-256 ervan. Na gebruik verdwijnt het uit de adresbalk. Het adres in de link is het adres waarop de beheerder op dat moment is ingelogd, als dat in `RP_ORIGINS` staat (anders het eerste adres daar), nooit het adres dat een proxy achter de schermen gebruikt. Een passkey werkt alleen op een adres uit `RP_ORIGINS`.
+- De link is `https://<adres>/#invite=<token>`. Het token staat achter de `#`, dus het gaat nooit mee naar een server, proxy of `Referer`; de pagina stuurt het in een kop (`X-Invite-Token`) terug, en de server bewaart alleen de SHA-256 ervan. Na gebruik verdwijnt het uit de adresbalk. Het adres in de link is het adres waarop de beheerder op dat moment is ingelogd, als dat in `RP_ORIGINS` staat (anders het eerste adres daar), nooit het adres dat een proxy achter de schermen gebruikt. Is `RP_ORIGINS` leeg, dan is het het adres waarop de beheerder de app opende. Een passkey werkt alleen op een adres uit `RP_ORIGINS` (leeg: het adres waarop hij gemaakt is).
 - Een uitnodiging is geen sessie: wie alleen de link heeft, kan niets in de app. En: er verandert niets zolang de gast niet klaar is. Opent iemand de link en loopt weg, dan is er niets aangemaakt of veranderd.
 
 ### Inloggen met meer dan één persoon
