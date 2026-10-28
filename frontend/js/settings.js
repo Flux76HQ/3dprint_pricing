@@ -562,7 +562,7 @@ const SECTIONS = [['algemeen', 'settings.tab_general'], ['weergave', 'settings.t
 const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'ai', 'systeem'];
 // How the menu is grouped and which icon each part has. A part is only shown when `shown()` lets it through, a group without parts not at all.
 const GROUPS = [['settings.group_personal', ['algemeen', 'weergave', 'beveiliging', 'notificaties']],
-  ['settings.group_business', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'ai', 'systeem']]];
+  ['settings.group_data', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'ai', 'systeem']]];
 const SECTION_ICONS = { algemeen: 'tune', weergave: 'theme-light-dark', beveiliging: 'shield-lock', notificaties: 'bell', zakelijk: 'domain',
   filamenten: 'palette-swatch', gebruikers: 'account-group', ai: 'creation', systeem: 'server' };
 
