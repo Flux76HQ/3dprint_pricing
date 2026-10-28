@@ -37,7 +37,6 @@ def _guard():
 
 
 FILLABLE = ("sku", "filament_id", "barcode", "colour_hex", "print_temp_c", "bed_temp_c")      # what an entry may be given when it lacks it
-LOCK = 7_210_021                                                                                # advisory lock: one writer of the library at a time
 
 
 def _n(values: dict, key: str) -> str:
@@ -107,11 +106,6 @@ def _duplicate(other: dict) -> ApiError:
     return ApiError(409, "library.duplicate", name=name_of(other))
 
 
-def _lock(conn) -> None:
-    """Held until the transaction ends: two requests that add the same filament at once are made to take turns, so the second sees the first."""
-    conn.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK,))
-
-
 def _rows(conn) -> list[dict]:
     return conn.execute(f"SELECT * FROM {TABLE} ORDER BY created_at, id").fetchall()
 
@@ -141,7 +135,6 @@ def _blank(value) -> bool:
 
 def before_create(conn, values: dict) -> None:
     """Typing in a new entry (the generic resource calls this before it inserts): refused when it is a filament that is already there."""
-    _lock(conn)
     other = Index(_rows(conn)).find({**BLANK, **DEFAULTS, **values})
     if other:
         raise _duplicate(other)
@@ -149,7 +142,6 @@ def before_create(conn, values: dict) -> None:
 
 def before_update(conn, item_id, values: dict) -> None:
     """Changing an entry: refused when it would become a copy of another one."""
-    _lock(conn)
     rows = _rows(conn)
     row = next((r for r in rows if r["id"] == item_id), None)
     other = row and Index(rows).clash(row, {**row, **values})
@@ -195,7 +187,6 @@ def add_roll(conn, roll: dict, extra=None) -> str:
     entry (a refill and a roll with spool), it is not clear which one this roll is, so none is touched. `extra` is what the form knows
     about the filament that a roll does not hold: its supplier `filament_id` and whether it is a `refill` (from the Bambu Lab shop); with a
     `refill` the match is exact, so that is no longer unclear. Returns what happened: `added`, `updated`, `unchanged` or `unclear`."""
-    _lock(conn)
     rows = _rows(conn)
     index = Index(rows)
     extra = extra if isinstance(extra, dict) else {}
@@ -269,8 +260,6 @@ def _parse_library(doc) -> list[dict]:
 def _merge(conn, items: list[dict], *, write: bool) -> dict:
     """Add what is new and bring what is already there in line with the file. Nothing is ever deleted. A line of the file is the same
     filament as an entry when they share a key (see `keys`); a change that would make an entry a copy of another one is refused, with its line."""
-    if write:
-        _lock(conn)
     index = Index(_rows(conn))
     counts = {"added": 0, "updated": 0, "unchanged": 0}
     for n, values in enumerate(items, 1):
@@ -376,7 +365,6 @@ def from_rolls():
     dry_run = request.args.get("dry_run") == "1"
     counts = {"added": 0, "updated": 0, "unchanged": 0, "unclear": 0}
     with pool().connection() as conn:
-        _lock(conn)
         for roll in conn.execute("SELECT * FROM filament_spools WHERE NOT archived ORDER BY created_at, id").fetchall():
             counts[add_roll(conn, roll)] += 1
         if dry_run:
@@ -431,7 +419,6 @@ def apply_invoice():
             raise ApiError(400, "library.bad_row", n=n, reason=exc.msg) from None
     counts = {"added": 0, "updated": 0, "unchanged": 0}
     with pool().connection() as conn:
-        _lock(conn)
         index = Index(_rows(conn))
         for n, entry in enumerate(entries, 1):
             row = index.find(entry)

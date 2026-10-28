@@ -17,7 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-MIGRATIONS = "backend/app/migrations"
+MIGRATIONS = "backend/app/migrations_sqlite"
 SCREENSHOTS = "docs/assets"
 
 

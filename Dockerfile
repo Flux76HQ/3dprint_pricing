@@ -23,7 +23,7 @@ ARG GIT_COMMIT=dev
 ENV APP_COMMIT=$GIT_COMMIT
 
 COPY backend/app ./app
-COPY backend/wsgi.py backend/migrate.py backend/announce_release.py ./
+COPY backend/wsgi.py backend/migrate.py backend/announce_release.py backend/backup_db.py ./
 COPY frontend ./static
 COPY VERSION ./VERSION
 # So the keys can be generated without Python on the host: docker compose run --rm --no-deps app python generate_vapid.py
@@ -31,7 +31,7 @@ COPY scripts/generate_vapid.py ./generate_vapid.py
 COPY deploy/entrypoint.sh deploy/migrate_uploads.sh /
 
 # The entrypoint starts as root only to fix ownership of the mounted /data, then drops to `app`.
-RUN useradd --system --uid 10001 app && chmod +x /entrypoint.sh /migrate_uploads.sh && mkdir -p /data/uploads && chown -R app:app /data
+RUN useradd --system --uid 10001 app && chmod +x /entrypoint.sh /migrate_uploads.sh && mkdir -p /data/uploads /data/db && chown -R app:app /data
 
 EXPOSE 6080
 

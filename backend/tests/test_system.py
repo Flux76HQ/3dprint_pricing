@@ -2,11 +2,10 @@
 import os
 from pathlib import Path
 
-import psycopg
-
 from tests import printfiles as pf
 from tests.test_auth_api import H, onboard, post
 from tests.test_backup import fill, upload
+from tests.conftest import connect
 from tests.test_password import (  # noqa: F401  (fixtures)
     PASSWORD, _reset_limits, authenticated, code_for, confirmation, enable, owner)
 
@@ -17,8 +16,8 @@ WORD = {"confirm": "RESET"}                                                     
 def tables(app):
     """Rows per table; the pending challenges are not data."""
 
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
-        names = [r[0] for r in conn.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('schema_migrations', 'webauthn_challenges')")]
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
+        names = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations', 'webauthn_challenges')")]
         return {name: conn.execute(f"SELECT count(*) FROM {name}").fetchone()[0] for name in names}
 
 

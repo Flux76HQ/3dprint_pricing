@@ -16,7 +16,7 @@ HTTPS = "https://print.example.com"
 def open_app(fresh_db, tmp_path):
     """An app with neither RP_ID nor RP_ORIGINS, as a new installation on a home network starts."""
     run_migrations(fresh_db)
-    cfg = Config(database_url=fresh_db, session_secret=SECRET, setup_code=SETUP_CODE, rp_id="", rp_name="Test", rp_origins=(),
+    cfg = Config(database_path=fresh_db, session_secret=SECRET, setup_code=SETUP_CODE, rp_id="", rp_name="Test", rp_origins=(),
                  session_hours=24, cookie_secure=False, upload_dir=str(tmp_path / "up"), max_upload_mb=2,
                  static_dir=os.path.join(os.path.dirname(__file__), "static"))
     app = create_app(cfg)

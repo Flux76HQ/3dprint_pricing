@@ -1,15 +1,16 @@
 """User management: an administrator invites people with a link, the guest chooses their own passkey or password, a regular user can
 be promoted to administrator, and the owner is out of reach. Also what only an administrator may do, and what is shared."""
 import hashlib
+import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 import jwt
-import psycopg
 import pytest
 
 from app import access, invites, password_api, users
+from app.db import UniqueViolation
 from tests.conftest import ORIGIN, SECRET
 from tests.fake_authenticator import FakeAuthenticator
 from tests.test_auth_api import H, onboard, post
@@ -187,7 +188,7 @@ def test_the_guest_sees_only_what_the_page_needs(app, owner):
 def test_an_unknown_expired_used_or_missing_token_all_get_the_same_answer(app, owner):
     guest = app.test_client()
     expired, used = invite(owner), invite(owner)
-    sql(app, "UPDATE invitations SET expires_at = now() - interval '1 minute' WHERE token_hash = %s", (hashlib.sha256(expired["token"].encode()).digest(),))
+    sql(app, "UPDATE invitations SET expires_at = strftime('%Y-%m-%d %H:%M:%f', 'now', '-1 minutes') WHERE token_hash = %s", (hashlib.sha256(expired["token"].encode()).digest(),))
     accept(app, used["token"])
     answers = {guest.get("/api/invites/info", headers=h).get_data(as_text=True)
                for h in (as_guest("x" * 43), as_guest(expired["token"]), as_guest(used["token"]), {}, as_guest(""), as_guest("short"))}
@@ -221,7 +222,7 @@ def test_the_caps_count_open_invitations_as_people(app, owner, monkeypatch):
 
 def test_expired_invitations_are_purged_when_a_new_one_is_made_and_are_not_listed(app, owner):
     old = invite(owner)
-    sql(app, "UPDATE invitations SET expires_at = now() - interval '1 second'")
+    sql(app, "UPDATE invitations SET expires_at = strftime('%Y-%m-%d %H:%M:%f', 'now', '-1 seconds')")
     assert owner.get("/api/users").get_json()["invitations"] == []
     invite(owner)
     assert len(sql(app, "SELECT 1 FROM invitations")) == 1
@@ -455,9 +456,9 @@ def test_roles_cannot_be_changed_by_a_regular_user_or_for_yourself_or_to_somethi
 
 
 def test_the_database_itself_keeps_the_owner_an_administrator_and_there_is_only_one(app, owner):
-    with pytest.raises(psycopg.errors.CheckViolation):
+    with pytest.raises(sqlite3.IntegrityError):
         sql(app, "UPDATE users SET role = 'user' WHERE is_owner")
-    with pytest.raises(psycopg.errors.UniqueViolation):
+    with pytest.raises(UniqueViolation):
         sql(app, "INSERT INTO users (display_name, role, is_owner) VALUES ('Second', 'admin', true)")
 
 
@@ -565,9 +566,9 @@ def test_removing_a_person_removes_everything_that_hangs_off_them_and_ends_their
 
 def test_every_table_with_a_user_id_is_cleaned_by_removing_the_person(app):
     """A table added later that points at `users` must not keep rows of someone who is gone: it needs ON DELETE CASCADE (or SET NULL)."""
-    rows = sql(app, "SELECT c.conrelid::regclass::text AS tbl, c.confdeltype AS action FROM pg_constraint c "
-                    "WHERE c.contype = 'f' AND c.confrelid = 'users'::regclass")
-    assert rows and all(r["action"] in ("c", "n") for r in rows), rows
+    tables = [r["name"] for r in sql(app, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+    rows = [(table, r["on_delete"]) for table in tables for r in sql(app, f"SELECT * FROM pragma_foreign_key_list('{table}')") if r["table"] == "users"]
+    assert rows and all(action in ("CASCADE", "SET NULL") for _table, action in rows), rows
 
 
 # --- the session ---------------------------------------------------------------------------------------------------------------
@@ -667,28 +668,3 @@ def test_an_old_backup_that_kept_the_business_in_the_persons_preferences_still_r
     assert post(owner, "/api/backup/restore", doc).status_code == 200
     prefs = owner.get("/api/preferences").get_json()
     assert prefs["business"]["name"] == "From an older release" and prefs["vat_pct"] == "6" and prefs["theme"] == "dark"
-
-
-# --- the data migration --------------------------------------------------------------------------------------------------------
-
-def test_the_migration_moves_the_owners_business_settings_to_the_shared_row_and_makes_them_owner_and_administrator(fresh_db, tmp_path):
-    import shutil
-    from app.db import MIGRATIONS_DIR, run_migrations
-    work = tmp_path / "migrations"
-    work.mkdir()
-    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        if path.name[:4] < "0024":                  # the database as it was before this migration; later ones need what it makes
-            shutil.copy(path, work / path.name)
-    run_migrations(fresh_db, work)
-    with psycopg.connect(fresh_db, autocommit=True) as conn:
-        conn.execute("INSERT INTO users (display_name, preferences) VALUES ('Helmer', %s::jsonb)",
-                     ('{"theme": "dark", "business": {"name": "Flux76"}, "vat_pct": "9", "price_rounding": "none", '
-                      '"low_stock": {"threshold_g": 300, "materials": {}}, "business_mode": true}',))
-    shutil.copy(next(MIGRATIONS_DIR.glob("0024_*.sql")), work / next(MIGRATIONS_DIR.glob("0024_*.sql")).name)
-    assert run_migrations(fresh_db, work) == [next(MIGRATIONS_DIR.glob("0024_*.sql")).name]
-    with psycopg.connect(fresh_db) as conn:
-        user = conn.execute("SELECT role, is_owner, session_epoch, preferences FROM users").fetchone()
-        shared = conn.execute("SELECT preferences FROM shared_preferences").fetchone()[0]
-    assert user[:3] == ("admin", True, 0)
-    assert user[3] == {"theme": "dark", "business_mode": True}
-    assert shared == {"business": {"name": "Flux76"}, "vat_pct": "9", "price_rounding": "none", "low_stock": {"threshold_g": 300, "materials": {}}}

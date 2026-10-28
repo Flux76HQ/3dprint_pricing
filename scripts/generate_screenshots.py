@@ -5,27 +5,23 @@
     python scripts/generate_screenshots.py           # CHROMIUM_PATH=/path/to/chrome if needed
 
 The script starts its own app (the Flask app from backend/, serving frontend/) on a free local port against
-a scratch PostgreSQL database, fills it with the Dutch demo data below through the real API (so every
+a scratch SQLite database, fills it with the Dutch demo data below through the real API (so every
 validator runs), drives Chromium through the screens and wraps each screenshot in a device frame: a browser
 window for the desktop, an iPhone (installed app: dark status strip, dynamic island) and an Android phone
 (accent-coloured status bar, punch-hole camera). Nothing touches a real installation.
 
-The database comes from, in order: --database-url / SCREENSHOT_DATABASE_URL (a database this script may
-wipe: it refuses one that already has users, unless you pass --wipe), or a throwaway cluster started from the
-system's PostgreSQL binaries (needs root, like the test suite).
+The database is a SQLite file in the script's scratch folder, removed afterwards.
 
 The screenshots are the only output: docs/assets/{desktop,ios,android}-*.png, which README.md and
 README.nl.md show. Change what the screens look like and re-run this; do not edit the PNGs by hand.
 """
 import argparse
 import base64
-import glob
 import io
 import logging
 import os
 import shutil
 import socket
-import subprocess
 import sys
 import tempfile
 import threading
@@ -33,7 +29,6 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import jwt
-import psycopg
 from PIL import Image
 from playwright.sync_api import sync_playwright
 from werkzeug.serving import make_server
@@ -55,48 +50,22 @@ DESKTOP = {"w": 1280, "h": 860}
 
 # --- database and app ---------------------------------------------------------------------------------------------
 
-def local_cluster():
-    """A throwaway PostgreSQL cluster from the system binaries, as in backend/tests/conftest.py. Returns (url, stop)."""
-    bins = sorted(glob.glob("/usr/lib/postgresql/*/bin"))
-    if not bins or shutil.which("runuser") is None or os.geteuid() != 0:
-        sys.exit("No database: pass --database-url (or SCREENSHOT_DATABASE_URL), or run as root with PostgreSQL installed.")
-    bindir, root = bins[-1], tempfile.mkdtemp(prefix="pp-shots-pg-")
-    shutil.chown(root, "postgres", "postgres")
-    data, sock = os.path.join(root, "data"), os.path.join(root, "sock")
-    os.makedirs(sock)
-    shutil.chown(sock, "postgres", "postgres")
-
-    def pg(*cmd):
-        subprocess.run(["runuser", "-u", "postgres", "--", *cmd], check=True,
-                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    # UTF-8 explicitly: on a SQL_ASCII database psycopg hands text back as bytes.
-    pg(f"{bindir}/initdb", "-D", data, "-A", "trust", "-E", "UTF8", "--locale=C.UTF-8")
-    pg(f"{bindir}/pg_ctl", "-D", data, "-l", os.path.join(root, "log"), "-o", f"-k {sock} -c listen_addresses=''", "-w", "start")
-
-    def stop():
-        pg(f"{bindir}/pg_ctl", "-D", data, "-m", "immediate", "stop")
-        shutil.rmtree(root, ignore_errors=True)
-
-    return f"postgresql://postgres@/postgres?host={sock}", stop
-
-
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
 
-def start_app(database_url, upload_dir, port):
+def start_app(database_path, upload_dir, port):
     from app import create_app
     from app.config import Config
     from app.db import run_migrations
 
-    run_migrations(database_url)
+    run_migrations(database_path)
     os.environ["APP_COMMIT"] = "dev"                  # the sidebar shows vX.Y.Z (dev): the same every run, so images only change when the UI does
     os.environ["PUSH_WORKER"] = "off"
     origin = f"http://localhost:{port}"
-    cfg = Config(database_url=database_url, session_secret=SECRET, setup_code="demo", rp_id="localhost", rp_name="3D Print Pricing",
+    cfg = Config(database_path=database_path, session_secret=SECRET, setup_code="demo", rp_id="localhost", rp_name="3D Print Pricing",
                  rp_origins=(origin,), session_hours=24, cookie_secure=False, static_dir=str(ROOT / "frontend"),
                  upload_dir=upload_dir, max_upload_mb=5)
     app = create_app(cfg)
@@ -442,27 +411,15 @@ def frames(browser, raw):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--database-url", default=os.environ.get("SCREENSHOT_DATABASE_URL"),
-                        help="a scratch PostgreSQL database this script may fill (default: start a throwaway cluster)")
-    parser.add_argument("--wipe", action="store_true", help="with --database-url: wipe the database even if it already has users")
-    args = parser.parse_args()
+    parser.parse_args()
 
-    url, stop = (args.database_url, None) if args.database_url else local_cluster()
     work = Path(tempfile.mkdtemp(prefix="pp-shots-"))
     server = app = None
     try:
-        with psycopg.connect(url, autocommit=True) as conn:
-            if args.database_url:
-                has_users = conn.execute("SELECT to_regclass('public.users') IS NOT NULL").fetchone()[0] and \
-                    conn.execute("SELECT count(*) FROM users").fetchone()[0]
-                if has_users and not args.wipe:
-                    sys.exit("That database already has users. Use a scratch database, or pass --wipe to empty it.")
-            conn.execute("DROP SCHEMA public CASCADE")
-            conn.execute("CREATE SCHEMA public")
         port = free_port()
-        app, origin, server = start_app(url, str(work / "uploads"), port)
-        with psycopg.connect(url, autocommit=True) as conn:
-            user_id = conn.execute("INSERT INTO users (display_name, role, is_owner) VALUES ('Demo', 'admin', true) RETURNING id").fetchone()[0]
+        app, origin, server = start_app(str(work / "demo.sqlite3"), str(work / "uploads"), port)
+        with app.extensions["pool"].connection() as conn:
+            user_id = conn.execute("INSERT INTO users (display_name, role, is_owner) VALUES ('Demo', 'admin', true) RETURNING id").fetchone()["id"]
         api = Api(app, origin, user_id)
         project_id = seed(api)
 
@@ -481,8 +438,6 @@ def main():
         if app:
             app.extensions["pool"].close()
         shutil.rmtree(work, ignore_errors=True)
-        if stop:
-            stop()
 
 
 if __name__ == "__main__":

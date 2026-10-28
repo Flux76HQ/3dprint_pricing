@@ -16,6 +16,8 @@ data is validated and clamped before it reaches a column (a malformed spool is s
 import json
 import logging
 import re
+import time
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlparse
 
@@ -25,12 +27,13 @@ from flask import Blueprint, g, jsonify, request
 from . import filament_library
 from .api import _serialise, _share_notify, stock_changed
 from .config import ConfigError, check_spoolman_url
+from .db import id_list, named_lock
 from .http import ApiError, config, json_body, login_required, pool
 
 log = logging.getLogger(__name__)
 bp = Blueprint("spoolman", __name__, url_prefix="/api/spoolman")
 
-LOCK = 7_210_025                        # advisory lock: one sync at a time
+LOCK = "spoolman"                       # named lock (db.named_lock): one sync or push of the rolls at a time
 PAGE = 200
 MAX_SPOOLS = 5_000
 MAX_BYTES = 20 * 1024 * 1024            # one page of spools is far below this; it is only a stop for a server that never ends
@@ -181,27 +184,47 @@ def queue_use(conn, spoolman_id: int, grams: Decimal) -> None:
         conn.execute("INSERT INTO spoolman_pending_use (spoolman_id, grams) VALUES (%s, %s)", (spoolman_id, grams))
 
 
+LEASE = timedelta(minutes=2)            # how long a use that is being sent is left alone by other flushes; longer than the request can take
+
+
+def _claim_use(last: int, *, wait: bool):
+    """The oldest use after `last` that no other flush is sending, now claimed for `LEASE`; None when there is none. With `wait`, a use that another
+    flush is sending is waited for (it is gone, or released, when it is done) instead of being skipped."""
+    while True:
+        now = datetime.now(timezone.utc)
+        with pool().connection() as conn:
+            row = conn.execute("UPDATE spoolman_pending_use SET claimed_until = %s WHERE id = (SELECT id FROM spoolman_pending_use WHERE id > %s "
+                               "AND (claimed_until IS NULL OR claimed_until < %s) ORDER BY id LIMIT 1) RETURNING id, spoolman_id, grams",
+                               (now + LEASE, last, now)).fetchone()
+            busy = wait and row is None and conn.execute("SELECT 1 FROM spoolman_pending_use WHERE id > %s AND claimed_until >= %s",
+                                                         (last, now)).fetchone()
+        if row is not None or not busy:
+            return row
+        time.sleep(0.2)
+
+
 def flush(*, wait: bool) -> tuple[int, int]:
-    """Send what is owed to Spoolman, oldest first; (sent, dropped). Each use is its own transaction, so one that was sent is gone even when the
-    next one fails. A use that Spoolman refuses for good (the spool no longer exists) is dropped, anything else stays for the next time and ends
-    the run. `wait` is whether to queue behind another flush that holds a row (a sync does, so the weights it reads are final) or to leave it
-    to that flush (a booking does)."""
+    """Send what is owed to Spoolman, oldest first; (sent, dropped). Each use is claimed, sent and deleted on its own, so one that was sent is gone
+    even when the next one fails. A use that Spoolman refuses for good (the spool no longer exists) is dropped, anything else stays for the next
+    time and ends the run. `wait` is whether to queue behind another flush that is sending a use (a sync does, so the weights it reads are final) or
+    to leave it to that flush (a booking does). No transaction is open while Spoolman is called."""
     sent = dropped = last = 0
     while True:
+        row = _claim_use(last, wait=wait)
+        if row is None:
+            return sent, dropped
+        last = row["id"]
+        try:
+            _call("PUT", f"/spool/{row['spoolman_id']}/use", json={"use_weight": float(row["grams"])})
+            sent += 1
+        except SpoolmanError as exc:
+            if exc.retry:
+                with pool().connection() as conn:
+                    conn.execute("UPDATE spoolman_pending_use SET claimed_until = NULL WHERE id = %s", (row["id"],))
+                raise
+            dropped += 1
+            log.warning("Spoolman refused a use of %s g on spool %s; dropped", row["grams"], row["spoolman_id"])
         with pool().connection() as conn:
-            row = conn.execute("SELECT id, spoolman_id, grams FROM spoolman_pending_use WHERE id > %s ORDER BY id LIMIT 1 FOR UPDATE"
-                               + ("" if wait else " SKIP LOCKED"), (last,)).fetchone()
-            if row is None:
-                return sent, dropped
-            last = row["id"]
-            try:
-                _call("PUT", f"/spool/{row['spoolman_id']}/use", json={"use_weight": float(row["grams"])})
-                sent += 1
-            except SpoolmanError as exc:
-                if exc.retry:
-                    raise
-                dropped += 1
-                log.warning("Spoolman refused a use of %s g on spool %s; dropped", row["grams"], row["spoolman_id"])
             conn.execute("DELETE FROM spoolman_pending_use WHERE id = %s", (row["id"],))
 
 
@@ -217,13 +240,12 @@ def flush_after_booking() -> None:
 
 # --- the sync ----------------------------------------------------------------------------------------------------------
 
-def sync(conn) -> dict:
-    """Read every spool and bring the rolls in line (what is owed to Spoolman has been sent by now: see `run_sync`)."""
-    conn.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK,))
-    spools, skipped = fetch_spools()
-    owed: dict[int, Decimal] = {r["spoolman_id"]: r["total"] for r in conn.execute(
-        "SELECT spoolman_id, sum(grams) AS total FROM spoolman_pending_use GROUP BY spoolman_id").fetchall()}
-    have = {r["spoolman_id"]: r for r in conn.execute("SELECT * FROM filament_spools WHERE spoolman_id IS NOT NULL FOR UPDATE").fetchall()}
+def sync(conn, spools: list, skipped: int) -> dict:
+    """Bring the rolls in line with the spools just read (`fetch_spools`; what is owed to Spoolman has been sent by now: see `run_sync`)."""
+    owed: dict[int, Decimal] = {}                       # added up here, not in SQL: a SUM would come back as a float
+    for r in conn.execute("SELECT spoolman_id, grams FROM spoolman_pending_use").fetchall():
+        owed[r["spoolman_id"]] = owed.get(r["spoolman_id"], Decimal(0)) + r["grams"]
+    have = {r["spoolman_id"]: r for r in conn.execute("SELECT * FROM filament_spools WHERE spoolman_id IS NOT NULL").fetchall()}
     created = updated = 0
     for spool in spools:
         values = to_roll(spool)
@@ -243,13 +265,13 @@ def sync(conn) -> dict:
         conn.execute("UPDATE filament_spools SET spoolman_synced_at = now() WHERE id = %s", (row["id"],))
     gone = [r["id"] for r in have.values() if not r["archived"]]
     if gone:
-        conn.execute("UPDATE filament_spools SET archived = true WHERE id = ANY(%s)", (gone,))
+        conn.execute("UPDATE filament_spools SET archived = true WHERE id IN (SELECT value FROM json_each(%s))", (id_list(gone),))
     return {"created": created, "updated": updated, "archived": len(gone), "skipped": skipped, "total": len(spools)}
 
 
 # --- the library to Spoolman ----------------------------------------------------------------------------------------------
 
-LOCK_PUSH = 7_210_026                   # advisory lock: one push at a time
+LOCK_PUSH = "spoolman-push"            # named lock: one push of the library at a time
 MAX_CREATED = 300                       # new filaments per run: every one is a request, and the screen waits; run it again for the rest
 DENSITY = {"PLA": 1.24, "PETG": 1.27, "ABS": 1.04, "ASA": 1.07, "TPU": 1.21, "PC": 1.20, "PA": 1.14, "PVA": 1.23, "HIPS": 1.04, "PET": 1.38}
 DEFAULT_DENSITY = 1.24                  # Spoolman insists on one; it is only used to turn grams into metres, so a rough value is harmless
@@ -313,12 +335,11 @@ class Catalogue:
         return made_id, new_vendor, True
 
 
-def push_library(conn, *, dry_run: bool) -> dict:
+def push_library(entries: list, *, dry_run: bool) -> dict:
     """Put the filaments of the library in Spoolman that it does not have yet (a vendor first, when that is new too). Like everywhere in the
     library, what exists is only ever *completed*: a filament Spoolman already has is left as it is, and nothing is ever deleted there. It
-    creates filaments, not spools: a spool is a roll on the shelf (see `push_rolls`, or add one in Spoolman and let a sync bring it)."""
-    conn.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK_PUSH,))
-    entries = filament_library._rows(conn)
+    creates filaments, not spools: a spool is a roll on the shelf (see `push_rolls`, or add one in Spoolman and let a sync bring it).
+    `entries` are the library's rows, read by the caller: this only talks to Spoolman, so no transaction is open meanwhile."""
     catalogue = Catalogue()
     created = existing = skipped = new_vendors = left = 0
     for entry in entries:
@@ -342,16 +363,16 @@ def push_library(conn, *, dry_run: bool) -> dict:
 def push_rolls(*, dry_run: bool) -> dict:
     """Make a spool in Spoolman of every roll typed in here (not archived, not yet from Spoolman) and link the roll to it, so the next sync
     updates it instead of adding a second one. The filament is found in Spoolman, or made, the way `push_library` does. Each roll is its
-    own transaction, locked against a sync: the link is committed as soon as the spool exists, so a failure half way never leaves a spool
-    in Spoolman that a second run would make again."""
-    with pool().connection() as conn:
-        ids = [r["id"] for r in conn.execute("SELECT id FROM filament_spools WHERE spoolman_id IS NULL AND NOT archived ORDER BY created_at, id").fetchall()]
-    catalogue = Catalogue()
-    done = {"created": 0, "filaments": 0, "vendors": 0, "skipped": 0, "left": 0}
-    for roll_id in ids:
+    own short transaction while the whole run holds the sync's lock: the link is committed as soon as the spool exists, so a failure half way
+    never leaves a spool in Spoolman that a second run would make again."""
+    with named_lock(pool(), LOCK):
         with pool().connection() as conn:
-            conn.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK,))
-            roll = conn.execute("SELECT * FROM filament_spools WHERE id = %s AND spoolman_id IS NULL AND NOT archived FOR UPDATE", (roll_id,)).fetchone()
+            ids = [r["id"] for r in conn.execute("SELECT id FROM filament_spools WHERE spoolman_id IS NULL AND NOT archived ORDER BY created_at, id").fetchall()]
+        catalogue = Catalogue()
+        done = {"created": 0, "filaments": 0, "vendors": 0, "skipped": 0, "left": 0}
+        for roll_id in ids:
+            with pool().connection() as conn:
+                roll = conn.execute("SELECT * FROM filament_spools WHERE id = %s AND spoolman_id IS NULL AND NOT archived", (roll_id,)).fetchone()
             if roll is None:
                 continue                                  # linked, archived or removed since the list was read
             brand = roll["brand"].strip()[:64]
@@ -374,8 +395,9 @@ def push_rolls(*, dry_run: bool) -> dict:
             made = _json("POST", "/spool", json={k: v for k, v in body.items() if v != ""})[1]
             if not isinstance(made, dict) or not isinstance(made.get("id"), int):
                 raise SpoolmanError("spoolman.bad_reply", retry=False)
-            conn.execute("UPDATE filament_spools SET spoolman_id = %s, spoolman_synced_at = now() WHERE id = %s", (made["id"], roll_id))
-    return done
+            with pool().connection() as conn:
+                conn.execute("UPDATE filament_spools SET spoolman_id = %s, spoolman_synced_at = now() WHERE id = %s", (made["id"], roll_id))
+        return done
 
 
 @bp.post("/push-library")
@@ -384,8 +406,10 @@ def run_push_library():
         raise ApiError(400, "spoolman.off")
     dry_run = request.args.get("dry_run") == "1"
     try:
-        with pool().connection() as conn:
-            return jsonify(push_library(conn, dry_run=dry_run))
+        with named_lock(pool(), LOCK_PUSH):
+            with pool().connection() as conn:
+                entries = filament_library._rows(conn)
+            return jsonify(push_library(entries, dry_run=dry_run))
     except SpoolmanError as exc:
         raise exc.api() from None
 
@@ -410,9 +434,11 @@ def status():
         return jsonify({"enabled": False, "can_sync": admin, "url": "" if admin else None, "from_env": False})
     parts = urlparse(address())
     with pool().connection() as conn:
-        row = conn.execute("SELECT count(*) AS rolls, max(spoolman_synced_at) AS last FROM filament_spools WHERE spoolman_id IS NOT NULL").fetchone()
+        rolls = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE spoolman_id IS NOT NULL").fetchone()["n"]
+        latest = conn.execute("SELECT spoolman_synced_at AS at FROM filament_spools WHERE spoolman_id IS NOT NULL "
+                              "ORDER BY spoolman_synced_at DESC LIMIT 1").fetchone()
         pending = conn.execute("SELECT count(*) AS n FROM spoolman_pending_use").fetchone()["n"]
-    return jsonify(_serialise({"enabled": True, "host": parts.netloc, "rolls": row["rolls"], "last_sync": row["last"], "pending": pending,
+    return jsonify(_serialise({"enabled": True, "host": parts.netloc, "rolls": rolls, "last_sync": latest["at"] if latest else None, "pending": pending,
                                "can_sync": admin, "url": address() if admin else None, "from_env": from_env}))
 
 
@@ -451,9 +477,11 @@ def run_sync():
     if not enabled():
         raise ApiError(400, "spoolman.off")
     try:
-        sent, dropped = flush(wait=True)                  # what is owed goes first, or the weights read below would be older than the shelf
-        with pool().connection() as conn:
-            result = {**sync(conn), "sent": sent, "dropped": dropped}
+        with named_lock(pool(), LOCK):                    # one sync (or push of the rolls) at a time; no transaction is open while Spoolman is called
+            sent, dropped = flush(wait=True)              # what is owed goes first, or the weights read below would be older than the shelf
+            spools, skipped = fetch_spools()
+            with pool().connection() as conn:
+                result = {**sync(conn, spools, skipped), "sent": sent, "dropped": dropped}
     except SpoolmanError as exc:
         raise exc.api() from None
     stock_changed()                                       # what is left may have changed: see whether a kind has run low

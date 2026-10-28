@@ -31,8 +31,8 @@ def _register_failure(conn, user_id) -> None:
     """Atomic, so parallel guesses cannot out-run the counter. From the 5th failure: 15 minutes, then doubling."""
     conn.execute(
         "UPDATE password_credentials SET failed_count = failed_count + 1, updated_at = now(), "
-        "locked_until = CASE WHEN failed_count + 1 >= %s THEN now() + interval '1 minute' * "
-        "LEAST(15 * power(2, (failed_count + 1 - %s) / 5), 1440) ELSE locked_until END WHERE user_id = %s",
+        "locked_until = CASE WHEN failed_count + 1 >= %s THEN strftime('%%Y-%%m-%%d %%H:%%M:%%f', 'now', '+' || "
+        "min(15 * (1 << min((failed_count + 1 - %s) / 5, 7)), 1440) || ' minutes') ELSE locked_until END WHERE user_id = %s",
         (MAX_FAILURES, MAX_FAILURES, user_id))
 
 
@@ -89,7 +89,7 @@ def login():
                 conn.execute("UPDATE password_credentials SET failed_count = 0, locked_until = NULL, updated_at = now() "
                              "WHERE user_id = %s", (row["user_id"],))
                 response = make_response(jsonify({"ok": True}))
-                issue_session(response, row["user_id"])
+                issue_session(response, row["user_id"], conn)
                 return response
             token = passwords.make_mfa_token(config().session_secret, row["user_id"])
             return jsonify({"mfa_required": True, "mfa_token": token})
@@ -121,7 +121,7 @@ def mfa():
                 conn.execute("UPDATE password_credentials SET failed_count = 0, locked_until = NULL, updated_at = now() "
                              "WHERE user_id = %s", (row["user_id"],))
                 response = make_response(jsonify({"ok": True}))
-                issue_session(response, row["user_id"])
+                issue_session(response, row["user_id"], conn)
                 return response
             _register_failure(conn, row["user_id"])
     raise refusal
@@ -213,7 +213,7 @@ def status():
                                  (g.user_id,)).fetchone()["n"]
         passkeys = conn.execute("SELECT count(*) AS n FROM webauthn_credentials WHERE user_id = %s", (g.user_id,)).fetchone()["n"]
     on = bool(row and row["enabled"])
-    return jsonify({"enabled": on, "totp": on and row["totp"], "backup_codes_remaining": remaining, "passkeys": passkeys})
+    return jsonify({"enabled": on, "totp": on and bool(row["totp"]), "backup_codes_remaining": remaining, "passkeys": passkeys})
 
 
 @bp.post("/setup")
@@ -237,7 +237,7 @@ def setup():
 def totp_start():
     """Begin adding an authenticator app. The secret waits as pending: nothing about signing in changes until a code is confirmed."""
     with pool().connection() as conn:
-        row = conn.execute("SELECT totp_secret FROM password_credentials WHERE user_id = %s FOR UPDATE", (g.user_id,)).fetchone()
+        row = conn.execute("SELECT totp_secret FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
         if row is None:
             raise ApiError(409, "pwapi.not_on")
         if row["totp_secret"] is not None:
@@ -255,7 +255,7 @@ def totp_start():
 def totp_confirm():
     code = str(json_body().get("code", ""))
     with pool().connection() as conn:
-        row = conn.execute("SELECT pending_totp_secret, totp_secret FROM password_credentials WHERE user_id = %s FOR UPDATE",
+        row = conn.execute("SELECT pending_totp_secret, totp_secret FROM password_credentials WHERE user_id = %s",
                            (g.user_id,)).fetchone()
         if row is None or row["pending_totp_secret"] is None or row["totp_secret"] is not None:
             raise ApiError(409, "pwapi.no_setup")
@@ -274,7 +274,7 @@ def totp_confirm():
 def totp_disable():
     _confirm(json_body(), "password-totp-disable")
     with pool().connection() as conn:
-        row = conn.execute("SELECT totp_secret FROM password_credentials WHERE user_id = %s FOR UPDATE", (g.user_id,)).fetchone()
+        row = conn.execute("SELECT totp_secret FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
         if row is None or row["totp_secret"] is None:
             raise ApiError(409, "pwapi.no_totp")
         conn.execute("UPDATE password_credentials SET totp_secret = NULL, pending_totp_secret = NULL, last_totp_step = 0, updated_at = now() "

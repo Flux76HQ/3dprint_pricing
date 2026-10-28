@@ -4,11 +4,10 @@ import base64
 from datetime import datetime, timedelta, timezone
 
 import jwt
-import psycopg
 import pytest
 
 from app import passwords, password_api
-from tests.conftest import ORIGIN
+from tests.conftest import ORIGIN, connect
 from tests.fake_authenticator import FakeAuthenticator
 from tests.test_auth_api import H, onboard, post
 
@@ -186,7 +185,7 @@ def test_turning_it_on_twice_is_refused_while_it_is_on(owner):
 
 def test_a_password_is_stored_as_a_hash_with_no_second_factor_to_begin_with(owner, app):
     assert start(owner).status_code == 200
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         stored_hash, secret, pending, enabled = conn.execute(
             "SELECT password_hash, totp_secret, pending_totp_secret, enabled FROM password_credentials").fetchone()
     assert stored_hash.startswith("$argon2id$") and PASSWORD not in stored_hash
@@ -213,7 +212,7 @@ def test_totp_setup_returns_a_qr_and_the_manual_key_and_stores_nothing_readable(
     body = started.get_json()
     assert started.status_code == 200 and body["qr"].startswith("data:image/svg+xml")
     assert body["uri"].startswith("otpauth://totp/") and f"secret={body['secret']}" in body["uri"] and "issuer=3D%20Print%20Pricing" in body["uri"]
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         active, sealed = conn.execute("SELECT totp_secret, pending_totp_secret FROM password_credentials").fetchone()
     assert active is None                                                                   # nothing changes until a code is confirmed
     assert body["secret"].encode() not in bytes(sealed) and secret_of(started) not in bytes(sealed)
@@ -285,7 +284,7 @@ def test_switching_off_the_authenticator_app_keeps_the_password_and_drops_the_ba
     assert post(owner, "/api/auth/password/totp/disable", {}).status_code == 400                                         # needs a confirmation
     assert post(owner, "/api/auth/password/totp/disable", {"credential": confirmation(owner, "password-disable")}).status_code == 403   # for this action only
     assert post(owner, "/api/auth/password/totp/disable", {"credential": confirmation(owner, "password-totp-disable")}).status_code == 200
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         assert conn.execute("SELECT totp_secret, pending_totp_secret, enabled FROM password_credentials").fetchone() == (None, None, True)
         assert conn.execute("SELECT count(*) FROM mfa_backup_codes").fetchone()[0] == 0
     signed_out(owner)
@@ -370,7 +369,7 @@ def test_a_bad_or_expired_or_foreign_mfa_token_is_refused(owner, app):
     secret, _ = enable(owner)
     signed_out(owner)
     cfg = app.config["APP_CONFIG"]
-    with psycopg.connect(cfg.database_url) as conn:
+    with connect(cfg.database_path) as conn:
         user_id = conn.execute("SELECT user_id FROM password_credentials").fetchone()[0]
     expired = passwords.make_mfa_token(cfg.session_secret, user_id, now=datetime.now(timezone.utc) - timedelta(minutes=10))
     foreign = passwords.make_mfa_token("y" * 40, user_id)
@@ -396,21 +395,21 @@ def test_five_failures_lock_password_login_even_for_the_right_password_and_passk
 def test_the_lock_ends_resets_after_a_real_login_and_doubles_when_guessing_continues(owner, app):
     secret, _ = enable(owner)
     signed_out(owner)
-    url = app.config["APP_CONFIG"].database_url
+    url = app.config["APP_CONFIG"].database_path
     def unlock():
-        with psycopg.connect(url) as conn:
-            conn.execute("UPDATE password_credentials SET locked_until = now() - interval '1 minute'")
+        with connect(url) as conn:
+            conn.execute("UPDATE password_credentials SET locked_until = strftime('%Y-%m-%d %H:%M:%f', 'now', '-1 minutes')")
     for _ in range(5):
         password_login(owner, "wrong wrong wrong wrong")
     for _ in range(5):                                           # one guess per lock; every five of them the lock doubles
         unlock()
         password_login(owner, "wrong wrong wrong wrong")
-    with psycopg.connect(url) as conn:
-        minutes = conn.execute("SELECT extract(epoch FROM locked_until - now()) / 60 FROM password_credentials").fetchone()[0]
+    with connect(url) as conn:
+        minutes = conn.execute("SELECT (julianday(locked_until) - julianday('now')) * 1440 FROM password_credentials").fetchone()[0]
     assert 28 < minutes <= 30
     unlock()
     assert full_login(owner, secret, offset=1).status_code == 200
-    with psycopg.connect(url) as conn:
+    with connect(url) as conn:
         assert conn.execute("SELECT failed_count, locked_until FROM password_credentials").fetchone() == (0, None)
 
 
@@ -460,7 +459,7 @@ def test_switching_it_off_removes_everything_and_needs_the_passkey(owner, app):
     assert post(owner, "/api/auth/password/disable", {}).status_code == 400
     assert post(owner, "/api/auth/password/disable", {"credential": confirmation(owner, "password-change")}).status_code == 403
     assert post(owner, "/api/auth/password/disable", {"credential": confirmation(owner, "password-disable")}).status_code == 200
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         assert conn.execute("SELECT count(*) FROM password_credentials").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM mfa_backup_codes").fetchone()[0] == 0
     signed_out(owner)
@@ -502,7 +501,7 @@ def sure(secret, offset=1, password=PASSWORD):
 def test_it_can_be_turned_off_with_the_password_and_a_code_when_no_passkey_works(owner, app):
     secret, _ = enable(owner)
     assert post(owner, "/api/auth/password/disable", sure(secret)).status_code == 200
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         assert conn.execute("SELECT count(*) FROM password_credentials").fetchone()[0] == 0
 
 
@@ -537,7 +536,7 @@ def test_a_wrong_password_burns_no_code_and_counts_toward_the_lock(owner, app):
     secret, codes = enable(owner)
     for _ in range(4):
         assert post(owner, "/api/auth/password/disable", {"current_password": "fout-fout-fout-123", "code": codes[0]}).status_code == 401
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         assert conn.execute("SELECT count(*) FROM mfa_backup_codes WHERE used_at IS NOT NULL").fetchone()[0] == 0
     assert post(owner, "/api/auth/password/disable", {"current_password": "fout-fout-fout-123", "code": codes[0]}).status_code == 401
     locked = post(owner, "/api/auth/password/disable", sure(secret))                         # now even the right ones are refused
@@ -548,7 +547,7 @@ def test_a_wrong_password_burns_no_code_and_counts_toward_the_lock(owner, app):
 def test_the_right_password_with_a_wrong_code_is_refused_and_counted(owner, app):
     secret, _ = enable(owner)
     assert post(owner, "/api/auth/password/disable", {"current_password": PASSWORD, "code": "000000"}).status_code == 401
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         assert conn.execute("SELECT failed_count FROM password_credentials").fetchone()[0] == 1
     assert owner.get("/api/auth/password/status").get_json()["enabled"] is True
 
@@ -564,7 +563,7 @@ def test_a_weak_new_password_is_refused_before_a_confirmation_is_spent(owner, ap
     secret, _ = enable(owner)
     refused = post(owner, "/api/auth/password/change", {**sure(secret), "password": "kort"})
     assert refused.status_code == 400
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         assert conn.execute("SELECT failed_count, last_totp_step FROM password_credentials").fetchone()[0] == 0
     assert post(owner, "/api/auth/password/change", {**sure(secret), "password": "een-heel-ander-wachtwoord-77"}).status_code == 200
 

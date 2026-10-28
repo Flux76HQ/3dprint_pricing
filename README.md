@@ -132,7 +132,7 @@ A password works on any address, also on your own network. For passkeys, install
 ### Installation as a Home Assistant app
 
 On Home Assistant OS or Supervised, add `https://github.com/Flux76HQ/3dprint_pricing` under **Settings > Apps > Install app > Repositories** and install
-*3D Print Pricing*: the app brings its own PostgreSQL and keeps its data in the app's folder, which Home Assistant backs up. Passkeys still need a
+*3D Print Pricing*: the app keeps its data (one SQLite database and the uploads) in the app's folder, which Home Assistant backs up. Passkeys still need a
 domain with https in front of the app's port, so set `rp_id` on the Configuration tab for them; with a password the app also works on `http://<address of Home Assistant>:6080`. The steps are on the app's Documentation tab ([`homeassistant/DOCS.md`](homeassistant/DOCS.md)). Runs on amd64 and aarch64 (Raspberry Pi 4/5, ARM mini PCs).
 
 ### Configuration
@@ -142,8 +142,8 @@ Set in `.env`; the file `.env.example` documents each value.
 | Variable | Required | Default | Description |
 |---|:---:|---|---|
 | `WEB_PORT` | ✅ | - | Port of the app; compose publishes it and the app listens on it |
-| `DATA_PATH` | ✅ | - | Host folder for all data: the database (`postgres/`) and the uploaded files (`uploads/`). Plain folders, not Docker volumes. Must be an **absolute** folder of the Docker host (e.g. `/srv/printpricing`, on Unraid `/mnt/user/appdata/printpricing`), never `./data`; data that ended up elsewhere is moved by `scripts/migrate_data.sh` |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | ✅ | - | The database; use letters and digits only in the password |
+| `DATA_PATH` | ✅ | - | Host folder for all data: the database (`db/`, one SQLite file) and the uploaded files (`uploads/`). Plain folders, not Docker volumes. Must be an **absolute** folder of the Docker host on a local disk (e.g. `/srv/printpricing`, on Unraid `/mnt/cache/appdata/printpricing`, not `/mnt/user/...`: SQLite does not belong on a network share or FUSE mount), never `./data`; data that ended up elsewhere is moved by `scripts/migrate_data.sh` |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | ✅ | - | Only for the PostgreSQL of the releases before SQLite, which the app reads once to move your data over when it starts without a SQLite file (see the [operations guide](docs/handleiding.md), *Overstap naar SQLite*). Keep them as they are; the next release drops them. Letters and digits only in the password |
 | `RP_ID` | ❌ | empty | Domain the app runs on, without scheme or port. Passkeys are bound to it, so set it once you use them. Empty: the address the app is opened on |
 | `RP_ORIGINS` | ❌ | empty | Full origin(s), comma separated, for example `https://print.example.com`. When set, writes from any other origin are refused, and invitation links use the address the administrator is signed in on when it is listed here, otherwise the first one. Empty: the address the app is opened on |
 | `SETUP_CODE` | ✅ | - | One-time code for the onboarding, so the first visitor cannot take over the app |
@@ -161,13 +161,13 @@ Set in `.env`; the file `.env.example` documents each value.
 | `PRINTPRICING_UPDATE_CHECK` | ❌ | `true` | The update check: the app asks GitHub whether a newer stable release exists and tells the owner with a banner and under *Settings → System → Update check*. It sends nothing about your installation and never updates anything. `false` (also `0`, `no`, `off`) switches it off, for an installation that must not call out. A beta build only sees stable releases |
 | `PRINTPRICING_TAG` | ❌ | `latest` | Which build runs: `latest` (stable), `beta` (the development version) or a version number such as `0.26.15`. `docker-compose.yml` pulls `ghcr.io/flux76hq/3dprint_pricing:<tag>` and passes the same value to the app, which shows a **beta** label next to its name on `beta`. Replaces `APP_IMAGE` |
 
-Updating is `docker compose pull && docker compose up -d` (or `sh scripts/update.sh`, which dumps the database first). The app tells you when a newer release exists: it asks GitHub (the latest stable release of this repository, nothing about your installation is sent) and shows a banner and *Settings → System → Update check*; it only announces, it never updates anything. `PRINTPRICING_UPDATE_CHECK=false` switches it off. Health checks, backups, notifications and everything else about running the app are in the [operations guide](docs/handleiding.md) (Dutch).
+Updating is `docker compose pull && docker compose up -d` (or `sh scripts/update.sh`, which copies the database first). The app tells you when a newer release exists: it asks GitHub (the latest stable release of this repository, nothing about your installation is sent) and shows a banner and *Settings → System → Update check*; it only announces, it never updates anything. `PRINTPRICING_UPDATE_CHECK=false` switches it off. Health checks, backups, notifications and everything else about running the app are in the [operations guide](docs/handleiding.md) (Dutch).
 
 ## Tech stack
 
 - **App / frontend:** a Progressive Web App in plain JavaScript, no build step, with a service worker for the offline shell
 - **Backend:** Python, Flask and Gunicorn; passkeys through the open-source `py_webauthn` library (`webauthn` package)
-- **Database:** PostgreSQL 17, with forward-only, checksum-guarded migrations
+- **Database:** SQLite (one file, WAL mode), with forward-only, checksum-guarded migrations
 - **Infrastructure:** Docker Compose, an image published to GHCR by CI
 
 ## Architecture
@@ -176,7 +176,7 @@ Updating is `docker compose pull && docker compose up -d` (or `sh scripts/update
 flowchart LR
     A[Phone or desktop<br/>installed PWA] -->|https| P[Reverse proxy<br/>TLS]
     P --> B[App container<br/>Flask API + PWA files]
-    B --> C[(PostgreSQL)]
+    B --> C[(SQLite file)]
     B --> D[/Uploaded STL and 3MF files/]
     B -.->|optional web push| E[Push services]
 ```

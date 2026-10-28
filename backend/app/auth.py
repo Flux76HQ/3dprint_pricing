@@ -33,11 +33,15 @@ setup_limiter = RateLimiter(limit=10, window_seconds=900)
 
 # --- sessions ---------------------------------------------------------------
 
-def issue_session(response, user_id) -> None:
-    """Call after the transaction that made or changed the user has committed: the session carries the user's epoch as it is now."""
+def issue_session(response, user_id, conn=None) -> None:
+    """Call after the transaction that made or changed the user has committed: the session carries the user's epoch as it is now.
+    A caller that is still inside its own transaction passes it as `conn` (a second connection would wait for it)."""
     cfg = config()
     now = datetime.now(timezone.utc)
-    with pool().connection() as conn:
+    if conn is None:
+        with pool().connection() as own:
+            epoch = own.execute("SELECT session_epoch FROM users WHERE id = %s", (user_id,)).fetchone()["session_epoch"]
+    else:
         epoch = conn.execute("SELECT session_epoch FROM users WHERE id = %s", (user_id,)).fetchone()["session_epoch"]
     token = jwt.encode(
         {"sub": str(user_id), "ep": epoch, "iat": now, "exp": now + timedelta(hours=cfg.session_hours)},
@@ -76,8 +80,8 @@ def _store_challenge(conn, kind, *, purpose=None, user_id=None, data=None) -> by
     conn.execute("DELETE FROM webauthn_challenges WHERE expires_at < now()")
     conn.execute(
         "INSERT INTO webauthn_challenges (challenge, kind, purpose, user_id, data, expires_at) "
-        "VALUES (%s, %s, %s, %s, %s, now() + %s * interval '1 second')",
-        (challenge, kind, purpose, user_id, json.dumps(data or {}), CHALLENGE_TTL),
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (challenge, kind, purpose, user_id, json.dumps(data or {}), datetime.now(timezone.utc) + timedelta(seconds=CHALLENGE_TTL)),
     )
     return challenge
 
@@ -90,7 +94,7 @@ def _consume_challenge(conn, client_data_json: bytes, kind, *, purpose=None, use
         raise ApiError(400, "auth.bad_request") from None
     row = conn.execute(
         "DELETE FROM webauthn_challenges WHERE challenge = %s AND kind = %s "
-        "AND purpose IS NOT DISTINCT FROM %s AND user_id IS NOT DISTINCT FROM %s "
+        "AND purpose IS %s AND user_id IS %s "
         "AND expires_at > now() RETURNING challenge, data",
         (challenge, kind, purpose, user_id),
     ).fetchone()
@@ -215,16 +219,16 @@ def _create_recovery_codes(conn, user_id) -> list[str]:
 @bp.get("/status")
 def status():
     with pool().connection() as conn:
-        onboarded = conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]
+        onboarded = bool(conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"])
         user = None
         if g.user_id:
             row = conn.execute("SELECT id, display_name, role, is_owner FROM users WHERE id = %s", (g.user_id,)).fetchone()
             user = ({"id": str(row["id"]), "display_name": row["display_name"], "role": row["role"], "is_owner": row["is_owner"]}
                     if row else None)
-        password_login = conn.execute("SELECT EXISTS (SELECT 1 FROM password_credentials WHERE enabled) AS e").fetchone()["e"]
-        passkey_login = conn.execute("SELECT EXISTS (SELECT 1 FROM webauthn_credentials) AS e").fetchone()["e"]
+        password_login = bool(conn.execute("SELECT EXISTS (SELECT 1 FROM password_credentials WHERE enabled) AS e").fetchone()["e"])
+        passkey_login = bool(conn.execute("SELECT EXISTS (SELECT 1 FROM webauthn_credentials) AS e").fetchone()["e"])
         # With one person a password login needs no name; with more the screen asks which of them is signing in.
-        several = conn.execute("SELECT count(*) > 1 AS m FROM users").fetchone()["m"]
+        several = bool(conn.execute("SELECT count(*) > 1 AS m FROM users").fetchone()["m"])
     return jsonify({"onboarded": onboarded, "authenticated": user is not None, "user": user,
                     "rp_id": rp.rp_id(), "passkey_problem": rp.passkey_problem(), "passkey_login": passkey_login,
                     "password_login": password_login, "login_name_required": several,
@@ -259,7 +263,7 @@ def onboarding_options():
     _check_setup_code(body)
     display_name = _owner_name(body)
     with pool().connection() as conn:
-        if conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]:
+        if bool(conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]):
             raise ApiError(409, "auth.onboarded")
         user_id = uuid.uuid4()
         challenge = _store_challenge(conn, "onboarding",
@@ -273,8 +277,8 @@ def onboarding_verify():
     cred = _credential_payload(body)
     with pool().connection() as conn:
         result, row = _verify_registration(conn, cred, "onboarding")
-        conn.execute("SELECT pg_advisory_xact_lock(7603002)")  # two onboardings at once: one wins
-        if conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]:
+        # The transaction holds the database's write lock from its first statement: two onboardings at once, one wins.
+        if bool(conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]):
             raise ApiError(409, "auth.onboarded")
         data = row["data"]
         user_id = uuid.UUID(data["user_id"])
@@ -300,8 +304,8 @@ def onboarding_password():
     except ValueError as exc:
         raise ApiError(400, exc) from None
     with pool().connection() as conn:
-        conn.execute("SELECT pg_advisory_xact_lock(7603002)")  # two onboardings at once: one wins (the passkey path takes the same lock)
-        if conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]:
+        # The transaction holds the database's write lock from its first statement: two onboardings at once, one wins.
+        if bool(conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"]):
             raise ApiError(409, "auth.onboarded")
         user_id = uuid.uuid4()
         conn.execute("INSERT INTO users (id, display_name, role, is_owner) VALUES (%s, %s, 'admin', true)", (user_id, display_name))

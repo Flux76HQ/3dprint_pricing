@@ -23,7 +23,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=6080, help="web port (WEB_PORT)")
     parser.add_argument("--domain", help="public domain to pin the app to, e.g. print.example.com (uses https; passkeys are bound to it)")
-    parser.add_argument("--data-path", default=str(ROOT / "data"), help="ABSOLUTE folder of the host for the database (postgres/) and the uploads (uploads/); default: data/ in this checkout")
+    parser.add_argument("--data-path", default=str(ROOT / "data"), help="ABSOLUTE folder of the host for the database (db/) and the uploads (uploads/); default: data/ in this checkout")
     args = parser.parse_args()
     if not args.data_path.startswith("/"):
         parser.error("--data-path must be an absolute path: a relative one is resolved by whatever tool starts the stack (see .env.example)")

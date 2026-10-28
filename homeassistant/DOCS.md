@@ -1,7 +1,7 @@
 # 3D Print Pricing
 
-This app runs [3D Print Pricing](https://github.com/Flux76HQ/3dprint_pricing) inside Home Assistant. The app and its PostgreSQL database
-run in this one container; everything they store lives in the app's own data folder, which Home Assistant includes in its backups.
+This app runs [3D Print Pricing](https://github.com/Flux76HQ/3dprint_pricing) inside Home Assistant. Everything it stores (one SQLite database
+and the uploads) lives in the app's own data folder, which Home Assistant includes in its backups.
 
 ## Install
 
@@ -46,12 +46,14 @@ Changes take effect after a restart of the app.
 
 ## Data, backups and moving
 
-- The database is in `/data/postgres`, the uploads in `/data/uploads` and the generated secrets (session key, database password, push keys)
-  in `/data/secrets.json`. Home Assistant stops the app while it makes a backup (a running database is not a consistent copy), so a backup
+- The database is the file `/data/db/printpricing.sqlite3`, the uploads are in `/data/uploads` and the generated secrets (session key, push keys)
+  in `/data/secrets.json`. Home Assistant stops the app while it makes a backup (a database that is being written is not a consistent copy), so a backup
   takes the app offline for a moment.
 - The app also has its own backup and restore (Settings > System), which is the way to move an installation between this app and the Docker
   Compose installation, in either direction. A backup file never contains passkeys or users: the person restoring signs up again.
-- The database is PostgreSQL 17. A data folder cannot be opened by another major version; the app refuses to start rather than touch it.
+- An installation from before the SQLite releases still has its database in `/data/postgres`. On the first start after the update the app moves
+  it into the SQLite file by itself (PostgreSQL runs for that one start); `/data/postgres` is left alone, and you can remove it once the app works.
+  The app refuses to start rather than begin empty when it finds that folder and cannot import it.
 
 ## Updating
 

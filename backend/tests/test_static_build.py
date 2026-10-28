@@ -19,7 +19,7 @@ FRONT = Path(__file__).resolve().parents[2] / "frontend"
 def real(fresh_db, tmp_path, monkeypatch):
     monkeypatch.setenv("APP_COMMIT", "0123456789")
     run_migrations(fresh_db)
-    cfg = Config(database_url=fresh_db, session_secret=SECRET, setup_code=SETUP_CODE, rp_id=RP_ID, rp_name="Test",
+    cfg = Config(database_path=fresh_db, session_secret=SECRET, setup_code=SETUP_CODE, rp_id=RP_ID, rp_name="Test",
                  rp_origins=(ORIGIN,), session_hours=24, cookie_secure=True, upload_dir=str(tmp_path / "up"),
                  static_dir=str(FRONT))
     app = create_app(cfg)

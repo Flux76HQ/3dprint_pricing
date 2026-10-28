@@ -9,6 +9,7 @@ import json
 import os
 import re
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
@@ -40,8 +41,9 @@ def serialise(row) -> dict:
 
 def _purge_orphans(conn) -> None:
     rows = conn.execute(
-        "DELETE FROM print_files f WHERE f.created_at < now() - interval '1 day' "
-        "AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.file_id = f.id) RETURNING stored_name"
+        "DELETE FROM print_files WHERE created_at < %s "
+        "AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.file_id = print_files.id) RETURNING stored_name",
+        (datetime.now(timezone.utc) - timedelta(days=1),)
     ).fetchall()
     for row in rows:
         (_dir() / row["stored_name"]).unlink(missing_ok=True)

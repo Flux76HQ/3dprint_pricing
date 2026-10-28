@@ -12,10 +12,10 @@ away has cost the person it was made for nothing.
 """
 import uuid
 
-import psycopg
 from flask import Blueprint, jsonify, make_response, request
 
 from . import passwords
+from .db import UniqueViolation
 from .auth import _create_recovery_codes, _credential_payload, _registration_options, _save_credential, _store_challenge, _verify_registration, issue_session, store_password
 from .http import ApiError, RateLimiter, json_body, pool
 from .users import clean_name, name_taken, token_hash
@@ -28,13 +28,13 @@ INVALID = "invite.invalid"      # one message for unknown, expired and used: the
 SIGN_IN_TABLES = ("webauthn_credentials", "recovery_codes", "password_credentials", "mfa_backup_codes", "push_subscriptions")
 
 
-def _invitation(conn, *, lock=False):
+def _invitation(conn):
     token = request.headers.get("X-Invite-Token", "").strip()
     row = None
     if 16 <= len(token) <= 200:
         row = conn.execute(
             "SELECT i.*, c.display_name AS invited_by FROM invitations i LEFT JOIN users c ON c.id = i.created_by "
-            f"WHERE i.token_hash = %s AND i.expires_at > now(){' FOR UPDATE OF i' if lock else ''}", (token_hash(token),)).fetchone()
+            "WHERE i.token_hash = %s AND i.expires_at > now()", (token_hash(token),)).fetchone()
     if row is None:
         raise ApiError(404, INVALID)
     return row
@@ -59,7 +59,7 @@ def _finish(conn, inv, name: str, user_id) -> uuid.UUID:
             raise ApiError(409, "users.name_taken")
         try:
             conn.execute("INSERT INTO users (id, display_name) VALUES (%s, %s)", (user_id, name))
-        except psycopg.errors.UniqueViolation:                          # two invitations for one name finishing together
+        except UniqueViolation:                          # two invitations for one name finishing together
             raise ApiError(409, "users.name_taken") from None
         return user_id
     user_id = inv["user_id"]
@@ -95,7 +95,7 @@ def passkey_verify():
     limiter.check(request.remote_addr or "?")
     body = json_body()
     with pool().connection() as conn:
-        inv = _invitation(conn, lock=True)                              # first: a bad link gets its one answer whatever else is wrong
+        inv = _invitation(conn)                              # first: a bad link gets its one answer whatever else is wrong
         cred = _credential_payload(body)
         result, row = _verify_registration(conn, cred, "invite", purpose=str(inv["id"]))
         user_id = _finish(conn, inv, row["data"]["name"], uuid.UUID(row["data"]["user_id"]))
@@ -113,7 +113,7 @@ def choose_password():
     body = json_body()
     password = str(body.get("password", ""))
     with pool().connection() as conn:
-        inv = _invitation(conn, lock=True)
+        inv = _invitation(conn)
         name = _chosen_name(conn, inv, body)
         try:
             passwords.check_policy(password, name)                          # before the invitation is claimed: a weak password costs the guest nothing
