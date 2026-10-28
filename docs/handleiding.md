@@ -128,7 +128,7 @@ geleverd. Wijzig je `RP_ID` later, dan werken bestaande passkeys niet meer; log 
 De app is ook als Home Assistant-app (voorheen add-on) te installeren, voor Home Assistant OS en Supervised. Voeg onder
 **Instellingen > Apps > App installeren > Repositories** het adres `https://github.com/Flux76HQ/3dprint_pricing` toe en installeer *3D Print Pricing*.
 Home Assistant bouwt de app dan op het apparaat (`homeassistant/Dockerfile`, op de image van dezelfde versie); de stappen voor de gebruiker staan op het
-tabblad Documentatie van de app (`homeassistant/DOCS.md`).
+tabblad Documentatie van de app (`homeassistant/DOCS.md`: tweetalig, Nederlands eerst, en een test controleert dat elke optie erin staat). De knop *Webinterface openen* wijst naar poort 6080 (`webui` in `config.yaml`); er is geen Ingress.
 
 - **Eén container, twee processen.** Home Assistant draait één container per app, dus `homeassistant/run.py` start PostgreSQL 17 (alleen op `127.0.0.1`)
   en daarna de eigen `entrypoint.sh` van de image (migraties, gunicorn). Stopt een van beide, dan stopt het andere en eindigt `run.py`, zodat de watchdog van

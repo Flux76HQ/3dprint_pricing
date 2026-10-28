@@ -93,6 +93,25 @@ class OptionsTest(unittest.TestCase):
                     self.assertRegex(env, rf"(?m)^#?\s*{name}=", name)
 
 
+class DocumentationTest(unittest.TestCase):
+    """The Documentation tab is what a person reads before the first start: it has to name every option, in both languages."""
+    text = (APP / "DOCS.md").read_text(encoding="utf-8")
+
+    def test_every_option_is_documented_in_dutch_and_english(self):
+        dutch, english = self.text.split("\n## English\n")
+        for option in CONFIG["schema"]:
+            self.assertIn(f"**{option}**", dutch, f"{option} is not in the Dutch part of DOCS.md")
+            self.assertIn(f"**{option}**", english, f"{option} is not in the English part of DOCS.md")
+
+    def test_both_languages_have_the_same_sections(self):
+        dutch, english = self.text.split("\n## English\n")
+        self.assertEqual(len(re.findall(r"(?m)^### ", dutch)), len(re.findall(r"(?m)^### ", english)))
+
+    def test_the_open_web_ui_button_points_at_the_published_port(self):
+        self.assertEqual(CONFIG["webui"], "http://[HOST]:[PORT:6080]")
+        self.assertIn("6080/tcp", CONFIG["ports"])
+
+
 class DockerfileTest(unittest.TestCase):
     text = (APP / "Dockerfile").read_text(encoding="utf-8")
 
