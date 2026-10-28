@@ -2,16 +2,16 @@
    Every colour in a component comes from a token; measured in both themes. */
 :root {
   --bp-regular: 860px;           /* documented once; the @media below repeats it (CSS cannot read it) */
-  --bg: #f3f2f9;
-  --bg-glow-1: rgba(108, 92, 231, .16);
-  --bg-glow-2: rgba(47, 230, 214, .14);
+  --bg: #f4f5fa;
+  --bg-glow-1: color-mix(in srgb, var(--accent) 11%, transparent);   /* the whole interface follows the accent colour (Settings > Appearance) */
+  --bg-glow-2: color-mix(in srgb, var(--accent) 5%, transparent);
   --surface: rgba(255, 255, 255, .72);
   --surface-solid: #ffffff;
   --surface-field: #ffffff;
-  --text: #1b1a2e;
-  --text-muted: #55536f;
-  --lijn: rgba(27, 26, 46, .10);      /* dividers: decoration */
-  --rand: #7b7996;                    /* control borders: >= 3:1 on --surface-field */
+  --text: #1a1c28;
+  --text-muted: #525568;
+  --lijn: rgba(26, 28, 40, .10);      /* dividers: decoration */
+  --rand: #777a8f;                    /* control borders: >= 3:1 on --surface-field */
   --switch-off: #e5e5ea;              /* switches as on iOS: grey track, green when on, white round thumb */
   --switch-on: #34c759;
   --accent: #6c5ce7;
@@ -22,7 +22,7 @@
   --ok: #1d7a3a;
   --glass-blur: saturate(180%) blur(20px);
   --glass-border: rgba(255, 255, 255, .5);
-  --shadow: 0 8px 32px rgba(40, 30, 90, .12);
+  --shadow: 0 1px 2px rgba(30, 24, 70, .05), 0 10px 28px -12px rgba(30, 24, 70, .16);
   --radius: 16px;
   --radius-sm: 10px;
   --space: 8px;
@@ -32,44 +32,44 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #0b0a18;
-  --bg-glow-1: rgba(108, 92, 231, .28);
-  --bg-glow-2: rgba(47, 230, 214, .10);
-  --surface: rgba(23, 22, 51, .62);
-  --surface-solid: #171633;
-  --surface-field: #12112a;
-  --text: #ecebf6;
-  --text-muted: #b0aed0;
-  --lijn: #2a284d;
-  --rand: #8c8ab0;
+  --bg: #0c0d15;
+  --bg-glow-1: color-mix(in srgb, var(--accent) 20%, transparent);
+  --bg-glow-2: color-mix(in srgb, var(--accent) 8%, transparent);
+  --surface: rgba(24, 26, 39, .66);
+  --surface-solid: #181a27;
+  --surface-field: #12131d;
+  --text: #eceef6;
+  --text-muted: #b3b6c8;
+  --lijn: #2a2d3f;
+  --rand: #8a8da6;
   --switch-off: #39393d;
   --switch-on: #30d158;
   --danger: #ff8a90;
   --ok: #6fdc8c;
   --glass-border: rgba(255, 255, 255, .10);
-  --shadow: 0 8px 32px rgba(0, 0, 0, .45);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 12px 30px -12px rgba(0, 0, 0, .6);
   color-scheme: dark;
 }
 :root[data-theme="light"] { color-scheme: light; }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: #0b0a18;
-    --bg-glow-1: rgba(108, 92, 231, .28);
-    --bg-glow-2: rgba(47, 230, 214, .10);
-    --surface: rgba(23, 22, 51, .62);
-    --surface-solid: #171633;
-    --surface-field: #12112a;
-    --text: #ecebf6;
-    --text-muted: #b0aed0;
-    --lijn: #2a284d;
-    --rand: #8c8ab0;
+    --bg: #0c0d15;
+    --bg-glow-1: color-mix(in srgb, var(--accent) 20%, transparent);
+    --bg-glow-2: color-mix(in srgb, var(--accent) 8%, transparent);
+    --surface: rgba(24, 26, 39, .66);
+    --surface-solid: #181a27;
+    --surface-field: #12131d;
+    --text: #eceef6;
+    --text-muted: #b3b6c8;
+    --lijn: #2a2d3f;
+    --rand: #8a8da6;
     --switch-off: #39393d;
     --switch-on: #30d158;
     --danger: #ff8a90;
     --ok: #6fdc8c;
     --glass-border: rgba(255, 255, 255, .10);
-    --shadow: 0 8px 32px rgba(0, 0, 0, .45);
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 12px 30px -12px rgba(0, 0, 0, .6);
   }
 }
 
@@ -124,8 +124,8 @@ a { color: var(--accent); }
    into plain values, --nav-alpha (the tint) and --nav-blur: Safari drops a backdrop-filter or background whose calc() or color-mix() contains
    a variable, and the bar is then not glass at all. */
 :root { --surface-rgb: 255, 255, 255; --nav-alpha: .49; --nav-blur: 24px; }
-:root[data-theme="dark"] { --surface-rgb: 23, 22, 51; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --surface-rgb: 23, 22, 51; } }
+:root[data-theme="dark"] { --surface-rgb: 24, 26, 39; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --surface-rgb: 24, 26, 39; } }
 .tabbar.glass { background: rgba(var(--surface-rgb), var(--nav-alpha));
   -webkit-backdrop-filter: saturate(180%) blur(var(--nav-blur)); backdrop-filter: saturate(180%) blur(var(--nav-blur));
   border: 1px solid rgba(255, 255, 255, .45);
@@ -310,7 +310,7 @@ dialog.sheet { position: relative; border-radius: var(--radius); padding: 0; mar
   max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   color: var(--text); background: var(--surface-solid); overscroll-behavior: contain; }
 dialog.sheet[open] { display: flex; flex-direction: column; }
-dialog.sheet::backdrop { background: rgba(10, 8, 30, .5); }
+dialog.sheet::backdrop { background: rgba(8, 9, 18, .55); }
 .sheet-body { overflow-y: auto; overscroll-behavior: contain; padding: 20px; min-height: 0; flex: 1 1 auto; -webkit-overflow-scrolling: touch; }
 dialog.sheet h2 { padding-right: 44px; margin-top: 0; }
 .sheet-body > p:first-child { padding-right: 44px; margin-top: 0; }
@@ -387,7 +387,7 @@ button, .btn, nav a, .seg, .swatch, .switch, .tabbar { -webkit-touch-callout: no
    notch and paint a dark strip behind the (always white) status text, in light mode too. */
 html.standalone body { padding-top: env(safe-area-inset-top); }
 html.standalone body::before { content: ''; position: fixed; z-index: 200; top: 0; left: 0; right: 0;
-  height: env(safe-area-inset-top); background: #0b0a18; }
+  height: env(safe-area-inset-top); background: #0c0d15; }
 html.standalone .app, html.standalone .auth-wrap { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 html.standalone .sidebar { top: calc(12px + env(safe-area-inset-top)); height: calc(100vh - 24px - env(safe-area-inset-top)); }
 
@@ -556,3 +556,91 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .sortbar .btn { min-height: 36px; }
 .colour-row { gap: 12px; }
 .colour-row input[type="color"] { width: 56px; height: 40px; padding: 2px; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: var(--surface-field); }
+
+/* Polish layer: calmer surfaces, clearer hierarchy, finished form controls. Everything comes from the tokens above, so it follows the
+   accent colour and both themes. Kept at the end of the file so that it overrides earlier rules without reflowing them. */
+:root { --st-new: #5b6178; --st-busy: #9a5b00; --st-sent: #0b64b8; --st-done: var(--ok); --lijn-strong: rgba(26, 28, 40, .16); --ease: cubic-bezier(.2, .7, .2, 1); }
+:root[data-theme="dark"] { --st-new: #aab0c8; --st-busy: #f5b84a; --st-sent: #7cc0ff; --lijn-strong: rgba(255, 255, 255, .14); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --st-new: #aab0c8; --st-busy: #f5b84a; --st-sent: #7cc0ff; --lijn-strong: rgba(255, 255, 255, .14); } }
+
+body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+h1, h2, h3 { text-wrap: balance; letter-spacing: -.012em; }
+h1, h2 { font-weight: 700; }
+.page-head h1 { font-weight: 700; letter-spacing: -.02em; }
+.stats dd, .totals dd, output.cost, .tile-grams { font-variant-numeric: tabular-nums; }
+
+/* Cards: a solid surface with a hairline and a soft two-layer shadow; the glass stays for the navigation and pop-ups. */
+.card.glass { background: var(--surface-solid); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--lijn-strong); }
+.card { transition: box-shadow .2s var(--ease), border-color .2s var(--ease), transform .2s var(--ease); }
+.link-card:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--lijn-strong)); transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(20, 16, 60, .06), 0 16px 32px -14px color-mix(in srgb, var(--accent) 45%, rgba(20, 16, 60, .3)); }
+.link-card:active { transform: none; }
+.item h3 a { color: var(--text); text-decoration: none; }
+.item h3 a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.item { gap: 12px; }
+.item-head { align-items: flex-start; }
+.stats { gap: 8px 28px; padding-top: 12px; border-top: 1px solid var(--lijn); }
+.stats dt { font-size: .7rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.stats dd { font-size: 1.05rem; font-weight: 700; }
+.empty { padding: 32px 16px; border: 1px dashed var(--rand); background: transparent !important; box-shadow: none; }
+
+/* Badges and status */
+.badge { border: 0; background: var(--accent-subtle); color: var(--text); padding: 3px 10px; font-weight: 650; letter-spacing: .01em; }
+.badge.muted { background: var(--lijn); color: var(--text-muted); }
+select.status { --st: var(--st-new); font-weight: 650; padding-left: 32px; border-color: color-mix(in srgb, var(--st) 55%, var(--rand));
+  background-color: color-mix(in srgb, var(--st) 11%, var(--surface-field)); }
+select.status[data-status="verwerkt"] { --st: var(--st-busy); }
+select.status[data-status="verstuurd"] { --st: var(--st-sent); }
+select.status[data-status="afgehandeld"] { --st: var(--st-done); }
+
+/* Buttons */
+.btn { font-weight: 600; letter-spacing: .005em; transition: background-color .15s var(--ease), border-color .15s var(--ease), box-shadow .15s var(--ease), transform .1s var(--ease); }
+.btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 7%, var(--surface-field)); }
+.btn:active:not(:disabled) { transform: scale(.98); }
+.btn.primary { box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 45%, transparent), 0 8px 16px -8px color-mix(in srgb, var(--accent) 70%, transparent); }
+.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 10%, var(--surface-field)); border-color: var(--danger); }
+.chips .seg, .subnav a { transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease); }
+.chips .seg:hover:not([aria-pressed="true"]) { background: var(--accent-subtle); }
+
+/* Form controls: a visible focus state on the field itself, a drawn arrow on every select, a finished file picker */
+input[type=text], input[type=password], input[type=email], input[type=tel], input[type=url], input[type=time], input[type=date], select, textarea {
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
+input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: .75; }
+select:not([multiple]):not([size]) { -webkit-appearance: none; appearance: none; padding-right: 38px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 19px) 50%, calc(100% - 14px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+select.status:not([multiple]):not([size]) {                          /* the colour dot of the status comes first, the arrow after it */
+  background-image: radial-gradient(circle, var(--st) 0 4.5px, transparent 5px),
+    linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: 13px 50%, calc(100% - 19px) 50%, calc(100% - 14px) 50%; background-size: 10px 10px, 5px 5px, 5px 5px; }
+input[type=file] { width: 100%; padding: 8px; border: 1px dashed var(--rand); border-radius: var(--radius-sm); background: var(--surface-field); cursor: pointer; }
+input[type=file]:hover { border-color: var(--accent); }
+input[type=file]::file-selector-button { margin-right: 12px; min-height: 36px; padding: 6px 14px; border: 1px solid var(--accent); border-radius: 10px;
+  background: var(--accent-subtle); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; transition: background-color .15s var(--ease); }
+input[type=file]::file-selector-button:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.field label, .field .lbl { letter-spacing: .01em; }
+
+/* Navigation */
+.sidebar-brand { border-bottom: 1px solid var(--lijn); margin-bottom: 8px; padding-bottom: 14px; }
+.brand-name { font-size: 1rem; letter-spacing: -.01em; }
+.version { font-family: inherit; font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+@media (min-width: 860px) {
+  .sidebar a, .sidebar .collapse, .sidebar .logout { transition: background-color .15s var(--ease), color .15s var(--ease); }
+  .sidebar a[aria-current="page"] { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .sidebar .lang-switch { padding-top: 8px; border-top: 1px solid var(--lijn); }
+}
+.page-head { border-bottom-color: var(--lijn-strong); }
+
+/* The summary of a calculation and the totals: the number you are after stands out */
+.totals .grand { font-size: 1.25rem; letter-spacing: -.01em; }
+
+/* Pop-ups, toasts, auth */
+dialog.sheet { border: 1px solid var(--lijn-strong); border-radius: 20px; box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .5); }
+.toast { border-radius: 14px; border-color: var(--lijn-strong); box-shadow: var(--shadow); }
+.auth-card.glass { padding: 28px; border-radius: 24px; }
+.brand h1 { letter-spacing: -.02em; }
+@media (max-width: 480px) { .auth-card.glass { padding: 20px; } }
+.segmented { border-color: var(--lijn-strong); }

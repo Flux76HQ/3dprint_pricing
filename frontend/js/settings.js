@@ -17,6 +17,7 @@ import { checkForUpdate, loadedVersion } from './updates.js';
 export const ACCENTS = [
   ['#6c5ce7', 'accent.violet'], ['#0a84ff', 'accent.blue'], ['#5e5ce6', 'accent.indigo'], ['#bf5af2', 'accent.purple'],
   ['#e0457b', 'accent.pink'], ['#e5484d', 'accent.red'], ['#d9730d', 'accent.orange'], ['#2f9e44', 'accent.green'], ['#0c9aa6', 'accent.teal'],
+  ['#b0213f', 'accent.bordeaux'], ['#475569', 'accent.graphite'],
 ];
 const THEMES = [['system', 'theme.system'], ['light', 'theme.light'], ['dark', 'theme.dark']];
 
