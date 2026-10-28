@@ -40,11 +40,14 @@ class RepositoryTest(unittest.TestCase):
         self.assertEqual(CONFIG["version"], (ROOT / "VERSION").read_text(encoding="utf-8").strip())
 
     def test_only_architectures_the_published_image_is_built_for(self):
-        workflows = (ROOT / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")
-        if "platforms:" in workflows:                               # the image is amd64 only until the workflows say otherwise
-            self.assertNotEqual(CONFIG["arch"], ["amd64"], "docker.yml builds more platforms: offer them in arch")
-        else:
-            self.assertEqual(CONFIG["arch"], ["amd64"])
+        # Home Assistant names the architectures amd64 and aarch64; Docker names the same platforms linux/amd64 and linux/arm64.
+        names = {"linux/amd64": "amd64", "linux/arm64": "aarch64"}
+        for workflow in ("docker.yml", "docker-beta.yml"):
+            text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+            match = re.search(r"^\s*platforms:\s*(\S+)", text, re.MULTILINE)
+            self.assertTrue(match, f"{workflow} has no platforms: a single-platform image is amd64 only")
+            built = sorted(names[platform] for platform in match.group(1).split(","))
+            self.assertEqual(built, sorted(CONFIG["arch"]), f"{workflow} builds {built}: arch in config.yaml must offer exactly those")
 
     def test_the_app_is_stopped_for_a_backup_because_the_database_runs_inside_it(self):
         self.assertEqual(CONFIG["backup"], "cold")

@@ -133,7 +133,7 @@ Put a reverse proxy with TLS in front of the app and set `RP_ID` and `RP_ORIGINS
 
 On Home Assistant OS or Supervised, add `https://github.com/Flux76HQ/3dprint_pricing` under **Settings > Apps > Install app > Repositories** and install
 *3D Print Pricing*: the app brings its own PostgreSQL and keeps its data in the app's folder, which Home Assistant backs up. Passkeys still need a
-domain with https in front of the app's port, so set `rp_id` on the Configuration tab. The steps are on the app's Documentation tab ([`homeassistant/DOCS.md`](homeassistant/DOCS.md)). Amd64 only for now.
+domain with https in front of the app's port, so set `rp_id` on the Configuration tab. The steps are on the app's Documentation tab ([`homeassistant/DOCS.md`](homeassistant/DOCS.md)). Runs on amd64 and aarch64 (Raspberry Pi 4/5, ARM mini PCs).
 
 ### Configuration
 
