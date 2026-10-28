@@ -32,7 +32,7 @@ export function orderListView() {
 
   // One select on the card sets the stage at once, without opening the order.
   function statusSelect(order) {
-    return h('select', { class: 'status', 'aria-label': t('orders.status_of', { name: order.customer_name }),
+    return h('select', { class: 'status', 'data-status': order.status, 'aria-label': t('orders.status_of', { name: order.customer_name }),
       onchange: async (e) => {
         try {
           await api('PATCH', `/api/orders/${order.id}/status`, { status: e.target.value });
