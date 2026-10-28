@@ -133,7 +133,7 @@ A password works on any address, also on your own network. For passkeys, install
 
 On Home Assistant OS or Supervised, add `https://github.com/Flux76HQ/3dprint_pricing` under **Settings > Apps > Install app > Repositories** and install
 *3D Print Pricing*: the app brings its own PostgreSQL and keeps its data in the app's folder, which Home Assistant backs up. Passkeys still need a
-domain with https in front of the app's port, so set `rp_id` on the Configuration tab for them; with a password the app also works on `http://<address of Home Assistant>:6080`. The steps are on the app's Documentation tab ([`homeassistant/DOCS.md`](homeassistant/DOCS.md)). Amd64 only for now.
+domain with https in front of the app's port, so set `rp_id` on the Configuration tab for them; with a password the app also works on `http://<address of Home Assistant>:6080`. The steps are on the app's Documentation tab ([`homeassistant/DOCS.md`](homeassistant/DOCS.md)). Runs on amd64 and aarch64 (Raspberry Pi 4/5, ARM mini PCs).
 
 ### Configuration
 

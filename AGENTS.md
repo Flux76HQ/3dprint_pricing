@@ -136,7 +136,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
   | `agent-instructions-lint` | that this file stays canonical and unduplicated |
   | `backend-tests` | calculator, WebAuthn, migrations, API; fails if any test was skipped |
   | `frontend-syntax` | every frontend module parses, checked as an ES module (a copy named `.mjs`: `node --check` on a `.js` file that uses `import` reports nothing, even for a broken one); the manifest is valid JSON |
-  | `docker-build` | the image builds, a Word invoice template is turned into a PDF inside it (LibreOffice, as the unprivileged user), and both compose files are valid for `.env.example` |
+  | `docker-build` | the image builds (also for arm64), a Word invoice template is turned into a PDF inside it (LibreOffice, as the unprivileged user), and both compose files are valid for `.env.example` |
 
 - A control has to be findable on the pull request under the name a document cites it by.
 - Migrations are forward-only: never edit an applied `NNNN_*.sql`; add a new one. The runner
