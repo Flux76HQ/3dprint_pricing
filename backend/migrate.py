@@ -20,7 +20,8 @@ def prepare(cfg, old_folder: Path = OLD_DATABASE_FOLDER) -> str:
         counts = maybe_import(cfg.legacy_database_url, cfg.database_path)
         if counts is not None:
             said.append(f"Imported the PostgreSQL database from the earlier release: {sum(counts.values())} rows in {sum(1 for n in counts.values() if n)} tables.")
-    elif (old_folder / "PG_VERSION").exists() and not Path(cfg.database_path).exists():
+    elif not Path(cfg.database_path).exists() and old_folder.is_dir():
+        # The folder itself, not a file in it: it belongs to the postgres user (mode 0700), which the app cannot look into.
         raise SystemExit(f"{old_folder} holds the PostgreSQL database of an earlier release and there is no SQLite database yet. Starting now would begin "
                          "with an empty database. Start the stack with the docker-compose.yml of the release that still has the db service, and let it "
                          "import once (docs/handleiding.md, 'Overstap naar SQLite').")

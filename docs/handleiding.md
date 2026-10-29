@@ -281,6 +281,9 @@ herstelcodes, facturen en nummering komen mee, en iedereen blijft ingelogd zoals
 - **Veilig.** Het nieuwe bestand wordt onder een tijdelijke naam gebouwd, gecontroleerd (zelfde aantal rijen per tabel, elk opgeslagen bestand byte voor byte gelijk, geen verwijzingen naar niets, `integrity_check`)
   en pas dan op zijn plek gezet. Mislukt iets, dan staat er geen half bestand, zegt de container waarom en stopt hij; bij de volgende start wordt het opnieuw geprobeerd. De oude PostgreSQL-data wordt alleen gelezen, nooit gewijzigd of verwijderd.
 - **Overgeslagen.** Wat maar minuten leeft: inlog-uitdagingen, een herstel of een afbeeldingenreeks die op dat moment liep.
+- **Je eigen compose-bestand hoeft niet mee te veranderen.** Een `docker-compose.yml` van vóór deze release zet `DATABASE_URL` naar de PostgreSQL; de app leest dat als het adres om uit te importeren
+  (de nieuwe naam is `LEGACY_DATABASE_URL`, zelfde waarde). Wie zijn compose-bestand toch bijwerkt (Dockhand, Unraid-stack), vervangt het door dat van deze release. Staat er géén van beide variabelen in en ligt er wel een
+  `postgres/`-map, dan stopt de container met de melding *… holds the PostgreSQL database of an earlier release …* (en start opnieuw, tot je dat verhelpt): zet de variabele terug, of gebruik het compose-bestand van deze release.
 - **De `db`-container blijft in deze release** (alleen om uit te lezen) en gaat in de volgende release weg, samen met `POSTGRES_*` in `.env` en de importer. Wacht met die volgende release tot de overstap gelukt is: een installatie die direct
   naar die release springt, weigert te starten in plaats van leeg te beginnen (*… holds the PostgreSQL database of an earlier release*).
 - **Terug.** `DATA_PATH/postgres` blijft staan. Wil je terug naar de vorige release, zet dan `PRINTPRICING_TAG` op de oude versie; wat je na de overstap in SQLite hebt ingevoerd staat dan niet in de oude database.
