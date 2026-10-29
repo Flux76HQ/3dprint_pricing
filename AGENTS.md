@@ -334,7 +334,7 @@ are kept in `migrations_legacy/` only for `pg_import.py` and its test). Never ed
 - **Write SQL once, for SQLite**, with `%s` placeholders and `now()` as everywhere in the code. `db.translate` turns `%s` into `?` and rewrites `ILIKE`, `lower(` (a Unicode-aware `lower_u`) and `::jsonb`; the rest has to be
   SQLite (`json_each` for an `IN` list: `db.id_list`; `INSERT ... ON CONFLICT`; `RETURNING`). The unique indexes on names use `lower_u`, which only the app's own connection registers.
 - **Project and order numbers** come from `db.next_number(conn, "project" | "order")` (the `counters` table): never reused, also after a delete, as the sequences were. A restore carries them on with `backup._restart_numbers`.
-- **The one-off import** (`app/pg_import.py`, called by `migrate.py`) goes away, with `psycopg`, `migrations_legacy/`, the `db` service and `POSTGRES_*`, in the release after the one that introduced it.
+- **The one-off import** (`app/pg_import.py`, called by `migrate.py`; the address is `LEGACY_DATABASE_URL`, or `DATABASE_URL` when it names a PostgreSQL, so a docker-compose.yml that was never replaced still works) goes away, with `psycopg`, `migrations_legacy/`, the `db` service and `POSTGRES_*`, in the release after the one that introduced it.
 
 ## 7. Work done in one client leaves the other clients correct
 

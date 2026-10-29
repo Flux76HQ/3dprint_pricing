@@ -113,6 +113,14 @@ def _spoolman_url() -> str:
     return check_spoolman_url(os.environ.get("SPOOLMAN_URL", ""))
 
 
+def _legacy_database_url() -> str:
+    """The PostgreSQL of the releases before SQLite, to be imported once: `LEGACY_DATABASE_URL`. A docker-compose.yml from before the switch still sets
+    `DATABASE_URL` to that address (nothing else reads that name any more), and an installation whose compose file was never replaced keeps working."""
+    url = os.environ.get("LEGACY_DATABASE_URL", "").strip()
+    old = os.environ.get("DATABASE_URL", "").strip()
+    return url or (old if old.startswith(("postgresql://", "postgres://")) else "")
+
+
 def load_config() -> Config:
     # RP_ID and RP_ORIGINS are optional: empty means "the address the app is opened on" (relying_party.py).
     origins = tuple(o.strip().rstrip("/") for o in os.environ.get("RP_ORIGINS", "").split(",") if o.strip())
@@ -141,5 +149,5 @@ def load_config() -> Config:
         filament_library_url=_library_url(),
         spoolman_url=_spoolman_url(),
         update_check=_switch("PRINTPRICING_UPDATE_CHECK"),
-        legacy_database_url=os.environ.get("LEGACY_DATABASE_URL", "").strip(),
+        legacy_database_url=_legacy_database_url(),
     )

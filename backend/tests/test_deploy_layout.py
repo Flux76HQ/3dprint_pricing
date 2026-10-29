@@ -266,6 +266,46 @@ def test_the_start_is_refused_when_an_old_database_is_there_and_nothing_hands_it
     assert migrate.prepare(cfg, old).endswith("none (up to date)")                                                      # and once there is a database, the old folder is ignored
 
 
+def test_the_refusal_is_the_message_also_when_the_old_folder_cannot_be_looked_into(tmp_path, monkeypatch):
+    """/data/postgres belongs to the postgres user (mode 0700) and the app runs as `app`: a file in it cannot even be stat-ed. That used to end in a
+    PermissionError and a restart loop with no explanation."""
+    import os
+    import migrate
+    from app.config import Config
+    old = tmp_path / "postgres"
+    old.mkdir()
+    (old / "PG_VERSION").write_text("17")
+    real = os.stat
+
+    def stat(path, *args, **kwargs):
+        if str(path).startswith(str(old) + os.sep):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", stat)
+    cfg = Config(database_path=str(tmp_path / "db" / "printpricing.sqlite3"), session_secret="x" * 40, setup_code="s", rp_id="", rp_name="", rp_origins=(),
+                 session_hours=1, cookie_secure=False, static_dir="")
+    with pytest.raises(SystemExit, match="empty database"):
+        migrate.prepare(cfg, old)
+
+
+def test_a_compose_file_from_before_the_switch_still_hands_the_old_database_over(monkeypatch):
+    """An installation whose docker-compose.yml was never replaced still sets DATABASE_URL (to the PostgreSQL); that is what gets imported."""
+    from app.config import load_config
+    for name, value in (("SESSION_SECRET", "s" * 40), ("SETUP_CODE", "code")):
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("LEGACY_DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://printpricing:pw@db:5432/printpricing")
+    assert load_config().legacy_database_url == "postgresql://printpricing:pw@db:5432/printpricing"
+    monkeypatch.setenv("LEGACY_DATABASE_URL", "postgresql://other@db/other")                                       # the new name wins
+    assert load_config().legacy_database_url == "postgresql://other@db/other"
+    monkeypatch.delenv("LEGACY_DATABASE_URL")
+    monkeypatch.setenv("DATABASE_URL", "/data/db/something.sqlite3")                                                 # anything else is not a PostgreSQL
+    assert load_config().legacy_database_url == ""
+    monkeypatch.delenv("DATABASE_URL")
+    assert load_config().legacy_database_url == ""
+
+
 def test_the_online_backup_copies_a_database_that_is_in_use(tmp_path):
     import sqlite3
     from app.db import Database, run_migrations
