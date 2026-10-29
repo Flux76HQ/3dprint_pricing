@@ -9,7 +9,7 @@ from pathlib import Path
 
 import update_branch
 
-MIG = "backend/app/migrations"
+MIG = "backend/app/migrations_sqlite"
 PNG = "docs/assets/orders.png"
 
 

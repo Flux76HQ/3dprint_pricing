@@ -6,10 +6,10 @@ import dataclasses
 import io
 import json
 import os
+import sqlite3
 import zipfile
 from decimal import Decimal
 
-import psycopg
 import pytest
 
 from app import backup as backup_module
@@ -17,6 +17,7 @@ from tests import printfiles as pf
 from tests.test_auth_api import H, onboard, post
 from tests.test_domain_api import make, sheet_payload
 from tests.test_orders import customer
+from tests.conftest import connect
 
 EN = {"X-Lang": "en"}
 
@@ -275,7 +276,7 @@ def test_a_failure_halfway_leaves_everything_as_it_was(owner, monkeypatch):
     def flaky(conn, table, values):
         calls["n"] += 1
         if table == "projects":
-            raise psycopg.errors.CheckViolation("boom")
+            raise sqlite3.IntegrityError("boom")
         return real(conn, table, values)
     monkeypatch.setattr(module, "_insert", flaky)
     owner.application.testing = False
@@ -288,11 +289,11 @@ def test_a_failure_halfway_leaves_everything_as_it_was(owner, monkeypatch):
 def test_restoring_leaves_passkeys_alone(owner, app):
     fill(owner)
     doc = backup(owner).get_json()
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         passkeys = conn.execute("SELECT count(*) FROM webauthn_credentials").fetchone()[0]
         codes = conn.execute("SELECT count(*) FROM recovery_codes").fetchone()[0]
     post(owner, "/api/backup/restore", doc)
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         assert conn.execute("SELECT count(*) FROM webauthn_credentials").fetchone()[0] == passkeys >= 1
         assert conn.execute("SELECT count(*) FROM recovery_codes").fetchone()[0] == codes
     assert owner.get("/api/auth/status").get_json()["authenticated"] is True
@@ -392,14 +393,14 @@ def test_a_file_that_is_refused_while_restoring_is_reported_by_the_job(owner, ap
 def test_only_one_restore_runs_at_a_time_and_a_finished_one_is_dismissed_by_the_screen(owner, app):
     with_file(owner)
     data = backup(owner, files=True).data
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         conn.execute("INSERT INTO backup_jobs (status) VALUES ('running')")
         conn.commit()
     token = stage(owner, data).get_json()["token"]
     assert post(owner, "/api/backup/jobs", {"token": token}).status_code == 409
     assert owner.get("/api/backup/jobs/latest").get_json()["job"]["status"] == "running"
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:    # its thread is gone and nothing has moved for a long time
-        conn.execute("UPDATE backup_jobs SET updated_at = now() - interval '1 hour'")
+    with connect(app.config["APP_CONFIG"].database_path) as conn:    # its thread is gone and nothing has moved for a long time
+        conn.execute("UPDATE backup_jobs SET updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now', '-1 hours')")
         conn.commit()
     job = owner.get("/api/backup/jobs/latest", headers={**H, "X-Lang": "nl"}).get_json()["job"]
     assert job["status"] == "failed" and "onderbroken" in job["message"]
@@ -499,7 +500,7 @@ def test_without_files_a_calculation_keeps_its_file_only_if_that_file_is_still_h
     post(owner, "/api/backup/restore", doc)
     assert owner.get(f"/api/projects/{project['id']}").get_json()["file_id"] == meta["id"]       # still on the server
     owner.delete(f"/api/projects/{project['id']}", headers=H)
-    with psycopg.connect(owner.application.config["APP_CONFIG"].database_url) as conn:
+    with connect(owner.application.config["APP_CONFIG"].database_path) as conn:
         conn.execute("DELETE FROM print_files")
         conn.commit()
     post(owner, "/api/backup/restore", doc)

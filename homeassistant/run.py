@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Start 3D Print Pricing inside a Home Assistant app: PostgreSQL first, then the image's own entrypoint (migrations, gunicorn).
+"""Start 3D Print Pricing inside a Home Assistant app: the image's own entrypoint (migrations, gunicorn), and for one start PostgreSQL next to it.
 
-Home Assistant runs one container per app, and the app needs PostgreSQL, so this container holds both. /data is the app's DATA_PATH,
-laid out as docker-compose.yml lays it out: the database in /data/postgres, the uploads in /data/uploads. The options of the app
-(/data/options.json) become the variables of .env; the secrets .env would hold are made once and kept in /data/secrets.json.
-If either process stops, the other is stopped and this exits non-zero, so the Supervisor's watchdog restarts the app.
+/data is the app's DATA_PATH, laid out as docker-compose.yml lays it out: the database is the SQLite file /data/db/printpricing.sqlite3, the
+uploads are in /data/uploads. An installation from before the SQLite releases still has its PostgreSQL data in /data/postgres: until the SQLite file
+exists, PostgreSQL is started next to the app so that it can import that once (app/pg_import.py); every start after that is the app alone. The
+options of the app (/data/options.json) become the variables of .env; the secrets .env would hold are made once and kept in /data/secrets.json.
+If a process stops, the other is stopped and this exits non-zero, so the Supervisor's watchdog restarts the app.
 """
 import glob
 import json
@@ -20,6 +21,7 @@ DATA = Path(os.environ.get("DATA_PATH", "/data"))
 OPTIONS = Path(os.environ.get("OPTIONS_FILE", DATA / "options.json"))
 SECRETS = DATA / "secrets.json"
 PGDATA = DATA / "postgres"
+SQLITE = DATA / "db" / "printpricing.sqlite3"
 PGSOCKET = Path(os.environ.get("PG_SOCKET_DIR", "/run/postgresql"))
 PGPORT = "5432"
 DB_NAME = DB_USER = "printpricing"
@@ -46,6 +48,11 @@ def read_options() -> dict:
         return {}
 
 
+def has_old_database() -> bool:
+    """Whether there is PostgreSQL data of an earlier release that has not been moved into the SQLite file yet."""
+    return (PGDATA / "PG_VERSION").exists() and not SQLITE.exists()
+
+
 def settings(options: dict, kept: dict) -> dict:
     """The environment of the app, from the options and the kept secrets. The domain is optional: without one the app follows the address it is opened on."""
     rp_id = str(options.get("rp_id") or "").strip().lower()
@@ -54,7 +61,6 @@ def settings(options: dict, kept: dict) -> dict:
     origins = str(options.get("rp_origins") or "").strip() or (f"https://{rp_id}" if rp_id else "")
     code = str(options.get("setup_code") or "").strip() or kept["setup_code"]
     env = {
-        "DATABASE_URL": f"postgresql://{DB_USER}:{kept['postgres_password']}@127.0.0.1:{PGPORT}/{DB_NAME}",
         "RP_ID": rp_id,
         "RP_ORIGINS": origins,
         "SETUP_CODE": code,
@@ -68,6 +74,8 @@ def settings(options: dict, kept: dict) -> dict:
         "PRINTPRICING_UPDATE_CHECK": "true" if options.get("update_check", True) else "false",
         "DATA_PATH": str(DATA),
     }
+    if has_old_database():
+        env["LEGACY_DATABASE_URL"] = f"postgresql://{DB_USER}:{kept['postgres_password']}@127.0.0.1:{PGPORT}/{DB_NAME}"
     return env
 
 
@@ -194,10 +202,11 @@ def main() -> int:
     options = read_options()
     kept = kept_secrets(options)
     env = settings(options, kept)
-    binary = pg_bin()
-
-    prepare_cluster(binary)
-    postgres = start_postgres(binary)
+    postgres = binary = None
+    if has_old_database():
+        binary = pg_bin()
+        prepare_cluster(binary)
+        postgres = start_postgres(binary)
     app = None
     stopping = []
 
@@ -207,11 +216,13 @@ def main() -> int:
     signal.signal(signal.SIGTERM, on_signal)
     signal.signal(signal.SIGINT, on_signal)
     try:
-        wait_ready(binary, postgres)
-        ensure_database(binary, kept["postgres_password"])
+        if postgres is not None:
+            wait_ready(binary, postgres)
+            ensure_database(binary, kept["postgres_password"])
+            log("Importing the database of the earlier release (once): the app moves it into SQLite while it starts.")
         log("Starting the app.")
         app = subprocess.Popen([ENTRYPOINT], env={**os.environ, **env})
-        while not stopping and postgres.poll() is None and app.poll() is None:
+        while not stopping and (postgres is None or postgres.poll() is None) and app.poll() is None:
             time.sleep(0.5)
         if stopping:
             log("Stopping.")
@@ -222,7 +233,8 @@ def main() -> int:
     finally:
         if app is not None:
             stop(app, signal.SIGTERM, APP_STOP_SECONDS, "The app")
-        stop(postgres, signal.SIGINT, PG_STOP_SECONDS, "PostgreSQL")        # SIGINT is a fast shutdown: it does not wait for open connections
+        if postgres is not None:
+            stop(postgres, signal.SIGINT, PG_STOP_SECONDS, "PostgreSQL")    # SIGINT is a fast shutdown: it does not wait for open connections
     return code
 
 

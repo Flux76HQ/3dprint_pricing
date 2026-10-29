@@ -89,7 +89,7 @@ class OptionsTest(unittest.TestCase):
             run.DATA, run.SECRETS = Path(tmp), Path(tmp) / "secrets.json"
             kept = {"postgres_password": "p", "session_secret": "s" * 64, "setup_code": "c", "vapid_public_key": "a", "vapid_private_key": "b"}
             for name in run.settings({"rp_id": "print.example.com"}, kept):
-                if name not in ("DATABASE_URL", "DATA_PATH"):
+                if name not in ("LEGACY_DATABASE_URL", "DATA_PATH"):
                     self.assertRegex(env, rf"(?m)^#?\s*{name}=", name)
 
 
@@ -149,8 +149,19 @@ class LauncherTest(unittest.TestCase):
         env = self.run_py.settings({"rp_id": "x.nl"}, self.kept)
         self.assertEqual((env["AI_IMAGES_ENABLED"], env["PRINTPRICING_UPDATE_CHECK"]), ("FALSE", "true"))
 
-    def test_the_database_login_is_the_kept_password_on_the_loopback(self):
-        self.assertEqual(self.run_py.settings({"rp_id": "x.nl"}, self.kept)["DATABASE_URL"], "postgresql://printpricing:pw@127.0.0.1:5432/printpricing")
+    def test_a_new_installation_has_no_postgresql_and_an_old_one_hands_over_its_database_once(self):
+        data = Path(self.tmp.name)
+        self.run_py.PGDATA, self.run_py.SQLITE = data / "postgres", data / "db" / "printpricing.sqlite3"
+        self.assertFalse(self.run_py.has_old_database())
+        self.assertNotIn("LEGACY_DATABASE_URL", self.run_py.settings({"rp_id": "x.nl"}, self.kept))
+        (data / "postgres").mkdir()
+        (data / "postgres" / "PG_VERSION").write_text("17")
+        self.assertTrue(self.run_py.has_old_database())
+        self.assertEqual(self.run_py.settings({"rp_id": "x.nl"}, self.kept)["LEGACY_DATABASE_URL"], "postgresql://printpricing:pw@127.0.0.1:5432/printpricing")
+        (data / "db").mkdir()
+        (data / "db" / "printpricing.sqlite3").write_bytes(b"")                       # moved over: PostgreSQL is not started again
+        self.assertFalse(self.run_py.has_old_database())
+        self.assertNotIn("LEGACY_DATABASE_URL", self.run_py.settings({"rp_id": "x.nl"}, self.kept))
 
     def test_the_secrets_are_made_once_kept_private_and_reused(self):
         with mock.patch.dict(os.environ, {"VAPID_DIR": str(ROOT / "scripts")}):

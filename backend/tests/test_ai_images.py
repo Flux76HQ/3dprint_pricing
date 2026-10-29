@@ -5,7 +5,6 @@ import dataclasses
 import json
 from io import BytesIO
 
-import psycopg
 import pytest
 import requests
 from PIL import Image
@@ -14,6 +13,7 @@ from app import ai_images
 from tests.test_auth_api import H, onboard, post
 from tests.test_backup import backup
 from tests.test_domain_api import make, sheet_payload
+from tests.conftest import connect
 
 KEY = "sk-test-0123456789abcdefghijklmnop"
 REAL_START = ai_images._start
@@ -121,7 +121,7 @@ def test_the_key_is_encrypted_and_never_shown(ai, app):
     res = set_key(ai)
     assert res.get_json()["last4"] == KEY[-4:] and res.get_json()["configured"] is True
     assert KEY not in res.get_data(as_text=True) and KEY not in ai.get("/api/ai-images/settings").get_data(as_text=True)
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         stored = conn.execute("SELECT api_key_enc FROM ai_image_settings").fetchone()[0]
     assert KEY not in stored and stored.startswith("gAAAA")
     # changing the model keeps the key
@@ -133,7 +133,7 @@ def test_the_key_is_encrypted_and_never_shown(ai, app):
 
 def test_a_key_that_cannot_be_decrypted_fails_closed(ai, app, monkeypatch):
     set_key(ai)
-    with psycopg.connect(app.config["APP_CONFIG"].database_url, autocommit=True) as conn:         # what a rotated SESSION_SECRET leaves behind
+    with connect(app.config["APP_CONFIG"].database_path, autocommit=True) as conn:         # what a rotated SESSION_SECRET leaves behind
         conn.execute("UPDATE ai_image_settings SET api_key_enc = %s", (ai_images.passwords.seal("y" * 40, KEY.encode(), ai_images.KEY_INFO).decode(),))
     assert ai.get("/api/ai-images/settings").get_json()["readable"] is False
     fake = FakeOpenAI(monkeypatch)
@@ -352,8 +352,8 @@ def test_only_one_batch_at_a_time_per_calculation_and_the_page_can_ask_again_lat
     assert [j["status"] for j in state(ai, project)["jobs"]] == ["queued"]         # what a page sees when it comes back
     assert [p["ai_busy"] for p in ai.get("/api/projects").get_json()] == [True]
     # the thread of a restarted container never comes back: after a while the job is given up, not shown as busy for ever
-    with psycopg.connect(app.config["APP_CONFIG"].database_url, autocommit=True) as conn:
-        conn.execute("UPDATE ai_image_jobs SET updated_at = now() - interval '6 minutes'")
+    with connect(app.config["APP_CONFIG"].database_path, autocommit=True) as conn:
+        conn.execute("UPDATE ai_image_jobs SET updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now', '-6 minutes')")
     got = state(ai, project)
     assert [j["status"] for j in got["jobs"]] == ["failed"] and "onderbroken" in got["jobs"][0]["message"]
     assert [p["ai_busy"] for p in ai.get("/api/projects").get_json()] == [False]
@@ -393,7 +393,7 @@ def test_deleting_the_calculation_while_pictures_are_queued_stops_quietly(ai, pr
     ai.delete(f"/api/projects/{project['id']}", headers=H)
     ai_images._run_batch(app, *batches[0])                                         # the thread wakes up to nothing
     assert not fake.calls
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         assert conn.execute("SELECT count(*) FROM ai_image_jobs").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM project_images").fetchone()[0] == 0
 
@@ -497,7 +497,7 @@ def test_cover_download_and_delete(ai, project, monkeypatch):
 def test_deleting_the_calculation_deletes_its_pictures(ai, project, app):
     photo(ai, project["id"])
     assert ai.delete(f"/api/projects/{project['id']}", headers=H).status_code == 200
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
         assert conn.execute("SELECT count(*) FROM project_images").fetchone()[0] == 0
 
 

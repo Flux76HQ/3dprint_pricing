@@ -48,15 +48,15 @@ def clean_name(raw) -> str:
 
 def name_taken(conn, name: str, *, except_user=None, except_invite=None) -> bool:
     """Taken by a person, or reserved by an invitation for a new person (a reset invitation carries a name that is already theirs)."""
-    if conn.execute("SELECT 1 FROM users WHERE lower(display_name) = lower(%s) AND id IS DISTINCT FROM %s",
+    if conn.execute("SELECT 1 FROM users WHERE lower(display_name) = lower(%s) AND id IS NOT %s",
                     (name, except_user)).fetchone():
         return True
-    return conn.execute("SELECT 1 FROM invitations WHERE kind = 'new' AND lower(display_name) = lower(%s) AND id IS DISTINCT FROM %s",
+    return conn.execute("SELECT 1 FROM invitations WHERE kind = 'new' AND lower(display_name) = lower(%s) AND id IS NOT %s",
                         (name, except_invite)).fetchone() is not None
 
 
-def _target(conn, user_id, *, lock=False):
-    row = conn.execute(f"SELECT id, display_name, role, is_owner FROM users WHERE id = %s{' FOR UPDATE' if lock else ''}", (user_id,)).fetchone()
+def _target(conn, user_id):
+    row = conn.execute("SELECT id, display_name, role, is_owner FROM users WHERE id = %s", (user_id,)).fetchone()
     if row is None:
         raise ApiError(404, "users.not_found")
     return row
@@ -90,7 +90,7 @@ def list_users():
             "FROM invitations i LEFT JOIN users c ON c.id = i.created_by WHERE i.expires_at > now() ORDER BY i.created_at").fetchall()
     return jsonify({
         "users": [{"id": str(u["id"]), "name": u["display_name"], "role": u["role"], "is_owner": u["is_owner"],
-                   "you": u["id"] == g.user_id, "created_at": _iso(u["created_at"]), "passkeys": u["passkeys"], "password": u["password"]}
+                   "you": u["id"] == g.user_id, "created_at": _iso(u["created_at"]), "passkeys": u["passkeys"], "password": bool(u["password"])}
                   for u in users],
         "invitations": [{"id": str(i["id"]), "kind": i["kind"], "name": i["display_name"], "invited_by": i["invited_by"],
                          "created_at": _iso(i["created_at"]), "expires_at": _iso(i["expires_at"])} for i in invites],
@@ -145,7 +145,7 @@ def reset_user(user_id):
     if target["role"] == "admin":
         _confirm(body, "user-reset", str(user_id))              # a link for an administrator is the keys to everything
     with pool().connection() as conn:
-        _target(conn, user_id, lock=True)                          # two administrators resetting the same person take turns
+        _target(conn, user_id)                          # two administrators resetting the same person take turns (the write lock)
         conn.execute("DELETE FROM invitations WHERE user_id = %s AND kind = 'reset'", (user_id,))
         made = _make_invitation(conn, kind="reset", name=target["display_name"], user_id=user_id)
     return jsonify(made), 201

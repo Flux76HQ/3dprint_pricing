@@ -28,7 +28,8 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -r backend/requirements-dev.txt
-      # A skipped database test is a missing control, so fail if any test was skipped.
+      # The database tests run on SQLite; the PostgreSQL service is only the source of the one-off import test (test_pg_import.py, until the importer is dropped).
+      # A skipped test is a missing control, so fail if any test was skipped.
       - name: Run backend tests
         working-directory: backend
         run: |
@@ -64,7 +65,7 @@ jobs:
         run: |
           docker run --rm --user 10001 --entrypoint python printpricing:ci -c \
             "from app import invoice_docs; pdf = invoice_docs.docx_to_pdf(invoice_docs.sample_docx()); assert pdf.startswith(b'%PDF'), pdf[:20]; print('pdf bytes:', len(pdf))"
-      - name: The Home Assistant app builds on that image, starts its own PostgreSQL and the app, and stops cleanly
+      - name: The Home Assistant app builds on that image, starts the app on a new SQLite database, and stops cleanly
         run: |
           docker tag printpricing:ci ghcr.io/flux76hq/3dprint_pricing:ci
           docker build --build-arg BUILD_VERSION=ci -t printpricing-addon:ci homeassistant

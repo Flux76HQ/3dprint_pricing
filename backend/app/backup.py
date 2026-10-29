@@ -21,7 +21,7 @@ import time
 import uuid
 import zipfile
 import zlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import Blueprint, Response, current_app, g, jsonify, request, send_file
@@ -551,6 +551,11 @@ def _insert(conn, table: str, values: dict) -> None:
                  tuple(values.values()))
 
 
+def _restart_numbers(conn, name: str, highest: int) -> None:
+    """The numbers carry on after the highest one restored (`db.next_number`)."""
+    conn.execute("INSERT INTO counters (name, last) VALUES (%s, %s) ON CONFLICT (name) DO UPDATE SET last = excluded.last", (name, highest))
+
+
 def _restore_orders(conn, items: list) -> None:
     for item in items:
         v = item["values"]
@@ -562,7 +567,7 @@ def _restore_orders(conn, items: list) -> None:
                 columns[key] = item[key]
         _insert(conn, "orders", columns)
         orders._write_lines(conn, item["id"], v["lines"])
-    conn.execute(f"ALTER SEQUENCE order_number_seq RESTART WITH {max((i['number'] for i in items), default=0) + 1}")
+    _restart_numbers(conn, "order", max((i["number"] for i in items), default=0))
     counters: dict[int, int] = {}
     for item in items:                                              # the next invoice number carries on after the highest one restored
         found = re.fullmatch(r"(\d{4})-(\d+)", item["invoice_number"] or "")
@@ -687,8 +692,6 @@ def restore():
 
 # --- the restore as a background job -------------------------------------------------------------------------------
 
-JOB_LOCK = 7603003                   # two clicks never start two restores
-
 
 def _job_json(row) -> dict:
     message = render(L(row["error_key"], **row["error_params"]), request_language()) if row["error_key"] else None
@@ -701,7 +704,7 @@ def _job_json(row) -> dict:
 def _recover(conn) -> None:
     """Give up on a restore that has not moved for a while: its thread died with its container. The swap is one transaction, so nothing changed."""
     conn.execute("UPDATE backup_jobs SET status = 'failed', error_key = 'backup.err_interrupted', finished_at = now(), updated_at = now() "
-                 "WHERE status = 'running' AND updated_at < now() - make_interval(mins => %s)", (STALE_MINUTES,))
+                 "WHERE status = 'running' AND updated_at < %s", (datetime.now(timezone.utc) - timedelta(minutes=STALE_MINUTES),))
 
 
 def _progress(job_id, phase: str, step: int, steps: int) -> None:
@@ -724,8 +727,7 @@ def start_job():
     """Restore the staged backup in the background and answer at once. From here on nothing depends on this browser: leaving the page does not stop it."""
     staged = _staged(json_body().get("token"))
     with pool().connection() as conn:
-        conn.execute("SELECT pg_advisory_xact_lock(%s)", (JOB_LOCK,))
-        _recover(conn)
+        _recover(conn)                                                   # (the transaction holds the write lock: two clicks never start two restores)
         if conn.execute("SELECT 1 FROM backup_jobs WHERE status = 'running'").fetchone():
             raise ApiError(409, "backup.busy")
         conn.execute("DELETE FROM backup_jobs")                          # the last one is dismissed by starting the next
@@ -787,9 +789,18 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
     """Swap the plan in, all or nothing. `job` = (id, summary, steps): the job is marked done in the same transaction as the swap."""
     upload_dir = Path(config().upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
-    written, old_files = [], []
+    written, old_files, file_rows = [], [], []
     started = time.monotonic()
     try:
+        for n, item in enumerate(plan["files"], 1):                  # the slow part, before the swap: the database is locked for the swap only
+            if progress:
+                progress(n, len(plan["files"]))
+            stored = f"{uuid.uuid4().hex}.{item['kind']}"
+            (upload_dir / stored).write_bytes(item["content"] if item["member"] is None else _read_member(archive, item["member"], item["size"]))
+            written.append(upload_dir / stored)
+            file_rows.append({"id": item["id"], "filename": item["filename"], "kind": item["kind"], "size_bytes": item["size"], "sha256": item["sha256"],
+                              "stored_name": stored, "analysis": json.dumps(item["analysis"]),
+                              **({"created_at": item["created_at"]} if item["created_at"] else {})})
         with pool().connection() as conn:
             conn.execute("DELETE FROM projects")
             conn.execute("DELETE FROM orders")
@@ -803,16 +814,8 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                 conn.execute(f"DELETE FROM {table}")
             if plan["files"]:
                 old_files += [r["stored_name"] for r in conn.execute("DELETE FROM print_files RETURNING stored_name").fetchall()]
-                for n, item in enumerate(plan["files"], 1):
-                    if progress:
-                        progress(n, len(plan["files"]))
-                    stored = f"{uuid.uuid4().hex}.{item['kind']}"
-                    (upload_dir / stored).write_bytes(item["content"] if item["member"] is None else _read_member(archive, item["member"], item["size"]))
-                    written.append(upload_dir / stored)
-                    _insert(conn, "print_files", {"id": item["id"], "filename": item["filename"], "kind": item["kind"],
-                                                  "size_bytes": item["size"], "sha256": item["sha256"],
-                                                  "stored_name": stored, "analysis": json.dumps(item["analysis"]),
-                                                  **({"created_at": item["created_at"]} if item["created_at"] else {})})
+                for row in file_rows:
+                    _insert(conn, "print_files", row)
             for _key, (table, items) in plan["sections"].items():
                 for item in items:
                     values = {"id": item["id"], **item["values"]}
@@ -842,7 +845,7 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                 conn.execute("INSERT INTO ai_image_settings (id, model, quality) VALUES (true, %s, %s) "
                              "ON CONFLICT (id) DO UPDATE SET model = EXCLUDED.model, quality = EXCLUDED.quality, updated_at = now()",
                              (plan["ai_settings"]["model"], plan["ai_settings"]["quality"]))
-            conn.execute(f"ALTER SEQUENCE project_number_seq RESTART WITH {max((p['number'] for p in plan['projects']), default=0) + 1}")
+            _restart_numbers(conn, "project", max((p["number"] for p in plan["projects"]), default=0))
             for c in plan["customers"]:
                 _insert(conn, "customers", {"id": c["id"], **c["values"], **({"created_at": c["created_at"]} if c["created_at"] else {}),
                                             **({"updated_at": c["updated_at"]} if c["updated_at"] else {})})

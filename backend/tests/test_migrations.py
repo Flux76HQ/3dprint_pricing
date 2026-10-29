@@ -1,10 +1,11 @@
 import shutil
+import sqlite3
 from pathlib import Path
 
-import psycopg
 import pytest
 
 from app.db import MIGRATIONS_DIR, SchemaDrift, run_migrations
+from tests.conftest import connect
 
 
 def test_fresh_install_applies_everything_and_is_idempotent(fresh_db):
@@ -27,11 +28,11 @@ def test_a_failing_migration_leaves_nothing_half_applied(fresh_db, tmp_path):
     work = tmp_path / "migrations"
     shutil.copytree(MIGRATIONS_DIR, work, ignore=shutil.ignore_patterns("__pycache__"))
     run_migrations(fresh_db, work)
-    (work / "9999_broken.sql").write_text("CREATE TABLE half (id int); SELECT 1/0;")
-    with pytest.raises(psycopg.Error):
+    (work / "9999_broken.sql").write_text("CREATE TABLE half (id int); INSERT INTO nowhere VALUES (1);")
+    with pytest.raises(sqlite3.Error):
         run_migrations(fresh_db, work)
-    with psycopg.connect(fresh_db) as conn:
-        assert conn.execute("SELECT to_regclass('half')").fetchone()[0] is None
+    with connect(fresh_db) as conn:
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'half'").fetchone() is None
         applied = [r[0] for r in conn.execute("SELECT filename FROM schema_migrations")]
     assert applied == sorted(p.name for p in MIGRATIONS_DIR.glob("*.sql"))   # everything real, nothing broken
 

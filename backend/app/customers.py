@@ -3,10 +3,10 @@
 An order points at its customer and keeps a copy of the details (see migration 0014): saving the order copies them again, and
 editing a customer updates the copy in its orders that have no invoice yet, so an invoice that went out is never rewritten.
 """
-import psycopg.errors
 from flask import Blueprint, jsonify, request
 
 from .api import _serialise, text
+from .db import UniqueViolation
 from .http import ApiError, json_body, login_required, pool
 
 bp = Blueprint("customers", __name__, url_prefix="/api/customers")
@@ -15,7 +15,6 @@ TEXT_FIELDS = (("name", "f.customer_name", 120, True), ("address", "f.address", 
                ("city", "f.city", 100, False), ("country", "f.country", 60, False), ("email", "f.email", 200, False),
                ("phone", "f.phone", 40, False), ("notes", "f.notes", 2000, False))
 FIELDS = ("number", *(f[0] for f in TEXT_FIELDS))
-NUMBER_LOCK = 7_300_114                       # advisory lock: two customers made at the same moment never get the same number
 
 
 @bp.before_request
@@ -35,8 +34,8 @@ def validated_customer(body: dict) -> dict:
 
 def next_number(conn) -> str:
     """The next free whole number (one more than the highest whole number in use)."""
-    conn.execute("SELECT pg_advisory_xact_lock(%s)", (NUMBER_LOCK,))
-    row = conn.execute("SELECT COALESCE(MAX(number::bigint), 0) + 1 AS n FROM customers WHERE number ~ '^[0-9]{1,9}$'").fetchone()
+    row = conn.execute("SELECT COALESCE(MAX(CAST(number AS INTEGER)), 0) + 1 AS n FROM customers "
+                       "WHERE number NOT GLOB '*[^0-9]*' AND length(number) BETWEEN 1 AND 9").fetchone()
     return str(row["n"])
 
 
@@ -53,7 +52,7 @@ def insert(conn, values: dict, **extra):
     try:
         return conn.execute(f"INSERT INTO customers ({', '.join(columns)}) VALUES ({', '.join(['%s'] * len(columns))}) RETURNING *",
                             tuple(columns.values())).fetchone()
-    except psycopg.errors.UniqueViolation:
+    except UniqueViolation:
         raise ApiError(409, "err.customer_number_taken", number=number) from None
 
 
@@ -100,7 +99,7 @@ def create_customer():
 def update_customer(customer_id):
     values = validated_customer(json_body())
     with pool().connection() as conn:
-        current = conn.execute("SELECT * FROM customers WHERE id = %s FOR UPDATE", (customer_id,)).fetchone()
+        current = conn.execute("SELECT * FROM customers WHERE id = %s", (customer_id,)).fetchone()
         if current is None:
             raise ApiError(404, "err.customer_not_found")
         number = values["number"] or current["number"]                      # leaving the number empty keeps it
@@ -109,7 +108,7 @@ def update_customer(customer_id):
         try:
             row = conn.execute(f"UPDATE customers SET {sets}, updated_at = now() WHERE id = %s RETURNING *",
                                (*[values[f] for f in FIELDS], customer_id)).fetchone()
-        except psycopg.errors.UniqueViolation:
+        except UniqueViolation:
             raise ApiError(409, "err.customer_number_taken", number=number) from None
         copy = snapshot(row)
         conn.execute("UPDATE orders SET " + ", ".join(f"{f} = %s" for f in copy) + ", updated_at = now() "

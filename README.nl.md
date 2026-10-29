@@ -132,7 +132,7 @@ Een wachtwoord werkt op elk adres, ook in je eigen netwerk. Zet voor passkeys, i
 ### Installatie als Home Assistant-app
 
 Voeg op Home Assistant OS of Supervised `https://github.com/Flux76HQ/3dprint_pricing` toe onder **Instellingen > Apps > App installeren > Repositories** en
-installeer *3D Print Pricing*: de app brengt zijn eigen PostgreSQL mee en bewaart zijn data in de map van de app, die Home Assistant meeneemt in zijn back-ups.
+installeer *3D Print Pricing*: de app bewaart zijn data (één SQLite-database en de uploads) in de map van de app, die Home Assistant meeneemt in zijn back-ups.
 Passkeys vragen nog steeds een domein met https voor de poort van de app, dus vul daarvoor `rp_id` in op het tabblad Configuratie; met een wachtwoord werkt de app ook op `http://<adres van Home Assistant>:6080`. De stappen staan op het tabblad
 Documentatie van de app ([`homeassistant/DOCS.md`](homeassistant/DOCS.md)). Draait op amd64 en aarch64 (Raspberry Pi 4/5, ARM-minipc's).
 
@@ -143,8 +143,8 @@ Instellen in `.env`; het bestand `.env.example` documenteert elke waarde.
 | Variabele | Verplicht | Standaard | Omschrijving |
 |---|:---:|---|---|
 | `WEB_PORT` | ✅ | - | Poort van de app; compose publiceert en de app luistert op deze waarde |
-| `DATA_PATH` | ✅ | - | Map op de host voor alle data: de database (`postgres/`) en de geüploade bestanden (`uploads/`). Gewone mappen, geen Docker-volumes. Moet een **absolute** map van de Docker-host zijn (bijv. `/srv/printpricing`, op Unraid `/mnt/user/appdata/printpricing`), nooit `./data`; data die ergens anders terecht is gekomen verplaatst `scripts/migrate_data.sh` |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | ✅ | - | De database; gebruik een wachtwoord met alleen letters en cijfers |
+| `DATA_PATH` | ✅ | - | Map op de host voor alle data: de database (`db/`, één SQLite-bestand) en de geüploade bestanden (`uploads/`). Gewone mappen, geen Docker-volumes. Moet een **absolute** map van de Docker-host zijn, op een lokale schijf (bijv. `/srv/printpricing`, op Unraid `/mnt/cache/appdata/printpricing`, niet `/mnt/user/...`: SQLite hoort niet op een netwerkshare of FUSE-mount), nooit `./data`; data die ergens anders terecht is gekomen verplaatst `scripts/migrate_data.sh` |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | ✅ | - | Alleen voor de PostgreSQL van de releases vóór SQLite, die de app één keer leest om je data over te zetten als hij zonder SQLite-bestand start (zie de [handleiding](docs/handleiding.md), *Overstap naar SQLite*). Laat ze zoals ze zijn; de volgende release laat ze vallen. Alleen letters en cijfers in het wachtwoord |
 | `RP_ID` | ❌ | leeg | Domein waarop de app draait, zonder schema of poort. Passkeys zijn eraan gebonden, dus zet het vast zodra je ze gebruikt. Leeg: het adres waarop de app wordt geopend |
 | `RP_ORIGINS` | ❌ | leeg | Volledige origin(s), komma-gescheiden, bijvoorbeeld `https://print.voorbeeld.nl`. Gezet: schrijvende verzoeken van een andere origin worden geweigerd, en uitnodigingslinks gebruiken het adres waarop de beheerder is ingelogd als dat hier staat, anders het eerste. Leeg: het adres waarop de app wordt geopend |
 | `SETUP_CODE` | ✅ | - | Eenmalige code voor de onboarding, zodat niet de eerste bezoeker de app overneemt |
@@ -162,13 +162,13 @@ Instellen in `.env`; het bestand `.env.example` documenteert elke waarde.
 | `PRINTPRICING_UPDATE_CHECK` | ❌ | `true` | De updatecontrole: de app vraagt aan GitHub of er een nieuwere stabiele release is en meldt dat aan de eigenaar met een melding en onder *Instellingen → Systeem → Updatecontrole*. Er wordt niets over jouw installatie meegestuurd en er wordt nooit iets bijgewerkt. `false` (ook `0`, `no`, `off`) zet het uit, voor een installatie die niet naar buiten mag bellen. Een beta-build ziet alleen stabiele releases |
 | `PRINTPRICING_TAG` | ❌ | `latest` | Welke build draait: `latest` (stabiel), `beta` (de ontwikkelversie) of een versienummer zoals `0.26.15`. `docker-compose.yml` pullt `ghcr.io/flux76hq/3dprint_pricing:<tag>` en geeft dezelfde waarde aan de app, die op `beta` een **beta**-label naast zijn naam toont. Vervangt `APP_IMAGE` |
 
-Bijwerken doe je met `docker compose pull && docker compose up -d` (of `sh scripts/update.sh`, dat eerst de database dumpt). De app meldt zelf dat er een nieuwere release is: hij vraagt het aan GitHub (de nieuwste stabiele release van deze repository, er wordt niets over jouw installatie meegestuurd) en toont een melding en *Instellingen → Systeem → Updatecontrole*; hij meldt alleen en werkt nooit zelf bij. `PRINTPRICING_UPDATE_CHECK=false` zet het uit. Health checks, back-up, meldingen en al het andere over het draaiende houden van de app staan in de [handleiding](docs/handleiding.md).
+Bijwerken doe je met `docker compose pull && docker compose up -d` (of `sh scripts/update.sh`, dat eerst de database kopieert). De app meldt zelf dat er een nieuwere release is: hij vraagt het aan GitHub (de nieuwste stabiele release van deze repository, er wordt niets over jouw installatie meegestuurd) en toont een melding en *Instellingen → Systeem → Updatecontrole*; hij meldt alleen en werkt nooit zelf bij. `PRINTPRICING_UPDATE_CHECK=false` zet het uit. Health checks, back-up, meldingen en al het andere over het draaiende houden van de app staan in de [handleiding](docs/handleiding.md).
 
 ## Tech stack
 
 - **App / frontend:** een Progressive Web App in gewoon JavaScript, zonder buildstap, met een service worker voor de offline schil
 - **Backend:** Python, Flask en Gunicorn; passkeys via de open-source bibliotheek `py_webauthn` (pakket `webauthn`)
-- **Database:** PostgreSQL 17, met alleen-vooruit migraties die op checksum bewaakt worden
+- **Database:** SQLite (één bestand, WAL-modus), met alleen-vooruit migraties die op checksum bewaakt worden
 - **Infrastructuur:** Docker Compose, een image die CI naar GHCR publiceert
 
 ## Architectuur
@@ -177,7 +177,7 @@ Bijwerken doe je met `docker compose pull && docker compose up -d` (of `sh scrip
 flowchart LR
     A[Telefoon of desktop<br/>geïnstalleerde PWA] -->|https| P[Reverse proxy<br/>TLS]
     P --> B[App-container<br/>Flask API + PWA-bestanden]
-    B --> C[(PostgreSQL)]
+    B --> C[(SQLite-bestand)]
     B --> D[/Geüploade STL- en 3MF-bestanden/]
     B -.->|optioneel web push| E[Pushdiensten]
 ```

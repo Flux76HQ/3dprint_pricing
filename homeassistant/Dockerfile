@@ -1,4 +1,4 @@
-# Home Assistant app: the published app image plus the PostgreSQL it needs, started by run.py.
+# Home Assistant app: the published app image plus PostgreSQL 17, which run.py starts only to move the data of an earlier release into SQLite (once).
 # The Supervisor builds this on the device and passes BUILD_VERSION (= `version` in config.yaml); the tag exists for every release.
 ARG BUILD_VERSION=latest
 FROM ghcr.io/flux76hq/3dprint_pricing:${BUILD_VERSION}
@@ -18,6 +18,6 @@ RUN mkdir -p /etc/postgresql-common && echo 'create_main_cluster = false' > /etc
 
 COPY run.py /run.py
 
-# The image's own entrypoint (migrations, then gunicorn) is started by run.py, next to PostgreSQL.
+# The image's own entrypoint (migrations, then gunicorn) is started by run.py.
 ENTRYPOINT []
 CMD ["python", "/run.py"]

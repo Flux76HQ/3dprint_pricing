@@ -28,9 +28,7 @@ def load(conn, user_id) -> dict:
 
 def merge_shared(conn, change: dict) -> None:
     if change:
-        conn.execute("INSERT INTO shared_preferences (id, preferences) VALUES (true, %s::jsonb) "
-                     "ON CONFLICT (id) DO UPDATE SET preferences = shared_preferences.preferences || EXCLUDED.preferences, updated_at = now()",
-                     (json.dumps(change),))
+        replace_shared(conn, {**shared(conn), **change})
 
 
 def replace_shared(conn, prefs: dict) -> None:

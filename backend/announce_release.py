@@ -22,7 +22,8 @@ def announce(pool, cfg, label: str) -> int:
                                (label, label)).fetchone()
         if claimed is None:
             return 0
-        users = conn.execute("SELECT id FROM users WHERE role = 'admin' AND COALESCE(preferences->>'notify_release', 'true') <> 'false'").fetchall()
+        users = [u for u in conn.execute("SELECT id, preferences FROM users WHERE role = 'admin'").fetchall()
+                 if str(u["preferences"].get("notify_release", True)).lower() != "false"]
     if not cfg.push_configured:
         return 0
     sent = 0
@@ -38,7 +39,7 @@ if __name__ == "__main__":
     try:
         import app as app_module
         cfg = load_config()
-        pool = make_pool(cfg.database_url)
+        pool = make_pool(cfg.database_path)
         label = f"{app_module.VERSION} ({app_module._commit()})"
         print(f"Release {label}: announced to {announce(pool, cfg, label)} device(s).")
         pool.close()
