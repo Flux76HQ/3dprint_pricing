@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from . import preferences, push, stock
+from .db import id_list
 from .i18n import DEFAULT_LANGUAGE, translate, user_language
 
 log = logging.getLogger(__name__)
@@ -94,10 +95,10 @@ def _check(pool, cfg, now) -> int:
         keys = list(low)
         with pool.connection() as conn:
             # What is no longer low (or no longer watched, or gone) is forgotten, so the next drop is announced.
-            conn.execute("DELETE FROM low_stock_alerts WHERE user_id = %s AND NOT (stock_key = ANY(%s::text[]))", (user["id"], keys))
+            conn.execute("DELETE FROM low_stock_alerts WHERE user_id = %s AND stock_key NOT IN (SELECT value FROM json_each(%s))", (user["id"], id_list(keys)))
             # Claimed atomically, so two workers saving at the same moment announce it once.
-            fresh = conn.execute("INSERT INTO low_stock_alerts (user_id, stock_key) SELECT %s, unnest(%s::text[]) "
-                                 "ON CONFLICT DO NOTHING RETURNING stock_key", (user["id"], keys)).fetchall()
+            fresh = conn.execute("INSERT INTO low_stock_alerts (user_id, stock_key) SELECT %s, value FROM json_each(%s) WHERE true "
+                                 "ON CONFLICT DO NOTHING RETURNING stock_key", (user["id"], id_list(keys))).fetchall()
         if fresh and cfg.push_configured:
             lang = user_language(user["id"], pool) or DEFAULT_LANGUAGE
             title, body = build_message(lang, low)               # everything that is low, not only the newest: one message replaces the last

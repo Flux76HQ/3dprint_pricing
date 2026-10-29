@@ -1,12 +1,14 @@
 #!/bin/sh
 # Starts as root only to fix ownership of the uploads folder (Docker creates a missing bind-mount
 # directory as root), then re-runs itself as the unprivileged `app` user. /data is the host's DATA_PATH:
-# the database lives in its postgres/ folder (the db container mounts that), the uploads in uploads/.
+# the database is one SQLite file in its db/ folder, the uploads are in uploads/ (an earlier release kept a PostgreSQL database in postgres/;
+# migrate.py imports it once).
 # Migrations run before the server accepts traffic, and the container stops if they fail or the
 # schema has drifted: serving on a half-migrated database is worse.
 set -eu
 
 UPLOAD_DIR="${UPLOAD_DIR:-/data/uploads}"
+DB_DIR="$(dirname "${DATABASE_PATH:-/data/db/printpricing.sqlite3}")"
 
 if [ "$(id -u)" = "0" ]; then
   # Data that is not on a mount is gone with the container at the next update: say so loudly instead of finding out then.
@@ -20,8 +22,14 @@ if [ "$(id -u)" = "0" ]; then
     *) echo "WARNING: DATA_PATH is \"$DATA_PATH\", a relative path. The data may be in a folder you do not expect. Set an absolute folder of the host in .env," >&2
        echo "         then run scripts/migrate_data.sh on the host (see docs/handleiding.md, 'Waar de data staat')." >&2 ;;
   esac
-  mkdir -p "$UPLOAD_DIR"
-  chown app:app "$UPLOAD_DIR"                                   # only the uploads: /data itself is the host's DATA_PATH, which also holds postgres/
+  mkdir -p "$UPLOAD_DIR" "$DB_DIR"
+  chown app:app "$UPLOAD_DIR" "$DB_DIR"                         # only these two: /data itself is the host's DATA_PATH, which may hold an old postgres/
+  # SQLite needs working file locks and shared memory. A network share or a FUSE mount (Unraid's /mnt/user is one) may have neither; use a folder on a local disk.
+  case "$(stat -f -c %T "$DB_DIR" 2>/dev/null || true)" in
+    nfs*|cifs|smb*|fuse*|9p|ceph|afs)
+      echo "WARNING: the database folder $DB_DIR is on a network or FUSE file system. SQLite can lose data there. Put DATA_PATH on a local disk" >&2
+      echo "         (Unraid: /mnt/cache/appdata/printpricing or /mnt/diskN/..., not /mnt/user/...; see docs/handleiding.md, 'Waar de data staat')." >&2 ;;
+  esac
   # Earlier releases kept the uploads in DATA_PATH/app/uploads. A failed move must not keep the app from starting: the files just stay there.
   /migrate_uploads.sh /data/app/uploads "$UPLOAD_DIR" || echo "WARNING: moving the old uploads from /data/app/uploads failed; they stay where they are." >&2
   exec setpriv --reuid=app --regid=app --init-groups "$0" "$@"

@@ -43,7 +43,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     hops = int(os.environ.get("PROXY_HOPS", "0"))
     if hops:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops)
-    app.extensions["pool"] = pool or make_pool(cfg.database_url)
+    app.extensions["pool"] = pool or make_pool(cfg.database_path)
 
     @app.before_request
     def _guard():

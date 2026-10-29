@@ -1,4 +1,5 @@
-# 3D Print Pricing: app + PostgreSQL.
+# 3D Print Pricing: the app. The database is a SQLite file in DATA_PATH/db. The db service below is the PostgreSQL of the releases before it: the app reads it
+# once to move the data over, and it goes away in the release after this one.
 # Everything that differs per deployment comes from .env (copy .env.example, or run
 # `python scripts/init_env.py`). The port is set once, in WEB_PORT.
 #
@@ -14,16 +15,17 @@ services:
     environment:
       PRINTPRICING_TAG: ${PRINTPRICING_TAG:-latest}
       DATA_PATH: ${DATA_PATH:?Set DATA_PATH in .env to an absolute folder of the host, e.g. /srv/printpricing}   # the entrypoint warns when it is relative
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      LEGACY_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}   # imported once, when there is no SQLite file yet
     ports:
       - "${WEB_PORT}:${WEB_PORT}"
     volumes:
-      - ${DATA_PATH}:/data   # DATA_PATH/uploads: the STL/3MF files (DATA_PATH/postgres is the database, below)
+      - ${DATA_PATH}:/data   # DATA_PATH/db: the database (one SQLite file), DATA_PATH/uploads: the STL/3MF files (DATA_PATH/postgres: the old database, below)
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
 
+  # The old database: only read for the one-time import, and removed in the next release.
   db:
     image: postgres:17-alpine
     environment:

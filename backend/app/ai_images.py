@@ -15,15 +15,16 @@ import re
 import threading
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
-import psycopg
 import requests
 from flask import Blueprint, Response, current_app, jsonify, request
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from . import passwords
 from .api import text
+from .db import ForeignKeyViolation
 from .http import ApiError, RateLimiter, config, json_body, login_required, pool
 from .i18n import L, render, request_language
 
@@ -198,7 +199,7 @@ def _log(conn, level: str, key: str, *, project=None, variant=None, detail: str 
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
         (level, key, _freeze(params), detail[:300], project["id"] if project else None,
          project["number"] if project else None, project["name"] if project else None, variant))
-    conn.execute("DELETE FROM ai_image_log WHERE id <= (SELECT id FROM ai_image_log ORDER BY id DESC OFFSET %s LIMIT 1)", (LOG_KEEP,))
+    conn.execute("DELETE FROM ai_image_log WHERE id <= (SELECT id FROM ai_image_log ORDER BY id DESC LIMIT 1 OFFSET %s)", (LOG_KEEP,))
 
 
 def _log_error(exc: ApiError, *, project=None, variant=None) -> None:
@@ -304,9 +305,8 @@ def _serialise(row) -> dict:
             "height_px": row["height_px"], "is_cover": row["is_cover"], "created_at": row["created_at"].isoformat()}
 
 
-def _project(conn, project_id, lock: bool = False):
-    row = conn.execute("SELECT id, number, name, object_description FROM projects WHERE id = %s" + (" FOR UPDATE" if lock else ""),
-                       (project_id,)).fetchone()
+def _project(conn, project_id):
+    row = conn.execute("SELECT id, number, name, object_description FROM projects WHERE id = %s", (project_id,)).fetchone()
     if row is None:
         raise ApiError(404, "err.calc_not_found")
     return row
@@ -324,8 +324,8 @@ def _recover(conn) -> None:
     """Give up on jobs that have not moved for a while: their thread died with its container, and nobody would ever finish them."""
     rows = conn.execute(
         "UPDATE ai_image_jobs SET status = 'failed', error_key = 'ai.err_interrupted', finished_at = now(), updated_at = now() "
-        "WHERE status IN ('queued', 'running') AND updated_at < now() - make_interval(mins => %s) RETURNING project_id, variant",
-        (STALE_MINUTES,)).fetchall()
+        "WHERE status IN ('queued', 'running') AND updated_at < %s RETURNING project_id, variant",
+        (datetime.now(timezone.utc) - timedelta(minutes=STALE_MINUTES),)).fetchall()
     for row in rows:
         project = conn.execute("SELECT id, number, name FROM projects WHERE id = %s", (row["project_id"],)).fetchone()
         _log(conn, "error", "ai.err_interrupted", project=project, variant=row["variant"])
@@ -379,7 +379,7 @@ def _enqueue(project_id, body: dict) -> "tuple[uuid.UUID, list]":
     _need_key()                                                    # no key: say so now, not after the queue has been made
     batch = uuid.uuid4()
     with pool().connection() as conn:
-        project = _project(conn, project_id, lock=True)            # two requests at once for one calculation: one waits for the other
+        project = _project(conn, project_id)            # two requests at once for one calculation: one waits for the other (the write lock)
         _recover(conn)
         if conn.execute("SELECT 1 FROM ai_image_jobs WHERE project_id = %s AND status IN ('queued', 'running')", (project_id,)).fetchone():
             raise ApiError(409, "ai.err_already_busy")
@@ -463,7 +463,7 @@ def _run_next(project_id, batch) -> bool:
     with pool().connection() as conn:
         job = conn.execute(
             "UPDATE ai_image_jobs SET status = 'running', updated_at = now() WHERE id = (SELECT id FROM ai_image_jobs "
-            "WHERE batch_id = %s AND status = 'queued' ORDER BY position LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *", (batch,)).fetchone()
+            "WHERE batch_id = %s AND status = 'queued' ORDER BY position LIMIT 1) RETURNING *", (batch,)).fetchone()
         if job is None:
             return False
         conn.execute("UPDATE ai_image_jobs SET updated_at = now() WHERE batch_id = %s AND status = 'queued'", (batch,))     # still alive
@@ -486,13 +486,13 @@ def _run_next(project_id, batch) -> bool:
         return _failed(project_id, batch, job, project, AiError(500, "ai.err_unexpected", detail="see the server log"))
     try:
         with pool().connection() as conn:
-            if conn.execute("SELECT 1 FROM projects WHERE id = %s FOR SHARE", (project_id,)).fetchone() is None:
+            if conn.execute("SELECT 1 FROM projects WHERE id = %s", (project_id,)).fetchone() is None:
                 return False
             conn.execute("INSERT INTO project_images (project_id, kind, variant, mime, content, width_px, height_px) "
                          "VALUES (%s, 'generated', %s, 'image/jpeg', %s, %s, %s)", (project_id, job["variant"], content, width, height))
             conn.execute("UPDATE ai_image_jobs SET status = 'done', finished_at = now(), updated_at = now() WHERE id = %s", (job["id"],))
             _log(conn, "info", "ai.log_done", project=project, variant=job["variant"], seconds=round(time.monotonic() - started))
-    except psycopg.errors.ForeignKeyViolation:
+    except ForeignKeyViolation:
         return False
     return True
 

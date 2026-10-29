@@ -8,6 +8,7 @@ from flask import Blueprint, g, jsonify, request
 
 from . import invoice_docs, invoice_numbers, lowstock, preferences, push, stock
 from .calc import PART_UNITS, ROUNDINGS, calculate
+from .db import id_list, next_number
 from .http import ApiError, config, json_body, login_required, pool, require_admin
 from .i18n import LANGUAGES, L, tr
 
@@ -202,7 +203,7 @@ def _share_notify(conn, row: dict, *, explicit: bool, creating: bool) -> dict:
     if explicit:
         differing = [r["id"] for r in siblings if r["notify_low"] != row["notify_low"]]
         if differing:
-            conn.execute("UPDATE filament_spools SET notify_low = %s WHERE id = ANY(%s)", (row["notify_low"], differing))
+            conn.execute("UPDATE filament_spools SET notify_low = %s WHERE id IN (SELECT value FROM json_each(%s))", (row["notify_low"], id_list(differing)))
     elif creating and not row["notify_low"] and any(r["notify_low"] for r in siblings):
         row = conn.execute("UPDATE filament_spools SET notify_low = true WHERE id = %s RETURNING *", (row["id"],)).fetchone()
     return row
@@ -496,7 +497,8 @@ def put_preferences():
         require_admin()                                              # the company's details, VAT, rounding and thresholds are everybody's
     with pool().connection() as conn:
         if own:
-            conn.execute("UPDATE users SET preferences = preferences || %s::jsonb WHERE id = %s", (json.dumps(own), g.user_id))
+            current = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()["preferences"]
+            conn.execute("UPDATE users SET preferences = %s WHERE id = %s", (json.dumps({**current, **own}), g.user_id))
         preferences.merge_shared(conn, business)
         merged = preferences.load(conn, g.user_id)
     if "low_stock" in prefs:
@@ -524,6 +526,8 @@ def calculate_endpoint():
 
 
 def _project_row(row):
+    if "ai_busy" in row:
+        row = {**row, "ai_busy": bool(row["ai_busy"])}                  # an EXISTS comes back as 0 or 1
     return _serialise(row)
 
 
@@ -581,9 +585,9 @@ def create_project():
     with pool().connection() as conn:
         row = conn.execute(
             "INSERT INTO projects (name, notes, object_description, margin_pct, vat_pct, price_rounding, data, totals, source_url, "
-            "file_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "file_id, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
-             json.dumps(f["totals"]), f["source_url"], f["file_id"])).fetchone()
+             json.dumps(f["totals"]), f["source_url"], f["file_id"], next_number(conn, "project"))).fetchone()
     return jsonify(_project_row(row)), 201
 
 
@@ -615,7 +619,7 @@ def book_stock(project_id):
     """Subtract the project's filament grams from the spools it used, once."""
     from . import spoolman                                  # imported here: that module imports this one
     with pool().connection() as conn:
-        project = conn.execute("SELECT data, stock_booked_at FROM projects WHERE id = %s FOR UPDATE",
+        project = conn.execute("SELECT data, stock_booked_at FROM projects WHERE id = %s",
                                (project_id,)).fetchone()
         if project is None:
             raise ApiError(404, "err.calc_not_found")
@@ -628,13 +632,13 @@ def book_stock(project_id):
                 used[spool_id] = used.get(spool_id, Decimal(0)) + Decimal(str(line.get("grams") or 0))
         short = []
         for spool_id, grams in used.items():
-            row = conn.execute("SELECT brand, product_type, remaining_g, spoolman_id FROM filament_spools WHERE id = %s FOR UPDATE",
+            row = conn.execute("SELECT brand, product_type, remaining_g, spoolman_id FROM filament_spools WHERE id = %s",
                                (spool_id,)).fetchone()
             if row is None:
                 continue  # spool was deleted since; nothing to subtract from
             if row["remaining_g"] < grams:
                 short.append(tr("book.short_item", name=" ".join(x for x in (row["brand"], row["product_type"]) if x), left=row["remaining_g"], need=grams))
-            conn.execute("UPDATE filament_spools SET remaining_g = GREATEST(remaining_g - %s, 0) WHERE id = %s",
+            conn.execute("UPDATE filament_spools SET remaining_g = round(max(remaining_g - %s, 0), 1) WHERE id = %s",
                          (grams, spool_id))
             if row["spoolman_id"] is not None:
                 spoolman.queue_use(conn, row["spoolman_id"], grams)       # owed to Spoolman, sent below once the booking is safe

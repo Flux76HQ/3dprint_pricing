@@ -334,26 +334,32 @@ def notify(pool, cfg, user_id, kind: str, title: str, body: str, url: str = "/",
     return deliver_now(pool, cfg, user_id, payload)
 
 
+LEASE = timedelta(minutes=5)           # how long a claimed notification is left alone; a worker that dies mid-send hands it back after this
+
+
 def run_outbox_once(pool, cfg, now: "datetime | None" = None) -> int:
-    """Deliver what is due. Safe to run from several workers: rows are claimed with SKIP LOCKED."""
+    """Deliver what is due. Safe to run from several workers: a row is claimed by moving its time `LEASE` ahead, in one statement,
+    and only deleted once it has been sent (a crash in between means it is sent again, never lost)."""
     now = now or datetime.now(timezone.utc)
     done = 0
     with pool.connection() as conn:
-        rows = conn.execute("SELECT id, user_id, payload FROM push_outbox WHERE deliver_after <= %s "
-                            "ORDER BY deliver_after FOR UPDATE SKIP LOCKED LIMIT 50", (now,)).fetchall()
-        for row in rows:
-            until = quiet_until(now, user_window(pool, row["user_id"]))
-            if until:                                    # the window moved: wait again rather than send
+        rows = conn.execute("UPDATE push_outbox SET deliver_after = %s WHERE id IN (SELECT id FROM push_outbox WHERE deliver_after <= %s "
+                            "ORDER BY deliver_after LIMIT 50) RETURNING id, user_id, payload", (now + LEASE, now)).fetchall()
+    for row in rows:                                     # sending takes its own connections; none is held across it
+        until = quiet_until(now, user_window(pool, row["user_id"]))
+        if until:                                        # the window moved: wait again rather than send
+            with pool.connection() as conn:
                 conn.execute("UPDATE push_outbox SET deliver_after = %s WHERE id = %s", (until, row["id"]))
-                continue
-            deliver_now(pool, cfg, row["user_id"], row["payload"])
+            continue
+        deliver_now(pool, cfg, row["user_id"], row["payload"])
+        with pool.connection() as conn:
             conn.execute("DELETE FROM push_outbox WHERE id = %s", (row["id"],))
-            done += 1
+        done += 1
     return done
 
 
 def start_outbox_worker(app, interval_seconds: int = 60) -> None:
-    """A tiny background loop per web worker; SKIP LOCKED keeps them from stepping on each other."""
+    """A tiny background loop per web worker; the claim in `run_outbox_once` keeps them from stepping on each other."""
     def loop():
         while True:
             _time.sleep(interval_seconds)

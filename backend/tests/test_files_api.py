@@ -92,12 +92,12 @@ def test_project_rejects_bad_links(owner, extra):
 
 
 def test_unlinked_uploads_are_purged_after_a_day_but_linked_ones_stay(owner, app):
-    import psycopg
+    from tests.conftest import connect
     kept = upload(owner, pf.stl_binary(), "kept.stl").get_json()["id"]
     make(owner, "/api/projects", {**sheet_payload(), "file_id": kept})
     orphan = upload(owner, pf.stl_binary(), "orphan.stl").get_json()["id"]
-    with psycopg.connect(app.config["APP_CONFIG"].database_url) as conn:
-        conn.execute("UPDATE print_files SET created_at = now() - interval '2 days'")
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
+        conn.execute("UPDATE print_files SET created_at = strftime('%Y-%m-%d %H:%M:%f', 'now', '-2 days')")
     upload(owner, pf.stl_binary(), "trigger.stl")           # any upload runs the cleanup
     assert owner.get(f"/api/print-files/{kept}").status_code == 200
     assert owner.get(f"/api/print-files/{orphan}").status_code == 404

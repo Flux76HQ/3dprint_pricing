@@ -13,6 +13,7 @@ from flask import Blueprint, Response, g, jsonify, request
 
 from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template, preferences
 from .api import _serialise, boolean, number, text
+from .db import id_list, next_number
 from .http import ApiError, json_body, login_required, pool
 from .i18n import L
 
@@ -184,7 +185,7 @@ def _write_lines(conn, order_id, lines: list) -> None:
 def _lines_of(conn, order_ids: list) -> dict:
     by_order: dict = {oid: [] for oid in order_ids}
     if order_ids:
-        rows = conn.execute("SELECT * FROM order_lines WHERE order_id = ANY(%s) ORDER BY order_id, position", (order_ids,)).fetchall()
+        rows = conn.execute("SELECT * FROM order_lines WHERE order_id IN (SELECT value FROM json_each(%s)) ORDER BY order_id, position", (id_list(order_ids),)).fetchall()
         for row in rows:
             by_order[row["order_id"]].append(row)
     return by_order
@@ -212,8 +213,8 @@ def _with_pdf_flag(conn, order: dict, presented: dict) -> dict:
     return presented
 
 
-def _fetch(conn, order_id, *, lock: bool = False):
-    order = conn.execute(f"SELECT * FROM orders WHERE id = %s{' FOR UPDATE' if lock else ''}", (order_id,)).fetchone()
+def _fetch(conn, order_id):
+    order = conn.execute("SELECT * FROM orders WHERE id = %s", (order_id,)).fetchone()
     if order is None:
         raise ApiError(404, "err.order_not_found")
     return order, _lines_of(conn, [order_id])[order_id]
@@ -233,7 +234,7 @@ def list_orders():
         params.append(status)
     if query:
         like = f"%{query.replace('%', '').replace('_', '')}%"
-        where.append("(customer_name ILIKE %s OR customer_number ILIKE %s OR city ILIKE %s OR number::text = %s OR invoice_number ILIKE %s)")
+        where.append("(customer_name ILIKE %s OR customer_number ILIKE %s OR city ILIKE %s OR CAST(number AS TEXT) = %s OR invoice_number ILIKE %s)")
         params += [like, like, like, query.lstrip("#"), like]
     sql = "SELECT * FROM orders" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY order_date DESC, number DESC"
     with pool().connection() as conn:
@@ -279,9 +280,9 @@ def _order_with_customer(conn, body: dict) -> dict:
 def create_order():
     with pool().connection() as conn:
         values = _order_with_customer(conn, json_body())
-        fields = (*ORDER_FIELDS, "customer_id")
+        fields = ("number", *ORDER_FIELDS, "customer_id")
         order = conn.execute(f"INSERT INTO orders ({', '.join(fields)}) VALUES ({', '.join(['%s'] * len(fields))}) RETURNING *",
-                             tuple(values[f] for f in fields)).fetchone()     # an invoice date only exists once there is an invoice
+                             (next_number(conn, "order"), *(values[f] for f in ORDER_FIELDS), values["customer_id"])).fetchone()     # an invoice date only exists once there is an invoice
         _write_lines(conn, order["id"], values["lines"])
         order, lines = _fetch(conn, order["id"])
     return jsonify(_present(order, lines)), 201
@@ -299,7 +300,7 @@ def get_order(order_id):
 def update_order(order_id):
     body = json_body()
     with pool().connection() as conn:
-        current, _ = _fetch(conn, order_id, lock=True)
+        current, _ = _fetch(conn, order_id)
         values = _order_with_customer(conn, body)
         fields = (*ORDER_FIELDS, "customer_id")
         sets = ", ".join(f"{f} = %s" for f in fields)
@@ -359,7 +360,7 @@ def make_invoice(order_id):
     order says now. The PDF is kept (`invoice_pdfs`); a Word template is turned into a PDF first. When that fails nothing is kept,
     not even the number."""
     with pool().connection() as conn:
-        order, lines = _fetch(conn, order_id, lock=True)
+        order, lines = _fetch(conn, order_id)
         if not lines:
             raise ApiError(409, "invoice.no_lines")
         business = preferences.shared(conn).get("business") or {}

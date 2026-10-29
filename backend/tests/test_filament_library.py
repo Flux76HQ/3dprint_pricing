@@ -463,9 +463,9 @@ def test_a_change_that_makes_an_entry_a_copy_of_another_is_refused_but_other_cha
 
 
 def test_an_entry_that_was_already_a_copy_before_can_still_be_edited(owner, app):
-    import psycopg
+    from tests.conftest import connect
     a = make(owner, "/api/filament-library", PLUM)
-    with psycopg.connect(app.config["APP_CONFIG"].database_url, autocommit=True) as conn:       # as an older release may have left it
+    with connect(app.config["APP_CONFIG"].database_path, autocommit=True) as conn:       # as an older release may have left it
         conn.execute("INSERT INTO filament_library (brand, product_type, material, colour, roll_weight_g, diameter_mm) VALUES ('Bambu Lab', 'Matte', 'PLA', 'Pruim', 1000, 1.75)")
     assert owner.patch(f"/api/filament-library/{a['id']}", json={"notes": "fine"}, headers=H).status_code == 200
 

@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-import psycopg
 import pytest
 from pywebpush import WebPushException
 
@@ -22,7 +21,7 @@ UTC = timezone.utc
 
 
 def config(database_url, tmp_path, **extra):
-    return Config(database_url=database_url, session_secret=SECRET, setup_code=SETUP_CODE, rp_id=RP_ID, rp_name="Test",
+    return Config(database_path=database_url, session_secret=SECRET, setup_code=SETUP_CODE, rp_id=RP_ID, rp_name="Test",
                   rp_origins=(ORIGIN,), session_hours=24, cookie_secure=True, upload_dir=str(tmp_path / "up"),
                   static_dir=str(Path(__file__).parent / "static"), **extra)
 
@@ -204,7 +203,7 @@ def test_the_test_button_also_respects_quiet_hours_and_says_so(owner, pushapp):
 def test_an_unreadable_window_sends_instead_of_silencing(owner, pushapp):
     subscribe(owner)
     with pushapp.extensions["pool"].connection() as conn:
-        conn.execute("UPDATE users SET preferences = jsonb_set(preferences, '{quiet_hours}', %s::jsonb, true)",
+        conn.execute("UPDATE users SET preferences = json_set(preferences, '$.quiet_hours', json(%s))",
                      (json.dumps({"enabled": True, "start": "22:00", "end": "07:00", "tz": "Nowhere/Land"}),))
     with mock.patch("app.push.webpush") as mocked:
         result = post(owner, "/api/push/test").get_json()

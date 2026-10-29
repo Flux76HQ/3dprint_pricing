@@ -94,9 +94,9 @@ verwijderen of nieuwe herstelcodes vraagt een verse bevestiging (een passkey, of
 | Variabele | Betekenis |
 |---|---|
 | `WEB_PORT` | Poort van de app; compose publiceert en de app luistert op deze ene waarde |
-| `DATA_PATH` | Map op de host voor alle data: de database (`postgres/`) en de geüploade bestanden (`uploads/`); blijft bestaan bij herbouwen en updaten. Zie *Waar de data staat* |
+| `DATA_PATH` | Map op de host voor alle data: de database (`db/`, één SQLite-bestand) en de geüploade bestanden (`uploads/`); blijft bestaan bij herbouwen en updaten. Zie *Waar de data staat* |
 | `MAX_UPLOAD_MB` | Grootste STL/3MF-upload in MB (standaard 50) |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Database; gebruik een wachtwoord met alleen letters en cijfers |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Alleen voor de PostgreSQL van de releases vóór SQLite, die de app één keer leest om je data over te zetten (zie *Overstap naar SQLite*); laat ze staan, de volgende release laat ze vallen |
 | `RP_ID` | Optioneel. Domein waarop de app draait, zonder schema of poort; passkeys zijn eraan gebonden. Leeg = het adres waarop de app wordt geopend |
 | `RP_ORIGINS` | Optioneel. Volledige origin(s), komma-gescheiden, bijv. `https://print.voorbeeld.nl`. Gezet: schrijvende verzoeken van een andere origin worden geweigerd. Leeg = het adres waarop de app wordt geopend |
 | `RP_NAME` | Naam die in de passkey-prompt staat |
@@ -130,19 +130,20 @@ De app is ook als Home Assistant-app (voorheen add-on) te installeren, voor Home
 Home Assistant bouwt de app dan op het apparaat (`homeassistant/Dockerfile`, op de image van dezelfde versie); de stappen voor de gebruiker staan op het
 tabblad Documentatie van de app (`homeassistant/DOCS.md`).
 
-- **Eén container, twee processen.** Home Assistant draait één container per app, dus `homeassistant/run.py` start PostgreSQL 17 (alleen op `127.0.0.1`)
-  en daarna de eigen `entrypoint.sh` van de image (migraties, gunicorn). Stopt een van beide, dan stopt het andere en eindigt `run.py`, zodat de watchdog van
-  Home Assistant de app herstart. De map `/data` van de app is `DATA_PATH`, ingedeeld als in `docker-compose.yml`: de database in `/data/postgres`, de
-  uploads in `/data/uploads`. De geheimen die in `.env` zouden staan (sessiesleutel, databasewachtwoord, push-sleutels) maakt `run.py` één keer en bewaart
+- **Eén proces, en één keer twee.** `homeassistant/run.py` start de eigen `entrypoint.sh` van de image (migraties, gunicorn). Alleen bij een installatie van vóór
+  SQLite (`/data/postgres` bestaat en `/data/db/printpricing.sqlite3` nog niet) start het daarvóór PostgreSQL 17 (alleen op `127.0.0.1`), zodat de app de data
+  één keer kan overzetten; bij elke start daarna draait alleen de app. Stopt een proces, dan stopt het andere en eindigt `run.py`, zodat de watchdog van
+  Home Assistant de app herstart. De map `/data` van de app is `DATA_PATH`, ingedeeld als in `docker-compose.yml`: de database in `/data/db`, de
+  uploads in `/data/uploads`. De geheimen die in `.env` zouden staan (sessiesleutel, push-sleutels) maakt `run.py` één keer en bewaart
   ze in `/data/secrets.json`; de opties van de app (`rp_id`, `rp_origins`, `setup_code`, `proxy_hops`, `max_upload_mb`, `ai_images_enabled`, `spoolman_url`,
   `update_check`) zijn de variabelen uit `.env.example` met dezelfde betekenis. Een nieuwe variabele in `.env.example` die in Home Assistant instelbaar moet
   zijn, wordt dus ook een optie in `homeassistant/config.yaml`, `run.py` en beide `translations/`.
-- **Back-up.** `backup: cold`: Home Assistant stopt de app tijdens een back-up, want een draaiende database is geen consistente kopie. Verplaatsen tussen
+- **Back-up.** `backup: cold`: Home Assistant stopt de app tijdens een back-up, want een bestand dat beschreven wordt (het -wal-bestand bevat de nieuwste data) is geen consistente kopie. Verplaatsen tussen
   Docker Compose en Home Assistant gaat met de back-up in de app (Instellingen > Systeem).
 - **Versie.** `version` in `homeassistant/config.yaml` is de versie van de image waarop de app gebouwd wordt. Die zet de pijplijn (`scripts/bump_version.py`)
   gelijk met `VERSION`; een pull request raakt hem niet aan. Een wijziging in `homeassistant/` telt als code en verhoogt het versienummer bij de promotie.
-- **PostgreSQL 17.** Hetzelfde hoofdnummer als `postgres:17-alpine` in de compose-file; de Dockerfile vraagt `postgresql-17` met name. Een datamap van een
-  ander hoofdnummer opent PostgreSQL niet, en `run.py` weigert te starten in plaats van eraan te komen.
+- **PostgreSQL 17 (alleen voor de overstap).** Hetzelfde hoofdnummer als `postgres:17-alpine` in de compose-file; de Dockerfile vraagt `postgresql-17` met name. Een datamap
+  van een ander hoofdnummer opent PostgreSQL niet, en `run.py` weigert te starten in plaats van eraan te komen. De volgende release haalt PostgreSQL uit de Dockerfile.
 - **Geen Ingress.** Passkeys zijn gebonden aan het domein waarop de app staat, en de app is gemaakt om op de root van een eigen domein te draaien. Gebruikers
   zetten er voor passkeys een reverse proxy met https voor (poort 6080) en vullen `rp_id` in; met een wachtwoord werkt de app ook op `http://<adres van Home Assistant>:6080`.
 - **amd64 en aarch64.** `docker.yml` en `docker-beta.yml` bouwen de image voor `linux/amd64` en `linux/arm64` onder één tag (een manifestlijst); Docker en de
@@ -229,8 +230,8 @@ python scripts/setup_hooks.py                # pre-commit: versiecheck + agent-i
 cd backend && PYTHONPATH=. python -m pytest -q
 ```
 
-De databasetests hebben PostgreSQL nodig: zet `TEST_DATABASE_URL`, of draai als root met PostgreSQL
-geïnstalleerd; dan start de testsuite een tijdelijke cluster. Zie [`AGENTS.md`](../AGENTS.md) voor de werkafspraken.
+De databasetests draaien op een tijdelijk SQLite-bestand per test en hebben geen server nodig. Alleen `test_pg_import.py` (de eenmalige overstap) leest uit een echte
+PostgreSQL: zet `TEST_DATABASE_URL`, of draai als root met PostgreSQL geïnstalleerd; dan start de testsuite een tijdelijke cluster. Zie [`AGENTS.md`](../AGENTS.md) voor de werkafspraken.
 
 ## Operationele documentatie
 
@@ -243,20 +244,26 @@ geïnstalleerd; dan start de testsuite een tijdelijke cluster. Zie [`AGENTS.md`]
 - `GET /api/version` — draaiende versie.
 
 ### Waar de data staat
-Alles staat in **één map op de host**, `DATA_PATH` (op een server bijvoorbeeld `/srv/printpricing`, op Unraid `/mnt/user/appdata/printpricing`):
+Alles staat in **één map op de host**, `DATA_PATH` (op een server bijvoorbeeld `/srv/printpricing`, op Unraid `/mnt/cache/appdata/printpricing`):
 
 ```
-/srv/printpricing/postgres   de database (PostgreSQL)
+/srv/printpricing/db         de database: printpricing.sqlite3 (met tijdelijk een -wal- en -shm-bestand ernaast zolang de app draait)
 /srv/printpricing/uploads    de geüploade STL/3MF-bestanden
-/srv/printpricing/backups    de dumps die `scripts/update.sh` maakt
+/srv/printpricing/backups    de kopieën die `scripts/update.sh` maakt
+/srv/printpricing/postgres   de database van de releases vóór SQLite (alleen als je daarvan komt; zie Overstap naar SQLite)
 ```
+
+**Zet `DATA_PATH` op een lokale schijf.** SQLite heeft werkende bestandsvergrendeling en gedeeld geheugen nodig. Een netwerkshare (NFS, SMB) of een FUSE-mount heeft die niet altijd, en dan kan een
+database beschadigd raken. Op Unraid is `/mnt/user/...` zo'n FUSE-mount: gebruik `/mnt/cache/appdata/printpricing` (de cache-pool) of `/mnt/diskN/...`. De container waarschuwt bij het opstarten als de map op zo'n bestandssysteem staat
+(*WARNING: the database folder … is on a network or FUSE file system*). Open het databasebestand niet met een ander programma om erin te schrijven terwijl de app draait; de indexen op namen gebruiken een functie die alleen de app registreert
+(`lower_u`), dus een gewone `sqlite3`-opdrachtregel meldt *unknown function* bij een schrijfactie of `integrity_check`. Lezen kan wel; kopiëren doe je met `backup_db.py` (zie *Back-up en herstel*).
 
 Het zijn gewone mappen, **geen Docker-volumes**: `docker compose down -v`, een `docker system prune --volumes`, opnieuw bouwen en updaten raken ze niet (een test, `test_deploy_layout.py`, laat
-de CI falen als de compose-file ooit een volume voor de data gebruikt). De app-container ziet `DATA_PATH` als `/data`; de database-container mount alleen `DATA_PATH/postgres`.
+de CI falen als de compose-file ooit een volume voor de data gebruikt). De app-container ziet `DATA_PATH` als `/data`; de `db`-container (alleen voor de overstap) mount alleen `DATA_PATH/postgres`.
 **`DATA_PATH` is altijd een absolute map van de Docker-host, nooit `./data`.** Een relatief pad wordt opgelost door het hulpmiddel dat de stack start, niet door de app: een hulpmiddel dat bij elke deploy een verse checkout maakt, begint met een lege database, en Dockhand op Unraid zette `./data` in een map in het RAM-geheugen van de host (`/appdata/...` in plaats van `/mnt/user/appdata/...`), die bij de volgende herstart leeg is. Compose weigert te starten zonder `DATA_PATH`. Start de app-container met een relatief pad, dan zegt hij dat bij het opstarten (*WARNING: DATA_PATH is …, a relative path*); start hij zonder
 `/data`-mount, dan zegt hij ook dat (*WARNING: /data is not a mounted folder*), want de uploads verdwijnen dan met de container.
 
-**Staat de data in een andere map dan `DATA_PATH`?** Controleer waar de database echt staat:
+**Staat de data in een andere map dan `DATA_PATH`?** Controleer waar de data echt staat (zolang de `db`-container er nog is, vertelt zijn mount dat):
 ```bash
 docker inspect $(docker compose ps -aq db) --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
 ```
@@ -265,13 +272,32 @@ Moet de bron `DATA_PATH/postgres` zijn en is dat niet zo, zet dan in `.env` een 
 **Overstappen van oudere versies.** Tot en met 0.26.10 stonden de uploads in `DATA_PATH/app/uploads`. Bij de eerste start na de update verplaatst de container ze zelf naar `DATA_PATH/uploads` (ook de bestanden met een spatie of punt in de naam; een bestand dat daar al
 staat wordt nooit overschreven, het oude blijft dan staan, en de lege map `app/` verdwijnt). De database bleef al in `DATA_PATH/postgres`, dus daar verandert niets. Zorg dat `DATA_PATH` in `.env` naar dezelfde map wijst als voorheen.
 
+### Overstap naar SQLite
+Tot en met 0.26.22 draaide de app op PostgreSQL (een tweede container, `db`, met de data in `DATA_PATH/postgres`). Sindsdien is de database één SQLite-bestand, `DATA_PATH/db/printpricing.sqlite3`.
+Je hoeft niets te doen: bij de eerste start na de update ziet de app dat er geen SQLite-bestand is maar wel een PostgreSQL-database met data, en zet die **één keer** over, tabel voor tabel
+(`backend/app/pg_import.py`, aangeroepen door `backend/migrate.py` vóór de server start). Het gaat rechtstreeks uit de oude database, niet via de back-up in de app, dus ook de gebruikers, passkeys, wachtwoorden,
+herstelcodes, facturen en nummering komen mee, en iedereen blijft ingelogd zoals hij was ingelogd.
+
+- **Veilig.** Het nieuwe bestand wordt onder een tijdelijke naam gebouwd, gecontroleerd (zelfde aantal rijen per tabel, elk opgeslagen bestand byte voor byte gelijk, geen verwijzingen naar niets, `integrity_check`)
+  en pas dan op zijn plek gezet. Mislukt iets, dan staat er geen half bestand, zegt de container waarom en stopt hij; bij de volgende start wordt het opnieuw geprobeerd. De oude PostgreSQL-data wordt alleen gelezen, nooit gewijzigd of verwijderd.
+- **Overgeslagen.** Wat maar minuten leeft: inlog-uitdagingen, een herstel of een afbeeldingenreeks die op dat moment liep.
+- **Je eigen compose-bestand hoeft niet mee te veranderen.** Een `docker-compose.yml` van vóór deze release zet `DATABASE_URL` naar de PostgreSQL; de app leest dat als het adres om uit te importeren
+  (de nieuwe naam is `LEGACY_DATABASE_URL`, zelfde waarde). Wie zijn compose-bestand toch bijwerkt (Dockhand, Unraid-stack), vervangt het door dat van deze release. Staat er géén van beide variabelen in en ligt er wel een
+  `postgres/`-map, dan stopt de container met de melding *… holds the PostgreSQL database of an earlier release …* (en start opnieuw, tot je dat verhelpt): zet de variabele terug, of gebruik het compose-bestand van deze release.
+- **De `db`-container blijft in deze release** (alleen om uit te lezen) en gaat in de volgende release weg, samen met `POSTGRES_*` in `.env` en de importer. Wacht met die volgende release tot de overstap gelukt is: een installatie die direct
+  naar die release springt, weigert te starten in plaats van leeg te beginnen (*… holds the PostgreSQL database of an earlier release*).
+- **Terug.** `DATA_PATH/postgres` blijft staan. Wil je terug naar de vorige release, zet dan `PRINTPRICING_TAG` op de oude versie; wat je na de overstap in SQLite hebt ingevoerd staat dan niet in de oude database.
+  Ruim `DATA_PATH/postgres` zelf op als alles naar wens werkt: `rm -rf "$DATA_PATH/postgres"` (na `docker compose stop db`).
+- **Een installatie van veel releases terug** wordt eerst bijgewerkt met de oude PostgreSQL-migraties (`backend/app/migrations_legacy/`) en dan overgezet.
+- **Home Assistant.** Daar start `run.py` PostgreSQL alleen voor die ene start (zie *Home Assistant-app*). Een nieuwe installatie heeft geen PostgreSQL meer.
+
 ### Deploy en update
 ```bash
-sh scripts/update.sh        # maakt eerst een dump in DATA_PATH/backups en doet dan pull + up
+sh scripts/update.sh        # maakt eerst een kopie van de database in DATA_PATH/backups en doet dan pull + up
 # of met de hand:
 docker compose pull && docker compose up -d
 ```
-`scripts/update.sh` bewaart de database als `DATA_PATH/backups/pre-update-JJJJ-MM-DD-UUMMSS.sql.gz` voordat er iets wordt vervangen (daarna verhuist `scripts/migrate_data.sh` data die in een andere map dan `DATA_PATH` staat); mislukt of is die dump leeg, dan stopt de update. Die dumps staan in dezelfde map als de data die ze beschermen:
+`scripts/update.sh` bewaart de database als `DATA_PATH/backups/pre-update-JJJJ-MM-DD-UUMMSS.sqlite3.gz` voordat er iets wordt vervangen (een installatie die nog op PostgreSQL draait krijgt een `.sql.gz`-dump) (daarna verhuist `scripts/migrate_data.sh` data die in een andere map dan `DATA_PATH` staat); mislukt of is die kopie leeg, dan stopt de update. Die kopieën staan in dezelfde map als de data die ze beschermen:
 kopieer ze nu en dan van de server af. Terugzetten: zie *Back-up en herstel*.
 CI publiceert bij elke push naar `beta` `:beta` (en `:beta-<sha>`), zonder release of nieuw versienummer: zet `PRINTPRICING_TAG=beta` in `.env` om de beta te draaien, met een aparte datamap.
 CI publiceert bij elke promotie naar `main` (een pull request vanuit `beta`) `:latest`, en `:X.Y.Z` plus een GitHub Release (met notities) wanneer
@@ -289,20 +315,23 @@ Hosten op de gedeelde Flux76-server: zie `shared/infrastructure/adding-an-app.md
 
 ### Back-up en herstel
 ```bash
-# back-up
-docker compose exec -T db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup-$(date +%F).sql
-# herstel (op een lege database, app gestopt)
-docker compose exec -T db psql -U "$POSTGRES_USER" "$POSTGRES_DB" < backup-2026-01-01.sql
+# back-up (SQLite's eigen online back-up: één consistent moment, ook terwijl de app schrijft)
+docker compose exec -T app python backup_db.py /data/backups/backup-$(date +%F).sqlite3
+# herstel (app gestopt): zet de kopie op de plek van het databasebestand en haal het -wal- en -shm-bestand weg
+docker compose stop app
+rm -f "$DATA_PATH"/db/printpricing.sqlite3-wal "$DATA_PATH"/db/printpricing.sqlite3-shm
+cp "$DATA_PATH/backups/backup-2026-01-01.sqlite3" "$DATA_PATH/db/printpricing.sqlite3" && docker compose start app
 ```
-`pg_dump` bevat **niet** de geüploade STL/3MF-bestanden: die staan in `DATA_PATH/uploads`. Back die map ook
+`backup_db.py` weigert een bestaand bestand te overschrijven en controleert de kopie met `integrity_check`. Een gewone `cp` van het databasebestand terwijl de app draait is **geen** consistente kopie (de nieuwste data kan nog in het
+-wal-bestand staan); stop de app eerst, of gebruik dit commando. De kopie bevat **niet** de geüploade STL/3MF-bestanden: die staan in `DATA_PATH/uploads`. Back die map ook
 op (`tar czf uploads.tgz "$DATA_PATH/uploads"`), of stop de stack en kopieer heel `DATA_PATH` (dat is dan alles in één
 keer). Een berekening zonder terugkomend bestand blijft werken; alleen “Downloaden” geeft dan een melding.
 De back-up bevat je passkey-publieke sleutels en gehashte herstelcodes, geen geheimen (ook de OpenAI-sleutel van de optionele AI-afbeeldingen niet). Bewaar `.env` apart (in je wachtwoordmanager): zonder `SESSION_SECRET` log je gewoon opnieuw
 in, maar `RP_ID` moet gelijk blijven.
 
 ### Runtime-architectuur
-Eén app-container (Gunicorn serveert API **en** de statische PWA) + één PostgreSQL-17-container. Data: PostgreSQL in
-`DATA_PATH/postgres` en geüploade printbestanden in `DATA_PATH/uploads` (de database bewaart per bestand de metadata
+Eén app-container (Gunicorn serveert API **en** de statische PWA; deze release heeft daarnaast nog de oude PostgreSQL-container voor de overstap). Data: één SQLite-bestand in
+`DATA_PATH/db` (WAL-modus; elke transactie neemt de enige schrijfsleutel van het bestand, zodat twee workers elkaar nooit kunnen kruisen) en geüploade printbestanden in `DATA_PATH/uploads` (de database bewaart per bestand de metadata
 en wat eruit is gelezen). Bestanden die nooit aan een berekening zijn gekoppeld worden na een dag opgeruimd.
 De container start als root om de rechten van de gemounte map te zetten en draait daarna als gebruiker `app`.
 
@@ -645,8 +674,8 @@ en is er niets veranderd (het vervangen is één transactie). Er loopt hooguit �
 Het geüploade bestand staat tot het herstel klaar is als `.restore-<token>` onder `DATA_PATH/uploads` en wordt daarna, of na een uur, verwijderd.
 
 De grootte: een herstel mag tot 2 GB zijn, en elk model daarin hoogstens `MAX_UPLOAD_MB` (standaard 50 MB), net als een gewone upload. Een proxy of CDN vóór de app moet zo'n body doorlaten
-(zie *Limieten buiten de repository*: Cloudflare Free stopt bij 100 MB, nginx staat standaard op 1 MB); past je back-up daar niet doorheen, gebruik dan de database-dump en de uploads-map hierboven.
-Een volledige kopie van de database (`pg_dump`) en de map met uploads blijft de manier voor een back-up van de hele server, zie
+(zie *Limieten buiten de repository*: Cloudflare Free stopt bij 100 MB, nginx staat standaard op 1 MB); past je back-up daar niet doorheen, gebruik dan de database-kopie en de uploads-map hierboven.
+Een volledige kopie van de database (`backup_db.py`) en de map met uploads blijft de manier voor een back-up van de hele server, zie
 *Back-up en herstel* (onder Beheer) hierboven.
 
 ## Fabrieksinstellingen

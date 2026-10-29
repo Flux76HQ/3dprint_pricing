@@ -1,9 +1,6 @@
-import shutil
 
-import psycopg
 import pytest
 
-from app.db import MIGRATIONS_DIR, run_migrations
 from tests.test_auth_api import H, post
 from tests.test_domain_api import owner  # noqa: F401  (fixture)
 from tests.test_orders import customer, line, new_order
@@ -125,31 +122,3 @@ def test_two_customers_made_at_the_same_moment_do_not_share_a_number(app):
     [t.start() for t in threads]
     [t.join() for t in threads]
     assert not errors and sorted(numbers, key=int) == [str(n) for n in range(1, 7)]
-
-
-# --- the migration: orders that exist before customers do get customers -----------------------------------------------------
-
-def test_existing_orders_get_customers_with_their_numbers(fresh_db, tmp_path):
-    before = tmp_path / "before"
-    before.mkdir()
-    for path in MIGRATIONS_DIR.glob("*.sql"):
-        if path.name < "0014":
-            shutil.copy(path, before / path.name)
-    run_migrations(fresh_db, before)
-    rows = [("Jan Jansen", "K9999", "Utrecht"), ("jan jansen", "K9999", "Utrecht"), ("Jan Jansen", "", "Utrecht"), ("Piet", "K9999", "Zwolle"),
-            ("Anna", "1", "Hoorn"), ("Els", "", "Breda"), ("Els", "", "Breda")]
-    with psycopg.connect(fresh_db, autocommit=True) as conn:
-        for name, number, city in rows:
-            conn.execute("INSERT INTO orders (customer_name, customer_number, city) VALUES (%s, %s, %s)", (name, number, city))
-    assert run_migrations(fresh_db) == ["0014_customers.sql", *[p.name for p in sorted(MIGRATIONS_DIR.glob("*.sql")) if p.name > "0014_customers.sql"]]
-    with psycopg.connect(fresh_db) as conn:
-        customers = conn.execute("SELECT number, name, city FROM customers ORDER BY name, number").fetchall()
-        orders = conn.execute("SELECT o.customer_name, o.customer_number, c.number, c.name FROM orders o JOIN customers c ON c.id = o.customer_id").fetchall()
-    assert len(orders) == len(rows)                                                   # every order has a customer
-    assert all(o[1] == o[2] for o in orders)                                          # and the copy in the order carries the customer's number
-    numbers = [c[0] for c in customers]
-    assert len(numbers) == len(set(n.lower() for n in numbers))                       # numbers are unique
-    by_name = {(c[1].lower(), c[0]): c for c in customers}
-    assert ("anna", "1") in by_name and len([c for c in customers if c[1].lower() == "els"]) == 1      # Els: three orders, one customer
-    assert len([c for c in customers if c[1].lower() == "jan jansen"]) == 2                  # with and without a number are two, the second gets a free one
-    assert len([c for c in customers if c[0] == "K9999"]) == 1                                   # the number was only given out once

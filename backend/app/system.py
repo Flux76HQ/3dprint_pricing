@@ -6,20 +6,21 @@ create the tables again. Afterwards the app reports `onboarded: false` and the o
 setup code. This is the one thing in the app that cannot be undone, so it asks for the same proof as turning off the
 password does: a fresh passkey confirmation, or the password plus a code (`password_api._confirm`).
 """
+import json
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, make_response
 
 from . import auth
+from .db import ForeignKeyViolation
 from .http import ApiError, config, json_body, login_required, pool
 from .password_api import _confirm
 
 bp = Blueprint("system", __name__, url_prefix="/api/system")
 
-KEEP = ("schema_migrations",)
+KEEP = ("schema_migrations",)           # SQLite's own sqlite_* tables are never listed
 CONFIRM_WORD = "RESET"                  # typed by the owner; the screen (`RESET_WORD` in settings.js) shows the same word
 LOGGED_NAMES = 50                       # the process log is the only trace the reset leaves: counts and file names, never contents
-ONBOARDING_LOCK = 7603002            # the one onboarding takes (auth.onboarding_verify): a reset and a new owner never overlap
 
 
 @bp.post("/reset")
@@ -31,13 +32,25 @@ def reset():
     _confirm(body, "factory-reset")                          # before the work, so a refused attempt is still counted
     upload_dir = Path(config().upload_dir)
     with pool().connection() as conn:
-        conn.execute("SELECT pg_advisory_xact_lock(%s)", (ONBOARDING_LOCK,))
         files = [r["stored_name"] for r in conn.execute("SELECT stored_name FROM print_files").fetchall()]
         for table in ("invoice_template", "invoice_logo"):
             files += [r["stored_name"] for r in conn.execute(f"SELECT stored_name FROM {table}").fetchall() if r["stored_name"]]
-        tables = [r["tablename"] for r in conn.execute(
-            "SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename <> ALL(%s) ORDER BY tablename", (list(KEEP),)).fetchall()]
-        conn.execute(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE")      # every table, so a table added later is covered too
+        tables = [r["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%%' "
+            "AND name NOT IN (SELECT value FROM json_each(%s)) ORDER BY name", (json.dumps(KEEP),)).fetchall()]
+        pending = list(tables)                                  # every table, so a table added later is covered too
+        while pending:                                          # a table another one still points at (RESTRICT) waits for its turn
+            waiting = []
+            for table in pending:
+                try:
+                    conn.execute(f"DELETE FROM {table}")
+                except ForeignKeyViolation:
+                    waiting.append(table)
+            if len(waiting) == len(pending):
+                raise RuntimeError(f"Factory reset could not empty {', '.join(waiting)}.")
+            pending = waiting
+        conn.execute("DELETE FROM sqlite_sequence")             # the counters of the AUTOINCREMENT tables start again, as the sequences did
+    pool().compact()
     removed = []
     for name in files:
         path = upload_dir / name

@@ -13,6 +13,10 @@ class ConfigError(RuntimeError):
     pass
 
 
+# The database is one file in the host's DATA_PATH (the container sees DATA_PATH as /data).
+DEFAULT_DATABASE_PATH = "/data/db/printpricing.sqlite3"
+
+
 # Where "Sync" in Settings -> Filaments reads the shared filament library from: a JSON file as the app exports it.
 DEFAULT_LIBRARY_URL = "https://raw.githubusercontent.com/Flux76HQ/3dprint_pricing/main/library/filaments.json"
 LIBRARY_HOSTS = ("raw.githubusercontent.com", "gist.githubusercontent.com")
@@ -42,7 +46,7 @@ def _switch(name: str, default: bool = True) -> bool:
 
 @dataclass(frozen=True)
 class Config:
-    database_url: str
+    database_path: str
     session_secret: str
     setup_code: str
     rp_id: str
@@ -60,6 +64,7 @@ class Config:
     filament_library_url: str = DEFAULT_LIBRARY_URL
     spoolman_url: str = ""
     update_check: bool = True
+    legacy_database_url: str = ""
 
     @property
     def push_configured(self) -> bool:
@@ -108,6 +113,14 @@ def _spoolman_url() -> str:
     return check_spoolman_url(os.environ.get("SPOOLMAN_URL", ""))
 
 
+def _legacy_database_url() -> str:
+    """The PostgreSQL of the releases before SQLite, to be imported once: `LEGACY_DATABASE_URL`. A docker-compose.yml from before the switch still sets
+    `DATABASE_URL` to that address (nothing else reads that name any more), and an installation whose compose file was never replaced keeps working."""
+    url = os.environ.get("LEGACY_DATABASE_URL", "").strip()
+    old = os.environ.get("DATABASE_URL", "").strip()
+    return url or (old if old.startswith(("postgresql://", "postgres://")) else "")
+
+
 def load_config() -> Config:
     # RP_ID and RP_ORIGINS are optional: empty means "the address the app is opened on" (relying_party.py).
     origins = tuple(o.strip().rstrip("/") for o in os.environ.get("RP_ORIGINS", "").split(",") if o.strip())
@@ -118,7 +131,7 @@ def load_config() -> Config:
     if len(secret) < 32:
         raise ConfigError("SESSION_SECRET must be at least 32 characters (generate: openssl rand -hex 32).")
     return Config(
-        database_url=_required("DATABASE_URL"),
+        database_path=os.environ.get("DATABASE_PATH", "").strip() or DEFAULT_DATABASE_PATH,
         session_secret=secret,
         setup_code=_required("SETUP_CODE"),
         rp_id=rp_id,
@@ -136,4 +149,5 @@ def load_config() -> Config:
         filament_library_url=_library_url(),
         spoolman_url=_spoolman_url(),
         update_check=_switch("PRINTPRICING_UPDATE_CHECK"),
+        legacy_database_url=_legacy_database_url(),
     )

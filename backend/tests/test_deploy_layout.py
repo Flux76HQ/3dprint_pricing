@@ -1,10 +1,12 @@
 """Where the data lives, and that an update cannot lose it.
 
-The database is a folder on the host (`DATA_PATH/postgres`), the uploads are in `DATA_PATH/uploads`, and the app container sees the
-whole of DATA_PATH as /data. Nothing is a Docker volume: `docker compose down -v` or a prune must not be able to touch it.
+The database is one SQLite file in `DATA_PATH/db`, the uploads are in `DATA_PATH/uploads`, and the app container sees the whole of DATA_PATH as /data.
+The PostgreSQL of the earlier releases is still in `DATA_PATH/postgres` for the one-time import. Nothing is a Docker volume: `docker compose down -v`
+or a prune must not be able to touch it.
 """
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -21,9 +23,16 @@ def mounts(service: str) -> list[str]:
     return [line[2:] for line in lines if line.startswith("- ")]
 
 
-def test_the_database_is_a_folder_in_the_data_path_and_the_app_sees_the_whole_data_path():
+def test_the_old_database_is_a_folder_in_the_data_path_and_the_app_sees_the_whole_data_path():
     assert mounts("db") == ["${DATA_PATH}/postgres:/var/lib/postgresql/data"]
-    assert mounts("app") == ["${DATA_PATH}:/data"]
+    assert mounts("app") == ["${DATA_PATH}:/data"]                                # the SQLite file is DATA_PATH/db/printpricing.sqlite3 in it
+
+
+def test_the_database_is_a_file_in_the_data_folder_and_the_old_one_is_handed_over_once():
+    from app.config import DEFAULT_DATABASE_PATH
+    assert DEFAULT_DATABASE_PATH == "/data/db/printpricing.sqlite3"
+    assert "LEGACY_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}" in COMPOSE
+    assert "DATABASE_URL:" not in COMPOSE.replace("LEGACY_DATABASE_URL:", "")
 
 
 def test_nothing_in_the_compose_file_is_a_docker_volume():
@@ -52,6 +61,8 @@ def test_the_entrypoint_and_the_image_carry_the_migration_and_do_not_take_over_t
     assert "WARNING: /data is not a mounted folder" in entry
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "deploy/migrate_uploads.sh" in dockerfile and "chmod +x /entrypoint.sh /migrate_uploads.sh" in dockerfile
+    assert "backend/backup_db.py" in dockerfile and "mkdir -p /data/uploads /data/db" in dockerfile
+    assert 'chown app:app "$UPLOAD_DIR" "$DB_DIR"' in entry                                  # the two folders the app writes in, not /data itself
 
 
 @pytest.mark.parametrize("script", ["deploy/entrypoint.sh", "deploy/migrate_uploads.sh", "scripts/update.sh", "scripts/migrate_data.sh"])
@@ -214,3 +225,101 @@ def test_check_changes_nothing(stack, tmp_path):
     old, new = wrong_place(tmp_path), tmp_path / "array" / "printpricing"
     done, log = migrate_data(stack, new, old / "postgres", "--check")
     assert done.returncode == 0 and "would" in done.stdout and "compose stop" not in log and not new.exists()
+
+
+# --- the database file ----------------------------------------------------------------------------------------------------
+
+def warning_for(filesystem: str, tmp_path) -> str:
+    """The entrypoint's check of the file system the database folder is on, with `stat` replaced by one that names `filesystem`."""
+    entry = (ROOT / "deploy" / "entrypoint.sh").read_text(encoding="utf-8")
+    block = re.search(r'(  case "\$\(stat -f -c %T "\$DB_DIR".*?\n  esac)', entry, re.S).group(1)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / "stat").write_text(f"#!/bin/sh\necho {filesystem}\n", encoding="utf-8")
+    (bin_dir / "stat").chmod(0o755)
+    return subprocess.run(["sh", "-c", block], env={"DB_DIR": "/data/db", "PATH": f"{bin_dir}:/usr/bin:/bin"}, capture_output=True, text=True).stderr
+
+
+@pytest.mark.parametrize("filesystem", ["nfs", "nfs4", "cifs", "smb2", "fuse", "fuseblk", "9p"])
+def test_the_entrypoint_warns_when_the_database_folder_is_on_a_network_or_fuse_file_system(filesystem, tmp_path):
+    assert "SQLite can lose data" in warning_for(filesystem, tmp_path)
+
+
+@pytest.mark.parametrize("filesystem", ["ext2/ext3", "xfs", "btrfs", "zfs", "overlayfs", "tmpfs"])
+def test_it_is_quiet_on_a_local_file_system(filesystem, tmp_path):
+    assert warning_for(filesystem, tmp_path) == ""
+
+
+def test_the_start_is_refused_when_an_old_database_is_there_and_nothing_hands_it_over(tmp_path):
+    """Starting on an empty database next to a PostgreSQL folder full of data would look like lost data, and nothing would import it afterwards."""
+    import migrate
+    from app.config import Config
+    old = tmp_path / "postgres"
+    old.mkdir()
+    (old / "PG_VERSION").write_text("17")
+    cfg = Config(database_path=str(tmp_path / "db" / "printpricing.sqlite3"), session_secret="x" * 40, setup_code="s", rp_id="", rp_name="", rp_origins=(),
+                 session_hours=1, cookie_secure=False, static_dir="")
+    with pytest.raises(SystemExit, match="empty database"):
+        migrate.prepare(cfg, old)
+    assert not (tmp_path / "db").exists()
+    assert "Migrations applied: 0001_init.sql" in migrate.prepare(cfg, tmp_path / "no-postgres-here")                 # a new installation just starts
+    assert migrate.prepare(cfg, old).endswith("none (up to date)")                                                      # and once there is a database, the old folder is ignored
+
+
+def test_the_refusal_is_the_message_also_when_the_old_folder_cannot_be_looked_into(tmp_path, monkeypatch):
+    """/data/postgres belongs to the postgres user (mode 0700) and the app runs as `app`: a file in it cannot even be stat-ed. That used to end in a
+    PermissionError and a restart loop with no explanation."""
+    import os
+    import migrate
+    from app.config import Config
+    old = tmp_path / "postgres"
+    old.mkdir()
+    (old / "PG_VERSION").write_text("17")
+    real = os.stat
+
+    def stat(path, *args, **kwargs):
+        if str(path).startswith(str(old) + os.sep):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", stat)
+    cfg = Config(database_path=str(tmp_path / "db" / "printpricing.sqlite3"), session_secret="x" * 40, setup_code="s", rp_id="", rp_name="", rp_origins=(),
+                 session_hours=1, cookie_secure=False, static_dir="")
+    with pytest.raises(SystemExit, match="empty database"):
+        migrate.prepare(cfg, old)
+
+
+def test_a_compose_file_from_before_the_switch_still_hands_the_old_database_over(monkeypatch):
+    """An installation whose docker-compose.yml was never replaced still sets DATABASE_URL (to the PostgreSQL); that is what gets imported."""
+    from app.config import load_config
+    for name, value in (("SESSION_SECRET", "s" * 40), ("SETUP_CODE", "code")):
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("LEGACY_DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://printpricing:pw@db:5432/printpricing")
+    assert load_config().legacy_database_url == "postgresql://printpricing:pw@db:5432/printpricing"
+    monkeypatch.setenv("LEGACY_DATABASE_URL", "postgresql://other@db/other")                                       # the new name wins
+    assert load_config().legacy_database_url == "postgresql://other@db/other"
+    monkeypatch.delenv("LEGACY_DATABASE_URL")
+    monkeypatch.setenv("DATABASE_URL", "/data/db/something.sqlite3")                                                 # anything else is not a PostgreSQL
+    assert load_config().legacy_database_url == ""
+    monkeypatch.delenv("DATABASE_URL")
+    assert load_config().legacy_database_url == ""
+
+
+def test_the_online_backup_copies_a_database_that_is_in_use(tmp_path):
+    import sqlite3
+    from app.db import Database, run_migrations
+    path = tmp_path / "db" / "printpricing.sqlite3"
+    run_migrations(str(path))
+    database = Database(str(path))
+    with database.connection() as conn:
+        conn.execute("INSERT INTO users (display_name) VALUES ('Anna')")
+    target = tmp_path / "backups" / "copy.sqlite3"
+    env = {"DATABASE_PATH": str(path), "SESSION_SECRET": "x" * 40, "SETUP_CODE": "s", "PATH": "/usr/bin:/bin"}
+    done = subprocess.run([sys.executable, str(ROOT / "backend" / "backup_db.py"), str(target)], cwd=ROOT / "backend", env={**env, "PYTHONPATH": str(ROOT / "backend")},
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert sqlite3.connect(target).execute("SELECT display_name FROM users").fetchone() == ("Anna",)
+    again = subprocess.run([sys.executable, str(ROOT / "backend" / "backup_db.py"), str(target)], cwd=ROOT / "backend", env={**env, "PYTHONPATH": str(ROOT / "backend")},
+                           capture_output=True, text=True)
+    assert again.returncode != 0 and "exists already" in again.stderr                                              # never over a backup
