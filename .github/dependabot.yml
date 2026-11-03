@@ -1,0 +1,32 @@
+# Dependabot works on the integration branch, like everyone else (App-Guidance project-baseline §20).
+#
+# Version updates open their pull requests into `beta` through `target-branch` and reach `main` with the
+# next promotion. Security updates ignore `target-branch`: they follow the repository's Default branch,
+# which should therefore be `beta` too (AGENTS.md section 5); with `main` as the Default branch a security
+# update opens a pull request into `main`, which `only-from-beta` fails.
+#
+# Not listed on purpose: `homeassistant/Dockerfile` builds on this app's own image, whose tag is a build
+# argument that `scripts/bump_version.py` keeps equal to VERSION; and `postgres:17` in the compose file is
+# pinned to the major version of the old data folder for as long as the one-off import exists (AGENTS.md 6g).
+version: 2
+updates:
+  - package-ecosystem: "pip"            # backend/requirements.txt and requirements-dev.txt
+    directory: "/backend"
+    target-branch: "beta"
+    schedule:
+      interval: "weekly"
+    groups:
+      dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: "docker"         # the base image in the Dockerfile
+    directory: "/"
+    target-branch: "beta"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "beta"
+    schedule:
+      interval: "weekly"
