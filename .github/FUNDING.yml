@@ -1,0 +1,5 @@
+# Adds the "Sponsor" button to the repository page. The same two links are in the header and the
+# Support section of README.md and README.nl.md (App-Guidance shared/templates/readme, "Donations:
+# on by default"); remove all three together if the app must no longer ask for donations.
+buy_me_a_coffee: flux76
+ko_fi: flux76
