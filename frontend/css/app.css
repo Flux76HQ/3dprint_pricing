@@ -435,7 +435,12 @@ html.standalone .sidebar { top: calc(12px + env(safe-area-inset-top)); height: c
 .about-head h2 { margin: 0; }
 .health-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: start; padding: 10px 0; border-top: 1px solid var(--lijn); }
 .health-row p { margin: 2px 0 0; }
-.about-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+/* The summary at the top of About: four labelled facts side by side, each above the next on a narrow screen. */
+.about-summary { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px 36px; margin: 0; }
+.about-sum-item dt { font-size: .8rem; margin-bottom: 4px; }
+.about-sum-item dd { margin: 0; font-weight: 600; }
+.about-sum-item a { text-decoration: none; }
+.about-sum-item a.pill.warn { color: var(--text); }
 .about-flag { color: var(--danger); font-weight: 600; }
 .about-manual { width: 100%; font: inherit; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; }
 details .stack { margin-top: 8px; }

@@ -80,7 +80,7 @@ body:
     id: version
     attributes:
       label: App version
-      description: Found under Settings → System → Update check.
+      description: Found under Settings → Administration → About.
       placeholder: "0.26.19"
     validations:
       required: true
