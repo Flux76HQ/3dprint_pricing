@@ -263,9 +263,15 @@ Alles staat in **één map op de host**, `DATA_PATH` (op een server bijvoorbeeld
 ```
 
 **Zet `DATA_PATH` op een lokale schijf.** SQLite heeft werkende bestandsvergrendeling en gedeeld geheugen nodig. Een netwerkshare (NFS, SMB) of een FUSE-mount heeft die niet altijd, en dan kan een
-database beschadigd raken. Op Unraid is `/mnt/user/...` zo'n FUSE-mount: gebruik `/mnt/cache/appdata/printpricing` (de cache-pool) of `/mnt/diskN/...`. De container waarschuwt bij het opstarten als de map op zo'n bestandssysteem staat
-(*WARNING: the database folder … is on a network or FUSE file system*). Open het databasebestand niet met een ander programma om erin te schrijven terwijl de app draait; de indexen op namen gebruiken een functie die alleen de app registreert
+database beschadigd raken. Op Unraid is `/mnt/user/...` zo'n FUSE-mount: gebruik het pad van de pool zelf, `/mnt/<pool>/appdata/printpricing` (bijvoorbeeld `/mnt/cache/...`; ZFS, Btrfs en XFS zijn lokaal), of `/mnt/diskN/...`, of maak `appdata` een exclusieve share (hieronder). De container waarschuwt bij het opstarten als de map op zo'n bestandssysteem staat
+(*WARNING: the database folder … is on a network or FUSE file system*), en *Instellingen → Beheer → Over* zet dan *Bestandssysteem* op *Let op*. Open het databasebestand niet met een ander programma om erin te schrijven terwijl de app draait; de indexen op namen gebruiken een functie die alleen de app registreert
 (`lower_u`), dus een gewone `sqlite3`-opdrachtregel meldt *unknown function* bij een schrijfactie of `integrity_check`. Lezen kan wel; kopiëren doe je met `backup_db.py` (zie *Back-up en herstel*).
+
+**Unraid: weg van `/mnt/user`.** Staat `DATA_PATH` nu op `/mnt/user/appdata/printpricing`, dan zijn het dezelfde bestanden als op de pool: er hoeft niets gekopieerd te worden. Maak eerst een back-up en kies dan een van twee:
+- *Het pad van de pool.* Controleer met `ls -d /mnt/*/appdata/printpricing` dat de map alleen op de pool staat (en op `/mnt/user`, de FUSE-weergave ervan), niet ook op een `/mnt/diskN`. Stop de app, zet `DATA_PATH` op `/mnt/<pool>/appdata/printpricing` en start opnieuw.
+- *Een exclusieve share* (Unraid 6.12 en later); `DATA_PATH` blijft dan zoals het is. Zet onder *Settings → Global Share Settings* *Permit exclusive shares* op *Yes* (daarvoor moet de array stoppen). Een share die helemaal op één pool staat, krijgt op de pagina *Shares* *Exclusive access: Yes*, en `/mnt/user/appdata` gaat dan rechtstreeks naar de pool. Staat er nog een (lege) `appdata`-map op een arrayschijf, dan blijft het *No*.
+
+Geef in beide gevallen de share `appdata` als primaire opslag de pool en als secundaire opslag *None*: anders zet de mover de database op de array. Daarna staat bij *Bestandssysteem* `zfs`, `btrfs` of `xfs` en is de waarschuwing bij het opstarten weg.
 
 Het zijn gewone mappen, **geen Docker-volumes**: `docker compose down -v`, een `docker system prune --volumes`, opnieuw bouwen en updaten raken ze niet (een test, `test_deploy_layout.py`, laat
 de CI falen als de compose-file ooit een volume voor de data gebruikt). De app-container ziet `DATA_PATH` als `/data`; de `db`-container (alleen voor de overstap) mount alleen `DATA_PATH/postgres`.

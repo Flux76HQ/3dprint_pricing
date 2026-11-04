@@ -28,7 +28,7 @@ if [ "$(id -u)" = "0" ]; then
   case "$(stat -f -c %T "$DB_DIR" 2>/dev/null || true)" in
     nfs*|cifs|smb*|fuse*|9p|ceph|afs)
       echo "WARNING: the database folder $DB_DIR is on a network or FUSE file system. SQLite can lose data there. Put DATA_PATH on a local disk" >&2
-      echo "         (Unraid: /mnt/cache/appdata/printpricing or /mnt/diskN/..., not /mnt/user/...; see docs/handleiding.md, 'Waar de data staat')." >&2 ;;
+      echo "         (Unraid: /mnt/<pool>/appdata/printpricing or /mnt/diskN/... instead of /mnt/user/..., or make appdata an exclusive share; see docs/handleiding.md, 'Waar de data staat')." >&2 ;;
   esac
   # Earlier releases kept the uploads in DATA_PATH/app/uploads. A failed move must not keep the app from starting: the files just stay there.
   /migrate_uploads.sh /data/app/uploads "$UPLOAD_DIR" || echo "WARNING: moving the old uploads from /data/app/uploads failed; they stay where they are." >&2
