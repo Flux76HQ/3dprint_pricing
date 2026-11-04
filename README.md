@@ -66,13 +66,13 @@ Selling 3D prints means knowing what each one costs: filament by the gram, machi
 - **Cost price in seconds**: filament, parts, accessories (cables, chargers), printer depreciation and energy add up to a cost price, with an optional margin for a recommended selling price. Every line is rounded to the cent first, so the lines on screen add up to the total, and a saved calculation keeps the prices of the moment you saved it, so changing a roll price later never rewrites your history.
 - **Straight from the slicer**: attach a `.3mf` or `.stl` file. A sliced 3MF (Bambu Studio / Orca) gives the real grams per filament and the print time, which go into the calculation automatically; an STL gives a weight estimate.
 - **Filament library**: the specs of the filaments you buy (brand, type, colour, supplier filament ID, weight, diameter, temperatures, indicative price), so a new roll fills itself in. Fill it without typing (import a Bambu Lab invoice or a JSON file, add the rolls of your filament list, sync the shared library from GitHub, or contribute yours to it) and export it as JSON; an import or sync only adds and updates, never deletes, never holds the same filament twice, and leaves your stock alone.
-- **Filament stock with barcode scanning**: your rolls with price, remaining weight, colour and temperatures, grouped per kind. Create a roll by hand, by scanning its barcode, from the library or, for Bambu Lab, from the web shop's products and colours; get a notification when a kind is nearly out, and book the usage of a calculation off the stock with one click.
+- **Filament stock with barcode scanning**: your rolls with price, remaining weight, colour and temperatures, grouped per kind. Create a roll by hand, by scanning its barcode, from the library or, for Bambu Lab, from the web shop's products and colours, duplicate a roll to add one or more of the same, or add a whole delivery at once by scanning the rolls one after the other; search by name, barcode or material as you type; get a notification when a kind is nearly out, and book the usage of a calculation off the stock with one click.
 - **Business-ready**: VAT on the selling price, a margin and a price rounding per order (to 5/10/50 cents, whole euros, or ending in ,95/,99, with your margin as the minimum), and a button to blur the costs when a customer looks over your shoulder.
 - **Customers, orders and invoices**: customers with a customer number, orders with several prints each, a status from *new* to *completed*, and a PDF invoice with your logo, a unique invoice number and a SEPA payment QR code. Bring your own Word or PDF letterhead if you like.
 - **Passkey login**: no password to leak. Or a password where a passkey cannot work (an IP address on your own network), optionally with two-step verification, and recovery codes for emergencies.
 - **More than one person**: an administrator invites people with a one-time link, and each chooses their own passkey or password, so nobody ever knows anyone else's. Regular users do the daily work; an administrator also manages users, the company details, backups and updates, and can promote a regular user to administrator.
 - **A real app on every device**: installs on the iPhone and Android home screen and on the desktop, works with the camera and with notifications, and speaks Dutch and English.
-- **Your data, your server**: everything runs in your own container, your data stays in one folder on your own host, and you back up and restore all of it from within the app.
+- **Your data, your server**: everything runs in your own container, your data stays in one folder on your own host, and you back up and restore all of it from within the app, which also backs everything up by itself every 12 hours.
 
 The full description of every feature is in the [operations guide](docs/handleiding.md) (Dutch).
 
@@ -114,7 +114,7 @@ The full-width navigation bar with a pill behind the active icon.
 
 ### Filament: library, import and new rolls
 
-*Settings → Filaments* holds the filament library: add a filament, import a Bambu Lab invoice, add the rolls of your filament list, import or export the library as JSON, sync it from GitHub, or contribute your filaments to the central library through a pre-filled GitHub issue. Under *Filament → New roll* you create a roll, either by hand, by scanning its barcode or by picking a filament from the library.
+*Settings → Filaments* holds the filament library: add a filament, import a Bambu Lab invoice, add the rolls of your filament list, import or export the library as JSON, sync it from GitHub, or contribute your filaments to the central library through a pre-filled GitHub issue. Under *Filament → New roll* you create a roll, either by hand, by scanning its barcode or by picking a filament from the library. *Filament → Scan* adds a delivery: scan every roll (camera or barcode scanner), and the rolls with a known barcode are added in one go, each starting full.
 
 | Library: import, export and sync | New roll |
 |:---:|:---:|
@@ -168,7 +168,7 @@ Set in `.env`; [`.env.example`](.env.example) documents every value. Never commi
 
 | Variable | Required | Default | Description |
 |---|:---:|---|---|
-| `DATA_PATH` | ✅ | - | Host folder for all data: the database (`db/`, one SQLite file) and the uploaded files (`uploads/`). Plain folders, not Docker volumes. Must be an **absolute** folder of the Docker host on a local disk (e.g. `/srv/printpricing`, on Unraid `/mnt/cache/appdata/printpricing`, not `/mnt/user/...`: SQLite does not belong on a network share or FUSE mount), never `./data`; data that ended up elsewhere is moved by `scripts/migrate_data.sh` |
+| `DATA_PATH` | ✅ | - | Host folder for all data: the database (`db/`, one SQLite file) and the uploaded files (`uploads/`). Plain folders, not Docker volumes. Must be an **absolute** folder of the Docker host on a local disk (e.g. `/srv/printpricing`, on Unraid the pool itself, `/mnt/<pool>/appdata/printpricing`, not `/mnt/user/...` unless appdata is an exclusive share: SQLite does not belong on a network share or FUSE mount), never `./data`; data that ended up elsewhere is moved by `scripts/migrate_data.sh` |
 | `PRINTPRICING_TAG` | ❌ | `latest` | Which build runs: `latest` (stable), `beta` (the development version) or a version number such as `0.26.15`. `docker-compose.yml` pulls `ghcr.io/flux76hq/3dprint_pricing:<tag>` and passes the same value to the app, which shows a **beta** label next to its name on `beta`. Replaces `APP_IMAGE` |
 | `WEB_PORT` | ✅ | - | Port of the app; compose publishes it and the app listens on it |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | ✅ | - | Only for the PostgreSQL of the releases before SQLite, which the app reads once to move your data over when it starts without a SQLite file (see the [operations guide](docs/handleiding.md), *Overstap naar SQLite*). Keep them as they are; the next release drops them. Letters and digits only in the password |
@@ -186,7 +186,7 @@ Set in `.env`; [`.env.example`](.env.example) documents every value. Never commi
 | `SPOOLMAN_URL` | ❌ | empty (type it in the app) | The address of your [Spoolman](https://github.com/Donkie/Spoolman) as the app's container reaches it, e.g. `http://spoolman:8000` (no login). With it, *Settings → Filaments → Sync* reads the rolls and what is left on them from Spoolman, booked filament is reported back, and the library and your own rolls can be pushed to it. Leave it empty to type the address in the app instead (administrators, *Settings → Filaments*); when it is set here, it wins and the app shows it read-only |
 | `PROXY_HOPS` | ❌ | `0` | Number of reverse proxies in front of the app |
 | `WEB_CONCURRENCY` | ❌ | `2` | Number of Gunicorn workers |
-| `PRINTPRICING_UPDATE_CHECK` | ❌ | `true` | The update check: the app asks GitHub whether a newer stable release exists and tells the owner with a banner and under *Settings → System → Update check*. It sends nothing about your installation and never updates anything. `false` (also `0`, `no`, `off`) switches it off, for an installation that must not call out. A beta build only sees stable releases |
+| `PRINTPRICING_UPDATE_CHECK` | ❌ | `true` | The update check: the app asks GitHub whether a newer stable release exists and tells the owner with a banner and under *Settings → Administration → About → Update check*. It sends nothing about your installation and never updates anything. `false` (also `0`, `no`, `off`) switches it off, for an installation that must not call out. A beta build only sees stable releases |
 
 ## Running it
 
@@ -200,7 +200,7 @@ Set in `.env`; [`.env.example`](.env.example) documents every value. Never commi
 
 - **Health check:** `GET /healthz` answers `200` with `{"status": "ok", "version": …, "commit": …}` while the process lives; `GET /readyz` also checks the database and answers `503` when it does not respond.
 - **Largest upload:** 50 MB per STL/3MF file (`MAX_UPLOAD_MB`). Whatever runs in front of the app (a reverse proxy, a CDN) must allow at least `MAX_UPLOAD_MB` + 1 MB, and as much as your backup when you restore one with print files (up to 2 GB). Every limit outside the repository is listed in the [operations guide](docs/handleiding.md), *Limieten buiten de repository*.
-- **Update check:** the app tells the owner when a newer stable release exists. It asks GitHub for the latest stable release of this repository, sends nothing about your installation, shows a banner and *Settings → System → Update check*, and never updates itself. `PRINTPRICING_UPDATE_CHECK=false` switches it off.
+- **Update check:** the app tells the owner when a newer stable release exists. It asks GitHub for the latest stable release of this repository, sends nothing about your installation, shows a banner and *Settings → Administration → About → Update check*, and never updates itself. `PRINTPRICING_UPDATE_CHECK=false` switches it off.
 
 Notifications and everything else about running the app are in the [operations guide](docs/handleiding.md) (Dutch).
 
@@ -212,14 +212,16 @@ Everything lives under `DATA_PATH`:
 |---|---|
 | `db/` | the database, `printpricing.sqlite3` (with a `-wal` and `-shm` file next to it while the app runs) |
 | `uploads/` | the uploaded STL and 3MF files |
-| `backups/` | the copies of the database that `scripts/update.sh` makes before an update |
+| `backups/` | the copies of the database that `scripts/update.sh` makes before an update, and in `backups/auto/` the app's automatic backups |
 | `postgres/` | the database of the releases before SQLite, only when you come from one; read once to move the data over, then yours to remove |
 
-Back up from within the app (*Settings → System → Backup and restore*): one JSON file, or a ZIP when you include the print files. That backup never contains credentials (passkeys, recovery codes, passwords, push subscriptions), users or invitations. For the whole server, copy the database with `docker compose exec -T app python backup_db.py /data/backups/backup-$(date +%F).sqlite3` and back up `uploads/` too, or stop the stack and copy `DATA_PATH`; a plain `cp` of the database while the app runs is not a consistent copy. Keep `.env` apart, in your password manager.
+Back up from within the app (*Settings → Administration → Backup*): one JSON file, or a ZIP when you include the print files. That backup never contains credentials (passkeys, recovery codes, passwords, push subscriptions), users or invitations. For the whole server, copy the database with `docker compose exec -T app python backup_db.py /data/backups/backup-$(date +%F).sqlite3` and back up `uploads/` too, or stop the stack and copy `DATA_PATH`; a plain `cp` of the database while the app runs is not a consistent copy. Keep `.env` apart, in your password manager.
+
+The app also backs up by itself: by default every 12 hours it makes the same ZIP (with the print files, the orders and their invoices) in `DATA_PATH/backups/auto` and keeps the newest 14, a week; a new one replaces the oldest. An administrator can switch it off, choose how often (every 0.5, 1, 2, 7 or 14 days) and how many to keep (0 to 60) in *Settings → Administration → Backup*. *Settings → Administration → Backup* lists them, to download or to restore. They sit on the same disk as the data they protect, so copy one off the server now and then, and count on about 14 times the size of `uploads/` plus the database. Details: [operations guide](docs/handleiding.md), *Automatische back-ups*.
 
 Restoring: *Restore from backup…* checks the whole file first, shows what comes back, and after you confirm replaces everything in one go; if something fails, nothing changes. A database copy is put back with the app stopped, in place of `db/printpricing.sqlite3`, after removing its `-wal` and `-shm` files; the commands are in the [operations guide](docs/handleiding.md), *Back-up en herstel*.
 
-*Settings → System → Clean-up → Reset to factory settings…* puts the app back to a new installation: it deletes everything in the database and the uploads (the passkeys too) after a typed word and a fresh passkey (or password and code) confirmation, and leaves `.env`, the image and `DATA_PATH/backups` alone. Make a backup first if you are not sure.
+*Settings → System → Clean-up → Reset to factory settings…* puts the app back to a new installation: it deletes everything in the database and the uploads (the passkeys too) after a typed word and a fresh passkey (or password and code) confirmation, and leaves `.env`, the image and `DATA_PATH/backups` (the automatic backups too) alone. Make a backup first if you are not sure.
 
 ## Architecture
 

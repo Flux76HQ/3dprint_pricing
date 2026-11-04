@@ -16,6 +16,7 @@ ADMIN_ONLY = (
     ("/api/backup", True),              # backup and restore: the whole business, in one file
     ("/api/system", True),              # factory reset
     ("/api/update", True),              # the update check: only the person who can update the installation needs it
+    ("/api/about", True),               # what runs where, the health of the database and the path it lives at
     ("/api/ai-images", True),           # the OpenAI key, its test and its log; making pictures goes through /api/projects/<id>/images
     ("/api/spoolman", False),           # syncing with Spoolman; the status is for everybody
     ("/api/invoice-template", False),   # uploading and removing the invoice template

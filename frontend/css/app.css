@@ -230,7 +230,7 @@ main:focus { outline: none; }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field label, .field .lbl { font-size: .82rem; font-weight: 600; color: var(--text-muted); }
 .hint { font-size: .8rem; color: var(--text-muted); margin: 0; }
-input[type=text], input[type=password], input[type=email], input[type=tel], select, textarea {
+input[type=text], input[type=password], input[type=email], input[type=tel], input[type=search], select, textarea {
   font: inherit; color: var(--text); background: var(--surface-field); border: 1px solid var(--rand);
   border-radius: var(--radius-sm); padding: 8px 12px; min-height: 44px; width: 100%; }
 input[type=color] { width: 44px; height: 44px; border: 1px solid var(--rand); border-radius: 50%; padding: 2px; background: var(--surface-field); cursor: pointer; }
@@ -378,6 +378,24 @@ input.toggle::after { content: ""; }
 .scan-help ol { margin: 6px 0; padding-left: 1.4em; display: grid; gap: 6px; }
 .scan-help { margin-bottom: 12px; }
 .scan-help p { margin: 0; }
+/* Scanning a delivery of rolls (bulk-scan.js): the camera stays small enough to see the list under it */
+.scan-sheet .scan-frame { aspect-ratio: auto; height: min(36vh, 280px); }
+.scan-frame.hit { outline: 3px solid var(--ok); outline-offset: -3px; }
+.scan-camera[hidden] { display: none; }
+.scan-status:empty { display: none; }
+.scan-list { display: grid; gap: 8px; }
+.scan-list:empty { display: none; }
+.scan-item { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--lijn); border-radius: var(--radius-sm); }
+.scan-item.hit { animation: scan-hit .7s ease-out; }
+@keyframes scan-hit { from { background: var(--accent-subtle); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .scan-item.hit { animation: none; } }
+.scan-item h3 { margin: 0; font-size: 1rem; }
+.scan-item p { margin: 0; }
+.scan-controls { justify-content: space-between; align-items: flex-end; }
+.scan-price { display: grid; gap: 4px; flex: 1 1 8rem; max-width: 12rem; }
+.scan-price label { font-size: .8rem; color: var(--text-muted); }
+.scan-stepper { gap: 4px; }
+.scan-count { min-width: 3ch; text-align: center; font-weight: 650; font-variant-numeric: tabular-nums; }
 
 /* Native feel: no pinch/double-tap zoom, no sideways panning or swipe-back rubber band, no tap flash. */
 html, body { overscroll-behavior-x: none; touch-action: pan-y; overflow-x: hidden; overflow-x: clip; -webkit-tap-highlight-color: transparent; }
@@ -406,6 +424,28 @@ html.standalone .sidebar { top: calc(12px + env(safe-area-inset-top)); height: c
 .notice ul { margin: 8px 0 0; padding-left: 1.2em; display: grid; gap: 4px; }
 .notice.muted { color: var(--text-muted); }
 .notice.info { border-color: var(--accent); background: var(--accent-subtle); }
+.notice.warn { border-color: color-mix(in srgb, #d9730d 60%, transparent); background: color-mix(in srgb, #d9730d 14%, transparent); }
+/* A state in one word: the database health on the About page. */
+.pill { display: inline-block; font-size: .74rem; font-weight: 650; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--rand); white-space: nowrap; }
+.pill.big { font-size: .85rem; padding: 5px 14px; }
+.pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.pill.warn { border-color: color-mix(in srgb, #d9730d 60%, transparent); background: color-mix(in srgb, #d9730d 14%, transparent); }
+.pill.error { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.about-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.about-head h2 { margin: 0; }
+.health-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: start; padding: 10px 0; border-top: 1px solid var(--lijn); }
+.health-row p { margin: 2px 0 0; }
+/* The summary at the top of About: four labelled facts side by side, each above the next on a narrow screen. */
+.about-summary { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px 36px; margin: 0; }
+.about-sum-item dt { font-size: .8rem; margin-bottom: 4px; }
+.about-sum-item dd { margin: 0; font-weight: 600; }
+.about-sum-item a { text-decoration: none; }
+.about-sum-item a.pill.warn { color: var(--text); }
+.about-flag { color: var(--danger); font-weight: 600; }
+.about-manual { width: 100%; font: inherit; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; }
+details .stack { margin-top: 8px; }
+.kv strong { overflow-wrap: anywhere; }
+.about .kv > span { min-width: 15em; }               /* the values of the About cards line up, whatever the longest label is */
 .notice.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); }
 .notice.danger, .notice.error { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -554,6 +594,16 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .more-tiles { align-self: center; }
 .sortbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
 .sortbar .btn { min-height: 36px; }
+/* The search field above both parts of the filament page: a magnifier inside the field, the camera next to it. */
+.search-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+.search-field { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
+.search-field > .icon { position: absolute; left: 12px; width: 20px; height: 20px; color: var(--text-muted); pointer-events: none; }
+.search-field input[type=search] { padding-left: 40px; -webkit-appearance: none; appearance: none; }
+.search-field input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
+.search-bar > .btn { flex: none; min-width: 44px; padding-inline: 10px; }
+.count-stepper { gap: 6px; }
+.row.nowrap.count-stepper input { flex: none; width: 5.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+.count-stepper .btn { min-width: 44px; min-height: 44px; font-size: 1.1rem; }
 .colour-row { gap: 12px; }
 .colour-row input[type="color"] { width: 56px; height: 40px; padding: 2px; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: var(--surface-field); }
 
@@ -604,7 +654,7 @@ select.status[data-status="afgehandeld"] { --st: var(--st-done); }
 .chips .seg:hover:not([aria-pressed="true"]) { background: var(--accent-subtle); }
 
 /* Form controls: a visible focus state on the field itself, a drawn arrow on every select, a finished file picker */
-input[type=text], input[type=password], input[type=email], input[type=tel], input[type=url], input[type=time], input[type=date], select, textarea {
+input[type=text], input[type=password], input[type=email], input[type=tel], input[type=search], input[type=url], input[type=time], input[type=date], select, textarea {
   transition: border-color .15s var(--ease), box-shadow .15s var(--ease); }
 input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }

@@ -15,6 +15,9 @@ class ConfigError(RuntimeError):
 
 # The database is one file in the host's DATA_PATH (the container sees DATA_PATH as /data).
 DEFAULT_DATABASE_PATH = "/data/db/printpricing.sqlite3"
+# Where the automatic backups are kept (auto_backup.py): next to the copies scripts/update.sh makes, outside UPLOAD_DIR, so a factory reset leaves them.
+# deploy/entrypoint.sh creates it and hands it to the app's user.
+DEFAULT_BACKUP_DIR = "/data/backups/auto"
 
 
 # Where "Sync" in Settings -> Filaments reads the shared filament library from: a JSON file as the app exports it.
@@ -56,6 +59,7 @@ class Config:
     cookie_secure: bool
     static_dir: str
     upload_dir: str = "/data/uploads"
+    backup_dir: str = DEFAULT_BACKUP_DIR
     max_upload_mb: int = 50
     vapid_public_key: str = ""
     vapid_private_key: str = ""

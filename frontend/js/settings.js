@@ -48,7 +48,7 @@ function installCard() {
 const RELEASE_ERRORS = { rate_limit: 'release.err.rate_limit', ssl: 'release.err.ssl', timeout: 'release.err.timeout',
   connection: 'release.err.connection', unexpected: 'release.err.unexpected' };
 
-/** Settings -> Systeem -> Updatecontrole (release.js): the installed and the latest version, which of the states it is in, when it was last
+/** Settings -> Beheer -> Over -> Updatecontrole (release.js): the installed and the latest version, which of the states it is in, when it was last
  *  checked, and how to update. "Check now" also asks whether this screen is behind the server (updates.js), which shows its own banner. */
 function updateCard() {
   const body = h('div', { class: 'stack' });
@@ -243,15 +243,20 @@ async function devicesList(redraw) {
 }
 
 const megabytes = (bytes) => `${fmt(bytes / 1048576, 1)} MB`;
+const fileSize = (bytes) => (bytes < 1048576 ? `${fmt(Math.max(bytes / 1024, 1), 0)} kB` : megabytes(bytes));
 const seconds = (ms) => fmt(ms / 1000, 1);
 const TIMING_KEY = 'pp-restore-timing';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const AUTO_EVERY = [[0.5, 'backup.auto_every_05'], [1, 'backup.auto_every_1'], [2, 'backup.auto_every_2'], [7, 'backup.auto_every_7'], [14, 'backup.auto_every_14']];
+
 /** Backup and restore of everything entered (settings, printers, tariffs, packaging, parts, accessories, rolls, calculations).
  *  Both show what they are doing. A restore is a job on the server (`/api/backup/jobs`): once the file is up, leaving the page stops
- *  nothing, and the card picks the job up again when it is shown. */
+ *  nothing, and the card picks the job up again when it is shown. Below, the automatic backups the server makes every 12 hours
+ *  (`/api/backup/auto`, backend/app/auto_backup.py): each one is downloaded as the ZIP it is, or restored through the same check and job. */
 function backupCard() {
   let withFiles = false;
+  let running = false;
   const status = h('p', { class: 'status-line', role: 'status' });
   const picker = h('input', { type: 'file', accept: '.zip,.json,application/zip,application/json', hidden: true, 'aria-label': t('backup.restore') });
   const label = h('strong');
@@ -260,6 +265,7 @@ function backupCard() {
   const box = h('div', { class: 'op-progress', role: 'status', hidden: true }, h('div', { class: 'row' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), label), bar, note);
   const downloadButton = h('button', { class: 'btn primary', type: 'button', onclick: () => download() }, t('backup.download'));
   const restoreButton = h('button', { class: 'btn', type: 'button', onclick: () => picker.click() }, t('backup.restore'));
+  const autoBox = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
 
   /** `value` 0-100 fills the bar; null leaves it moving without a figure (the server is busy and cannot say how far it is). */
   function show(text, value = null, detail = '') {
@@ -268,14 +274,17 @@ function backupCard() {
     if (value == null) bar.removeAttribute('value'); else bar.value = Math.max(0, Math.min(100, value));
     box.hidden = false;
   }
+  /** One thing at a time: every button of the card, those in the list of automatic backups too. */
+  function setRunning(on) {
+    running = on;
+    for (const button of [downloadButton, restoreButton, ...autoBox.querySelectorAll('button')]) button.disabled = on;
+  }
   function idle() {
     box.hidden = true;
-    downloadButton.disabled = false;
-    restoreButton.disabled = false;
+    setRunning(false);
   }
   function busy() {
-    downloadButton.disabled = true;
-    restoreButton.disabled = true;
+    setRunning(true);
     status.textContent = '';
   }
 
@@ -310,7 +319,11 @@ function backupCard() {
       });
     } catch (e) { idle(); toast(e.message, 'error'); return; }
     box.hidden = true;
-    const uploadTimes = { up: seconds(sentAt - began), stage: seconds(performance.now() - sentAt), size: megabytes(file.size) };
+    await confirmAndStart(staged, { up: seconds(sentAt - began), stage: seconds(performance.now() - sentAt), size: megabytes(file.size) });
+  }
+
+  /** The owner sees what comes back, and only then is the staged backup restored, as a job on the server. */
+  async function confirmAndStart(staged, uploadTimes) {
     const s = staged.summary;
     const when = s.created_at ? formatDateTime(s.created_at, { dateStyle: 'medium', timeStyle: 'short' }) : '?';
     const files = s.files ? t('backup.with_files', { n: s.files }) : '';
@@ -355,8 +368,78 @@ function backupCard() {
     const timing = sessionStorage.getItem(TIMING_KEY);
     if (timing) { status.textContent = `${t('backup.restored')} ${timing}`; sessionStorage.removeItem(TIMING_KEY); }
   } catch { /* nothing to show */ }
+  // --- the automatic backups: the progress of an action on one of them is shown in the same place as the rest, brought into view
+
+  const moment = (iso) => formatDateTime(iso, { dateStyle: 'medium', timeStyle: 'short' });
+
+  async function downloadAuto(backup) {
+    busy();
+    show(t('backup.receiving'), 0);
+    box.scrollIntoView({ block: 'nearest' });
+    try {
+      const { blob, name } = await downloadFile(`/api/backup/auto/${encodeURIComponent(backup.name)}`, {
+        onProgress: (got, total) => show(t('backup.receiving'), total ? (got / total) * 100 : null, total ? t('backup.of', { done: megabytes(got), total: megabytes(total) }) : megabytes(got)),
+      });
+      saveBlob(blob, name);
+      status.textContent = t('backup.downloaded', { name });
+    } catch (e) { toast(e.message, 'error'); }
+    idle();
+  }
+
+  async function restoreAuto(backup) {
+    busy();
+    show(t('backup.checking'));                                                         // the server copies and reads it through: nothing to count
+    box.scrollIntoView({ block: 'nearest' });
+    let staged;
+    try { staged = await api('POST', `/api/backup/auto/${encodeURIComponent(backup.name)}/stage`); } catch (e) { idle(); toast(e.message, 'error'); return; }
+    box.hidden = true;
+    await confirmAndStart(staged);
+  }
+
+  /** Switch, how often, how many to keep: saved at once; the list below follows (a lower number removes the surplus on the spot). */
+  function autoSettings(state) {
+    const chosen = state.settings;
+    const save = async (change) => {
+      try { await api('PUT', '/api/backup/auto', change); } catch (e) { toast(e.message, 'error'); }
+      loadAuto();
+    };
+    const every = h('select', { disabled: !chosen.enabled, onchange: (e) => save({ every_days: Number(e.target.value) }) },
+      AUTO_EVERY.map(([days, key]) => h('option', { value: String(days), selected: chosen.every_days === days }, t(key))));
+    const keep = numberInput(chosen.keep, () => {}, { inputmode: 'numeric', disabled: !chosen.enabled, onchange: (e) => {
+      const text = e.target.value.trim();
+      const n = /^\d+$/.test(text) ? Number(text) : NaN;
+      if (!(n >= 0 && n <= state.options.max_keep)) { toast(t('backup.auto_keep_invalid', { max: state.options.max_keep }), 'error'); e.target.value = String(chosen.keep); return; }
+      if (n !== chosen.keep) save({ keep: n });
+    } });
+    return h('div', { class: 'stack' },
+      switchRow(t('backup.auto_enabled'), t('backup.auto_enabled_hint'), chosen.enabled, (on) => save({ enabled: on })),
+      field(t('backup.auto_every'), every),
+      field(t('backup.auto_keep'), keep, t('backup.auto_keep_hint', { max: state.options.max_keep })));
+  }
+
+  async function loadAuto() {
+    let state;
+    try { state = await api('GET', '/api/backup/auto'); } catch (e) { fill(autoBox, h('p', { class: 'error' }, e.message)); return; }
+    const on = state.settings.enabled && state.settings.keep > 0;
+    const due = on && new Date(state.next_at) <= new Date();
+    fill(autoBox,
+      autoSettings(state),
+      state.error ? h('div', { class: 'notice danger', role: 'alert' }, h('p', {}, `${t('backup.auto_failed_at', { when: moment(state.error.at) })} ${state.error.message}`)) : null,
+      h('p', { class: 'status-line' }, !on ? t(state.settings.keep === 0 ? 'backup.auto_next_none' : 'backup.auto_next_off') : due ? t('backup.auto_next_soon') : t('backup.auto_next', { when: moment(state.next_at) })),
+      state.backups.length
+        ? h('ul', { class: 'plain-list' }, state.backups.map((backup) => h('li', { class: 'list-row' },
+          h('div', {}, h('strong', {}, moment(backup.created_at)), h('p', { class: 'muted' }, fileSize(backup.size))),
+          h('div', { class: 'row' },
+            h('button', { class: 'btn small', type: 'button', disabled: running, 'aria-label': t('backup.auto_download_named', { when: moment(backup.created_at) }),
+              onclick: () => downloadAuto(backup) }, t('backup.auto_download')),
+            h('button', { class: 'btn small', type: 'button', disabled: running, 'aria-label': t('backup.auto_restore_named', { when: moment(backup.created_at) }),
+              onclick: () => restoreAuto(backup) }, t('backup.auto_restore'))))))
+        : h('p', { class: 'muted' }, t('backup.auto_none')));
+  }
+
   picker.addEventListener('change', () => { const file = picker.files[0]; picker.value = ''; if (file) restore(file); });
   api('GET', '/api/backup/jobs/latest').then(({ job }) => { if (job) follow(job); }).catch(() => {});      // a restore started before the page was left
+  loadAuto();
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('backup.title')),
     h('p', { class: 'muted' }, t('backup.intro')),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', class: 'toggle', role: 'switch', onchange: (e) => { withFiles = e.target.checked; } }), t('backup.files')),
@@ -364,6 +447,9 @@ function backupCard() {
     h('div', { class: 'row' }, downloadButton, restoreButton, picker),
     box,
     status,
+    h('h3', {}, t('backup.auto_title')),
+    h('p', { class: 'muted' }, t('backup.auto_intro')),
+    autoBox,
     h('p', { class: 'muted' }, t('backup.not_included')));
 }
 
@@ -554,25 +640,230 @@ function invoiceTemplateCard() {
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('invoice_tpl.title')), body);
 }
 
+// --- About: what runs, how healthy the database is, how the app is connected to it (administrators; /api/about) -----------------------------------
+
+// Each check of the health list: its label and the sentence for every state it can have. The server sends facts, these are the words.
+const HEALTH_CHECKS = {
+  reachable: { label: 'about.chk_reachable', ok: 'about.chk_reachable_ok', error: 'about.chk_reachable_error' },
+  write_lock: { label: 'about.chk_write_lock', ok: 'about.chk_write_lock_ok', warn: 'about.chk_write_lock_warn' },
+  journal: { label: 'about.chk_journal', ok: 'about.chk_journal_ok', warn: 'about.chk_journal_warn' },
+  foreign_keys: { label: 'about.chk_foreign_keys', ok: 'about.chk_foreign_keys_ok', error: 'about.chk_foreign_keys_error' },
+  schema: { label: 'about.chk_schema', ok: 'about.chk_schema_ok', warn: 'about.chk_schema_warn', error: 'about.chk_schema_error' },
+  filesystem: { label: 'about.chk_filesystem', ok: 'about.chk_filesystem_ok', warn: 'about.chk_filesystem_warn' },
+  disk_space: { label: 'about.chk_disk_space', ok: 'about.chk_disk_space_ok', warn: 'about.chk_disk_space_warn' },
+  wal_size: { label: 'about.chk_wal_size', ok: 'about.chk_wal_size_ok', warn: 'about.chk_wal_size_warn' },
+  auto_backup: { label: 'about.chk_auto_backup', ok: 'about.chk_auto_backup_ok', off: 'about.chk_auto_backup_off', warn: 'about.chk_auto_backup_warn' },
+};
+const HEALTH_STATE = { ok: 'about.state_ok', warn: 'about.state_warn', error: 'about.state_error' };
+const HEALTH_TITLE = { ok: 'about.health_ok', warn: 'about.health_warn', error: 'about.health_error' };
+const SYNC_MODES = ['about.sync_0', 'about.sync_1', 'about.sync_2', 'about.sync_3'];     // SQLite's PRAGMA synchronous: 0 off, 1 normal, 2 full, 3 extra
+const FEATURES = [['push', 'about.feature_push'], ['ai_images', 'about.feature_ai_images'], ['spoolman', 'about.feature_spoolman'], ['update_check', 'about.feature_update_check']];
+
+const size = (bytes) => (bytes >= 1073741824 ? `${fmt(bytes / 1073741824, 1)} GB` : bytes >= 1048576 ? `${fmt(bytes / 1048576, 1)} MB` : bytes >= 1024 ? `${fmt(bytes / 1024, 1)} KB` : `${bytes} B`);
+const duration = (seconds) => {
+  const days = Math.floor(seconds / 86400), hours = Math.floor((seconds % 86400) / 3600), minutes = Math.floor((seconds % 3600) / 60);
+  return days ? `${t('about.dur_days', { n: days })} ${t('about.dur_hours', { n: hours })}` : hours ? `${t('about.dur_hours', { n: hours })} ${t('about.dur_minutes', { n: minutes })}` : t('about.dur_minutes', { n: minutes });
+};
+const pill = (state) => h('span', { class: `pill ${state}` }, t(HEALTH_STATE[state]));
+const kv = (label, value) => h('div', { class: 'kv' }, h('span', { class: 'muted' }, label), h('strong', {}, value));
+
+// The age of a backup in words, from whole days.
+const ago = (days) => (days === 0 ? t('about.ago_today') : days === 1 ? t('about.ago_yesterday') : t('about.ago_days', { n: days }));
+
+// Plain text for a bug report: fixed English keys, nothing secret (the address of the old PostgreSQL has no login, and there is no key or password to leave out).
+function diagnosisText(data, deep) {
+  const { app, health, link, database, backups } = data;
+  const update = releaseStatus();
+  const lines = [
+    '3D Print Pricing diagnostics',
+    `version: v${app.version} (commit ${app.commit}, ${app.channel})`,
+    `started: ${app.started_at} (up ${app.uptime_seconds} s)`,
+    `python: ${app.python}, flask: ${app.flask}, sqlite: ${database?.version || '?'}`,
+    `features: ${Object.entries(app.features).map(([k, v]) => `${k}=${v}`).join(', ')}`,
+    `health: ${health.state}`,
+    ...health.checks.map((c) => `check.${c.key}: ${c.state}${c.value !== undefined && c.value !== null ? ` (${c.value})` : ''}${c.detail ? ` ${c.detail}` : ''}`),
+  ];
+  if (link) {
+    lines.push(`database.path: ${link.path}`,
+      `database.size_bytes: ${database.size_bytes} (wal ${database.wal_bytes}, free on disk ${database.free_bytes})`,
+      `database.journal_mode: ${link.journal_mode}, synchronous: ${link.synchronous}, foreign_keys: ${link.foreign_keys}, busy_timeout_ms: ${link.busy_timeout_ms}`,
+      `database.filesystem: ${link.filesystem || '?'}${link.network_filesystem ? ' (network or FUSE)' : ''}`,
+      `database.pages: ${database.page_count} x ${database.page_size} bytes, ${database.free_pages} free`,
+      `database.migrations: ${database.migrations.applied.length} applied, pending [${database.migrations.pending}], changed [${database.migrations.changed}], unknown [${database.migrations.unknown}]`,
+      `database.rows: ${Object.entries(database.rows).map(([k, v]) => `${k}=${v}`).join(', ')}`,
+      `worker: pid ${link.worker_pid} of ${link.workers || '?'}`,
+      `legacy_postgres: ${link.legacy.state}${link.legacy.address ? ` ${link.legacy.address}` : ''}${link.legacy.imported_at ? `, imported ${link.legacy.imported_at}` : ''}${link.legacy.old_data_folder ? ', old postgres/ folder present' : ''}`);
+  }
+  lines.push(`backup.newest: ${backups.newest_at || 'none'}${backups.age_days !== null ? ` (${backups.age_days} days)` : ''}, copies: ${backups.copies.count}, automatic: ${backups.automatic?.count ?? 0}${backups.downloaded ? `, downloaded: ${backups.downloaded.at}` : ''}`);
+  if (update) lines.push(`update: installed ${update.current ? `v${update.current}` : '?'}, latest ${update.latest ? `v${update.latest}` : '?'}, available ${!!update.available}${update.error ? `, error ${update.error}` : ''}`);
+  if (deep && !deep.failed) lines.push(`deep_check: ${deep.ok ? 'ok' : 'problem'} (${deep.seconds} s) ${deep.quick_check.join('; ')}${deep.foreign_key_violations.length ? ` foreign_keys: ${deep.foreign_key_violations.map((v) => `${v.table}->${v.parent}`).join(', ')}` : ''}`);
+  return lines.join('\n');
+}
+
+// The clipboard where the browser allows it, a hidden text field otherwise (an http address on a home network has no navigator.clipboard).
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+  const field = h('textarea', { style: 'position:fixed;opacity:0;pointer-events:none', 'aria-hidden': 'true', readonly: '' }, text);
+  document.body.append(field);
+  field.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  field.remove();
+  return ok;
+}
+
+// The first letter in capitals: `ago()` is written for the middle of a sentence, the summary shows it on its own.
+const capital = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** The cards that read `/api/about`. `over`: the summary, the update check and the app; `systeem`: the health of the database and the
+ *  connection to it. Only the part that is open is built, so the page loads `/api/about` once. */
+function aboutCards(part) {
+  const summary = h('dl', { class: 'glass card about-summary' });
+  const app = h('div', { class: 'glass card stack about' });
+  const health = h('div', { class: 'glass card stack about' });
+  const link = h('div', { class: 'glass card stack about' });
+  let data = null, deep = null, busy = false, manual = '';
+
+  const checkText = (c) => {
+    const entry = HEALTH_CHECKS[c.key];
+    const params = { ms: c.value, mode: c.value, fs: c.value || '?', size: size(Number(c.value) || 0), reason: c.detail || '' };
+    const key = c.value === 'off' && entry?.off ? entry.off : entry?.[c.state];                  // switched off is a state of its own, not a problem
+    return key ? t(key, params) : '';
+  };
+  const backupText = () => {
+    const b = data.backups;
+    if (b.newest_at === null) return t('about.backup_none');
+    const fromApp = b.downloaded && b.downloaded.at === b.newest_at;
+    const automatic = b.automatic?.latest && b.automatic.latest.at === b.newest_at;
+    const source = fromApp ? t(b.downloaded.with_files ? 'about.backup_src_app_files' : 'about.backup_src_app')
+      : automatic ? t('about.backup_src_auto') : t('about.backup_src_copy', { name: b.copies.latest?.name || '' });
+    return `${ago(b.age_days)} (${source})`;
+  };
+
+  // Four labelled facts, each with the page that has the details: the version, the database (Systeem), the last backup (Back-up), updates (below).
+  function drawSummary() {
+    const update = releaseStatus();
+    const b = data.backups;
+    const item = (label, value) => h('div', { class: 'about-sum-item' }, h('dt', { class: 'muted' }, label), h('dd', {}, value));
+    const updateText = update?.available ? t('about.sum_update', { latest: `v${update.latest}` }) : update?.latest ? t('about.sum_current') : null;
+    fill(summary,
+      item(t('about.sum_version'), h('strong', {}, `v${data.app.version}`)),
+      item(t('about.sum_health'), h('a', { href: '#/instellingen/systeem', class: `pill big ${data.health.state}` }, t(HEALTH_TITLE[data.health.state]))),
+      item(t('about.sum_backup'), h('a', { href: '#/instellingen/backup', class: b.old ? 'about-flag' : '' },
+        b.newest_at === null ? t('about.sum_backup_none') : capital(ago(b.age_days)))),
+      updateText ? item(t('about.sum_updates'), h('span', { class: update.available ? 'about-flag' : '' }, updateText)) : null);
+  }
+
+  function drawApp() {
+    const a = data.app;
+    fill(app, h('h2', {}, t('about.app_title')), h('p', { class: 'muted' }, t('about.app_intro')),
+      kv(t('about.name'), a.name),
+      kv(t('about.version'), `v${a.version}`),
+      kv(t('about.commit'), a.commit),
+      kv(t('about.channel'), t(a.channel === 'beta' ? 'about.channel_beta' : 'about.channel_stable')),
+      kv(t('about.started'), when(a.started_at)),
+      kv(t('about.uptime'), duration(a.uptime_seconds)),
+      kv(t('about.python'), a.python),
+      kv(t('about.flask'), a.flask),
+      kv(t('about.features'), FEATURES.map(([key, label]) => `${t(label)}: ${t(a.features[key] ? 'about.on' : 'about.off')}`).join(' · ')),
+      h('div', { class: 'row' }, h('a', { class: 'btn', href: a.repository, target: '_blank', rel: 'noopener noreferrer' }, t('about.repo'))));
+  }
+
+  function drawHealth() {
+    const state = data.health.state;
+    const result = deep && (deep.failed
+      ? h('div', { class: 'notice error', role: 'alert' }, h('p', {}, t('about.deep_failed')))
+      : h('div', { class: `notice ${deep.ok ? 'ok' : 'error'}`, role: deep.ok ? 'status' : 'alert' },
+        h('p', {}, deep.ok ? t('about.deep_ok', { seconds: deep.seconds }) : t('about.deep_bad', { seconds: deep.seconds })),
+        deep.ok ? null : h('ul', {}, [...deep.quick_check.map((line) => h('li', {}, line)),
+          ...deep.foreign_key_violations.map((v) => h('li', {}, t('about.deep_fk', { table: v.table, parent: v.parent })))])));
+    fill(health, h('div', { class: 'about-head' }, h('h2', {}, t('about.health_title')), h('span', { class: `pill big ${state}` }, t(HEALTH_TITLE[state]))),
+      h('p', { class: 'muted' }, t('about.health_intro')),
+      h('ul', { class: 'plain-list health-list' }, data.health.checks.map((c) => h('li', { class: 'health-row' },
+        h('div', {}, h('strong', {}, t(HEALTH_CHECKS[c.key]?.label || 'about.state_error')), h('p', { class: 'muted' }, checkText(c))), pill(c.state)))),
+      result,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary', type: 'button', disabled: busy, onclick: runDeep }, busy ? t('about.deep_running') : t('about.deep_button')),
+        h('button', { class: 'btn', type: 'button', disabled: busy, onclick: load }, t('about.refresh')),
+        h('button', { class: 'btn', type: 'button', onclick: copyDiagnosis }, t('about.copy'))),
+      h('p', { class: 'hint' }, t('about.copy_hint')),
+      manual ? h('textarea', { class: 'about-manual', readonly: '', rows: 10, 'aria-label': t('about.copy'), onfocus: (e) => e.target.select() }, manual) : null);
+  }
+
+  function drawLink() {
+    const l = data.link, d = data.database, b = data.backups;
+    if (!l) { fill(link, h('h2', {}, t('about.link_title')), h('p', { class: 'muted' }, d.path)); return; }
+    const old = l.legacy;
+    const legacyText = old.state === 'imported'
+      ? t(old.address ? 'about.legacy_imported' : 'about.legacy_imported_alone', { when: old.imported_at ? when(old.imported_at.replace(' ', 'T') + 'Z') : '?', address: old.address })
+      : old.state === 'unused' ? t('about.legacy_unused', { address: old.address }) : t('about.legacy_none');
+    fill(link, h('h2', {}, t('about.link_title')), h('p', { class: 'muted' }, t('about.link_intro')),
+      kv(t('about.engine'), `${d.engine} ${d.version}`),
+      kv(t('about.file'), l.path),
+      kv(t('about.size'), size(d.size_bytes)),
+      kv(t('about.mode'), l.journal_mode.toUpperCase()),
+      kv(t('about.filesystem'), l.filesystem || '?'),
+      kv(t('about.backup'), backupText()),
+      b.old ? h('div', { class: 'notice warn', role: 'status' }, h('p', {}, t('about.backup_old', { days: b.old_after_days }))) : null,
+      kv(t('about.legacy'), legacyText),
+      old.old_data_folder ? h('p', { class: 'hint' }, t('about.legacy_folder')) : null,
+      h('details', {}, h('summary', {}, t('about.more')),
+        h('div', { class: 'stack' },
+          kv(t('about.driver'), t('about.driver_value')),
+          kv(t('about.wal'), size(d.wal_bytes)),
+          kv(t('about.sync'), t(SYNC_MODES[l.synchronous] || SYNC_MODES[1])),
+          kv(t('about.refs'), t(l.foreign_keys ? 'about.yes' : 'about.no')),
+          kv(t('about.timeout'), t('about.timeout_value', { n: fmt(l.busy_timeout_ms / 1000, 0) })),
+          kv(t('about.free'), size(d.free_bytes)),
+          kv(t('about.pages'), t('about.pages_value', { count: d.page_count, size: size(d.page_size), free: d.free_pages })),
+          kv(t('about.process'), l.workers ? t('about.process_of', { pid: l.worker_pid, workers: l.workers }) : t('about.process_value', { pid: l.worker_pid })),
+          h('details', {}, h('summary', {}, t('about.migrations')),
+            h('ul', { class: 'plain-list' }, d.migrations.applied.map((m) => h('li', {}, h('code', {}, m.filename), ' · ', when(m.applied_at))))),
+          h('details', {}, h('summary', {}, `${t('about.tables')} (${d.tables})`),
+            h('ul', { class: 'plain-list' }, Object.entries(d.rows).map(([name, n]) => h('li', {}, h('code', {}, name), ` · ${n}`)))))));
+  }
+
+  const draw = () => { if (part === 'over') { drawSummary(); drawApp(); } else { drawHealth(); drawLink(); } };
+  async function load() {
+    try { data = await api('GET', '/api/about'); draw(); } catch (e) { toast(e.message || t('about.unavailable'), 'error'); }
+  }
+  async function runDeep() {
+    busy = true; deep = null; drawHealth();
+    try { deep = await api('POST', '/api/about/check', {}); } catch { deep = { failed: true }; }
+    busy = false; drawHealth();
+  }
+  async function copyDiagnosis() {
+    const text = diagnosisText(data, deep);
+    if (await copyText(text)) { manual = ''; toast(t('about.copied')); } else { manual = text; toast(t('about.copy_failed'), 'error'); }
+    drawHealth();
+  }
+  load();
+  if (part === 'over') {
+    fill(summary, h('div', { class: 'about-sum-item' }, h('dt', { class: 'muted' }, t('about.sum_version')), h('dd', { class: 'muted' }, '…')));
+    if (!releaseStatus()) initRelease().then(() => { if (data) drawSummary(); });          // the answer of the update check may come after the first draw
+    return [summary, updateCard(), app];
+  }
+  return [health, link];
+}
+
 // The parts of the settings, in the order of the sub menu: [route, label key]. "Zakelijk" is only there when it is switched on.
 // A regular user does not see the parts that are for administrators (the server refuses them whatever the screen shows).
 const SECTIONS = [['algemeen', 'settings.tab_general'], ['weergave', 'settings.tab_appearance'], ['beveiliging', 'settings.tab_security'],
   ['zakelijk', 'settings.tab_business'], ['filamenten', 'settings.tab_filaments'], ['notificaties', 'settings.tab_notifications'],
-  ['gebruikers', 'settings.tab_users'], ['ai', 'settings.tab_ai'], ['systeem', 'settings.tab_system']];
-const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'ai', 'systeem'];
+  ['gebruikers', 'settings.tab_users'], ['ai', 'settings.tab_ai'], ['backup', 'settings.tab_backup'], ['systeem', 'settings.tab_system'], ['over', 'settings.tab_about']];
+const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'ai', 'backup', 'systeem', 'over'];
 // How the menu is grouped and which icon each part has. A part is only shown when `shown()` lets it through, a group without parts not at all.
 const GROUPS = [['settings.group_personal', ['algemeen', 'weergave', 'beveiliging', 'notificaties']],
-  ['settings.group_data', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'ai', 'systeem']]];
+  ['settings.group_data', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'ai', 'backup', 'systeem', 'over']]];
 const SECTION_ICONS = { algemeen: 'tune', weergave: 'theme-light-dark', beveiliging: 'shield-lock', notificaties: 'bell', zakelijk: 'domain',
-  filamenten: 'palette-swatch', gebruikers: 'account-group', ai: 'creation', systeem: 'server' };
+  filamenten: 'palette-swatch', gebruikers: 'account-group', ai: 'creation', backup: 'backup-restore', systeem: 'server', over: 'information-outline' };
 
 export function settingsView(ctx, requested) {
   const { setPrefs, user, highlightPasskey } = ctx;
   const businessOn = () => !!ctx.prefs.business_mode;
   const admin = user.role === 'admin';
   const shown = () => SECTIONS.filter(([key]) => (admin || !ADMIN_SECTIONS.includes(key)) && (key !== 'zakelijk' || businessOn()) && (key !== 'ai' || ctx.aiImages));   // "AI-afbeeldingen" only when .env switches it on
-  const wanted = requested === 'backup' ? 'systeem' : requested;                          // the address this part had before it was renamed
-  const section = shown().some(([key]) => key === wanted) ? wanted : 'algemeen';
+  const section = shown().some(([key]) => key === requested) ? requested : 'algemeen';
   // The address says what is shown: a part that is not there (Business while it is off) must not stay in the URL, or clicking its tab later would change nothing.
   if (requested && requested !== section) history.replaceState(null, '', `#/instellingen/${section}`);
   let vatTimer = null;
@@ -727,7 +1018,9 @@ export function settingsView(ctx, requested) {
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
     ai: () => [aiSettingsCard(), aiLogCard()],
-    systeem: () => [backupCard(), updateCard(), resetCard()],
+    backup: () => [backupCard()],
+    systeem: () => [...aboutCards('systeem'), resetCard()],
+    over: () => aboutCards('over'),
   };
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.settings')))),

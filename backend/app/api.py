@@ -225,6 +225,8 @@ def _register(path, table, fields, order):
     def create():
         body = json_body()
         values = _validated(fields, body, partial=False)
+        # A roll may be added more than once (Dupliceren): `count` identical rolls, all or none, as many as a scanned delivery may hold.
+        count = (optional_int("f.count", minimum=1, maximum=BULK_MAX_ROLLS)(body.get("count")) or 1) if table == "filament_spools" else 1
         cols = ", ".join(values)
         marks = ", ".join(["%s"] * len(values))
         with pool().connection() as conn:
@@ -240,6 +242,11 @@ def _register(path, table, fields, order):
                                tuple(values.values())).fetchone()
             if table == "filament_spools":
                 row = _share_notify(conn, row, explicit="notify_low" in values, creating=True)
+                if count > 1:                                   # the other rolls are the same kind, so they take the notification the first one ended with
+                    copy = {**values, "notify_low": row["notify_low"]}
+                    cols, marks = ", ".join(copy), ", ".join(["%s"] * len(copy))
+                    for _ in range(count - 1):
+                        conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks})", tuple(copy.values()))
                 if body.get("add_to_library") is True:          # a roll typed in by hand may also be put in the library, if it is not there yet
                     from . import filament_library              # imported here: that module imports this one
                     filament_library.add_roll(conn, row, body.get("library"))
@@ -370,6 +377,88 @@ def propagate_spool(spool_id):
     if "material" in fields:                                        # the rolls moved to another material's total
         stock_changed()
     return jsonify({"updated": len(done)})
+
+
+# --- adding rolls by scanning their barcodes ------------------------------------
+
+# One delivery at a time: a request with more is refused, so one transaction never holds the write lock for long.
+BULK_MAX_ROLLS = 200
+# What a scanned roll takes over from the roll or library entry with its barcode. Notes, what is left and archived are per roll and never copied.
+FROM_BARCODE = ("brand", "product_type", "material", "colour", "colour_hex", "roll_weight_g", "price", "diameter_mm", "print_temp_c", "bed_temp_c")
+
+
+def _from_barcode(conn, barcode: str) -> "tuple[str, dict] | None":
+    """What a new roll with this barcode is made of, and where that came from: the newest roll with the barcode (`roll`, what was paid
+    last time too), else the filament library's entry with it (`library`, its reference price when it has one). None when neither knows
+    it. The roll starts full. Both the scan list (`from-barcode`) and adding the rolls (`bulk`) use this, so what is shown is what is made."""
+    row = conn.execute("SELECT * FROM filament_spools WHERE barcode = %s ORDER BY created_at DESC LIMIT 1", (barcode,)).fetchone()
+    source = "roll"
+    if row is None:
+        row = conn.execute("SELECT * FROM filament_library WHERE lower(barcode) = lower(%s) ORDER BY created_at, id LIMIT 1", (barcode,)).fetchone()
+        source = "library"
+    if row is None:
+        return None
+    values = {key: row[key] for key in FROM_BARCODE}
+    values.update(barcode=barcode, remaining_g=row["roll_weight_g"], notes="")
+    return source, values
+
+
+@bp.get("/spools/from-barcode")
+def spool_from_barcode():
+    """What scanning this barcode adds (`roll`, None when the barcode is unknown), where it comes from, and what is in stock of it."""
+    barcode = (request.args.get("barcode") or "").strip()
+    found, stock_now = None, []
+    if barcode:
+        with pool().connection() as conn:
+            found = _from_barcode(conn, barcode)
+            stock_now = stock.groups(stock.fetch(conn, barcode)) if found else []
+    return jsonify({"barcode": barcode, "source": found[0] if found else None, "roll": _serialise(found[1]) if found else None,
+                    "stock": stock_now[0] if stock_now else None})
+
+
+@bp.post("/spools/bulk")
+def add_spools_by_barcode():
+    """Add the rolls of a scan list in one go: per barcode a number of rolls, each made from what `_from_barcode` finds, at the price the list
+    gives (else the one found). All or nothing: an unknown barcode, a missing price or anything else that is refused adds no roll at all."""
+    body = json_body()
+    items = body.get("items")
+    if not isinstance(items, list) or not items or not all(isinstance(item, dict) for item in items):
+        raise ApiError(400, "bulk.empty")
+    fields = RESOURCES["spools"][1]
+    count_of = optional_int("f.count", minimum=1, maximum=BULK_MAX_ROLLS)
+    lines = []
+    for item in items:
+        barcode = text("f.barcode", max_len=100)(item.get("barcode"))
+        count = count_of(item.get("count"))
+        if count is None:
+            raise ApiError(400, "err.required", label=L("f.count"))
+        price = item.get("price")
+        lines.append((barcode, count, None if price is None or str(price).strip() == "" else fields["price"](price)))
+    if sum(count for _, count, _ in lines) > BULK_MAX_ROLLS:
+        raise ApiError(400, "bulk.too_many", max=BULK_MAX_ROLLS)
+    created = []
+    with pool().connection() as conn:
+        for barcode, count, price in lines:
+            found = _from_barcode(conn, barcode)
+            if found is None:
+                raise ApiError(400, "bulk.unknown", barcode=barcode)
+            values = {**found[1], **({"price": price} if price is not None else {})}
+            if values["price"] is None:                                   # a library entry without a reference price
+                raise ApiError(400, "bulk.no_price", barcode=barcode)
+            values = _validated(fields, values, partial=False)
+            cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
+            first = conn.execute(f"INSERT INTO filament_spools ({cols}) VALUES ({marks}) RETURNING *", tuple(values.values())).fetchone()
+            first = _share_notify(conn, first, explicit=False, creating=True)       # takes over the notification its kind already has
+            values["notify_low"] = first["notify_low"]                    # the other rolls of this line are the same kind
+            cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
+            created.append(first)
+            created += [conn.execute(f"INSERT INTO filament_spools ({cols}) VALUES ({marks}) RETURNING *", tuple(values.values())).fetchone()
+                        for _ in range(count - 1)]
+            if body.get("add_to_library") is True:                        # as the roll form does: the filament goes in the library when it is not there yet
+                from . import filament_library                          # imported here: that module imports this one
+                filament_library.add_roll(conn, first)
+    stock_changed()
+    return jsonify({"created": len(created), "rolls": [_serialise(row) for row in created]}), 201
 
 
 # --- preferences ----------------------------------------------------------------

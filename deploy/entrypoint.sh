@@ -9,6 +9,7 @@ set -eu
 
 UPLOAD_DIR="${UPLOAD_DIR:-/data/uploads}"
 DB_DIR="$(dirname "${DATABASE_PATH:-/data/db/printpricing.sqlite3}")"
+AUTO_BACKUP_DIR=/data/backups/auto      # the automatic backups (backend/app/auto_backup.py, config.DEFAULT_BACKUP_DIR)
 
 if [ "$(id -u)" = "0" ]; then
   # Data that is not on a mount is gone with the container at the next update: say so loudly instead of finding out then.
@@ -22,13 +23,13 @@ if [ "$(id -u)" = "0" ]; then
     *) echo "WARNING: DATA_PATH is \"$DATA_PATH\", a relative path. The data may be in a folder you do not expect. Set an absolute folder of the host in .env," >&2
        echo "         then run scripts/migrate_data.sh on the host (see docs/handleiding.md, 'Waar de data staat')." >&2 ;;
   esac
-  mkdir -p "$UPLOAD_DIR" "$DB_DIR"
-  chown app:app "$UPLOAD_DIR" "$DB_DIR"                         # only these two: /data itself is the host's DATA_PATH, which may hold an old postgres/
+  mkdir -p "$UPLOAD_DIR" "$DB_DIR" "$AUTO_BACKUP_DIR"
+  chown app:app "$UPLOAD_DIR" "$DB_DIR" "$AUTO_BACKUP_DIR"      # only these: /data itself is the host's DATA_PATH, which may hold an old postgres/; the rest of backups/ is scripts/update.sh's
   # SQLite needs working file locks and shared memory. A network share or a FUSE mount (Unraid's /mnt/user is one) may have neither; use a folder on a local disk.
   case "$(stat -f -c %T "$DB_DIR" 2>/dev/null || true)" in
     nfs*|cifs|smb*|fuse*|9p|ceph|afs)
       echo "WARNING: the database folder $DB_DIR is on a network or FUSE file system. SQLite can lose data there. Put DATA_PATH on a local disk" >&2
-      echo "         (Unraid: /mnt/cache/appdata/printpricing or /mnt/diskN/..., not /mnt/user/...; see docs/handleiding.md, 'Waar de data staat')." >&2 ;;
+      echo "         (Unraid: /mnt/<pool>/appdata/printpricing or /mnt/diskN/... instead of /mnt/user/..., or make appdata an exclusive share; see docs/handleiding.md, 'Waar de data staat')." >&2 ;;
   esac
   # Earlier releases kept the uploads in DATA_PATH/app/uploads. A failed move must not keep the app from starting: the files just stay there.
   /migrate_uploads.sh /data/app/uploads "$UPLOAD_DIR" || echo "WARNING: moving the old uploads from /data/app/uploads failed; they stay where they are." >&2

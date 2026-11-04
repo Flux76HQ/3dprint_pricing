@@ -224,6 +224,18 @@ class Database:
     def close(self) -> None:
         """Nothing to release: connections live only inside `connection()`."""
 
+    def check(self) -> dict:
+        """The thorough health check: SQLite's own `quick_check` and a look for rows that point at nothing. It reads on a connection of its own (WAL lets
+        the app go on writing meanwhile), so it never holds the write lock; on a large database it takes a moment."""
+        began = time.monotonic()
+        raw = _open(self.path)
+        try:
+            quick = [next(iter(row.values())) for row in raw.execute("PRAGMA quick_check(20)").fetchall()]
+            broken = [{"table": row["table"], "parent": row["parent"]} for row in raw.execute("PRAGMA foreign_key_check").fetchall()[:20]]
+        finally:
+            raw.close()
+        return {"ok": quick == ["ok"] and not broken, "quick_check": quick, "foreign_key_violations": broken, "seconds": round(time.monotonic() - began, 2)}
+
     def compact(self) -> None:
         """Rewrite the file so deleted rows are really gone (a factory reset must not leave passkeys and invoices in free pages)."""
         raw = _open(self.path)
@@ -239,20 +251,35 @@ def named_lock(pool: Database, name: str, *, hold_seconds: int = 300):
     """A lock between workers for work that must not keep a transaction open, such as a series of calls to another service. Waits its turn;
     a worker that dies while holding it loses it after `hold_seconds`, so waiting always ends."""
     key = f"lock:{name}"
-    while True:
-        now = datetime.now(timezone.utc)
-        with pool.connection() as conn:
-            conn.execute("DELETE FROM app_state WHERE key = %s AND value < %s", (key, _utc_text(now)))
-            got = conn.execute("INSERT INTO app_state (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING RETURNING key",
-                               (key, _utc_text(now + timedelta(seconds=hold_seconds)))).fetchone()
-        if got:
-            break
+    while not _take_lock(pool, key, hold_seconds):
         time.sleep(0.2)
     try:
         yield
     finally:
         with pool.connection() as conn:
             conn.execute("DELETE FROM app_state WHERE key = %s", (key,))
+
+
+@contextmanager
+def try_named_lock(pool: Database, name: str, *, hold_seconds: int = 300):
+    """`named_lock` for work that is skipped rather than waited for when another worker is doing it: yields whether this one got the lock
+    (and only then holds it)."""
+    key = f"lock:{name}"
+    got = _take_lock(pool, key, hold_seconds)
+    try:
+        yield got
+    finally:
+        if got:
+            with pool.connection() as conn:
+                conn.execute("DELETE FROM app_state WHERE key = %s", (key,))
+
+
+def _take_lock(pool: Database, key: str, hold_seconds: int) -> bool:
+    now = datetime.now(timezone.utc)
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM app_state WHERE key = %s AND value < %s", (key, _utc_text(now)))
+        return conn.execute("INSERT INTO app_state (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING RETURNING key",
+                            (key, _utc_text(now + timedelta(seconds=hold_seconds)))).fetchone() is not None
 
 
 def make_pool(database_path: str) -> Database:

@@ -47,7 +47,7 @@ body:
     id: version
     attributes:
       label: Appversie en image-tag
-      description: De versie staat onder Instellingen → Systeem → Updatecontrole; de tag is `PRINTPRICING_TAG` in je `.env`.
+      description: De versie staat onder Instellingen → Beheer → Over; de tag is `PRINTPRICING_TAG` in je `.env`.
       placeholder: "0.26.19 / latest"
     validations:
       required: true

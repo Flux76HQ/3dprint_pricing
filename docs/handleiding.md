@@ -26,9 +26,18 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
 - **Filament** — je rollen met prijs per rol, gewicht, diameter, print- en bedtemperatuur en wat er nog over is;
   de **barcode** bewaar je als identifier: scan hem met de camera van je telefoon (of een barcodescanner, die typt
   gewoon in het veld). Een bekende barcode wordt gemeld en de gegevens van de vorige rol worden meteen ingevuld (wat je zelf al
-  typte blijft staan), zodat je alleen nog opslaat, met erbij hoeveel rollen je er nog van hebt. Bovenaan staat de
+  typte blijft staan), zodat je alleen nog opslaat, met erbij hoeveel rollen je er nog van hebt.
+  **Een levering in één keer**: *Scannen* (naast *Nieuwe rol*) opent een scanlijst. Scan de rollen na elkaar, met de camera (die blijft
+  lezen; dezelfde barcode telt pas opnieuw als hij even uit beeld was, zodat één rol niet dubbel telt) of met een barcodescanner (die typt
+  de code en drukt op Enter). Elke scan is één rol: scan je dezelfde barcode nog eens, dan komt er een rol bij, en met − en + pas je het aantal
+  aan. Wat een rol wordt, komt van de **nieuwste rol met die barcode** (ook de prijs die je toen betaalde), anders van het filament in de
+  **bibliotheek** met die barcode (met de richtprijs, als die er is); de prijs per rol kun je in de lijst aanpassen. Een barcode die geen van
+  beide kent, vul je één keer in met het gewone rolformulier (*Gegevens invullen*); de andere rollen met die barcode volgen daarna vanzelf.
+  Met *N rollen toevoegen* komen ze er allemaal tegelijk bij, vol, zonder notities; gaat er iets mis (een onbekende barcode, een ontbrekende
+  prijs), dan wordt er geen enkele rol toegevoegd. Hooguit 200 rollen per keer. Op een telefoon start de camera meteen, op een computer pas
+  met *Camera gebruiken*. Bovenaan staat de
   **voorraad per soort**: de rollen die je nog hebt met hun gewicht, het totaal per soort en per materiaal (een soort is
-  één barcode, of merk + materiaal + kleur). Merk (bijvoorbeeld *Bambu Lab*) en **type** (*Matte*, *Basic*, *Silk*) zijn aparte velden; een bestaande rol houdt wat in het merkveld stond en het type is leeg tot je het invult. Pas je bij een rol met barcode merk, type, materiaal, kleur, gewicht, diameter of temperaturen aan, dan vraagt de app bij het opslaan of de andere rollen met dezelfde barcode ook bijgewerkt moeten worden (alleen wat je veranderde; prijs, wat er nog over is en notities zijn per rol en blijven staan). Je kunt de lijst en de voorraad filteren op **soort** (materiaal), **merk** en **type**; elke keuzelijst past zich aan de vorige keuzes aan. Verbruik van een berekening kun je met één klik van de voorraad afboeken.
+  één barcode, of merk + materiaal + kleur). Merk (bijvoorbeeld *Bambu Lab*) en **type** (*Matte*, *Basic*, *Silk*) zijn aparte velden; een bestaande rol houdt wat in het merkveld stond en het type is leeg tot je het invult. Pas je bij een rol met barcode merk, type, materiaal, kleur, gewicht, diameter of temperaturen aan, dan vraagt de app bij het opslaan of de andere rollen met dezelfde barcode ook bijgewerkt moeten worden (alleen wat je veranderde; prijs, wat er nog over is en notities zijn per rol en blijven staan). Bovenaan *Voorraad* en *Rollen* staat een **zoekveld** dat filtert terwijl je typt: op naam (merk, type, kleur), barcode en materiaal, zonder op hoofdletters of accenten te letten; met meer woorden (*bambu zwart*) moet elk woord passen. Met de scanknop ernaast zoek je op een gescande barcode, en wat je typte blijft staan als je tussen *Voorraad* en *Rollen* wisselt. Daarnaast kun je de lijst en de voorraad filteren op **soort** (materiaal), **merk** en **type**; elke keuzelijst past zich aan de vorige keuzes aan. **Dupliceren** (op een rol onder *Rollen*) opent het rolformulier, ingevuld met die rol, met bovenaan *Aantal rollen*: zo voeg je een of meer rollen van hetzelfde filament toe. De nieuwe rollen beginnen vol en zijn niet gearchiveerd; pas aan wat anders is (de prijs, bijvoorbeeld) en ze komen er in één keer bij (alles of niets, hooguit 200). Een rol uit Spoolman dupliceer je in Spoolman. Verbruik van een berekening kun je met één klik van de voorraad afboeken.
   Het menu *Filament* heeft twee onderdelen: **Voorraad** (de soorten als tegels met een spoel-icoon in de kleur van de rol: twee naast elkaar op een telefoon, meer op een breder scherm, hooguit drie rijen met een chevron voor de rest) en **Rollen** (de rolinfo met sorteerknoppen bovenaan: naam, materiaal, resterend, prijs per kg, nieuwste; tik nog eens om om te draaien). De kleur kies je per rol (*Kleur van de rol*); kies je niets, dan wordt hij uit de naam geraden (*zwart*, *Red*, …). Het icoon is in de stijl van de Material Design-iconen getekend, want die hebben geen filamentspoel.
 - **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. Verpakking hoort bij de **bestelling**, niet bij het model: met
   *Verpakking toevoegen* in de bestelling kies je er een uit de lijst (zie *Verpakking op een bestelling*). Een berekening die al verpakking bevatte, houdt die
@@ -111,7 +120,8 @@ verwijderen of nieuwe herstelcodes vraagt een verse bevestiging (een passkey, of
 | `PRINTPRICING_UPDATE_CHECK` | De updatecontrole (zie *Meldingen en updates*). Standaard aan; `false` (ook `0`, `no`, `off`) zet hem uit, voor een installatie die niet naar buiten mag bellen |
 | `PRINTPRICING_TAG` | Welke build draait: `latest` (stabiel, standaard), `beta` of een versienummer als `0.26.15`; vervangt `APP_IMAGE`. Dezelfde waarde gaat naar de app, die op `beta` een beta-label toont |
 
-**Camerascannen** (barcode) vraagt, net als passkeys, https en toestemming voor de camera. Chrome/Edge/Android gebruiken
+**Camerascannen** (barcode) vraagt, net als passkeys, https en toestemming voor de camera. De app staat de camera alleen voor zijn eigen
+adres toe (`Permissions-Policy: camera=(self)`; microfoon en locatie blijven uit). Chrome/Edge/Android gebruiken
 hun eigen scanner; Safari/iOS laadt een meegeleverde scanbibliotheek ([ZXing](../frontend/vendor/zxing/README.md), Apache-2.0).
 Weigert de telefoon de camera, dan toont het scanvenster de stappen om dat te herstellen (op Android: app-icoon ingedrukt houden → App-info →
 Rechten → Camera → *Alleen tijdens gebruik van de app*) en een knop *Opnieuw proberen*; de barcode intypen blijft altijd mogelijk.
@@ -139,7 +149,8 @@ tabblad Documentatie van de app (`homeassistant/DOCS.md`).
   `update_check`) zijn de variabelen uit `.env.example` met dezelfde betekenis. Een nieuwe variabele in `.env.example` die in Home Assistant instelbaar moet
   zijn, wordt dus ook een optie in `homeassistant/config.yaml`, `run.py` en beide `translations/`.
 - **Back-up.** `backup: cold`: Home Assistant stopt de app tijdens een back-up, want een bestand dat beschreven wordt (het -wal-bestand bevat de nieuwste data) is geen consistente kopie. Verplaatsen tussen
-  Docker Compose en Home Assistant gaat met de back-up in de app (Instellingen > Systeem).
+  Docker Compose en Home Assistant gaat met de back-up in de app (Instellingen > Systeem). De automatische back-ups van de app (`/data/backups/auto`, zie *Back-up in de app*) staan in de map van de app
+  en gaan dus mee in de back-ups van Home Assistant, die daardoor groter worden.
 - **Versie.** `version` in `homeassistant/config.yaml` is de versie van de image waarop de app gebouwd wordt. Die zet de pijplijn (`scripts/bump_version.py`)
   gelijk met `VERSION`; een pull request raakt hem niet aan. Een wijziging in `homeassistant/` telt als code en verhoogt het versienummer bij de promotie.
 - **PostgreSQL 17 (alleen voor de overstap).** Hetzelfde hoofdnummer als `postgres:17-alpine` in de compose-file; de Dockerfile vraagt `postgresql-17` met name. Een datamap
@@ -177,9 +188,9 @@ met een eigen icoon en opstartscherm en reageert als een native app:
 **Nieuwe versie.** De versie in de zijbalk is die van de code die de pagina echt geladen heeft (de server vult hem in `js/build.js` in), niet het antwoord van de server van dit moment; elke script- en stijl-URL draagt de release (`?v=0.7.3-abc1234`), zodat een oude cache of proxy geen oude scripts met een nieuwe server kan mengen. De app vraagt de server bij het openen, na terugkeren naar de voorgrond en elk kwartier welke versie draait.
 Is die nieuwer dan wat de app geladen heeft, dan verschijnt bovenaan “Nieuwe versie beschikbaar: vX.Y.Z (commit)” met
 *Nu bijwerken* en *Later* (een uur rust). Heb je een berekening met niet-opgeslagen wijzigingen open, dan vraagt de app
-eerst of je die wilt kwijtraken. *Instellingen → Systeem → Updatecontrole* toont de geïnstalleerde versie en controleert op verzoek.
+eerst of je die wilt kwijtraken. *Instellingen → Beheer → Over → Updatecontrole* toont de geïnstalleerde versie en controleert op verzoek.
 
-**Nieuwe release (updatecontrole).** Los van het bovenstaande (dat merkt dat *de server* is bijgewerkt) vraagt de server aan GitHub of er een nieuwere release is dan die hij draait, en meldt dat alleen aan de ingelogde eigenaar: een balk bovenaan (“Nieuwe release beschikbaar: vX (je hebt vY)”) met *Bekijken* (opent *Instellingen → Systeem → Updatecontrole*) en *Later* (voor die versie; een nog nieuwere versie meldt zich weer), en een stip bij *Instellingen* (of *Meer*). Onder *Updatecontrole* staan de geïnstalleerde en de nieuwste versie, wanneer er voor het laatst gekeken is, *Nu controleren*, een link naar de release notes en hoe je bijwerkt; ook staat daar of de controle uit staat, of er nog geen release is, of waarom het mislukte (“limiet van GitHub bereikt (HTTP 403)”, certificaat, time-out, geen verbinding). De app **meldt alleen**: bijwerken, herstarten of downloaden doet hij nooit; dat doe je zelf op de server (zie *Deploy en update*).
+**Nieuwe release (updatecontrole).** Los van het bovenstaande (dat merkt dat *de server* is bijgewerkt) vraagt de server aan GitHub of er een nieuwere release is dan die hij draait, en meldt dat alleen aan de ingelogde eigenaar: een balk bovenaan (“Nieuwe release beschikbaar: vX (je hebt vY)”) met *Bekijken* (opent *Instellingen → Beheer → Over → Updatecontrole*) en *Later* (voor die versie; een nog nieuwere versie meldt zich weer), en een stip bij *Instellingen* (of *Meer*). Onder *Updatecontrole* staan de geïnstalleerde en de nieuwste versie, wanneer er voor het laatst gekeken is, *Nu controleren*, een link naar de release notes en hoe je bijwerkt; ook staat daar of de controle uit staat, of er nog geen release is, of waarom het mislukte (“limiet van GitHub bereikt (HTTP 403)”, certificaat, time-out, geen verbinding). De app **meldt alleen**: bijwerken, herstarten of downloaden doet hij nooit; dat doe je zelf op de server (zie *Deploy en update*).
 - De controle leest de nieuwste gepubliceerde, niet-pre-release **GitHub Release** van deze repository, via de doorverwijzing van `github.com/Flux76HQ/3dprint_pricing/releases/latest` (niet via `api.github.com`, dat per IP-adres maar 60 aanvragen per uur toestaat). De aanvraag draagt een vaste `User-Agent` en niets over jouw installatie: geen versie, geen id, geen gegevens. Een beta-build (`PRINTPRICING_TAG=beta`) ziet dus alleen stabiele releases en nooit een nieuwere beta.
 - Het antwoord wordt per worker in het geheugen bewaard: zes uur na een succes, tien minuten na een mislukking; *Nu controleren* slaat dat over maar heeft een ondergrens van 30 seconden. Een mislukking houdt het laatste goede antwoord vast, zodat een gemelde update niet verdwijnt door een storing. Uitzetten: `PRINTPRICING_UPDATE_CHECK=false` in `.env` (dit is een nieuwe, optionele variabele: wie niets doet heeft de controle aan; `docker-compose.yml` geeft `.env` al door).
 
@@ -238,6 +249,22 @@ PostgreSQL: zet `TEST_DATABASE_URL`, of draai als root met PostgreSQL geïnstall
 ### Draaien en stoppen
 `docker compose up -d` · `docker compose down` (data blijft in `DATA_PATH`) · logs: `docker compose logs -f app`.
 
+### Instellingen → Beheer → Over (alleen beheerders)
+De pagina *Over* laat zien wat er draait. Bovenaan staan vier gegevens, elk met een kopje: **Versie** (de versie die draait), **Database** (het gezondheidswoord *Gezond*, *Let op* of *Probleem*; klik erop voor de details onder *Systeem*), **Laatste back-up** (*Vandaag*, *Gisteren*, *5 dagen geleden* of *Nog geen*, rood als hij ouder is dan 30 dagen; klik erop voor *Back-up*) en **Updates** (*Je hebt de nieuwste versie* of welke versie er beschikbaar is). Daaronder:
+
+- **Updatecontrole**: de geïnstalleerde en de nieuwste versie, en *Nu controleren* (zie *Meldingen en updates*).
+- **Over deze app**: versie, commit en kanaal (stabiel of beta), wanneer deze werker is gestart en hoe lang hij draait, de versies van Python en Flask, en welke optionele functies aan staan.
+
+### Instellingen → Beheer → Systeem (alleen beheerders)
+De pagina *Systeem* laat zien hoe gezond de database is en hoe de app ermee verbonden is; onderaan staat *Opruimen* (zie *Fabrieksinstellingen*).
+
+- **Gezondheid van de database**: één woord (*Gezond*, *Let op* of *Probleem*) boven een lijst van snelle controles: antwoordt de database, hoe lang duurde het om de schrijfsleutel te krijgen (meer dan 0,5 s betekent dat iets anders hem lang vasthoudt), staat het bestand in WAL-modus, bewaakt de database verwijzingen tussen tabellen, zijn alle migraties toegepast (een ontbrekende of gewijzigde migratie is een fout), staat het bestand op een lokaal bestandssysteem (NFS, SMB en FUSE, zoals Unraids `/mnt/user`, geven een waarschuwing), is er genoeg vrije schijfruimte, is het WAL-bestand niet te groot en is de laatste automatische back-up gelukt (uitgeschakeld is een keuze, geen waarschuwing). De knop *Uitgebreide controle uitvoeren* leest de hele database na (`quick_check` en een zoektocht naar rijen die naar niets verwijzen) op een eigen verbinding, zodat de app intussen gewoon schrijft. *Kopieer diagnose* zet versie, controles, koppeling, laatste back-up en updatestand als platte tekst op het klembord (zonder wachtwoorden, sleutels of het wachtwoord van de oude PostgreSQL), om bij een probleem mee te sturen; lukt het klembord niet, dan staat de tekst in een veld om met de hand te kopiëren.
+- **Actieve koppeling met de database**: het bestand waarmee de app nu verbonden is (pad, grootte), de logboekmodus, het bestandssysteem, de **laatste back-up** en de stand van de oude PostgreSQL-koppeling; achter *Meer details*: het stuurprogramma, schrijven naar schijf, de wachttijd op de schrijfsleutel, bewaakte verwijzingen, vrije schijfruimte, het werkproces, de toegepaste migraties en het aantal rijen per tabel. De oude PostgreSQL-koppeling (*niet ingesteld*, *eenmalig overgezet op …* of *ingesteld maar niet gebruikt*; het adres staat er zonder wachtwoord).
+
+De **laatste back-up** is de nieuwste van drie dingen: een kopie in `DATA_PATH/backups` (die `scripts/update.sh` daar zet), de nieuwste automatische back-up in `DATA_PATH/backups/auto` (zie *Automatische back-ups*) of de laatste back-up die in de app is gedownload (de app onthoudt alleen dat tijdstip, in `app_state`). Is de laatste ouder dan 30 dagen, of is er nog geen, dan staat er een waarschuwing in de kaart; het gezondheidswoord verandert daar niet van, zodat een nieuwe installatie niet meteen op *Let op* staat.
+
+Dezelfde gegevens staan in `GET /api/about` (alleen beheerders); `POST /api/about/check` is de uitgebreide controle.
+
 ### Health checks
 - `GET /healthz` — proces leeft (gebruikt door de container-healthcheck).
 - `GET /readyz` — proces draait **en** de database antwoordt (503 anders).
@@ -249,14 +276,20 @@ Alles staat in **één map op de host**, `DATA_PATH` (op een server bijvoorbeeld
 ```
 /srv/printpricing/db         de database: printpricing.sqlite3 (met tijdelijk een -wal- en -shm-bestand ernaast zolang de app draait)
 /srv/printpricing/uploads    de geüploade STL/3MF-bestanden
-/srv/printpricing/backups    de kopieën die `scripts/update.sh` maakt
+/srv/printpricing/backups    de kopieën die `scripts/update.sh` maakt, en in backups/auto de automatische back-ups van de app (elke 12 uur, de nieuwste 14)
 /srv/printpricing/postgres   de database van de releases vóór SQLite (alleen als je daarvan komt; zie Overstap naar SQLite)
 ```
 
 **Zet `DATA_PATH` op een lokale schijf.** SQLite heeft werkende bestandsvergrendeling en gedeeld geheugen nodig. Een netwerkshare (NFS, SMB) of een FUSE-mount heeft die niet altijd, en dan kan een
-database beschadigd raken. Op Unraid is `/mnt/user/...` zo'n FUSE-mount: gebruik `/mnt/cache/appdata/printpricing` (de cache-pool) of `/mnt/diskN/...`. De container waarschuwt bij het opstarten als de map op zo'n bestandssysteem staat
-(*WARNING: the database folder … is on a network or FUSE file system*). Open het databasebestand niet met een ander programma om erin te schrijven terwijl de app draait; de indexen op namen gebruiken een functie die alleen de app registreert
+database beschadigd raken. Op Unraid is `/mnt/user/...` zo'n FUSE-mount: gebruik het pad van de pool zelf, `/mnt/<pool>/appdata/printpricing` (bijvoorbeeld `/mnt/cache/...`; ZFS, Btrfs en XFS zijn lokaal), of `/mnt/diskN/...`, of maak `appdata` een exclusieve share (hieronder). De container waarschuwt bij het opstarten als de map op zo'n bestandssysteem staat
+(*WARNING: the database folder … is on a network or FUSE file system*), en *Instellingen → Beheer → Systeem* zet dan *Bestandssysteem* op *Let op*. Open het databasebestand niet met een ander programma om erin te schrijven terwijl de app draait; de indexen op namen gebruiken een functie die alleen de app registreert
 (`lower_u`), dus een gewone `sqlite3`-opdrachtregel meldt *unknown function* bij een schrijfactie of `integrity_check`. Lezen kan wel; kopiëren doe je met `backup_db.py` (zie *Back-up en herstel*).
+
+**Unraid: weg van `/mnt/user`.** Staat `DATA_PATH` nu op `/mnt/user/appdata/printpricing`, dan zijn het dezelfde bestanden als op de pool: er hoeft niets gekopieerd te worden. Maak eerst een back-up en kies dan een van twee:
+- *Het pad van de pool.* Controleer met `ls -d /mnt/*/appdata/printpricing` dat de map alleen op de pool staat (en op `/mnt/user`, de FUSE-weergave ervan), niet ook op een `/mnt/diskN`. Stop de app, zet `DATA_PATH` op `/mnt/<pool>/appdata/printpricing` en start opnieuw.
+- *Een exclusieve share* (Unraid 6.12 en later); `DATA_PATH` blijft dan zoals het is. Zet onder *Settings → Global Share Settings* *Permit exclusive shares* op *Yes* (daarvoor moet de array stoppen). Een share die helemaal op één pool staat, krijgt op de pagina *Shares* *Exclusive access: Yes*, en `/mnt/user/appdata` gaat dan rechtstreeks naar de pool. Staat er nog een (lege) `appdata`-map op een arrayschijf, dan blijft het *No*.
+
+Geef in beide gevallen de share `appdata` als primaire opslag de pool en als secundaire opslag *None*: anders zet de mover de database op de array. Daarna staat bij *Bestandssysteem* `zfs`, `btrfs` of `xfs` en is de waarschuwing bij het opstarten weg.
 
 Het zijn gewone mappen, **geen Docker-volumes**: `docker compose down -v`, een `docker system prune --volumes`, opnieuw bouwen en updaten raken ze niet (een test, `test_deploy_layout.py`, laat
 de CI falen als de compose-file ooit een volume voor de data gebruikt). De app-container ziet `DATA_PATH` als `/data`; de `db`-container (alleen voor de overstap) mount alleen `DATA_PATH/postgres`.
@@ -355,6 +388,7 @@ Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de ap
 | `X-Forwarded-For/-Proto/-Host` doorgeven | aantal proxies = `PROXY_HOPS` | rate-limit op de setupcode per client-IP |
 | TLS | verplicht (behalve `localhost`) | WebAuthn, installeren, camera en push werken alleen in een secure context |
 | Uitgaand https vanaf de app-container | naar de pushdiensten (zie hierboven) | het versturen van push-meldingen; zonder dit falen ze zonder dat de app het merkt, behalve in de testknop |
+| Vrije schijfruimte in `DATA_PATH` | ruim 14 keer een back-up met printbestanden (ongeveer 14 keer de map `uploads/` plus de database) | de automatische back-ups in `DATA_PATH/backups/auto`; past er geen meer bij, dan meldt de app dat in *Instellingen → Beheer → Back-up* (en bij de gezondheid onder *Systeem*) en blijven de bestaande staan |
 
 Er zit geen CDN of proxy in deze repository; wat ervoor staat bepaalt de werkelijke ceilings.
 
@@ -457,7 +491,9 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 | **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
 | **Gebruikers** | alleen beheerders: wie mag inloggen, uitnodigen, nieuwe inloglink, beheerder maken, verwijderen; zie *Gebruikers en rollen* |
 | **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel en het logboek |
-| **Systeem** | alleen beheerders: back-up en herstel (zie *Back-up in de app*), de updatecontrole (zie *Meldingen en updates*) en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
+| **Back-up** | alleen beheerders: back-up en herstel, en de automatische back-ups (zie *Back-up in de app*) |
+| **Systeem** | alleen beheerders: de gezondheid van de database en de actieve koppeling ermee (zie *Instellingen → Beheer → Systeem*), en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
+| **Over** | alleen beheerders: een samenvatting (versie, database, laatste back-up, updates), de updatecontrole (zie *Meldingen en updates*) en wat er draait (zie *Instellingen → Beheer → Over*) |
 
 *Uitloggen* staat onderaan de zijbalk (op een telefoon onderaan *Meer*). *Zakelijk* verbergt alleen dat onderdeel van de instellingen; het menu
 *Bestellingen* blijft gewoon zichtbaar. Een onderdeel dat niet getoond wordt (bijvoorbeeld *Zakelijk* terwijl het uit staat) valt terug op
@@ -651,7 +687,7 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
 
 ## Back-up in de app
 
-*Instellingen → Systeem → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`; met *Printbestanden (STL/3MF) meenemen* is het een ZIP-bestand, zie hieronder):
+*Instellingen → Beheer → Back-up* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`; met *Printbestanden (STL/3MF) meenemen* is het een ZIP-bestand, zie hieronder):
 je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, de filamentbibliotheek, filamentrollen,
 berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: gebruikers en uitnodigingen, passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
@@ -669,7 +705,7 @@ van een eerdere versie (met de modellen er inline in) kan nog steeds worden teru
 
 **Je ziet wat er gebeurt.** Bij het maken van een back-up toont de kaart een voortgangsbalk: eerst dat de server hem samenstelt, daarna hoeveel er al binnen is. Bij herstellen zie je het uploaden (met megabytes), het controleren van het bestand
 en daarna het herstellen zelf, met bij printbestanden *printbestand 4 van 10*. Na de controle vraagt de app om bevestiging; **daarna draait het herstel op de server als achtergrondtaak** (tabel `backup_jobs`, geen onderdeel van een back-up):
-je kunt de pagina verlaten of de browser sluiten en het gaat door. Open *Instellingen → Systeem* weer, dan zie je de stand of de uitkomst; is het klaar, dan laadt de app opnieuw met de teruggezette instellingen. Mislukt het, dan staat er waarom
+je kunt de pagina verlaten of de browser sluiten en het gaat door. Open *Instellingen → Beheer → Back-up* weer, dan zie je de stand of de uitkomst; is het klaar, dan laadt de app opnieuw met de teruggezette instellingen. Mislukt het, dan staat er waarom
 en is er niets veranderd (het vervangen is één transactie). Er loopt hooguit één herstel tegelijk. Een herstel dat 15 minuten niet vooruitkwam (de server was herstart) wordt als onderbroken gemeld; ook dan is er niets veranderd.
 Het geüploade bestand staat tot het herstel klaar is als `.restore-<token>` onder `DATA_PATH/uploads` en wordt daarna, of na een uur, verwijderd.
 
@@ -678,6 +714,42 @@ De grootte: een herstel mag tot 2 GB zijn, en elk model daarin hoogstens `MAX_UP
 Een volledige kopie van de database (`backup_db.py`) en de map met uploads blijft de manier voor een back-up van de hele server, zie
 *Back-up en herstel* (onder Beheer) hierboven.
 
+### Automatische back-ups
+
+**Standaard elke 12 uur maakt de server zelf een back-up**, dezelfde als *Back-up downloaden* met *Printbestanden (STL/3MF) meenemen*: een ZIP-bestand met
+`backup.json` (alles hierboven, dus ook de bestellingen met hun factuurnummers en bewaarde factuur-PDF's, het factuursjabloon en het logo) en elk
+STL/3MF-bestand los onder `files/`. Ook hier zitten er **geen** gebruikers, passkeys, wachtwoorden of andere inloggegevens in. De bestanden staan op de
+server in `DATA_PATH/backups/auto` en heten `printpricing-auto-JJJJ-MM-DD-UUMMSSZ.zip` (de tijd in UTC). **Standaard blijven de nieuwste 14 bewaard**, een week:
+is er een nieuwe helemaal geschreven, dan verdwijnt de oudste. Andere bestanden in die map raakt de app niet aan.
+
+**Instellen** doet een beheerder bovenaan die kaart: een **schakelaar** (standaard aan; uit laat de bestaande back-ups staan en maakt er geen meer), **hoe vaak** (elke 0,5, 1, 2, 7 of 14 dagen; standaard 0,5, dus elke 12 uur) en het **aantal te bewaren back-ups** (0 tot en met 60; standaard 14). Een lager aantal ruimt de oudste meteen op. Bij **0** worden geen automatische back-ups bewaard: er worden er geen gemaakt en de bestaande worden verwijderd. De keuzes staan in de database (`app_state`); *Terug naar fabrieksinstellingen* zet de standaardwaarden terug, de back-ups zelf blijven staan.
+
+*Instellingen → Beheer → Back-up → Automatische back-ups* toont ze, nieuwste eerst, met datum, tijd en grootte, en wanneer de volgende
+komt. Per back-up:
+
+- **Downloaden** geeft het ZIP-bestand zoals het op de server staat (met voortgang). Je kunt het later terugzetten met *Herstellen uit back-up…*,
+  ook op een andere installatie.
+- **Terugzetten…** werkt als *Herstellen uit back-up…*, zonder upload: de server kopieert de back-up naar de wachtrij (`.restore-<token>` onder
+  `DATA_PATH/uploads`), controleert hem helemaal en laat zien wat er terugkomt; na jouw bevestiging vervangt hetzelfde achtergrondherstel alles in één keer.
+  De automatische back-up zelf blijft staan.
+
+Hoe het loopt:
+
+- Elke webworker kijkt een minuut na de start en daarna elke 5 minuten of de nieuwste back-up zo oud is als de gekozen tijd (12 uur, standaard; of er nog geen is). Eén worker maakt hem
+  (een slot in de tabel `app_state`); een worker die halverwege stopt, laat het slot na 2 uur los. Na een herstart of een update komt er dus binnen een paar
+  minuten een nieuwe als de laatste ouder is dan de gekozen tijd.
+- Het tijdstip van de laatste komt uit de bestandsnamen, niet uit de database: een herstel of *Terug naar fabrieksinstellingen* begint de klok niet opnieuw.
+  Zolang de app niet is ingericht (nog geen eigenaar, ook direct na de fabrieksinstellingen) en terwijl een herstel loopt, wordt er geen gemaakt; zo duwt een
+  lege database nooit een echte back-up weg.
+- Een back-up wordt eerst onder een tijdelijke naam (`.tmp-…`) geschreven en pas als hij compleet op schijf staat hernoemd. Mislukt het (bijvoorbeeld een
+  volle schijf), dan blijven de bestaande back-ups staan, staat de reden in rood op de kaart en probeert de app het na een uur opnieuw. Een tijdelijk bestand
+  dat een crash achterliet, wordt later opgeruimd.
+- *Terug naar fabrieksinstellingen* laat de automatische back-ups staan (ze staan buiten `DATA_PATH/uploads`): na de eerste start zet je er een terug.
+- **Ruimte:** elke back-up bevat alle printbestanden, dus reken op ongeveer het aantal te bewaren back-ups (standaard 14) keer de map `uploads/` plus de database. Ze staan op dezelfde schijf als de data
+  die ze beschermen: kopieer er af en toe een van de server af (*Downloaden*, of de map `DATA_PATH/backups/auto`).
+- In `.env` of `docker-compose.yml` is niets in te stellen: de keuzes hierboven staan in de app. De container maakt de map `DATA_PATH/backups/auto` bij het
+  starten zelf aan en geeft hem aan de gebruiker `app`; de rest van `DATA_PATH/backups` blijft van `scripts/update.sh`.
+
 ## Fabrieksinstellingen
 
 *Instellingen → Systeem → Opruimen → Terug naar fabrieksinstellingen…* zet de app terug zoals direct na de installatie. Het verwijdert **alles**:
@@ -685,7 +757,7 @@ berekeningen, bestellingen met factuurnummers, klanten, printers, tarieven, roll
 en logo, de geüploade bestanden, de OpenAI-sleutel, meldingsaanmeldingen en ook alle gebruikers en openstaande uitnodigingen, met hun passkeys, herstelcodes en wachtwoorden. Alleen de database zelf en
 je `.env` blijven staan. Het kan niet ongedaan worden gemaakt: download eerst een back-up (*Back-up en herstel*) als je iets wilt bewaren.
 
-De knop opent **eerst de waarschuwing** (wat verdwijnt, ook je eigen passkeys, en wat blijft), dan het veld waarin je het woord **`RESET`** typt; zonder dat woord doet de server niets, ook niet met een geldige bevestiging. Wat **blijft**: je `.env` (met `SETUP_CODE`, `SESSION_SECRET`, de VAPID-sleutels), de image, `DATA_PATH/backups` (de dumps van `scripts/update.sh`) en je accounts bij andere diensten (zoals OpenAI; alleen de sleutel in de app verdwijnt). Daarna volgt een laatste vraag (“alle gegevens worden nu definitief gewist”) en pas dan de bevestiging hieronder. Er is **geen herstart** nodig: alle toestand staat in de database en de uploadmap, en de server begint bij het volgende verzoek gewoon opnieuw met een lege database. De reset laat één regel achter in het logboek van de container (hoeveel tabellen zijn geleegd en hoeveel bestanden zijn verwijderd, met hun namen; nooit inhoud). Weet je het niet zeker: kopieer eerst de map `DATA_PATH` of maak een back-up; de reset biedt er zelf geen aan.
+De knop opent **eerst de waarschuwing** (wat verdwijnt, ook je eigen passkeys, en wat blijft), dan het veld waarin je het woord **`RESET`** typt; zonder dat woord doet de server niets, ook niet met een geldige bevestiging. Wat **blijft**: je `.env` (met `SETUP_CODE`, `SESSION_SECRET`, de VAPID-sleutels), de image, `DATA_PATH/backups` (de dumps van `scripts/update.sh` en de automatische back-ups) en je accounts bij andere diensten (zoals OpenAI; alleen de sleutel in de app verdwijnt). Daarna volgt een laatste vraag (“alle gegevens worden nu definitief gewist”) en pas dan de bevestiging hieronder. Er is **geen herstart** nodig: alle toestand staat in de database en de uploadmap, en de server begint bij het volgende verzoek gewoon opnieuw met een lege database. De reset laat één regel achter in het logboek van de container (hoeveel tabellen zijn geleegd en hoeveel bestanden zijn verwijderd, met hun namen; nooit inhoud). Weet je het niet zeker: kopieer eerst de map `DATA_PATH` of maak een back-up; de reset biedt er zelf geen aan.
 
 De app vraagt om bevestiging met de verificatiemethode die je gebruikt: een verse passkey-bevestiging, of, als wachtwoord-login aan staat en de passkey op dit
 apparaat niet werkt, je wachtwoord plus een code (authenticator of back-upcode); dat telt voor de blokkade net als inloggen. Daarna sta je weer op het

@@ -53,6 +53,17 @@ def test_the_uploads_are_where_the_app_looks_for_them():
     assert Config.__dataclass_fields__["upload_dir"].default == "/data/uploads"      # DATA_PATH/uploads on the host
 
 
+def test_the_automatic_backups_are_in_data_path_backups_auto_and_the_app_may_write_there():
+    """DATA_PATH/backups/auto: on the host, outside UPLOAD_DIR (a factory reset leaves them), next to the copies of scripts/update.sh, which stay root's."""
+    from app.config import Config
+    assert Config.__dataclass_fields__["backup_dir"].default == "/data/backups/auto"
+    entry = (ROOT / "deploy" / "entrypoint.sh").read_text(encoding="utf-8")
+    assert "AUTO_BACKUP_DIR=/data/backups/auto" in entry
+    assert 'mkdir -p "$UPLOAD_DIR" "$DB_DIR" "$AUTO_BACKUP_DIR"' in entry and 'chown app:app "$UPLOAD_DIR" "$DB_DIR" "$AUTO_BACKUP_DIR"' in entry
+    commands = "\n".join(line.split("#")[0] for line in entry.splitlines())
+    assert not re.search(r"chown[^\n]*\s/data/backups(\s|$)", commands)
+
+
 def test_the_entrypoint_and_the_image_carry_the_migration_and_do_not_take_over_the_data_path():
     entry = (ROOT / "deploy" / "entrypoint.sh").read_text(encoding="utf-8")
     assert '/migrate_uploads.sh /data/app/uploads "$UPLOAD_DIR"' in entry

@@ -375,6 +375,129 @@ def test_stock_needs_a_session(client):
     assert client.get("/api/spools/stock").status_code == 401
 
 
+# --- adding rolls by scanning their barcodes ------------------------------------------------------------------
+
+def bulk(owner, items, **extra):
+    return owner.post("/api/spools/bulk", json={"items": items, **extra}, headers=H)
+
+
+def spools(owner):
+    return owner.get("/api/spools").get_json()
+
+
+def test_a_scanned_barcode_shows_the_roll_it_adds_from_the_newest_roll_with_it(owner):
+    roll(owner, 120, barcode="8719", price=20, colour="Zwart", print_temp_c=220, notes="half op", notify_low=True)
+    newest = roll(owner, 0, barcode="8719", price="22.50", colour="Zwart", print_temp_c=220)
+    roll(owner, 1000, barcode="1234", colour="Rood")
+    found = owner.get("/api/spools/from-barcode?barcode=%208719%20").get_json()          # scanner whitespace
+    assert found["source"] == "roll" and found["barcode"] == "8719"
+    new = found["roll"]
+    assert (new["brand"], new["colour"], new["price"], new["print_temp_c"]) == (newest["brand"], "Zwart", "22.50", 220)
+    assert new["remaining_g"] == new["roll_weight_g"] == "1000.0"                       # a new roll starts full
+    assert new["notes"] == "" and "id" not in new and "archived" not in new             # per roll: never copied
+    assert found["stock"]["roll_count"] == 1 and Decimal(found["stock"]["remaining_g"]) == 120
+
+
+def test_a_scanned_barcode_that_only_the_library_knows_comes_from_the_library(owner):
+    make(owner, "/api/filament-library", {"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Grijs",
+                                          "barcode": "ABC-1", "roll_weight_g": 1000, "diameter_mm": 1.75, "price": "19.99"})
+    found = owner.get("/api/spools/from-barcode?barcode=abc-1").get_json()               # the library's barcode ignores case
+    assert found["source"] == "library" and found["stock"] is None
+    assert (found["roll"]["colour"], found["roll"]["price"], found["roll"]["barcode"]) == ("Grijs", "19.99", "abc-1")
+    unknown = owner.get("/api/spools/from-barcode?barcode=0000").get_json()
+    assert unknown == {"barcode": "0000", "source": None, "roll": None, "stock": None}
+    assert owner.get("/api/spools/from-barcode").get_json()["roll"] is None             # empty never matches the rolls without one
+
+
+def test_a_scan_list_adds_that_many_full_rolls_per_barcode_in_one_go(owner):
+    roll(owner, 50, barcode="111", price=20, colour="Zwart", notes="bijna op", notify_low=True)
+    make(owner, "/api/filament-library", {"brand": "Prusament", "material": "PETG", "colour": "Oranje", "barcode": "222",
+                                          "roll_weight_g": 1000, "diameter_mm": 1.75, "price": "24.99"})
+    res = bulk(owner, [{"barcode": "111", "count": 3}, {"barcode": "222", "count": "2", "price": "23.50"}])
+    assert res.status_code == 201, res.get_json()
+    assert res.get_json()["created"] == 5
+    new = [s for s in spools(owner) if s["remaining_g"] == "1000.0"]
+    zwart = [s for s in new if s["barcode"] == "111"]
+    oranje = [s for s in new if s["barcode"] == "222"]
+    assert len(zwart) == 3 and len(oranje) == 2
+    assert {(s["price"], s["notes"], s["notify_low"], s["archived"]) for s in zwart} == {("20.00", "", True, False)}   # the kind's notification
+    assert {(s["brand"], s["material"], s["price"]) for s in oranje} == {("Prusament", "PETG", "23.50")}                # the list's price wins
+    group = next(g for g in owner.get("/api/spools/stock").get_json()["groups"] if g["barcode"] == "111")
+    assert group["roll_count"] == 4 and Decimal(group["remaining_g"]) == 3050
+
+
+@pytest.mark.parametrize("items, key", [
+    ([], "bulk.empty"),
+    ("111", "bulk.empty"),
+    ([{"barcode": "111", "count": 0}], "f.count"),
+    ([{"barcode": "111", "count": 1.5}], "f.count"),
+    ([{"barcode": "111"}], "f.count"),
+    ([{"barcode": " ", "count": 1}], "f.barcode"),
+    ([{"barcode": "111", "count": 1, "price": "-1"}], "f.roll_price"),
+    ([{"barcode": "111", "count": 150}, {"barcode": "111", "count": 51}], "bulk.too_many"),
+    ([{"barcode": "111", "count": 1}, {"barcode": "999", "count": 1}], "bulk.unknown"),
+    ([{"barcode": "111", "count": 1}, {"barcode": "333", "count": 1}], "bulk.no_price"),
+])
+def test_a_scan_list_that_is_refused_adds_no_roll_at_all(owner, items, key):
+    from app.i18n import translate
+    roll(owner, 1000, barcode="111")
+    make(owner, "/api/filament-library", {"brand": "Geen prijs", "barcode": "333", "roll_weight_g": 1000, "diameter_mm": 1.75})
+    res = bulk(owner, items, add_to_library=True)
+    assert res.status_code == 400, res.get_json()
+    words = {"bulk.empty": "", "bulk.too_many": "200", "bulk.unknown": "999", "bulk.no_price": "333"}
+    message = res.get_json()["error"]
+    assert (words[key] in message) if key in words else (translate("nl", key) in message), message
+    assert len(spools(owner)) == 1                                                          # all or nothing
+    assert len(owner.get("/api/filament-library").get_json()) == 1
+
+
+def test_a_scan_list_puts_the_filament_in_the_library_only_when_it_says_so(owner):
+    roll(owner, 1000, barcode="111", colour="Zwart")
+    assert bulk(owner, [{"barcode": "111", "count": 2}]).status_code == 201
+    assert owner.get("/api/filament-library").get_json() == []
+    assert bulk(owner, [{"barcode": "111", "count": 2}], add_to_library=True).status_code == 201
+    (entry,) = owner.get("/api/filament-library").get_json()
+    assert (entry["barcode"], entry["colour"], entry["price"]) == ("111", "Zwart", None)    # never what it cost
+    assert bulk(owner, [{"barcode": "111", "count": 1}], add_to_library=True).status_code == 201
+    assert len(owner.get("/api/filament-library").get_json()) == 1                        # the same barcode is the same filament
+    assert len(spools(owner)) == 6
+
+
+# --- the same roll more than once (Dupliceren) --------------------------------------------------------------
+
+def test_a_roll_can_be_added_more_than_once_and_the_copies_are_the_same_kind(owner):
+    roll(owner, 300, barcode="777", notify_low=True)                                    # the kind already has the notification on
+    first = make(owner, "/api/spools", {"brand": "Bambu PLA Basic", "material": "PLA", "colour": "Black", "roll_weight_g": 1000, "price": "21.50",
+                                        "remaining_g": 1000, "barcode": "777", "notes": "levering 4 nov", "count": "3", "add_to_library": True})
+    assert first["barcode"] == "777" and first["notify_low"] is True
+    new = [s for s in spools(owner) if s["remaining_g"] == "1000.0"]
+    assert len(new) == 3 and len({s["id"] for s in new}) == 3
+    assert {(s["price"], s["notes"], s["notify_low"], s["archived"]) for s in new} == {("21.50", "levering 4 nov", True, False)}
+    assert len(owner.get("/api/filament-library").get_json()) == 1                      # the library gets the filament once
+    group = next(g for g in owner.get("/api/spools/stock").get_json()["groups"] if g["barcode"] == "777")
+    assert group["roll_count"] == 4 and Decimal(group["remaining_g"]) == 3300
+
+
+def test_without_a_count_one_roll_is_added_and_other_lists_ignore_it(owner):
+    roll(owner, 1000, count=None)
+    roll(owner, 1000, count="")
+    assert len(spools(owner)) == 2
+    make(owner, "/api/printers", {"name": "X1C", "purchase_price": 750, "lifetime_hours": 3000, "count": 5})
+    assert len(owner.get("/api/printers").get_json()) == 1
+
+
+@pytest.mark.parametrize("count", [0, -1, "1.5", "abc", 201])
+def test_a_count_that_is_not_a_whole_number_from_1_to_200_adds_nothing(owner, count):
+    res = owner.post("/api/spools", json={"brand": "x", "roll_weight_g": 1000, "price": 1, "remaining_g": 1000, "count": count}, headers=H)
+    assert res.status_code == 400, res.get_json()
+    assert spools(owner) == []
+
+
+def test_scanning_needs_a_session(client):
+    assert client.get("/api/spools/from-barcode?barcode=1").status_code == 401
+    assert client.post("/api/spools/bulk", json={"items": [{"barcode": "1", "count": 1}]}, headers=H).status_code in (401, 403)
+
+
 # --- brand and type are separate ----------------------------------------------------------------------------
 
 def test_a_roll_has_a_brand_and_a_separate_type_that_may_stay_empty(owner):

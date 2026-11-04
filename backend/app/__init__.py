@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import access, ai_images, api, auth, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invites, invoice_template, orders, password_api, push, push_api, relying_party, spoolman, system, updates, users
+from . import about, access, ai_images, api, auth, auto_backup, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invites, invoice_template, orders, password_api, push, push_api, relying_party, spoolman, system, updates, users
 from .config import Config, build_channel, load_config
 from .db import make_pool
 from .http import ApiError, error_response
@@ -61,7 +61,8 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "same-origin")
-        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        # The camera is the barcode scanner (frontend/js/scanner.js), for this origin only; `camera=()` made Chrome refuse it.
+        response.headers.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
@@ -73,6 +74,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     app.register_blueprint(auth.bp)
     app.register_blueprint(api.bp)
     app.register_blueprint(backup.bp)
+    app.register_blueprint(auto_backup.bp)
     app.register_blueprint(files.bp)
     app.register_blueprint(filament_library.bp)
     app.register_blueprint(bambu_catalog.bp)
@@ -86,6 +88,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     app.register_blueprint(spoolman.bp)
     app.register_blueprint(system.bp)
     app.register_blueprint(updates.bp)
+    app.register_blueprint(about.bp)
     app.register_blueprint(users.bp)
     app.register_blueprint(invites.bp)
     app.extensions["update_checker"] = updates.Checker(VERSION, enabled=cfg.update_check)
@@ -93,6 +96,8 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
 
     if cfg.push_configured and not app.testing and os.environ.get("PUSH_WORKER", "on") != "off":
         push.start_outbox_worker(app)          # delivers notifications held back by quiet hours
+    if not app.testing and os.environ.get("AUTO_BACKUP_WORKER", "on") != "off":
+        auto_backup.start_worker(app)          # a backup of everything every 12 hours, the newest 14 kept (auto_backup.py)
 
     @app.errorhandler(404)
     def _not_found(_):
