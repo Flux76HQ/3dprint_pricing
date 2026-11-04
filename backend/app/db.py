@@ -224,6 +224,18 @@ class Database:
     def close(self) -> None:
         """Nothing to release: connections live only inside `connection()`."""
 
+    def check(self) -> dict:
+        """The thorough health check: SQLite's own `quick_check` and a look for rows that point at nothing. It reads on a connection of its own (WAL lets
+        the app go on writing meanwhile), so it never holds the write lock; on a large database it takes a moment."""
+        began = time.monotonic()
+        raw = _open(self.path)
+        try:
+            quick = [next(iter(row.values())) for row in raw.execute("PRAGMA quick_check(20)").fetchall()]
+            broken = [{"table": row["table"], "parent": row["parent"]} for row in raw.execute("PRAGMA foreign_key_check").fetchall()[:20]]
+        finally:
+            raw.close()
+        return {"ok": quick == ["ok"] and not broken, "quick_check": quick, "foreign_key_violations": broken, "seconds": round(time.monotonic() - began, 2)}
+
     def compact(self) -> None:
         """Rewrite the file so deleted rows are really gone (a factory reset must not leave passkeys and invoices in free pages)."""
         raw = _open(self.path)
