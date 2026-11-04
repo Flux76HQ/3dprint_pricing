@@ -668,7 +668,7 @@ function diagnosisText(data, deep) {
       `worker: pid ${link.worker_pid} of ${link.workers || '?'}`,
       `legacy_postgres: ${link.legacy.state}${link.legacy.address ? ` ${link.legacy.address}` : ''}${link.legacy.imported_at ? `, imported ${link.legacy.imported_at}` : ''}${link.legacy.old_data_folder ? ', old postgres/ folder present' : ''}`);
   }
-  lines.push(`backup.newest: ${backups.newest_at || 'none'}${backups.age_days !== null ? ` (${backups.age_days} days)` : ''}, copies: ${backups.copies.count}${backups.downloaded ? `, downloaded: ${backups.downloaded.at}` : ''}`);
+  lines.push(`backup.newest: ${backups.newest_at || 'none'}${backups.age_days !== null ? ` (${backups.age_days} days)` : ''}, copies: ${backups.copies.count}, automatic: ${backups.automatic?.count ?? 0}${backups.downloaded ? `, downloaded: ${backups.downloaded.at}` : ''}`);
   if (update) lines.push(`update: installed ${update.current ? `v${update.current}` : '?'}, latest ${update.latest ? `v${update.latest}` : '?'}, available ${!!update.available}${update.error ? `, error ${update.error}` : ''}`);
   if (deep && !deep.failed) lines.push(`deep_check: ${deep.ok ? 'ok' : 'problem'} (${deep.seconds} s) ${deep.quick_check.join('; ')}${deep.foreign_key_violations.length ? ` foreign_keys: ${deep.foreign_key_violations.map((v) => `${v.table}->${v.parent}`).join(', ')}` : ''}`);
   return lines.join('\n');
@@ -702,7 +702,9 @@ function aboutCards() {
     const b = data.backups;
     if (b.newest_at === null) return t('about.backup_none');
     const fromApp = b.downloaded && b.downloaded.at === b.newest_at;
-    const source = fromApp ? t(b.downloaded.with_files ? 'about.backup_src_app_files' : 'about.backup_src_app') : t('about.backup_src_copy', { name: b.copies.latest?.name || '' });
+    const automatic = b.automatic?.latest && b.automatic.latest.at === b.newest_at;
+    const source = fromApp ? t(b.downloaded.with_files ? 'about.backup_src_app_files' : 'about.backup_src_app')
+      : automatic ? t('about.backup_src_auto') : t('about.backup_src_copy', { name: b.copies.latest?.name || '' });
     return `${ago(b.age_days)} (${source})`;
   };
 

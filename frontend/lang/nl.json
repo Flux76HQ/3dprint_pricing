@@ -9,6 +9,7 @@
  "about.backup_old": "De laatste back-up is ouder dan {days} dagen, of er is er nog geen. Maak er een onder Instellingen → Systeem.",
  "about.backup_src_app": "gedownload in de app",
  "about.backup_src_app_files": "gedownload in de app, met printbestanden",
+ "about.backup_src_auto": "automatische back-up",
  "about.backup_src_copy": "kopie van de update: {name}",
  "about.channel": "Kanaal",
  "about.channel_beta": "Beta",

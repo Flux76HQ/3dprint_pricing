@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from flask import Blueprint, jsonify
 
-from . import db
+from . import auto_backup, db
 from .config import build_channel
 from .http import config, pool
 
@@ -84,8 +84,9 @@ def _legacy(cfg, conn) -> dict:
 
 
 def _backups(conn, database_path: Path) -> dict:
-    """When the last backup was made, from both places that leave a trace: the copies `update.sh` puts in DATA_PATH/backups (next to db/), and the
-    moment of the last backup downloaded in the app (`backup._remember`). Only names, times and sizes; nothing of what is in them."""
+    """When the last backup was made, from the three places that leave a trace: the copies `update.sh` puts in DATA_PATH/backups (next to db/), the
+    automatic backups (`auto_backup.py`, in DATA_PATH/backups/auto) and the moment of the last backup downloaded in the app (`backup._remember`).
+    Only names, times and sizes; nothing of what is in them."""
     folder = database_path.parent.parent / "backups"
     copies = []
     try:
@@ -104,11 +105,15 @@ def _backups(conn, database_path: Path) -> dict:
         except ValueError:
             downloaded = None
     times = [datetime.fromtimestamp(latest[0], timezone.utc)] if latest else []
+    automatic = auto_backup.summary()
+    if automatic["latest"]:
+        times.append(datetime.fromisoformat(automatic["latest"]["at"]))
     if downloaded and downloaded.get("at"):
         times.append(datetime.fromisoformat(downloaded["at"]))
     newest = max(times, default=None)
     age = (datetime.now(timezone.utc) - newest).days if newest else None
     return {"copies": {"count": len(copies), "latest": {"name": latest[1], "size_bytes": latest[2], "at": datetime.fromtimestamp(latest[0], timezone.utc).isoformat()} if latest else None},
+            "automatic": automatic,
             "downloaded": {"at": downloaded["at"], "with_files": bool(downloaded.get("with_files"))} if downloaded and downloaded.get("at") else None,
             "newest_at": newest.isoformat() if newest else None, "age_days": age, "old": age is None or age > OLD_BACKUP_DAYS, "old_after_days": OLD_BACKUP_DAYS}
 

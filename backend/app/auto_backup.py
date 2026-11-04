@@ -211,6 +211,18 @@ def start_worker(app, first_seconds: float = FIRST_CHECK_SECONDS, every_seconds:
     return thread
 
 
+def summary() -> dict:
+    """How many there are and the newest, for Settings -> Over (`about.py`): names, times and sizes, nothing of what is in them."""
+    names = _names()
+    latest = None
+    if names:
+        try:
+            latest = {"name": names[0], "size_bytes": (_folder() / names[0]).stat().st_size, "at": _moment(names[0]).isoformat()}
+        except FileNotFoundError:
+            pass                                                      # removed while we looked
+    return {"count": len(names), "latest": latest}
+
+
 # --- the screen ------------------------------------------------------------------------------------------------------
 
 def _path(name: str) -> Path:

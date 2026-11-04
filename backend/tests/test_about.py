@@ -217,6 +217,19 @@ def test_the_newer_of_a_copy_and_a_download_is_the_last_backup(owner, app):
     assert get(owner)["backups"]["old"] is False and get(owner)["backups"]["age_days"] == 0
 
 
+def test_an_automatic_backup_counts_as_the_last_backup(owner, app):
+    from datetime import datetime, timedelta, timezone
+    from app import auto_backup
+    make_copy(app, "pre-update-2026-10-01-101500.sqlite3.gz", 40)
+    assert get(owner)["backups"]["automatic"] == {"count": 0, "latest": None} and get(owner)["backups"]["old"] is True
+    made = (datetime.now(timezone.utc) - timedelta(days=2)).replace(microsecond=0)
+    path = auto_backup.run_once(app, made)
+    backups = get(owner)["backups"]
+    assert backups["automatic"] == {"count": 1, "latest": {"name": path.name, "size_bytes": path.stat().st_size, "at": made.isoformat()}}
+    assert backups["newest_at"] == made.isoformat() and backups["age_days"] == 2 and backups["old"] is False
+    assert backups["copies"]["count"] == 1                                # the automatic backups are not counted as update copies
+
+
 def test_a_garbled_note_about_the_last_backup_is_ignored(owner, app):
     with app.extensions["pool"].connection() as conn:
         conn.execute("INSERT INTO app_state (key, value) VALUES ('last_backup', 'not json')")

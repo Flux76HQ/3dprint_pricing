@@ -9,6 +9,7 @@
  "about.backup_old": "The last backup is older than {days} days, or there is none yet. Make one under Settings → System.",
  "about.backup_src_app": "downloaded in the app",
  "about.backup_src_app_files": "downloaded in the app, with print files",
+ "about.backup_src_auto": "automatic backup",
  "about.backup_src_copy": "update copy: {name}",
  "about.channel": "Channel",
  "about.channel_beta": "Beta",
