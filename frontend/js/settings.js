@@ -243,15 +243,20 @@ async function devicesList(redraw) {
 }
 
 const megabytes = (bytes) => `${fmt(bytes / 1048576, 1)} MB`;
+const fileSize = (bytes) => (bytes < 1048576 ? `${fmt(Math.max(bytes / 1024, 1), 0)} kB` : megabytes(bytes));
 const seconds = (ms) => fmt(ms / 1000, 1);
 const TIMING_KEY = 'pp-restore-timing';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const AUTO_EVERY = [[0.5, 'backup.auto_every_05'], [1, 'backup.auto_every_1'], [2, 'backup.auto_every_2'], [7, 'backup.auto_every_7'], [14, 'backup.auto_every_14']];
+
 /** Backup and restore of everything entered (settings, printers, tariffs, packaging, parts, accessories, rolls, calculations).
  *  Both show what they are doing. A restore is a job on the server (`/api/backup/jobs`): once the file is up, leaving the page stops
- *  nothing, and the card picks the job up again when it is shown. */
+ *  nothing, and the card picks the job up again when it is shown. Below, the automatic backups the server makes every 12 hours
+ *  (`/api/backup/auto`, backend/app/auto_backup.py): each one is downloaded as the ZIP it is, or restored through the same check and job. */
 function backupCard() {
   let withFiles = false;
+  let running = false;
   const status = h('p', { class: 'status-line', role: 'status' });
   const picker = h('input', { type: 'file', accept: '.zip,.json,application/zip,application/json', hidden: true, 'aria-label': t('backup.restore') });
   const label = h('strong');
@@ -260,6 +265,7 @@ function backupCard() {
   const box = h('div', { class: 'op-progress', role: 'status', hidden: true }, h('div', { class: 'row' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), label), bar, note);
   const downloadButton = h('button', { class: 'btn primary', type: 'button', onclick: () => download() }, t('backup.download'));
   const restoreButton = h('button', { class: 'btn', type: 'button', onclick: () => picker.click() }, t('backup.restore'));
+  const autoBox = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
 
   /** `value` 0-100 fills the bar; null leaves it moving without a figure (the server is busy and cannot say how far it is). */
   function show(text, value = null, detail = '') {
@@ -268,14 +274,17 @@ function backupCard() {
     if (value == null) bar.removeAttribute('value'); else bar.value = Math.max(0, Math.min(100, value));
     box.hidden = false;
   }
+  /** One thing at a time: every button of the card, those in the list of automatic backups too. */
+  function setRunning(on) {
+    running = on;
+    for (const button of [downloadButton, restoreButton, ...autoBox.querySelectorAll('button')]) button.disabled = on;
+  }
   function idle() {
     box.hidden = true;
-    downloadButton.disabled = false;
-    restoreButton.disabled = false;
+    setRunning(false);
   }
   function busy() {
-    downloadButton.disabled = true;
-    restoreButton.disabled = true;
+    setRunning(true);
     status.textContent = '';
   }
 
@@ -310,7 +319,11 @@ function backupCard() {
       });
     } catch (e) { idle(); toast(e.message, 'error'); return; }
     box.hidden = true;
-    const uploadTimes = { up: seconds(sentAt - began), stage: seconds(performance.now() - sentAt), size: megabytes(file.size) };
+    await confirmAndStart(staged, { up: seconds(sentAt - began), stage: seconds(performance.now() - sentAt), size: megabytes(file.size) });
+  }
+
+  /** The owner sees what comes back, and only then is the staged backup restored, as a job on the server. */
+  async function confirmAndStart(staged, uploadTimes) {
     const s = staged.summary;
     const when = s.created_at ? formatDateTime(s.created_at, { dateStyle: 'medium', timeStyle: 'short' }) : '?';
     const files = s.files ? t('backup.with_files', { n: s.files }) : '';
@@ -355,8 +368,78 @@ function backupCard() {
     const timing = sessionStorage.getItem(TIMING_KEY);
     if (timing) { status.textContent = `${t('backup.restored')} ${timing}`; sessionStorage.removeItem(TIMING_KEY); }
   } catch { /* nothing to show */ }
+  // --- the automatic backups: the progress of an action on one of them is shown in the same place as the rest, brought into view
+
+  const moment = (iso) => formatDateTime(iso, { dateStyle: 'medium', timeStyle: 'short' });
+
+  async function downloadAuto(backup) {
+    busy();
+    show(t('backup.receiving'), 0);
+    box.scrollIntoView({ block: 'nearest' });
+    try {
+      const { blob, name } = await downloadFile(`/api/backup/auto/${encodeURIComponent(backup.name)}`, {
+        onProgress: (got, total) => show(t('backup.receiving'), total ? (got / total) * 100 : null, total ? t('backup.of', { done: megabytes(got), total: megabytes(total) }) : megabytes(got)),
+      });
+      saveBlob(blob, name);
+      status.textContent = t('backup.downloaded', { name });
+    } catch (e) { toast(e.message, 'error'); }
+    idle();
+  }
+
+  async function restoreAuto(backup) {
+    busy();
+    show(t('backup.checking'));                                                         // the server copies and reads it through: nothing to count
+    box.scrollIntoView({ block: 'nearest' });
+    let staged;
+    try { staged = await api('POST', `/api/backup/auto/${encodeURIComponent(backup.name)}/stage`); } catch (e) { idle(); toast(e.message, 'error'); return; }
+    box.hidden = true;
+    await confirmAndStart(staged);
+  }
+
+  /** Switch, how often, how many to keep: saved at once; the list below follows (a lower number removes the surplus on the spot). */
+  function autoSettings(state) {
+    const chosen = state.settings;
+    const save = async (change) => {
+      try { await api('PUT', '/api/backup/auto', change); } catch (e) { toast(e.message, 'error'); }
+      loadAuto();
+    };
+    const every = h('select', { disabled: !chosen.enabled, onchange: (e) => save({ every_days: Number(e.target.value) }) },
+      AUTO_EVERY.map(([days, key]) => h('option', { value: String(days), selected: chosen.every_days === days }, t(key))));
+    const keep = numberInput(chosen.keep, () => {}, { inputmode: 'numeric', disabled: !chosen.enabled, onchange: (e) => {
+      const text = e.target.value.trim();
+      const n = /^\d+$/.test(text) ? Number(text) : NaN;
+      if (!(n >= 0 && n <= state.options.max_keep)) { toast(t('backup.auto_keep_invalid', { max: state.options.max_keep }), 'error'); e.target.value = String(chosen.keep); return; }
+      if (n !== chosen.keep) save({ keep: n });
+    } });
+    return h('div', { class: 'stack' },
+      switchRow(t('backup.auto_enabled'), t('backup.auto_enabled_hint'), chosen.enabled, (on) => save({ enabled: on })),
+      field(t('backup.auto_every'), every),
+      field(t('backup.auto_keep'), keep, t('backup.auto_keep_hint', { max: state.options.max_keep })));
+  }
+
+  async function loadAuto() {
+    let state;
+    try { state = await api('GET', '/api/backup/auto'); } catch (e) { fill(autoBox, h('p', { class: 'error' }, e.message)); return; }
+    const on = state.settings.enabled && state.settings.keep > 0;
+    const due = on && new Date(state.next_at) <= new Date();
+    fill(autoBox,
+      autoSettings(state),
+      state.error ? h('div', { class: 'notice danger', role: 'alert' }, h('p', {}, `${t('backup.auto_failed_at', { when: moment(state.error.at) })} ${state.error.message}`)) : null,
+      h('p', { class: 'status-line' }, !on ? t(state.settings.keep === 0 ? 'backup.auto_next_none' : 'backup.auto_next_off') : due ? t('backup.auto_next_soon') : t('backup.auto_next', { when: moment(state.next_at) })),
+      state.backups.length
+        ? h('ul', { class: 'plain-list' }, state.backups.map((backup) => h('li', { class: 'list-row' },
+          h('div', {}, h('strong', {}, moment(backup.created_at)), h('p', { class: 'muted' }, fileSize(backup.size))),
+          h('div', { class: 'row' },
+            h('button', { class: 'btn small', type: 'button', disabled: running, 'aria-label': t('backup.auto_download_named', { when: moment(backup.created_at) }),
+              onclick: () => downloadAuto(backup) }, t('backup.auto_download')),
+            h('button', { class: 'btn small', type: 'button', disabled: running, 'aria-label': t('backup.auto_restore_named', { when: moment(backup.created_at) }),
+              onclick: () => restoreAuto(backup) }, t('backup.auto_restore'))))))
+        : h('p', { class: 'muted' }, t('backup.auto_none')));
+  }
+
   picker.addEventListener('change', () => { const file = picker.files[0]; picker.value = ''; if (file) restore(file); });
   api('GET', '/api/backup/jobs/latest').then(({ job }) => { if (job) follow(job); }).catch(() => {});      // a restore started before the page was left
+  loadAuto();
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('backup.title')),
     h('p', { class: 'muted' }, t('backup.intro')),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', class: 'toggle', role: 'switch', onchange: (e) => { withFiles = e.target.checked; } }), t('backup.files')),
@@ -364,6 +447,9 @@ function backupCard() {
     h('div', { class: 'row' }, downloadButton, restoreButton, picker),
     box,
     status,
+    h('h3', {}, t('backup.auto_title')),
+    h('p', { class: 'muted' }, t('backup.auto_intro')),
+    autoBox,
     h('p', { class: 'muted' }, t('backup.not_included')));
 }
 
@@ -554,61 +640,6 @@ function invoiceTemplateCard() {
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('invoice_tpl.title')), body);
 }
 
-// Automatic backups (administrators; /api/backup/auto): a compressed copy of the database file in the data folder, on a schedule, the oldest removed.
-const AUTO_EVERY = [[0.5, 'autobackup.every_05'], [1, 'autobackup.every_1'], [2, 'autobackup.every_2'], [7, 'autobackup.every_7'], [14, 'autobackup.every_14']];
-
-function autoBackupCard() {
-  const body = h('div', { class: 'stack' });
-  let data = null, busy = false;
-
-  async function load() {
-    try { data = await api('GET', '/api/backup/auto'); } catch (e) { body.replaceChildren(h('p', { class: 'error' }, e.message)); return; }
-    draw();
-  }
-  async function save(change) {
-    try { data = await api('PUT', '/api/backup/auto', change); } catch (e) { toast(e.message, 'error'); }
-    draw();
-  }
-  async function runNow() {
-    busy = true; draw();
-    try {
-      data = await api('POST', '/api/backup/auto/run', {});
-      toast(data.made?.ok ? t('autobackup.made', { name: data.made.name }) : t('autobackup.failed_toast'), data.made?.ok ? undefined : 'error');
-    } catch (e) { toast(e.message, 'error'); }
-    busy = false; draw();
-  }
-  const lastLine = () => {
-    const last = data.last;
-    if (!last) return h('p', { class: 'muted' }, t(data.settings.enabled && data.settings.keep > 0 ? 'autobackup.last_none' : 'autobackup.last_never'));
-    return last.ok
-      ? h('div', { class: 'notice ok', role: 'status' }, h('p', {}, t('autobackup.last_ok', { when: when(last.at), name: last.name, size: size(last.size_bytes) })))
-      : h('div', { class: 'notice error', role: 'alert' }, h('p', {}, t('autobackup.last_failed', { when: when(last.at), reason: last.error || '' })));
-  };
-  function draw() {
-    const s = data.settings;
-    const every = h('select', { disabled: !s.enabled, onchange: (e) => save({ every_days: Number(e.target.value) }) },
-      AUTO_EVERY.map(([days, key]) => h('option', { value: String(days), selected: s.every_days === days }, t(key))));
-    const keep = numberInput(s.keep, () => {}, { inputmode: 'numeric', disabled: !s.enabled, 'aria-describedby': undefined,
-      onchange: (e) => {
-        const text = e.target.value.trim();
-        const n = /^\d+$/.test(text) ? Number(text) : NaN;
-        if (!(n >= 0 && n <= data.options.max_keep)) { toast(t('autobackup.keep_invalid', { max: data.options.max_keep }), 'error'); e.target.value = String(s.keep); return; }
-        if (n !== s.keep) save({ keep: n });
-      } });
-    body.replaceChildren(...[
-      switchRow(t('autobackup.enabled'), t('autobackup.enabled_hint'), s.enabled, (on) => save({ enabled: on })),
-      field(t('autobackup.every'), every),
-      field(t('autobackup.keep'), keep, t('autobackup.keep_hint', { max: data.options.max_keep })),
-      s.enabled && s.keep === 0 ? h('div', { class: 'notice muted', role: 'status' }, h('p', {}, t('autobackup.keep_none'))) : null,
-      lastLine(),
-      h('p', { class: 'hint' }, data.files.count ? t('autobackup.files', { n: data.files.count, newest: data.files.newest }) : t('autobackup.files_none')),
-      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: busy || s.keep === 0, onclick: runNow }, busy ? t('autobackup.running') : t('autobackup.run'))),
-      h('p', { class: 'hint' }, t('autobackup.restore_hint'))].filter(Boolean));
-  }
-  load();
-  return h('div', { class: 'glass card stack' }, h('h2', {}, t('autobackup.title')), h('p', { class: 'muted' }, t('autobackup.intro')), body);
-}
-
 // --- About: what runs, how healthy the database is, how the app is connected to it (administrators; /api/about) -----------------------------------
 
 // Each check of the health list: its label and the sentence for every state it can have. The server sends facts, these are the words.
@@ -663,7 +694,7 @@ function diagnosisText(data, deep) {
       `worker: pid ${link.worker_pid} of ${link.workers || '?'}`,
       `legacy_postgres: ${link.legacy.state}${link.legacy.address ? ` ${link.legacy.address}` : ''}${link.legacy.imported_at ? `, imported ${link.legacy.imported_at}` : ''}${link.legacy.old_data_folder ? ', old postgres/ folder present' : ''}`);
   }
-  lines.push(`backup.newest: ${backups.newest_at || 'none'}${backups.age_days !== null ? ` (${backups.age_days} days)` : ''}, copies: ${backups.copies.count}${backups.downloaded ? `, downloaded: ${backups.downloaded.at}` : ''}`);
+  lines.push(`backup.newest: ${backups.newest_at || 'none'}${backups.age_days !== null ? ` (${backups.age_days} days)` : ''}, copies: ${backups.copies.count}, automatic: ${backups.automatic?.count ?? 0}${backups.downloaded ? `, downloaded: ${backups.downloaded.at}` : ''}`);
   if (update) lines.push(`update: installed ${update.current ? `v${update.current}` : '?'}, latest ${update.latest ? `v${update.latest}` : '?'}, available ${!!update.available}${update.error ? `, error ${update.error}` : ''}`);
   if (deep && !deep.failed) lines.push(`deep_check: ${deep.ok ? 'ok' : 'problem'} (${deep.seconds} s) ${deep.quick_check.join('; ')}${deep.foreign_key_violations.length ? ` foreign_keys: ${deep.foreign_key_violations.map((v) => `${v.table}->${v.parent}`).join(', ')}` : ''}`);
   return lines.join('\n');
@@ -698,7 +729,9 @@ function aboutCards() {
     const b = data.backups;
     if (b.newest_at === null) return t('about.backup_none');
     const fromApp = b.downloaded && b.downloaded.at === b.newest_at;
-    const source = fromApp ? t(b.downloaded.with_files ? 'about.backup_src_app_files' : 'about.backup_src_app') : t('about.backup_src_copy', { name: b.copies.latest?.name || '' });
+    const automatic = b.automatic?.latest && b.automatic.latest.at === b.newest_at;
+    const source = fromApp ? t(b.downloaded.with_files ? 'about.backup_src_app_files' : 'about.backup_src_app')
+      : automatic ? t('about.backup_src_auto') : t('about.backup_src_copy', { name: b.copies.latest?.name || '' });
     return `${ago(b.age_days)} (${source})`;
   };
 
@@ -975,7 +1008,7 @@ export function settingsView(ctx, requested) {
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
     ai: () => [aiSettingsCard(), aiLogCard()],
-    systeem: () => [backupCard(), autoBackupCard(), updateCard(), resetCard()],
+    systeem: () => [backupCard(), updateCard(), resetCard()],
     over: () => aboutCards(),
   };
   return h('section', { class: 'page' },

@@ -15,6 +15,7 @@ import json
 import os
 import re
 import logging
+import shutil
 import tempfile
 import threading
 import time
@@ -69,55 +70,8 @@ def _app_version() -> str:
 def export():
     include_files = request.args.get("files") == "1"
     began = time.monotonic()
-    doc = {"format": FORMAT, "format_version": FORMAT_VERSION, "app_version": _app_version(),
-           "created_at": datetime.now(timezone.utc).isoformat(), "includes_files": include_files}
     with pool().connection() as conn:
-        doc["preferences"] = preferences.load(conn, g.user_id)      # the person's own, and the business's on top
-        for key, resource in SECTIONS:
-            table, fields, _order = (*RESOURCES[resource][:2], None)
-            columns = ["id", *fields, *(["spoolman_id"] if key == "spools" else []), "created_at"]         # the number keeps a restored roll linked to its spool in Spoolman
-            rows = conn.execute(f"SELECT {', '.join(columns)} FROM {table} ORDER BY created_at, id").fetchall()
-            doc[key] = [_serialise(r) for r in rows]
-        rows = conn.execute(f"SELECT {', '.join(PROJECT_COLUMNS)} FROM projects ORDER BY created_at, id").fetchall()
-        doc["projects"] = [_serialise(r) for r in rows]
-        doc["customers"] = [_serialise(r) for r in conn.execute(
-            f"SELECT id, {', '.join(customers.FIELDS)}, created_at, updated_at FROM customers ORDER BY created_at, id").fetchall()]
-        doc["orders"] = _export_orders(conn)
-        doc["invoice_pdfs"] = [{"order_id": str(r["order_id"]), "invoice_number": r["invoice_number"],
-                                "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
-                               for r in conn.execute("SELECT order_id, invoice_number, content FROM invoice_pdfs ORDER BY created_at, order_id").fetchall()]
-        try:
-            template = invoice_template.load(conn)
-        except ApiError:                                             # the file went missing: the rest of the backup is still worth having
-            template = None
-        doc["project_images"] = [
-            {"project_id": str(r["project_id"]), "kind": r["kind"], "variant": r["variant"], "is_cover": r["is_cover"],
-             "created_at": r["created_at"].isoformat(), "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
-            for r in conn.execute("SELECT project_id, kind, variant, is_cover, created_at, content FROM project_images "
-                                  "ORDER BY created_at, id").fetchall()]
-        ai = conn.execute("SELECT model, quality FROM ai_image_settings").fetchone()      # never the API key
-        if ai:
-            doc["ai_image_settings"] = {"model": ai["model"], "quality": ai["quality"]}
-        logo = invoice_logo.load(conn)
-        if logo:
-            doc["invoice_logo"] = {"filename": logo["filename"], "kind": logo["kind"], "content_b64": base64.b64encode(logo["content"]).decode("ascii")}
-        if template:
-            doc["invoice_template"] = {"filename": template["filename"], "kind": template["kind"], "margin_top_mm": template["margin_top_mm"],
-                                       "margin_bottom_mm": template["margin_bottom_mm"],
-                                       "content_b64": base64.b64encode(template["content"]).decode("ascii")}
-        attachments = []                                             # (name in the ZIP, path on disk, kind)
-        if include_files:
-            files, used = [], set()
-            for row in conn.execute("SELECT * FROM print_files ORDER BY created_at, id").fetchall():
-                path = Path(config().upload_dir) / row["stored_name"]
-                if not path.is_file():
-                    continue                                         # the row outlived its file: nothing to back up
-                member = _archive_name(row["filename"], used)
-                attachments.append((member, path, row["kind"]))
-                files.append({"id": str(row["id"]), "filename": row["filename"], "kind": row["kind"],
-                              "sha256": row["sha256"], "created_at": row["created_at"].isoformat(),
-                              "archive_path": member})                # the model itself sits in the ZIP, as a file of its own
-            doc["files"] = files
+        doc, attachments = document(conn, g.user_id, include_files)
     queried = time.monotonic() - began
     stamp = datetime.now().strftime("%Y-%m-%d")
     if not include_files:
@@ -125,13 +79,8 @@ def export():
         _remember(include_files)
         return Response(json.dumps(doc, ensure_ascii=False), mimetype="application/json",
                         headers={"Content-Disposition": f'attachment; filename="printpricing-backup-{stamp}.json"'})
-    upload_dir = Path(config().upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    out = tempfile.TemporaryFile(dir=upload_dir)                     # on the data disk, not in memory: the models can be large
-    with zipfile.ZipFile(out, "w", strict_timestamps=False) as archive:
-        archive.writestr(ARCHIVE_JSON, json.dumps(doc, ensure_ascii=False), compress_type=zipfile.ZIP_DEFLATED)
-        for member, path, _kind in attachments:                      # stored, not deflated: a 3MF is a ZIP already, and deflating an STL costs far more time on a small server than the space it saves
-            archive.write(path, member, compress_type=zipfile.ZIP_STORED)
+    out = tempfile.TemporaryFile(dir=_upload_dir())                  # on the data disk, not in memory: the models can be large
+    write_zip(doc, attachments, out)
     size = out.seek(0, os.SEEK_END)
     out.seek(0)
     response = send_file(out, mimetype="application/zip", as_attachment=True, download_name=f"printpricing-backup-{stamp}.zip")      # with its size, so the screen can show how far the download is
@@ -140,6 +89,68 @@ def export():
     log.info("backup with files: read in %.1fs, zipped in %.1fs, %.1f MB", queried, time.monotonic() - began - queried, size / 1048576)
     _remember(include_files)
     return response
+
+
+def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
+    """Everything a backup holds, read in one transaction: (the JSON document, [(name in the ZIP, path on disk)] of the print files).
+    `user_id` is the person whose own preferences go along (the business's always do). The download and the automatic backups both use this."""
+    doc = {"format": FORMAT, "format_version": FORMAT_VERSION, "app_version": _app_version(),
+           "created_at": datetime.now(timezone.utc).isoformat(), "includes_files": include_files}
+    doc["preferences"] = preferences.load(conn, user_id)        # the person's own, and the business's on top
+    for key, resource in SECTIONS:
+        table, fields, _order = (*RESOURCES[resource][:2], None)
+        columns = ["id", *fields, *(["spoolman_id"] if key == "spools" else []), "created_at"]         # the number keeps a restored roll linked to its spool in Spoolman
+        rows = conn.execute(f"SELECT {', '.join(columns)} FROM {table} ORDER BY created_at, id").fetchall()
+        doc[key] = [_serialise(r) for r in rows]
+    rows = conn.execute(f"SELECT {', '.join(PROJECT_COLUMNS)} FROM projects ORDER BY created_at, id").fetchall()
+    doc["projects"] = [_serialise(r) for r in rows]
+    doc["customers"] = [_serialise(r) for r in conn.execute(
+        f"SELECT id, {', '.join(customers.FIELDS)}, created_at, updated_at FROM customers ORDER BY created_at, id").fetchall()]
+    doc["orders"] = _export_orders(conn)
+    doc["invoice_pdfs"] = [{"order_id": str(r["order_id"]), "invoice_number": r["invoice_number"],
+                            "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
+                           for r in conn.execute("SELECT order_id, invoice_number, content FROM invoice_pdfs ORDER BY created_at, order_id").fetchall()]
+    try:
+        template = invoice_template.load(conn)
+    except ApiError:                                             # the file went missing: the rest of the backup is still worth having
+        template = None
+    doc["project_images"] = [
+        {"project_id": str(r["project_id"]), "kind": r["kind"], "variant": r["variant"], "is_cover": r["is_cover"],
+         "created_at": r["created_at"].isoformat(), "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
+        for r in conn.execute("SELECT project_id, kind, variant, is_cover, created_at, content FROM project_images "
+                              "ORDER BY created_at, id").fetchall()]
+    ai = conn.execute("SELECT model, quality FROM ai_image_settings").fetchone()      # never the API key
+    if ai:
+        doc["ai_image_settings"] = {"model": ai["model"], "quality": ai["quality"]}
+    logo = invoice_logo.load(conn)
+    if logo:
+        doc["invoice_logo"] = {"filename": logo["filename"], "kind": logo["kind"], "content_b64": base64.b64encode(logo["content"]).decode("ascii")}
+    if template:
+        doc["invoice_template"] = {"filename": template["filename"], "kind": template["kind"], "margin_top_mm": template["margin_top_mm"],
+                                   "margin_bottom_mm": template["margin_bottom_mm"],
+                                   "content_b64": base64.b64encode(template["content"]).decode("ascii")}
+    attachments = []                                             # (name in the ZIP, path on disk)
+    if include_files:
+        files, used = [], set()
+        for row in conn.execute("SELECT * FROM print_files ORDER BY created_at, id").fetchall():
+            path = Path(config().upload_dir) / row["stored_name"]
+            if not path.is_file():
+                continue                                         # the row outlived its file: nothing to back up
+            member = _archive_name(row["filename"], used)
+            attachments.append((member, path))
+            files.append({"id": str(row["id"]), "filename": row["filename"], "kind": row["kind"],
+                          "sha256": row["sha256"], "created_at": row["created_at"].isoformat(),
+                          "archive_path": member})                # the model itself sits in the ZIP, as a file of its own
+        doc["files"] = files
+    return doc, attachments
+
+
+def write_zip(doc: dict, attachments: list, handle) -> None:
+    """A backup with print files: backup.json and every model loose under files/, written to `handle` (a file opened for writing)."""
+    with zipfile.ZipFile(handle, "w", strict_timestamps=False) as archive:
+        archive.writestr(ARCHIVE_JSON, json.dumps(doc, ensure_ascii=False), compress_type=zipfile.ZIP_DEFLATED)
+        for member, path in attachments:                             # stored, not deflated: a 3MF is a ZIP already, and deflating an STL costs far more time on a small server than the space it saves
+            archive.write(path, member, compress_type=zipfile.ZIP_STORED)
 
 
 def _remember(with_files: bool) -> None:
@@ -648,9 +659,7 @@ def stage():
     """Takes the backup (the raw request body: a ZIP or a JSON file), keeps it on the server's disk and checks all of it.
     The answer says what would come back and gives the token that /restore needs. Nothing in the database changes."""
     request.max_content_length = MAX_STAGE_BYTES
-    _clear_old_stages()
-    token = uuid.uuid4().hex
-    path = _upload_dir() / f"{STAGE_PREFIX}{token}"
+    token, path = _new_stage()
     try:
         with path.open("wb") as handle:
             while True:
@@ -663,17 +672,40 @@ def stage():
         if getattr(exc, "code", None) == 413:
             raise ApiError(413, "backup.too_large", mb=MAX_STAGE_BYTES // 1024 ** 2) from None
         raise
+    return jsonify(_checked_stage(token, path))
+
+
+def stage_copy(source: Path) -> dict:
+    """A backup that is already on the server (an automatic one, `auto_backup.py`), staged like an uploaded one: checked the same way, and
+    restored by the same job. The job removes its staged file, so it gets a copy and the original stays where it is."""
+    token, path = _new_stage()
+    try:
+        shutil.copyfile(source, path)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    return _checked_stage(token, path)
+
+
+def _new_stage() -> tuple[str, Path]:
+    _clear_old_stages()
+    token = uuid.uuid4().hex
+    return token, _upload_dir() / f"{STAGE_PREFIX}{token}"
+
+
+def _checked_stage(token: str, path: Path) -> dict:
+    """Checks all of a staged backup; the answer says what would come back. A file that is refused is not kept."""
     archive = None
     try:
         doc, archive = _open_backup(path)
         summary = _summary_of(doc, _parse(doc, archive))
     except Exception:
-        path.unlink(missing_ok=True)                                # a file that is refused is not kept
+        path.unlink(missing_ok=True)
         raise
     finally:
         if archive:
             archive.close()
-    return jsonify({"ok": True, "token": token, "summary": summary})
+    return {"ok": True, "token": token, "summary": summary}
 
 
 @bp.delete("/stage/<token>")

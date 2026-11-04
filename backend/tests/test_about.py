@@ -217,6 +217,19 @@ def test_the_newer_of_a_copy_and_a_download_is_the_last_backup(owner, app):
     assert get(owner)["backups"]["old"] is False and get(owner)["backups"]["age_days"] == 0
 
 
+def test_an_automatic_backup_counts_as_the_last_backup(owner, app):
+    from datetime import datetime, timedelta, timezone
+    from app import auto_backup
+    make_copy(app, "pre-update-2026-10-01-101500.sqlite3.gz", 40)
+    assert get(owner)["backups"]["automatic"] == {"count": 0, "latest": None} and get(owner)["backups"]["old"] is True
+    made = (datetime.now(timezone.utc) - timedelta(days=2)).replace(microsecond=0)
+    path = auto_backup.run_once(app, made)
+    backups = get(owner)["backups"]
+    assert backups["automatic"] == {"count": 1, "latest": {"name": path.name, "size_bytes": path.stat().st_size, "at": made.isoformat()}}
+    assert backups["newest_at"] == made.isoformat() and backups["age_days"] == 2 and backups["old"] is False
+    assert backups["copies"]["count"] == 1                                # the automatic backups are not counted as update copies
+
+
 def test_a_garbled_note_about_the_last_backup_is_ignored(owner, app):
     with app.extensions["pool"].connection() as conn:
         conn.execute("INSERT INTO app_state (key, value) VALUES ('last_backup', 'not json')")
@@ -229,3 +242,21 @@ def test_a_factory_reset_forgets_the_last_backup(owner, app):
         assert conn.execute("SELECT 1 FROM app_state WHERE key = 'last_backup'").fetchone()
         conn.execute("DELETE FROM app_state")                              # what the reset does to every table (tests/test_system.py covers the reset itself)
     assert get(owner)["backups"]["downloaded"] is None
+
+
+def test_a_failed_automatic_backup_warns_and_switched_off_is_a_choice(owner, app, monkeypatch):
+    from datetime import datetime, timezone
+    from app import auto_backup, backup as backup_module
+    states = lambda: {c["key"]: c for c in get(owner)["health"]["checks"]}
+    assert states()["auto_backup"]["state"] == "ok" and states()["auto_backup"]["value"] is None
+
+    def full(doc, attachments, handle):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(backup_module, "write_zip", full)
+    auto_backup.run_once(app, datetime.now(timezone.utc))
+    assert states()["auto_backup"]["state"] == "warn" and "No space left" in states()["auto_backup"]["detail"]
+
+    monkeypatch.undo()
+    owner.put("/api/backup/auto", json={"enabled": False}, headers=H)
+    off = states()["auto_backup"]
+    assert off["value"] == "off"

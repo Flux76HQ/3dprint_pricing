@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from flask import Blueprint, jsonify
 
-from . import autobackup, db
+from . import auto_backup, db
 from .config import build_channel
 from .http import config, pool
 
@@ -84,8 +84,9 @@ def _legacy(cfg, conn) -> dict:
 
 
 def _backups(conn, database_path: Path) -> dict:
-    """When the last backup was made, from both places that leave a trace: the copies `update.sh` puts in DATA_PATH/backups (next to db/), and the
-    moment of the last backup downloaded in the app (`backup._remember`). Only names, times and sizes; nothing of what is in them."""
+    """When the last backup was made, from the three places that leave a trace: the copies `update.sh` puts in DATA_PATH/backups (next to db/), the
+    automatic backups (`auto_backup.py`, in DATA_PATH/backups/auto) and the moment of the last backup downloaded in the app (`backup._remember`).
+    Only names, times and sizes; nothing of what is in them."""
     folder = database_path.parent.parent / "backups"
     copies = []
     try:
@@ -104,11 +105,15 @@ def _backups(conn, database_path: Path) -> dict:
         except ValueError:
             downloaded = None
     times = [datetime.fromtimestamp(latest[0], timezone.utc)] if latest else []
+    automatic = auto_backup.summary()
+    if automatic["latest"]:
+        times.append(datetime.fromisoformat(automatic["latest"]["at"]))
     if downloaded and downloaded.get("at"):
         times.append(datetime.fromisoformat(downloaded["at"]))
     newest = max(times, default=None)
     age = (datetime.now(timezone.utc) - newest).days if newest else None
     return {"copies": {"count": len(copies), "latest": {"name": latest[1], "size_bytes": latest[2], "at": datetime.fromtimestamp(latest[0], timezone.utc).isoformat()} if latest else None},
+            "automatic": automatic,
             "downloaded": {"at": downloaded["at"], "with_files": bool(downloaded.get("with_files"))} if downloaded and downloaded.get("at") else None,
             "newest_at": newest.isoformat() if newest else None, "age_days": age, "old": age is None or age > OLD_BACKUP_DAYS, "old_after_days": OLD_BACKUP_DAYS}
 
@@ -143,7 +148,7 @@ def about():
             tables = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
             rows = {name: conn.execute(f'SELECT count(*) AS n FROM "{name}"').fetchone()["n"] for name in tables}
             migrations, legacy, backups = _migrations(conn), _legacy(cfg, conn), _backups(conn, path)
-            auto, auto_last = autobackup.load_settings(conn), autobackup.load_last(conn)
+            auto_error, auto_active = auto_backup._last_error(conn), auto_backup._active(auto_backup.settings(conn))
     except Exception as exc:                                 # the page must still say that the database does not answer
         return jsonify({"app": _app(cfg, VERSION, _commit()), "database": {"engine": "SQLite", "path": str(path)}, "link": None,
                         "health": {"state": "error", "checks": [{"key": "reachable", "state": "error", "detail": type(exc).__name__}]}})
@@ -163,8 +168,7 @@ def about():
         {"key": "disk_space", "state": "ok" if free >= LOW_DISK_BYTES else "warn", "value": free},
         {"key": "wal_size", "state": "ok" if wal < BIG_WAL_BYTES else "warn", "value": wal},
         # Only a failed attempt is a warning; switched off (or keeping none) is a choice
-        {"key": "auto_backup", "state": "warn" if auto_last and not auto_last.get("ok") else "ok",
-         "value": "off" if not auto["enabled"] or auto["keep"] == 0 else None, "detail": (auto_last or {}).get("error") if auto_last and not auto_last.get("ok") else None},
+        {"key": "auto_backup", "state": "warn" if auto_error else "ok", "value": None if auto_active else "off", "detail": (auto_error["reason"] or "") if auto_error else None},
     ]
     return jsonify({
         "app": _app(cfg, VERSION, _commit()),
@@ -172,7 +176,7 @@ def about():
         "link": {"kind": "sqlite", "path": str(path), "driver": "sqlite3", "journal_mode": journal, "foreign_keys": bool(foreign_keys),
                  "synchronous": facts["synchronous"], "busy_timeout_ms": facts["busy_timeout_ms"], "filesystem": filesystem, "network_filesystem": network,
                  "worker_pid": os.getpid(), "workers": int(os.environ.get("WEB_CONCURRENCY") or 0) or None, "legacy": legacy},
-        "backups": {**backups, "auto": {"settings": auto, "last": auto_last}},
+        "backups": backups,
         "database": {"engine": "SQLite", "version": sqlite3.sqlite_version, "size_bytes": size, "wal_bytes": wal, "free_bytes": free,
                      "page_size": facts["page_size"], "page_count": facts["page_count"], "free_pages": facts["free_pages"],
                      "tables": len(tables), "rows": rows, "migrations": migrations},

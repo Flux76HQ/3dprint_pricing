@@ -13,7 +13,7 @@ from contextlib import contextmanager
 import pytest
 
 os.environ.setdefault("PUSH_WORKER", "off")      # no background threads in tests; the outbox is run explicitly
-os.environ.setdefault("BACKUP_WORKER", "off")    # likewise the automatic backups: tests call autobackup.run_once
+os.environ.setdefault("AUTO_BACKUP_WORKER", "off")   # likewise: test_auto_backup.py calls run_once, and starts the loop itself once
 os.environ.setdefault("PRINTPRICING_DB_BUSY_MS", "3000")
 SECRET = "x" * 40
 RP_ID = "localhost"
@@ -94,7 +94,7 @@ def app(fresh_db, tmp_path):
 
     run_migrations(fresh_db)
     cfg = Config(database_path=fresh_db, session_secret=SECRET, setup_code=SETUP_CODE, rp_id=RP_ID,
-                 rp_name="Test", rp_origins=(ORIGIN,), session_hours=24, cookie_secure=True, upload_dir=str(tmp_path / 'uploads'), max_upload_mb=2,
+                 rp_name="Test", rp_origins=(ORIGIN,), session_hours=24, cookie_secure=True, upload_dir=str(tmp_path / 'uploads'), backup_dir=str(tmp_path / 'backups' / 'auto'), max_upload_mb=2,
                  static_dir=os.path.join(os.path.dirname(__file__), "static"))
     app = create_app(cfg)
     yield app
