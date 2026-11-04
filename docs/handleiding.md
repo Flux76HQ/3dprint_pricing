@@ -26,7 +26,16 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
 - **Filament** — je rollen met prijs per rol, gewicht, diameter, print- en bedtemperatuur en wat er nog over is;
   de **barcode** bewaar je als identifier: scan hem met de camera van je telefoon (of een barcodescanner, die typt
   gewoon in het veld). Een bekende barcode wordt gemeld en de gegevens van de vorige rol worden meteen ingevuld (wat je zelf al
-  typte blijft staan), zodat je alleen nog opslaat, met erbij hoeveel rollen je er nog van hebt. Bovenaan staat de
+  typte blijft staan), zodat je alleen nog opslaat, met erbij hoeveel rollen je er nog van hebt.
+  **Een levering in één keer**: *Scannen* (naast *Nieuwe rol*) opent een scanlijst. Scan de rollen na elkaar, met de camera (die blijft
+  lezen; dezelfde barcode telt pas opnieuw als hij even uit beeld was, zodat één rol niet dubbel telt) of met een barcodescanner (die typt
+  de code en drukt op Enter). Elke scan is één rol: scan je dezelfde barcode nog eens, dan komt er een rol bij, en met − en + pas je het aantal
+  aan. Wat een rol wordt, komt van de **nieuwste rol met die barcode** (ook de prijs die je toen betaalde), anders van het filament in de
+  **bibliotheek** met die barcode (met de richtprijs, als die er is); de prijs per rol kun je in de lijst aanpassen. Een barcode die geen van
+  beide kent, vul je één keer in met het gewone rolformulier (*Gegevens invullen*); de andere rollen met die barcode volgen daarna vanzelf.
+  Met *N rollen toevoegen* komen ze er allemaal tegelijk bij, vol, zonder notities; gaat er iets mis (een onbekende barcode, een ontbrekende
+  prijs), dan wordt er geen enkele rol toegevoegd. Hooguit 200 rollen per keer. Op een telefoon start de camera meteen, op een computer pas
+  met *Camera gebruiken*. Bovenaan staat de
   **voorraad per soort**: de rollen die je nog hebt met hun gewicht, het totaal per soort en per materiaal (een soort is
   één barcode, of merk + materiaal + kleur). Merk (bijvoorbeeld *Bambu Lab*) en **type** (*Matte*, *Basic*, *Silk*) zijn aparte velden; een bestaande rol houdt wat in het merkveld stond en het type is leeg tot je het invult. Pas je bij een rol met barcode merk, type, materiaal, kleur, gewicht, diameter of temperaturen aan, dan vraagt de app bij het opslaan of de andere rollen met dezelfde barcode ook bijgewerkt moeten worden (alleen wat je veranderde; prijs, wat er nog over is en notities zijn per rol en blijven staan). Je kunt de lijst en de voorraad filteren op **soort** (materiaal), **merk** en **type**; elke keuzelijst past zich aan de vorige keuzes aan. Verbruik van een berekening kun je met één klik van de voorraad afboeken.
   Het menu *Filament* heeft twee onderdelen: **Voorraad** (de soorten als tegels met een spoel-icoon in de kleur van de rol: twee naast elkaar op een telefoon, meer op een breder scherm, hooguit drie rijen met een chevron voor de rest) en **Rollen** (de rolinfo met sorteerknoppen bovenaan: naam, materiaal, resterend, prijs per kg, nieuwste; tik nog eens om om te draaien). De kleur kies je per rol (*Kleur van de rol*); kies je niets, dan wordt hij uit de naam geraden (*zwart*, *Red*, …). Het icoon is in de stijl van de Material Design-iconen getekend, want die hebben geen filamentspoel.
@@ -111,7 +120,8 @@ verwijderen of nieuwe herstelcodes vraagt een verse bevestiging (een passkey, of
 | `PRINTPRICING_UPDATE_CHECK` | De updatecontrole (zie *Meldingen en updates*). Standaard aan; `false` (ook `0`, `no`, `off`) zet hem uit, voor een installatie die niet naar buiten mag bellen |
 | `PRINTPRICING_TAG` | Welke build draait: `latest` (stabiel, standaard), `beta` of een versienummer als `0.26.15`; vervangt `APP_IMAGE`. Dezelfde waarde gaat naar de app, die op `beta` een beta-label toont |
 
-**Camerascannen** (barcode) vraagt, net als passkeys, https en toestemming voor de camera. Chrome/Edge/Android gebruiken
+**Camerascannen** (barcode) vraagt, net als passkeys, https en toestemming voor de camera. De app staat de camera alleen voor zijn eigen
+adres toe (`Permissions-Policy: camera=(self)`; microfoon en locatie blijven uit). Chrome/Edge/Android gebruiken
 hun eigen scanner; Safari/iOS laadt een meegeleverde scanbibliotheek ([ZXing](../frontend/vendor/zxing/README.md), Apache-2.0).
 Weigert de telefoon de camera, dan toont het scanvenster de stappen om dat te herstellen (op Android: app-icoon ingedrukt houden → App-info →
 Rechten → Camera → *Alleen tijdens gebruik van de app*) en een knop *Opnieuw proberen*; de barcode intypen blijft altijd mogelijk.

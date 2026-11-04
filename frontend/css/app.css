@@ -378,6 +378,24 @@ input.toggle::after { content: ""; }
 .scan-help ol { margin: 6px 0; padding-left: 1.4em; display: grid; gap: 6px; }
 .scan-help { margin-bottom: 12px; }
 .scan-help p { margin: 0; }
+/* Scanning a delivery of rolls (bulk-scan.js): the camera stays small enough to see the list under it */
+.scan-sheet .scan-frame { aspect-ratio: auto; height: min(36vh, 280px); }
+.scan-frame.hit { outline: 3px solid var(--ok); outline-offset: -3px; }
+.scan-camera[hidden] { display: none; }
+.scan-status:empty { display: none; }
+.scan-list { display: grid; gap: 8px; }
+.scan-list:empty { display: none; }
+.scan-item { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--lijn); border-radius: var(--radius-sm); }
+.scan-item.hit { animation: scan-hit .7s ease-out; }
+@keyframes scan-hit { from { background: var(--accent-subtle); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .scan-item.hit { animation: none; } }
+.scan-item h3 { margin: 0; font-size: 1rem; }
+.scan-item p { margin: 0; }
+.scan-controls { justify-content: space-between; align-items: flex-end; }
+.scan-price { display: grid; gap: 4px; flex: 1 1 8rem; max-width: 12rem; }
+.scan-price label { font-size: .8rem; color: var(--text-muted); }
+.scan-stepper { gap: 4px; }
+.scan-count { min-width: 3ch; text-align: center; font-weight: 650; font-variant-numeric: tabular-nums; }
 
 /* Native feel: no pinch/double-tap zoom, no sideways panning or swipe-back rubber band, no tap flash. */
 html, body { overscroll-behavior-x: none; touch-action: pan-y; overflow-x: hidden; overflow-x: clip; -webkit-tap-highlight-color: transparent; }

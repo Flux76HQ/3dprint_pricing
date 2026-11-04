@@ -61,7 +61,8 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "same-origin")
-        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        # The camera is the barcode scanner (frontend/js/scanner.js), for this origin only; `camera=()` made Chrome refuse it.
+        response.headers.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
