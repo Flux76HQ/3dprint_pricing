@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from flask import Blueprint, jsonify
 
-from . import db
+from . import autobackup, db
 from .config import build_channel
 from .http import config, pool
 
@@ -143,6 +143,7 @@ def about():
             tables = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
             rows = {name: conn.execute(f'SELECT count(*) AS n FROM "{name}"').fetchone()["n"] for name in tables}
             migrations, legacy, backups = _migrations(conn), _legacy(cfg, conn), _backups(conn, path)
+            auto, auto_last = autobackup.load_settings(conn), autobackup.load_last(conn)
     except Exception as exc:                                 # the page must still say that the database does not answer
         return jsonify({"app": _app(cfg, VERSION, _commit()), "database": {"engine": "SQLite", "path": str(path)}, "link": None,
                         "health": {"state": "error", "checks": [{"key": "reachable", "state": "error", "detail": type(exc).__name__}]}})
@@ -161,6 +162,9 @@ def about():
         {"key": "filesystem", "state": "warn" if network else "ok", "value": filesystem},
         {"key": "disk_space", "state": "ok" if free >= LOW_DISK_BYTES else "warn", "value": free},
         {"key": "wal_size", "state": "ok" if wal < BIG_WAL_BYTES else "warn", "value": wal},
+        # Only a failed attempt is a warning; switched off (or keeping none) is a choice
+        {"key": "auto_backup", "state": "warn" if auto_last and not auto_last.get("ok") else "ok",
+         "value": "off" if not auto["enabled"] or auto["keep"] == 0 else None, "detail": (auto_last or {}).get("error") if auto_last and not auto_last.get("ok") else None},
     ]
     return jsonify({
         "app": _app(cfg, VERSION, _commit()),
@@ -168,7 +172,7 @@ def about():
         "link": {"kind": "sqlite", "path": str(path), "driver": "sqlite3", "journal_mode": journal, "foreign_keys": bool(foreign_keys),
                  "synchronous": facts["synchronous"], "busy_timeout_ms": facts["busy_timeout_ms"], "filesystem": filesystem, "network_filesystem": network,
                  "worker_pid": os.getpid(), "workers": int(os.environ.get("WEB_CONCURRENCY") or 0) or None, "legacy": legacy},
-        "backups": backups,
+        "backups": {**backups, "auto": {"settings": auto, "last": auto_last}},
         "database": {"engine": "SQLite", "version": sqlite3.sqlite_version, "size_bytes": size, "wal_bytes": wal, "free_bytes": free,
                      "page_size": facts["page_size"], "page_count": facts["page_count"], "free_pages": facts["free_pages"],
                      "tables": len(tables), "rows": rows, "migrations": migrations},

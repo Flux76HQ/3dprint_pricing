@@ -224,6 +224,24 @@ class Database:
     def close(self) -> None:
         """Nothing to release: connections live only inside `connection()`."""
 
+    def backup_to(self, target: str) -> None:
+        """A consistent copy of the whole database in `target`, made with SQLite's online backup on a connection of its own: the app goes on writing
+        meanwhile and the copy is one moment in time. The copy is checked before this returns; a copy that is not sound is removed and raises."""
+        source, copy = _open(self.path), sqlite3.connect(target)
+        try:
+            source.backup(copy)
+        finally:
+            copy.close()
+            source.close()
+        check = _open(target)                                  # through our own connection: the indexes on lower_u() need the function it registers
+        try:
+            verdict = check.execute("PRAGMA integrity_check").fetchone()["integrity_check"]
+        finally:
+            check.close()
+        if verdict != "ok":
+            Path(target).unlink(missing_ok=True)
+            raise sqlite3.DatabaseError(f"the copy is not sound: {verdict}")
+
     def check(self) -> dict:
         """The thorough health check: SQLite's own `quick_check` and a look for rows that point at nothing. It reads on a connection of its own (WAL lets
         the app go on writing meanwhile), so it never holds the write lock; on a large database it takes a moment."""

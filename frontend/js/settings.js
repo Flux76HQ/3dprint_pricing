@@ -554,6 +554,61 @@ function invoiceTemplateCard() {
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('invoice_tpl.title')), body);
 }
 
+// Automatic backups (administrators; /api/backup/auto): a compressed copy of the database file in the data folder, on a schedule, the oldest removed.
+const AUTO_EVERY = [[0.5, 'autobackup.every_05'], [1, 'autobackup.every_1'], [2, 'autobackup.every_2'], [7, 'autobackup.every_7'], [14, 'autobackup.every_14']];
+
+function autoBackupCard() {
+  const body = h('div', { class: 'stack' });
+  let data = null, busy = false;
+
+  async function load() {
+    try { data = await api('GET', '/api/backup/auto'); } catch (e) { body.replaceChildren(h('p', { class: 'error' }, e.message)); return; }
+    draw();
+  }
+  async function save(change) {
+    try { data = await api('PUT', '/api/backup/auto', change); } catch (e) { toast(e.message, 'error'); }
+    draw();
+  }
+  async function runNow() {
+    busy = true; draw();
+    try {
+      data = await api('POST', '/api/backup/auto/run', {});
+      toast(data.made?.ok ? t('autobackup.made', { name: data.made.name }) : t('autobackup.failed_toast'), data.made?.ok ? undefined : 'error');
+    } catch (e) { toast(e.message, 'error'); }
+    busy = false; draw();
+  }
+  const lastLine = () => {
+    const last = data.last;
+    if (!last) return h('p', { class: 'muted' }, t(data.settings.enabled && data.settings.keep > 0 ? 'autobackup.last_none' : 'autobackup.last_never'));
+    return last.ok
+      ? h('div', { class: 'notice ok', role: 'status' }, h('p', {}, t('autobackup.last_ok', { when: when(last.at), name: last.name, size: size(last.size_bytes) })))
+      : h('div', { class: 'notice error', role: 'alert' }, h('p', {}, t('autobackup.last_failed', { when: when(last.at), reason: last.error || '' })));
+  };
+  function draw() {
+    const s = data.settings;
+    const every = h('select', { disabled: !s.enabled, onchange: (e) => save({ every_days: Number(e.target.value) }) },
+      AUTO_EVERY.map(([days, key]) => h('option', { value: String(days), selected: s.every_days === days }, t(key))));
+    const keep = numberInput(s.keep, () => {}, { inputmode: 'numeric', disabled: !s.enabled, 'aria-describedby': undefined,
+      onchange: (e) => {
+        const text = e.target.value.trim();
+        const n = /^\d+$/.test(text) ? Number(text) : NaN;
+        if (!(n >= 0 && n <= data.options.max_keep)) { toast(t('autobackup.keep_invalid', { max: data.options.max_keep }), 'error'); e.target.value = String(s.keep); return; }
+        if (n !== s.keep) save({ keep: n });
+      } });
+    body.replaceChildren(...[
+      switchRow(t('autobackup.enabled'), t('autobackup.enabled_hint'), s.enabled, (on) => save({ enabled: on })),
+      field(t('autobackup.every'), every),
+      field(t('autobackup.keep'), keep, t('autobackup.keep_hint', { max: data.options.max_keep })),
+      s.enabled && s.keep === 0 ? h('div', { class: 'notice muted', role: 'status' }, h('p', {}, t('autobackup.keep_none'))) : null,
+      lastLine(),
+      h('p', { class: 'hint' }, data.files.count ? t('autobackup.files', { n: data.files.count, newest: data.files.newest }) : t('autobackup.files_none')),
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: busy || s.keep === 0, onclick: runNow }, busy ? t('autobackup.running') : t('autobackup.run'))),
+      h('p', { class: 'hint' }, t('autobackup.restore_hint'))].filter(Boolean));
+  }
+  load();
+  return h('div', { class: 'glass card stack' }, h('h2', {}, t('autobackup.title')), h('p', { class: 'muted' }, t('autobackup.intro')), body);
+}
+
 // --- About: what runs, how healthy the database is, how the app is connected to it (administrators; /api/about) -----------------------------------
 
 // Each check of the health list: its label and the sentence for every state it can have. The server sends facts, these are the words.
@@ -566,6 +621,7 @@ const HEALTH_CHECKS = {
   filesystem: { label: 'about.chk_filesystem', ok: 'about.chk_filesystem_ok', warn: 'about.chk_filesystem_warn' },
   disk_space: { label: 'about.chk_disk_space', ok: 'about.chk_disk_space_ok', warn: 'about.chk_disk_space_warn' },
   wal_size: { label: 'about.chk_wal_size', ok: 'about.chk_wal_size_ok', warn: 'about.chk_wal_size_warn' },
+  auto_backup: { label: 'about.chk_auto_backup', ok: 'about.chk_auto_backup_ok', off: 'about.chk_auto_backup_off', warn: 'about.chk_auto_backup_warn' },
 };
 const HEALTH_STATE = { ok: 'about.state_ok', warn: 'about.state_warn', error: 'about.state_error' };
 const HEALTH_TITLE = { ok: 'about.health_ok', warn: 'about.health_warn', error: 'about.health_error' };
@@ -635,7 +691,8 @@ function aboutCards() {
   const checkText = (c) => {
     const entry = HEALTH_CHECKS[c.key];
     const params = { ms: c.value, mode: c.value, fs: c.value || '?', size: size(Number(c.value) || 0), reason: c.detail || '' };
-    return entry && entry[c.state] ? t(entry[c.state], params) : '';
+    const key = c.value === 'off' && entry?.off ? entry.off : entry?.[c.state];                  // switched off is a state of its own, not a problem
+    return key ? t(key, params) : '';
   };
   const backupText = () => {
     const b = data.backups;
@@ -918,7 +975,7 @@ export function settingsView(ctx, requested) {
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
     ai: () => [aiSettingsCard(), aiLogCard()],
-    systeem: () => [backupCard(), updateCard(), resetCard()],
+    systeem: () => [backupCard(), autoBackupCard(), updateCard(), resetCard()],
     over: () => aboutCards(),
   };
   return h('section', { class: 'page' },

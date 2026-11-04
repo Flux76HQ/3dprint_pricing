@@ -13,6 +13,7 @@ from contextlib import contextmanager
 import pytest
 
 os.environ.setdefault("PUSH_WORKER", "off")      # no background threads in tests; the outbox is run explicitly
+os.environ.setdefault("BACKUP_WORKER", "off")    # likewise the automatic backups: tests call autobackup.run_once
 os.environ.setdefault("PRINTPRICING_DB_BUSY_MS", "3000")
 SECRET = "x" * 40
 RP_ID = "localhost"

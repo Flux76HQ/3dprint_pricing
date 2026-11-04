@@ -31,7 +31,7 @@ def test_it_says_what_is_running(owner, app):
 def test_a_healthy_database_is_ok_in_every_check(owner, app):
     body = get(owner)
     assert states(body) == {"reachable": "ok", "write_lock": "ok", "journal": "ok", "foreign_keys": "ok", "schema": "ok", "filesystem": "ok",
-                            "disk_space": "ok", "wal_size": "ok"}
+                            "disk_space": "ok", "wal_size": "ok", "auto_backup": "ok"}
     assert body["health"]["state"] == "ok"
     assert [c["key"] for c in body["health"]["checks"]][0] == "reachable"
 
