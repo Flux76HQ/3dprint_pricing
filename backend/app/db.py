@@ -251,20 +251,35 @@ def named_lock(pool: Database, name: str, *, hold_seconds: int = 300):
     """A lock between workers for work that must not keep a transaction open, such as a series of calls to another service. Waits its turn;
     a worker that dies while holding it loses it after `hold_seconds`, so waiting always ends."""
     key = f"lock:{name}"
-    while True:
-        now = datetime.now(timezone.utc)
-        with pool.connection() as conn:
-            conn.execute("DELETE FROM app_state WHERE key = %s AND value < %s", (key, _utc_text(now)))
-            got = conn.execute("INSERT INTO app_state (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING RETURNING key",
-                               (key, _utc_text(now + timedelta(seconds=hold_seconds)))).fetchone()
-        if got:
-            break
+    while not _take_lock(pool, key, hold_seconds):
         time.sleep(0.2)
     try:
         yield
     finally:
         with pool.connection() as conn:
             conn.execute("DELETE FROM app_state WHERE key = %s", (key,))
+
+
+@contextmanager
+def try_named_lock(pool: Database, name: str, *, hold_seconds: int = 300):
+    """`named_lock` for work that is skipped rather than waited for when another worker is doing it: yields whether this one got the lock
+    (and only then holds it)."""
+    key = f"lock:{name}"
+    got = _take_lock(pool, key, hold_seconds)
+    try:
+        yield got
+    finally:
+        if got:
+            with pool.connection() as conn:
+                conn.execute("DELETE FROM app_state WHERE key = %s", (key,))
+
+
+def _take_lock(pool: Database, key: str, hold_seconds: int) -> bool:
+    now = datetime.now(timezone.utc)
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM app_state WHERE key = %s AND value < %s", (key, _utc_text(now)))
+        return conn.execute("INSERT INTO app_state (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING RETURNING key",
+                            (key, _utc_text(now + timedelta(seconds=hold_seconds)))).fetchone() is not None
 
 
 def make_pool(database_path: str) -> Database:

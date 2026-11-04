@@ -243,15 +243,18 @@ async function devicesList(redraw) {
 }
 
 const megabytes = (bytes) => `${fmt(bytes / 1048576, 1)} MB`;
+const fileSize = (bytes) => (bytes < 1048576 ? `${fmt(Math.max(bytes / 1024, 1), 0)} kB` : megabytes(bytes));
 const seconds = (ms) => fmt(ms / 1000, 1);
 const TIMING_KEY = 'pp-restore-timing';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Backup and restore of everything entered (settings, printers, tariffs, packaging, parts, accessories, rolls, calculations).
  *  Both show what they are doing. A restore is a job on the server (`/api/backup/jobs`): once the file is up, leaving the page stops
- *  nothing, and the card picks the job up again when it is shown. */
+ *  nothing, and the card picks the job up again when it is shown. Below, the automatic backups the server makes every 12 hours
+ *  (`/api/backup/auto`, backend/app/auto_backup.py): each one is downloaded as the ZIP it is, or restored through the same check and job. */
 function backupCard() {
   let withFiles = false;
+  let running = false;
   const status = h('p', { class: 'status-line', role: 'status' });
   const picker = h('input', { type: 'file', accept: '.zip,.json,application/zip,application/json', hidden: true, 'aria-label': t('backup.restore') });
   const label = h('strong');
@@ -260,6 +263,7 @@ function backupCard() {
   const box = h('div', { class: 'op-progress', role: 'status', hidden: true }, h('div', { class: 'row' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), label), bar, note);
   const downloadButton = h('button', { class: 'btn primary', type: 'button', onclick: () => download() }, t('backup.download'));
   const restoreButton = h('button', { class: 'btn', type: 'button', onclick: () => picker.click() }, t('backup.restore'));
+  const autoBox = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
 
   /** `value` 0-100 fills the bar; null leaves it moving without a figure (the server is busy and cannot say how far it is). */
   function show(text, value = null, detail = '') {
@@ -268,14 +272,17 @@ function backupCard() {
     if (value == null) bar.removeAttribute('value'); else bar.value = Math.max(0, Math.min(100, value));
     box.hidden = false;
   }
+  /** One thing at a time: every button of the card, those in the list of automatic backups too. */
+  function setRunning(on) {
+    running = on;
+    for (const button of [downloadButton, restoreButton, ...autoBox.querySelectorAll('button')]) button.disabled = on;
+  }
   function idle() {
     box.hidden = true;
-    downloadButton.disabled = false;
-    restoreButton.disabled = false;
+    setRunning(false);
   }
   function busy() {
-    downloadButton.disabled = true;
-    restoreButton.disabled = true;
+    setRunning(true);
     status.textContent = '';
   }
 
@@ -310,7 +317,11 @@ function backupCard() {
       });
     } catch (e) { idle(); toast(e.message, 'error'); return; }
     box.hidden = true;
-    const uploadTimes = { up: seconds(sentAt - began), stage: seconds(performance.now() - sentAt), size: megabytes(file.size) };
+    await confirmAndStart(staged, { up: seconds(sentAt - began), stage: seconds(performance.now() - sentAt), size: megabytes(file.size) });
+  }
+
+  /** The owner sees what comes back, and only then is the staged backup restored, as a job on the server. */
+  async function confirmAndStart(staged, uploadTimes) {
     const s = staged.summary;
     const when = s.created_at ? formatDateTime(s.created_at, { dateStyle: 'medium', timeStyle: 'short' }) : '?';
     const files = s.files ? t('backup.with_files', { n: s.files }) : '';
@@ -355,8 +366,55 @@ function backupCard() {
     const timing = sessionStorage.getItem(TIMING_KEY);
     if (timing) { status.textContent = `${t('backup.restored')} ${timing}`; sessionStorage.removeItem(TIMING_KEY); }
   } catch { /* nothing to show */ }
+  // --- the automatic backups: the progress of an action on one of them is shown in the same place as the rest, brought into view
+
+  const moment = (iso) => formatDateTime(iso, { dateStyle: 'medium', timeStyle: 'short' });
+
+  async function downloadAuto(backup) {
+    busy();
+    show(t('backup.receiving'), 0);
+    box.scrollIntoView({ block: 'nearest' });
+    try {
+      const { blob, name } = await downloadFile(`/api/backup/auto/${encodeURIComponent(backup.name)}`, {
+        onProgress: (got, total) => show(t('backup.receiving'), total ? (got / total) * 100 : null, total ? t('backup.of', { done: megabytes(got), total: megabytes(total) }) : megabytes(got)),
+      });
+      saveBlob(blob, name);
+      status.textContent = t('backup.downloaded', { name });
+    } catch (e) { toast(e.message, 'error'); }
+    idle();
+  }
+
+  async function restoreAuto(backup) {
+    busy();
+    show(t('backup.checking'));                                                         // the server copies and reads it through: nothing to count
+    box.scrollIntoView({ block: 'nearest' });
+    let staged;
+    try { staged = await api('POST', `/api/backup/auto/${encodeURIComponent(backup.name)}/stage`); } catch (e) { idle(); toast(e.message, 'error'); return; }
+    box.hidden = true;
+    await confirmAndStart(staged);
+  }
+
+  async function loadAuto() {
+    let state;
+    try { state = await api('GET', '/api/backup/auto'); } catch (e) { fill(autoBox, h('p', { class: 'error' }, e.message)); return; }
+    const due = new Date(state.next_at) <= new Date();
+    fill(autoBox,
+      state.error ? h('div', { class: 'notice danger', role: 'alert' }, h('p', {}, `${t('backup.auto_failed_at', { when: moment(state.error.at) })} ${state.error.message}`)) : null,
+      h('p', { class: 'status-line' }, due ? t('backup.auto_next_soon') : t('backup.auto_next', { when: moment(state.next_at) })),
+      state.backups.length
+        ? h('ul', { class: 'plain-list' }, state.backups.map((backup) => h('li', { class: 'list-row' },
+          h('div', {}, h('strong', {}, moment(backup.created_at)), h('p', { class: 'muted' }, fileSize(backup.size))),
+          h('div', { class: 'row' },
+            h('button', { class: 'btn small', type: 'button', disabled: running, 'aria-label': t('backup.auto_download_named', { when: moment(backup.created_at) }),
+              onclick: () => downloadAuto(backup) }, t('backup.auto_download')),
+            h('button', { class: 'btn small', type: 'button', disabled: running, 'aria-label': t('backup.auto_restore_named', { when: moment(backup.created_at) }),
+              onclick: () => restoreAuto(backup) }, t('backup.auto_restore'))))))
+        : h('p', { class: 'muted' }, t('backup.auto_none')));
+  }
+
   picker.addEventListener('change', () => { const file = picker.files[0]; picker.value = ''; if (file) restore(file); });
   api('GET', '/api/backup/jobs/latest').then(({ job }) => { if (job) follow(job); }).catch(() => {});      // a restore started before the page was left
+  loadAuto();
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('backup.title')),
     h('p', { class: 'muted' }, t('backup.intro')),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', class: 'toggle', role: 'switch', onchange: (e) => { withFiles = e.target.checked; } }), t('backup.files')),
@@ -364,6 +422,9 @@ function backupCard() {
     h('div', { class: 'row' }, downloadButton, restoreButton, picker),
     box,
     status,
+    h('h3', {}, t('backup.auto_title')),
+    h('p', { class: 'muted' }, t('backup.auto_intro')),
+    autoBox,
     h('p', { class: 'muted' }, t('backup.not_included')));
 }
 
@@ -607,7 +668,7 @@ function diagnosisText(data, deep) {
       `worker: pid ${link.worker_pid} of ${link.workers || '?'}`,
       `legacy_postgres: ${link.legacy.state}${link.legacy.address ? ` ${link.legacy.address}` : ''}${link.legacy.imported_at ? `, imported ${link.legacy.imported_at}` : ''}${link.legacy.old_data_folder ? ', old postgres/ folder present' : ''}`);
   }
-  lines.push(`backup.newest: ${backups.newest_at || 'none'}${backups.age_days !== null ? ` (${backups.age_days} days)` : ''}, copies: ${backups.copies.count}${backups.downloaded ? `, downloaded: ${backups.downloaded.at}` : ''}`);
+  lines.push(`backup.newest: ${backups.newest_at || 'none'}${backups.age_days !== null ? ` (${backups.age_days} days)` : ''}, copies: ${backups.copies.count}, automatic: ${backups.automatic?.count ?? 0}${backups.downloaded ? `, downloaded: ${backups.downloaded.at}` : ''}`);
   if (update) lines.push(`update: installed ${update.current ? `v${update.current}` : '?'}, latest ${update.latest ? `v${update.latest}` : '?'}, available ${!!update.available}${update.error ? `, error ${update.error}` : ''}`);
   if (deep && !deep.failed) lines.push(`deep_check: ${deep.ok ? 'ok' : 'problem'} (${deep.seconds} s) ${deep.quick_check.join('; ')}${deep.foreign_key_violations.length ? ` foreign_keys: ${deep.foreign_key_violations.map((v) => `${v.table}->${v.parent}`).join(', ')}` : ''}`);
   return lines.join('\n');
@@ -641,7 +702,9 @@ function aboutCards() {
     const b = data.backups;
     if (b.newest_at === null) return t('about.backup_none');
     const fromApp = b.downloaded && b.downloaded.at === b.newest_at;
-    const source = fromApp ? t(b.downloaded.with_files ? 'about.backup_src_app_files' : 'about.backup_src_app') : t('about.backup_src_copy', { name: b.copies.latest?.name || '' });
+    const automatic = b.automatic?.latest && b.automatic.latest.at === b.newest_at;
+    const source = fromApp ? t(b.downloaded.with_files ? 'about.backup_src_app_files' : 'about.backup_src_app')
+      : automatic ? t('about.backup_src_auto') : t('about.backup_src_copy', { name: b.copies.latest?.name || '' });
     return `${ago(b.age_days)} (${source})`;
   };
 

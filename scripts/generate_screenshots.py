@@ -64,6 +64,7 @@ def start_app(database_path, upload_dir, port):
     run_migrations(database_path)
     os.environ["APP_COMMIT"] = "dev"                  # the sidebar shows vX.Y.Z (dev): the same every run, so images only change when the UI does
     os.environ["PUSH_WORKER"] = "off"
+    os.environ["AUTO_BACKUP_WORKER"] = "off"           # a throwaway app: no backups of the demo data
     origin = f"http://localhost:{port}"
     cfg = Config(database_path=database_path, session_secret=SECRET, setup_code="demo", rp_id="localhost", rp_name="3D Print Pricing",
                  rp_origins=(origin,), session_hours=24, cookie_secure=False, static_dir=str(ROOT / "frontend"),
