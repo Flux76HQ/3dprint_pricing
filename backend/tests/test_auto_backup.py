@@ -15,7 +15,8 @@ from app import auto_backup, backup as backup_module
 from tests import printfiles as pf
 from tests.conftest import connect
 from tests.test_auth_api import H, onboard, post
-from tests.test_backup import fill_orders, order_snapshot, restore_job, snapshot, staged_files, wipe, with_file
+from tests.test_backup import fill, fill_orders, order_snapshot, restore_job, snapshot, staged_files, wipe, with_file
+from tests.test_password import PASSWORD, _reset_limits, code_for, enable  # noqa: F401  (_reset_limits: an autouse fixture)
 
 T0 = datetime(2026, 11, 4, 8, 0, tzinfo=timezone.utc)
 NL = {**H, "X-Lang": "nl"}
@@ -29,7 +30,7 @@ def _inline(monkeypatch):
 
 @pytest.fixture
 def owner(client):
-    onboard(client)
+    client.passkey, _ = onboard(client)
     return client
 
 
@@ -357,3 +358,188 @@ def test_a_factory_reset_puts_the_defaults_back_and_keeps_the_backups(owner, app
     with app.extensions["pool"].connection() as conn:
         conn.execute("DELETE FROM app_state")                                           # what a reset does to every table
     assert owner.get("/api/backup/auto").get_json()["settings"] == {"enabled": True, "keep": 14, "every_days": 0.5}
+
+
+# --- made by hand: *Maak back-up* keeps its backup on the server, and only there --------------------------------------------------
+
+def make_now(owner, files, headers=H):
+    return owner.post("/api/backup/auto", json={"files": files}, headers=headers)
+
+
+def path_of(app, name):
+    return os.path.join(folder(app), name)
+
+
+def test_a_backup_made_by_hand_is_kept_on_the_server_with_or_without_the_print_files_and_listed(owner, app):
+    with_file(owner)
+    res = make_now(owner, True)
+    assert res.status_code == 200, res.get_json()
+    zipped = res.get_json()["backup"]
+    assert auto_backup.MANUAL.fullmatch(zipped["name"]) and zipped["name"].endswith(".zip")
+    assert zipped["kind"] == "manual" and zipped["with_files"] is True and zipped["size"] == os.path.getsize(path_of(app, zipped["name"]))
+    archive = zipfile.ZipFile(path_of(app, zipped["name"]))
+    assert archive.read("files/part.stl") == pf.stl_binary() and json.loads(archive.read("backup.json"))["includes_files"]
+    assert owner.get("/api/about").get_json()["backups"]["downloaded"]["with_files"] is True        # Over still knows when the last one was made
+
+    plain = make_now(owner, False).get_json()["backup"]
+    assert plain["name"].endswith(".json") and plain["kind"] == "manual" and plain["with_files"] is False
+    with open(path_of(app, plain["name"]), "rb") as handle:
+        kept_bytes = handle.read()
+    doc = json.loads(kept_bytes)
+    assert doc["format"] == backup_module.FORMAT and doc["includes_files"] is False and doc["projects"] and "files" not in doc
+    res = owner.get(f"/api/backup/auto/{plain['name']}")                                           # downloaded from the list as it is kept
+    assert res.status_code == 200 and res.mimetype == "application/json" and res.data == kept_bytes
+    assert res.headers["Content-Disposition"] == f"attachment; filename={plain['name']}"
+
+    listed = owner.get("/api/backup/auto").get_json()["backups"]
+    assert {b["name"]: (b["kind"], b["with_files"]) for b in listed} == {zipped["name"]: ("manual", True), plain["name"]: ("manual", False)}
+    assert not [n for n in os.listdir(folder(app)) if n.startswith(".")]                           # no half-written file left behind
+
+
+def test_the_list_shows_both_kinds_newest_first(owner, app):
+    auto_backup.run_once(app, T0)
+    with app.app_context():
+        manual, _ = auto_backup.keep_manual(owner_id(app), False, T0 + timedelta(hours=1))
+    auto_backup.run_once(app, T0 + auto_backup.INTERVAL)
+    listed = owner.get("/api/backup/auto").get_json()["backups"]
+    assert [(b["name"], b["kind"]) for b in listed] == [("printpricing-auto-2026-11-04-200000Z.zip", "auto"),
+                                                       (manual.name, "manual"), ("printpricing-auto-2026-11-04-080000Z.zip", "auto")]
+    assert manual.name == "printpricing-manual-2026-11-04-090000Z.json"
+
+
+def owner_id(app):
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
+        return conn.execute("SELECT id FROM users WHERE is_owner").fetchone()[0]
+
+
+def test_two_in_the_same_second_never_overwrite_each_other(owner, app):
+    with app.app_context():
+        first, _ = auto_backup.keep_manual(owner_id(app), False, T0)
+        second, _ = auto_backup.keep_manual(owner_id(app), False, T0)
+    assert (first.name, second.name) == ("printpricing-manual-2026-11-04-080000Z.json", "printpricing-manual-2026-11-04-080001Z.json")
+    assert first.exists() and second.exists()
+
+
+def test_the_rotation_never_counts_or_removes_one_kept_by_hand(owner, app):
+    made = make_now(owner, False).get_json()["backup"]["name"]
+    settings(owner, keep=1)
+    for n in range(3):
+        assert auto_backup.run_once(app, T0 + n * auto_backup.INTERVAL) is not None                # the one by hand does not postpone them
+    assert len(kept(app)) == 1 and os.path.exists(path_of(app, made))
+    settings(owner, keep=0)                                                                        # keeping no automatic ones
+    assert kept(app) == [] and os.path.exists(path_of(app, made))
+    assert [b["name"] for b in owner.get("/api/backup/auto").get_json()["backups"]] == [made]
+
+
+def test_when_the_server_cannot_keep_it_the_answer_says_why_and_nothing_half_written_stays(owner, app, monkeypatch):
+    with_file(owner)
+
+    def full(doc, attachments, handle):
+        handle.write(b"half a backup")
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(backup_module, "write_zip", full)
+    res = make_now(owner, True, NL)
+    assert res.status_code == 507 and "No space left on device" in res.get_json()["error"] and "bewaard" in res.get_json()["error"]
+    assert owner.get("/api/backup/auto").get_json()["backups"] == [] and os.listdir(folder(app)) == []     # nothing half-written stays
+
+
+def test_one_kept_by_hand_is_restored_through_the_same_check_and_job_and_stays_where_it_is(owner, app):
+    fill(owner)
+    before = snapshot(owner)
+    name = make_now(owner, False).get_json()["backup"]["name"]
+    original = open(path_of(app, name), "rb").read()
+    wipe(owner)
+    assert snapshot(owner) != before
+    answer = post(owner, f"/api/backup/auto/{name}/stage", headers=NL)
+    assert answer.status_code == 200, answer.get_json()
+    job = restore_job(owner, answer.get_json()["token"])
+    assert job["status"] == "done", job
+    assert snapshot(owner) == before
+    assert open(path_of(app, name), "rb").read() == original and staged_files(app) == []
+
+
+# --- removing one: only with a fresh confirmation, bound to that one backup ---------------------------------------------------------
+
+def proof(owner, name, action="backup-delete"):
+    options = post(owner, "/api/auth/stepup/options", {"action": action, "target": name}).get_json()
+    return owner.passkey.assert_(options)
+
+
+def delete(owner, name, body, headers=H):
+    return owner.delete(f"/api/backup/auto/{name}", json=body, headers=headers)
+
+
+def test_a_backup_is_removed_only_with_a_fresh_confirmation_for_exactly_that_one(owner, app):
+    automatic = auto_backup.run_once(app, T0).name
+    manual = make_now(owner, False).get_json()["backup"]["name"]
+    assert delete(owner, manual, {}).status_code == 400                                            # no proof at all
+    assert delete(owner, manual, {"credential": proof(owner, automatic)}).status_code == 403       # a confirmation for the other backup
+    assert delete(owner, manual, {"credential": proof(owner, manual, "factory-reset")}).status_code == 403     # for another action
+    assert delete(owner, manual, {"current_password": PASSWORD, "code": "000000"}).status_code == 409          # password login is not on
+    assert os.path.exists(path_of(app, manual)) and os.path.exists(path_of(app, automatic))
+
+    res = delete(owner, manual, {"credential": proof(owner, manual)})
+    assert res.status_code == 200 and [b["name"] for b in res.get_json()["backups"]] == [automatic]
+    assert not os.path.exists(path_of(app, manual))
+    res = delete(owner, automatic, {"credential": proof(owner, automatic)})                         # an automatic one just the same
+    assert res.status_code == 200 and res.get_json()["backups"] == [] and kept(app) == []
+
+
+def test_a_confirmation_removes_one_backup_once(owner, app):
+    name = make_now(owner, False).get_json()["backup"]["name"]
+    credential = proof(owner, name)
+    assert delete(owner, name, {"credential": credential}).status_code == 200
+    with app.app_context():
+        again, _ = auto_backup.keep_manual(owner_id(app), False, auto_backup._moment(name))       # the same name once more
+    assert again.name == name
+    assert delete(owner, name, {"credential": credential}).status_code == 403 and os.path.exists(again)
+
+
+@pytest.mark.parametrize("name", ["printpricing-manual-2026-01-01-000000Z.json", "printpricing-manual-2026-01-01-000000Z.txt", "notes.txt",
+                                  "..%2Fdb%2Fprintpricing.sqlite3"])
+def test_only_a_backup_that_is_there_can_be_removed_and_a_wrong_name_spends_no_confirmation(owner, app, name):
+    made = make_now(owner, False).get_json()["backup"]["name"]
+    with open(path_of(app, "notes.txt"), "w") as handle:
+        handle.write("not a backup")
+    credential = proof(owner, made)
+    assert delete(owner, name, {"credential": credential}).status_code in (404, 405)               # a name with a slash in it never reaches the route
+    assert os.path.exists(path_of(app, "notes.txt"))
+    assert delete(owner, made, {"credential": credential}).status_code == 200
+
+
+def test_with_password_login_the_password_and_a_code_remove_it_and_a_wrong_one_counts(owner, app):
+    secret, _ = enable(owner)
+    name = make_now(owner, False).get_json()["backup"]["name"]
+    assert delete(owner, name, {"current_password": "wrong wrong wrong wrong", "code": code_for(secret, 1)}).status_code == 401
+    assert os.path.exists(path_of(app, name))
+    assert delete(owner, name, {"current_password": PASSWORD, "code": code_for(secret, 1)}).status_code == 200
+    assert not os.path.exists(path_of(app, name))
+
+
+def test_why_a_passkey_was_refused_goes_to_the_log_and_not_to_the_browser(owner, app, caplog):
+    """The browser only hears "Verificatie mislukt."; the process log says why, so a passkey that keeps being refused can be explained."""
+    from tests.fake_authenticator import FakeAuthenticator
+    name = make_now(owner, False).get_json()["backup"]["name"]
+    other = auto_backup.run_once(app, T0).name
+    stale = FakeAuthenticator()                                                       # e.g. one left in the password manager by an earlier installation
+    cases = [
+        ({"credential": stale.assert_(post(owner, "/api/auth/stepup/options", {"action": "backup-delete", "target": name}).get_json())},
+         "not registered here"),
+        ({"credential": proof(owner, other)}, "no open challenge matches it"),
+    ]
+
+    def check(body, reason):
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="app.auth"):
+            res = delete(owner, name, body, headers=NL)
+        assert res.status_code == 403 and res.get_json()["error"] == "Verificatie mislukt.", reason
+        line = " ".join(r.getMessage() for r in caplog.records)
+        assert "passkey confirm refused" in line and f"backup:{name}:delete" in line and reason in line, line
+        assert "clientDataJSON" not in line and "signature\":" not in line                 # what went wrong, never the answer itself
+
+    for body, reason in cases:
+        check(body, reason)
+    assert delete(owner, other, {"credential": proof(owner, other)}).status_code == 200    # the server now holds this passkey's counter
+    owner.passkey.counter -= 2                                                        # a copy of the passkey that is behind (synced to another device)
+    check({"credential": proof(owner, name)}, "sign count")
+    assert os.path.exists(path_of(app, name))

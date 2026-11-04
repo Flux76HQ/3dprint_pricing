@@ -205,7 +205,14 @@ async function start() {
 
 installNativeBehaviour();
 window.addEventListener('hashchange', () => { if (inviteToken()) start(); else route(); });
-window.addEventListener('auth:expired', () => { if (session.user) { toast(t('app.session_expired'), 'error'); start(); } });
+// A 401 is also the answer to a wrong password in a confirmation (deleting a backup, the factory reset, promoting someone): the server is asked
+// whether the session is really gone before the person is told so and sent to the login.
+window.addEventListener('auth:expired', async () => {
+  if (!session.user) return;
+  try { if ((await api('GET', '/api/auth/status')).authenticated) return; } catch { /* no answer: treat it as gone */ }
+  toast(t('app.session_expired'), 'error');
+  start();
+});
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => { /* offline shell is optional */ });

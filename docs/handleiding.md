@@ -261,7 +261,7 @@ De pagina *Systeem* laat zien hoe gezond de database is en hoe de app ermee verb
 - **Gezondheid van de database**: één woord (*Gezond*, *Let op* of *Probleem*) boven een lijst van snelle controles: antwoordt de database, hoe lang duurde het om de schrijfsleutel te krijgen (meer dan 0,5 s betekent dat iets anders hem lang vasthoudt), staat het bestand in WAL-modus, bewaakt de database verwijzingen tussen tabellen, zijn alle migraties toegepast (een ontbrekende of gewijzigde migratie is een fout), staat het bestand op een lokaal bestandssysteem (NFS, SMB en FUSE, zoals Unraids `/mnt/user`, geven een waarschuwing), is er genoeg vrije schijfruimte, is het WAL-bestand niet te groot en is de laatste automatische back-up gelukt (uitgeschakeld is een keuze, geen waarschuwing). De knop *Uitgebreide controle uitvoeren* leest de hele database na (`quick_check` en een zoektocht naar rijen die naar niets verwijzen) op een eigen verbinding, zodat de app intussen gewoon schrijft. *Kopieer diagnose* zet versie, controles, koppeling, laatste back-up en updatestand als platte tekst op het klembord (zonder wachtwoorden, sleutels of het wachtwoord van de oude PostgreSQL), om bij een probleem mee te sturen; lukt het klembord niet, dan staat de tekst in een veld om met de hand te kopiëren.
 - **Actieve koppeling met de database**: het bestand waarmee de app nu verbonden is (pad, grootte), de logboekmodus, het bestandssysteem, de **laatste back-up** en de stand van de oude PostgreSQL-koppeling; achter *Meer details*: het stuurprogramma, schrijven naar schijf, de wachttijd op de schrijfsleutel, bewaakte verwijzingen, vrije schijfruimte, het werkproces, de toegepaste migraties en het aantal rijen per tabel. De oude PostgreSQL-koppeling (*niet ingesteld*, *eenmalig overgezet op …* of *ingesteld maar niet gebruikt*; het adres staat er zonder wachtwoord).
 
-De **laatste back-up** is de nieuwste van drie dingen: een kopie in `DATA_PATH/backups` (die `scripts/update.sh` daar zet), de nieuwste automatische back-up in `DATA_PATH/backups/auto` (zie *Automatische back-ups*) of de laatste back-up die in de app is gedownload (de app onthoudt alleen dat tijdstip, in `app_state`). Is de laatste ouder dan 30 dagen, of is er nog geen, dan staat er een waarschuwing in de kaart; het gezondheidswoord verandert daar niet van, zodat een nieuwe installatie niet meteen op *Let op* staat.
+De **laatste back-up** is de nieuwste van drie dingen: een kopie in `DATA_PATH/backups` (die `scripts/update.sh` daar zet), de nieuwste automatische back-up in `DATA_PATH/backups/auto` (zie *Automatische back-ups*) of de laatste back-up die in de app is gemaakt (de app onthoudt dat tijdstip ook in `app_state`). Is de laatste ouder dan 30 dagen, of is er nog geen, dan staat er een waarschuwing in de kaart; het gezondheidswoord verandert daar niet van, zodat een nieuwe installatie niet meteen op *Let op* staat.
 
 Dezelfde gegevens staan in `GET /api/about` (alleen beheerders); `POST /api/about/check` is de uitgebreide controle.
 
@@ -388,7 +388,7 @@ Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de ap
 | `X-Forwarded-For/-Proto/-Host` doorgeven | aantal proxies = `PROXY_HOPS` | rate-limit op de setupcode per client-IP |
 | TLS | verplicht (behalve `localhost`) | WebAuthn, installeren, camera en push werken alleen in een secure context |
 | Uitgaand https vanaf de app-container | naar de pushdiensten (zie hierboven) | het versturen van push-meldingen; zonder dit falen ze zonder dat de app het merkt, behalve in de testknop |
-| Vrije schijfruimte in `DATA_PATH` | ruim 14 keer een back-up met printbestanden (ongeveer 14 keer de map `uploads/` plus de database) | de automatische back-ups in `DATA_PATH/backups/auto`; past er geen meer bij, dan meldt de app dat in *Instellingen → Beheer → Back-up* (en bij de gezondheid onder *Systeem*) en blijven de bestaande staan |
+| Vrije schijfruimte in `DATA_PATH` | ruim 14 keer een back-up met printbestanden (ongeveer 14 keer de map `uploads/` plus de database), plus de back-ups die je zelf maakt | de back-ups in `DATA_PATH/backups/auto` (een handmatige blijft staan tot je hem verwijdert); past er geen meer bij, dan meldt de app dat in *Instellingen → Beheer → Back-up* (en bij de gezondheid onder *Systeem*) en blijven de bestaande staan |
 
 Er zit geen CDN of proxy in deze repository; wat ervoor staat bepaalt de werkelijke ceilings.
 
@@ -491,7 +491,7 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 | **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
 | **Gebruikers** | alleen beheerders: wie mag inloggen, uitnodigen, nieuwe inloglink, beheerder maken, verwijderen; zie *Gebruikers en rollen* |
 | **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel en het logboek |
-| **Back-up** | alleen beheerders: back-up en herstel, en de automatische back-ups (zie *Back-up in de app*) |
+| **Back-up** | alleen beheerders: back-up en herstel, de automatische back-ups en de lijst van back-ups op de server (zie *Back-up in de app*) |
 | **Systeem** | alleen beheerders: de gezondheid van de database en de actieve koppeling ermee (zie *Instellingen → Beheer → Systeem*), en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
 | **Over** | alleen beheerders: een samenvatting (versie, database, laatste back-up, updates), de updatecontrole (zie *Meldingen en updates*) en wat er draait (zie *Instellingen → Beheer → Over*) |
 
@@ -687,7 +687,9 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
 
 ## Back-up in de app
 
-*Instellingen → Beheer → Back-up* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`; met *Printbestanden (STL/3MF) meenemen* is het een ZIP-bestand, zie hieronder):
+*Instellingen → Beheer → Back-up → Maak back-up* maakt een back-up van al je gegevens als één JSON-bestand (`printpricing-manual-JJJJ-MM-DD-UUMMSSZ.json`, de tijd in UTC; met *Printbestanden (STL/3MF) meenemen* is het een ZIP-bestand, zie hieronder)
+en **bewaart hem op de server**, naast de automatische, in `DATA_PATH/backups/auto` (de map `DATA_PATH` uit `.env`, en daarin `backups/auto`; in Home Assistant de datamap van de app). Er wordt niets gedownload:
+dat doe je daarna met het downloadicoon in *Back-ups op de server* (hieronder), waar hij bovenaan staat. Kan de server hem niet bewaren (bijvoorbeeld een volle schijf), dan zegt de kaart waarom. In het bestand:
 je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, de filamentbibliotheek, filamentrollen,
 berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: gebruikers en uitnodigingen, passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
@@ -699,11 +701,11 @@ gelezen en tegen hun controlesom gehouden) en laat zien wat er terugkomt. Pas na
 nu staat, in één keer: lukt iets niet, dan verandert er niets. Een bestand uit een nieuwere versie van de app wordt geweigerd; een back-up van een oudere versie (zonder bestellingen) werkt
 nog steeds en laat de bestellingen dan leeg. Het volgende bestel- en factuurnummer gaat door na de hoogste uit de back-up.
 
-**Met printbestanden is het een ZIP-bestand** (`printpricing-backup-JJJJ-MM-DD.zip`): elk STL- of 3MF-bestand staat er los in, onder `files/` met zijn eigen naam (heten twee modellen hetzelfde, dan krijgt de tweede ` (2)`), en `backup.json`
+**Met printbestanden is het een ZIP-bestand** (`printpricing-manual-JJJJ-MM-DD-UUMMSSZ.zip`): elk STL- of 3MF-bestand staat er los in, onder `files/` met zijn eigen naam (heten twee modellen hetzelfde, dan krijgt de tweede ` (2)`), en `backup.json`
 bevat de rest, met per model een verwijzing (`archive_path`) en zijn controlesom. Je kunt het ZIP-bestand dus gewoon openen om een model terug te halen. Een back-up zonder printbestanden blijft één JSON-bestand, en een JSON-back-up
 van een eerdere versie (met de modellen er inline in) kan nog steeds worden teruggezet.
 
-**Je ziet wat er gebeurt.** Bij het maken van een back-up toont de kaart een voortgangsbalk: eerst dat de server hem samenstelt, daarna hoeveel er al binnen is. Bij herstellen zie je het uploaden (met megabytes), het controleren van het bestand
+**Je ziet wat er gebeurt.** Bij het maken van een back-up toont de kaart dat de server hem samenstelt, en daarna naast de knoppen *Back-up gelukt* of *Back-up mislukt* (waarom het mislukte staat in de melding, en in de tekst die verschijnt als je de muis op het label houdt); bij het downloaden uit de lijst hoeveel er al binnen is. Bij herstellen zie je het uploaden (met megabytes), het controleren van het bestand
 en daarna het herstellen zelf, met bij printbestanden *printbestand 4 van 10*. Na de controle vraagt de app om bevestiging; **daarna draait het herstel op de server als achtergrondtaak** (tabel `backup_jobs`, geen onderdeel van een back-up):
 je kunt de pagina verlaten of de browser sluiten en het gaat door. Open *Instellingen → Beheer → Back-up* weer, dan zie je de stand of de uitkomst; is het klaar, dan laadt de app opnieuw met de teruggezette instellingen. Mislukt het, dan staat er waarom
 en is er niets veranderd (het vervangen is één transactie). Er loopt hooguit één herstel tegelijk. Een herstel dat 15 minuten niet vooruitkwam (de server was herstart) wordt als onderbroken gemeld; ook dan is er niets veranderd.
@@ -716,7 +718,7 @@ Een volledige kopie van de database (`backup_db.py`) en de map met uploads blijf
 
 ### Automatische back-ups
 
-**Standaard elke 12 uur maakt de server zelf een back-up**, dezelfde als *Back-up downloaden* met *Printbestanden (STL/3MF) meenemen*: een ZIP-bestand met
+**Standaard elke 12 uur maakt de server zelf een back-up**, dezelfde als *Maak back-up* met *Printbestanden (STL/3MF) meenemen*: een ZIP-bestand met
 `backup.json` (alles hierboven, dus ook de bestellingen met hun factuurnummers en bewaarde factuur-PDF's, het factuursjabloon en het logo) en elk
 STL/3MF-bestand los onder `files/`. Ook hier zitten er **geen** gebruikers, passkeys, wachtwoorden of andere inloggegevens in. De bestanden staan op de
 server in `DATA_PATH/backups/auto` en heten `printpricing-auto-JJJJ-MM-DD-UUMMSSZ.zip` (de tijd in UTC). **Standaard blijven de nieuwste 14 bewaard**, een week:
@@ -724,14 +726,7 @@ is er een nieuwe helemaal geschreven, dan verdwijnt de oudste. Andere bestanden 
 
 **Instellen** doet een beheerder bovenaan die kaart: een **schakelaar** (standaard aan; uit laat de bestaande back-ups staan en maakt er geen meer), **hoe vaak** (elke 0,5, 1, 2, 7 of 14 dagen; standaard 0,5, dus elke 12 uur) en het **aantal te bewaren back-ups** (0 tot en met 60; standaard 14). Een lager aantal ruimt de oudste meteen op. Bij **0** worden geen automatische back-ups bewaard: er worden er geen gemaakt en de bestaande worden verwijderd. De keuzes staan in de database (`app_state`); *Terug naar fabrieksinstellingen* zet de standaardwaarden terug, de back-ups zelf blijven staan.
 
-*Instellingen → Beheer → Back-up → Automatische back-ups* toont ze, nieuwste eerst, met datum, tijd en grootte, en wanneer de volgende
-komt. Per back-up:
-
-- **Downloaden** geeft het ZIP-bestand zoals het op de server staat (met voortgang). Je kunt het later terugzetten met *Herstellen uit back-up…*,
-  ook op een andere installatie.
-- **Terugzetten…** werkt als *Herstellen uit back-up…*, zonder upload: de server kopieert de back-up naar de wachtrij (`.restore-<token>` onder
-  `DATA_PATH/uploads`), controleert hem helemaal en laat zien wat er terugkomt; na jouw bevestiging vervangt hetzelfde achtergrondherstel alles in één keer.
-  De automatische back-up zelf blijft staan.
+Onder de instellingen staat wanneer de volgende komt.
 
 Hoe het loopt:
 
@@ -744,18 +739,43 @@ Hoe het loopt:
 - Een back-up wordt eerst onder een tijdelijke naam (`.tmp-…`) geschreven en pas als hij compleet op schijf staat hernoemd. Mislukt het (bijvoorbeeld een
   volle schijf), dan blijven de bestaande back-ups staan, staat de reden in rood op de kaart en probeert de app het na een uur opnieuw. Een tijdelijk bestand
   dat een crash achterliet, wordt later opgeruimd.
-- *Terug naar fabrieksinstellingen* laat de automatische back-ups staan (ze staan buiten `DATA_PATH/uploads`): na de eerste start zet je er een terug.
-- **Ruimte:** elke back-up bevat alle printbestanden, dus reken op ongeveer het aantal te bewaren back-ups (standaard 14) keer de map `uploads/` plus de database. Ze staan op dezelfde schijf als de data
+- *Terug naar fabrieksinstellingen* laat de back-ups op de server staan, automatisch en handmatig (ze staan buiten `DATA_PATH/uploads`): na de eerste start zet je er een terug.
+- **Ruimte:** elke back-up bevat alle printbestanden, dus reken op ongeveer het aantal te bewaren back-ups (standaard 14) keer de map `uploads/` plus de database, plus de back-ups die je zelf maakt (die blijven staan tot je ze verwijdert). Ze staan op dezelfde schijf als de data
   die ze beschermen: kopieer er af en toe een van de server af (*Downloaden*, of de map `DATA_PATH/backups/auto`).
 - In `.env` of `docker-compose.yml` is niets in te stellen: de keuzes hierboven staan in de app. De container maakt de map `DATA_PATH/backups/auto` bij het
   starten zelf aan en geeft hem aan de gebruiker `app`; de rest van `DATA_PATH/backups` blijft van `scripts/update.sh`.
+
+### Back-ups op de server
+
+*Instellingen → Beheer → Back-up → Back-ups op de server* toont **alle** back-ups in `DATA_PATH/backups/auto`, nieuwste eerst: de automatische (*Automatisch*)
+en de back-ups die je met *Maak back-up* maakte (*Handmatig*, `printpricing-manual-JJJJ-MM-DD-UUMMSSZ.zip` of `.json`), met datum, tijd, grootte en, bij een
+JSON-bestand, *zonder printbestanden*. Een handmatige back-up telt **niet** mee voor het aantal te bewaren automatische back-ups, schuift het schema niet op en wordt
+nooit door de app opgeruimd, ook niet bij aantal 0; hij blijft staan tot je hem zelf verwijdert. Per back-up staan er drie knoppen:
+
+- **Downloaden** (pijl omlaag) geeft het bestand zoals het op de server staat (met voortgang). Je kunt het later terugzetten met *Herstellen uit back-up…*,
+  ook op een andere installatie.
+- **Terugzetten** (pijl rond) werkt als *Herstellen uit back-up…*, zonder upload: de server kopieert de back-up naar de wachtrij (`.restore-<token>` onder
+  `DATA_PATH/uploads`), controleert hem helemaal en laat zien wat er terugkomt; na jouw bevestiging vervangt hetzelfde achtergrondherstel alles in één keer.
+  De back-up zelf blijft staan.
+- **Verwijderen** (prullenbak) haalt de back-up van de server, automatisch of handmatig. Dat kan niet ongedaan worden gemaakt, dus de app vraagt eerst of jij
+  het bent: met je **passkey**, of met je **wachtwoord** (plus een code uit de authenticator-app of een back-upcode als je tweestapsverificatie hebt). Die bevestiging
+  geldt alleen voor die ene back-up en telt voor de blokkade net als inloggen. Andere bestanden in de map kan de app niet verwijderen.
+
+**Verificatie mislukt bij een passkey?** De app zegt in de browser bewust alleen *Verificatie mislukt.*; de reden staat in het log van de container
+(`docker compose logs app | grep "passkey"`, in Home Assistant het logboek van de app), bijvoorbeeld:
+
+- *this passkey is not registered here*: je wachtwoordmanager bood een passkey aan die de app niet (meer) kent, bijvoorbeeld een van vóór
+  *Terug naar fabrieksinstellingen* of van een ander account. Kies de passkey die bij dit account hoort, en ruim de oude op in je wachtwoordmanager.
+- *sign count …*: de teller van de passkey liep niet op. Dat gebeurt als dezelfde passkey via de synchronisatie van je wachtwoordmanager op
+  meerdere apparaten staat en elk apparaat zijn eigen teller bijhoudt. Bevestig dan met je wachtwoord en code, of gebruik de passkey van het apparaat waarmee je hem het laatst gebruikte.
+- *no open challenge matches it*: de bevestiging duurde langer dan 5 minuten, of werd twee keer verstuurd. Probeer het opnieuw.
 
 ## Fabrieksinstellingen
 
 *Instellingen → Systeem → Opruimen → Terug naar fabrieksinstellingen…* zet de app terug zoals direct na de installatie. Het verwijdert **alles**:
 berekeningen, bestellingen met factuurnummers, klanten, printers, tarieven, rollen, de filamentbibliotheek, instellingen, het factuursjabloon
 en logo, de geüploade bestanden, de OpenAI-sleutel, meldingsaanmeldingen en ook alle gebruikers en openstaande uitnodigingen, met hun passkeys, herstelcodes en wachtwoorden. Alleen de database zelf en
-je `.env` blijven staan. Het kan niet ongedaan worden gemaakt: download eerst een back-up (*Back-up en herstel*) als je iets wilt bewaren.
+je `.env` blijven staan. Het kan niet ongedaan worden gemaakt: maak eerst een back-up (*Back-up en herstel*) en download hem als je iets wilt bewaren.
 
 De knop opent **eerst de waarschuwing** (wat verdwijnt, ook je eigen passkeys, en wat blijft), dan het veld waarin je het woord **`RESET`** typt; zonder dat woord doet de server niets, ook niet met een geldige bevestiging. Wat **blijft**: je `.env` (met `SETUP_CODE`, `SESSION_SECRET`, de VAPID-sleutels), de image, `DATA_PATH/backups` (de dumps van `scripts/update.sh` en de automatische back-ups) en je accounts bij andere diensten (zoals OpenAI; alleen de sleutel in de app verdwijnt). Daarna volgt een laatste vraag (“alle gegevens worden nu definitief gewist”) en pas dan de bevestiging hieronder. Er is **geen herstart** nodig: alle toestand staat in de database en de uploadmap, en de server begint bij het volgende verzoek gewoon opnieuw met een lege database. De reset laat één regel achter in het logboek van de container (hoeveel tabellen zijn geleegd en hoeveel bestanden zijn verwijderd, met hun namen; nooit inhoud). Weet je het niet zeker: kopieer eerst de map `DATA_PATH` of maak een back-up; de reset biedt er zelf geen aan.
 

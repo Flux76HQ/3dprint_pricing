@@ -1,4 +1,4 @@
-"""Automatic backups: by default every 12 hours the server makes the backup that *Back-up downloaden* makes with the print files, and keeps the
+"""Automatic backups: by default every 12 hours the server makes the backup that *Maak back-up* makes with the print files, and keeps the
 newest 14 (a week) in `Config.backup_dir` (DATA_PATH/backups/auto). A new one replaces the oldest. An administrator can switch them off, choose
 how often (every 0.5, 1, 2, 7 or 14 days) and how many to keep (0-60; 0 keeps none: none is made and the ones there are removed): `settings()`.
 
@@ -14,6 +14,11 @@ When the last one was made is read from the file names (UTC), not from the datab
 clock, and the backups themselves stay where they are. An installation without an owner (not set up yet, or just reset) makes none, so an
 empty database never pushes a real backup out. A backup is written under a temporary name and renamed when complete; the oldest are only
 removed after that. A failure is kept in `app_state`, shown on the screen, and tried again after an hour.
+
+*Maak back-up* keeps its backup here and nowhere else (`POST /api/backup/auto`, `keep_manual`; nothing is downloaded), with or without the
+print files, named `printpricing-manual-...` so the rotation never counts or removes it and it never moves the schedule of the automatic ones.
+The list shows both kinds. Any of them can be removed by hand (`DELETE /api/backup/auto/<name>`), only after a fresh confirmation bound to that
+one backup (`password_api._confirm`, action `backup-delete`): a backup is the way back after a mistake, so it is never one click away.
 """
 import json
 import logging
@@ -25,12 +30,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from flask import Blueprint, jsonify, send_file
+from flask import Blueprint, g, jsonify, send_file
 
 from . import backup, db
 from .api import boolean
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, render, request_language
+from .password_api import _confirm
 
 bp = Blueprint("auto_backup", __name__, url_prefix="/api/backup/auto")
 log = logging.getLogger(__name__)
@@ -42,6 +48,7 @@ LOCK_SECONDS = 2 * 3600                      # a worker that died while making o
 FIRST_CHECK_SECONDS = 60                     # after the start, so the first one does not slow the start down
 CHECK_SECONDS = 300
 NAME = re.compile(r"printpricing-auto-(\d{4}-\d{2}-\d{2}-\d{6})Z\.zip")      # the moment it was made, UTC: sorting the names sorts the backups
+MANUAL = re.compile(r"printpricing-manual-(\d{4}-\d{2}-\d{2}-\d{6})Z\.(zip|json)")   # one made with *Maak back-up*: never counted or removed by the rotation
 STAMP = "%Y-%m-%d-%H%M%S"
 TMP_PREFIX = ".tmp-"                         # being written; renamed when complete, removed when a crash left it behind
 ERROR_KEY = "auto_backup:error"              # app_state: the last failure, until a backup succeeds
@@ -61,17 +68,31 @@ def _folder() -> Path:
     return Path(config().backup_dir)
 
 
+def _match(name: str):
+    """A backup the app made here, automatic or by hand; None for anything else."""
+    return NAME.fullmatch(name) or MANUAL.fullmatch(name)
+
+
 def _moment(name: str) -> datetime:
-    return datetime.strptime(NAME.fullmatch(name).group(1), STAMP).replace(tzinfo=timezone.utc)
+    return datetime.strptime(_match(name).group(1), STAMP).replace(tzinfo=timezone.utc)
 
 
 def _names() -> list[str]:
-    """The automatic backups in the folder, newest first. Anything else in it is left alone."""
+    """The automatic backups in the folder, newest first: the ones the rotation counts, keeps and removes. Anything else in it is left alone."""
     try:
         names = [p.name for p in _folder().iterdir() if NAME.fullmatch(p.name) and p.is_file()]
     except FileNotFoundError:
         return []
     return sorted(names, reverse=True)
+
+
+def _all_names() -> list[str]:
+    """Every backup the list shows, automatic and made by hand, newest first."""
+    try:
+        names = [p.name for p in _folder().iterdir() if _match(p.name) and p.is_file()]
+    except FileNotFoundError:
+        return []
+    return sorted(names, key=lambda name: (_moment(name), name), reverse=True)
 
 
 def settings(conn) -> dict:
@@ -169,7 +190,6 @@ def make(now: datetime) -> Path | None:
     """Writes one backup with everything, then removes the oldest beyond the number to keep."""
     folder = _folder()
     began = time.monotonic()
-    tmp = None
     try:
         folder.mkdir(parents=True, exist_ok=True)
         _clear_leftovers(folder)
@@ -179,16 +199,8 @@ def make(now: datetime) -> Path | None:
                 return None
             doc, attachments = backup.document(conn, owner, include_files=True)      # the owner's own preferences go along, as in their own download
         target = folder / f"printpricing-auto-{now.astimezone(timezone.utc).strftime(STAMP)}Z.zip"
-        tmp = folder / f"{TMP_PREFIX}{uuid.uuid4().hex}"
-        with tmp.open("wb") as handle:
-            backup.write_zip(doc, attachments, handle)
-            handle.flush()
-            os.fsync(handle.fileno())                                 # on the disk before it counts as a backup and an old one goes
-        os.replace(tmp, target)
-        tmp = None
+        _write(folder, target, lambda handle: backup.write_zip(doc, attachments, handle))
     except Exception as exc:
-        if tmp:
-            tmp.unlink(missing_ok=True)
         _failed(now, exc)
         return None
     removed = _prune(folder, keep)
@@ -197,6 +209,43 @@ def make(now: datetime) -> Path | None:
     log.info("automatic backup %s: %.1f MB in %.1fs, %d print files; %d old one(s) removed", target.name, target.stat().st_size / 1048576,
              time.monotonic() - began, len(attachments), len(removed))
     return target
+
+
+def keep_manual(user_id, include_files: bool, now: datetime | None = None) -> tuple[Path, int]:
+    """*Maak back-up*: the backup is made here and kept next to the automatic ones; it is downloaded from the list, if at all. It holds what
+    the person's own download would (their own preferences go along), a ZIP with the print files or one JSON file without. Returns its path and how many
+    print files went in. Raises OSError when the folder cannot take it (a full disk, a folder the app may not write in)."""
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    folder = _folder()
+    folder.mkdir(parents=True, exist_ok=True)
+    _clear_leftovers(folder)
+    with pool().connection() as conn:
+        doc, attachments = backup.document(conn, user_id, include_files)
+    suffix = "zip" if include_files else "json"
+    target = folder / f"printpricing-manual-{now.strftime(STAMP)}Z.{suffix}"
+    while target.exists():                                            # two in the same second: the second a second later, never over the first
+        now += timedelta(seconds=1)
+        target = folder / f"printpricing-manual-{now.strftime(STAMP)}Z.{suffix}"
+    if include_files:
+        _write(folder, target, lambda handle: backup.write_zip(doc, attachments, handle))
+    else:
+        _write(folder, target, lambda handle: handle.write(json.dumps(doc, ensure_ascii=False).encode("utf-8")))
+    return target, len(attachments)
+
+
+def _write(folder: Path, target: Path, write) -> None:
+    """Written under a temporary name, on the disk (fsync) before it counts as a backup and an old one may go, then renamed into place: a
+    real name never holds half a backup."""
+    tmp = folder / f"{TMP_PREFIX}{uuid.uuid4().hex}"
+    try:
+        with tmp.open("wb") as handle:
+            write(handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _failed(now: datetime, exc: Exception) -> None:
@@ -276,12 +325,18 @@ def summary() -> dict:
 
 def _path(name: str) -> Path:
     """A name from the address, checked by pattern before it is joined to a path."""
-    if not isinstance(name, str) or not NAME.fullmatch(name):
+    if not isinstance(name, str) or not _match(name):
         raise ApiError(404, "backup.auto_not_found")
     path = _folder() / name
     if not path.is_file():
         raise ApiError(404, "backup.auto_not_found")
     return path
+
+
+def _entry(name: str, size: int) -> dict:
+    """One line of the list: when, how big, made by the server or by hand, and whether the print files are in it (a JSON file holds none)."""
+    return {"name": name, "created_at": _moment(name).isoformat(), "size": size,
+            "kind": "auto" if NAME.fullmatch(name) else "manual", "with_files": name.endswith(".zip")}
 
 
 @bp.get("")
@@ -291,12 +346,12 @@ def listing():
     with pool().connection() as conn:
         error, chosen = _last_error(conn), settings(conn)
     backups = []
-    for name in names:
+    for name in _all_names():
         try:
             size = (_folder() / name).stat().st_size
         except FileNotFoundError:
             continue                                                  # removed while we looked
-        backups.append({"name": name, "created_at": _moment(name).isoformat(), "size": size})
+        backups.append(_entry(name, size))
     failure = None
     if error:
         lang = request_language()
@@ -318,10 +373,44 @@ def save():
     return listing()
 
 
+@bp.post("")
+def make_now():
+    """*Maak back-up*: made and kept here, with the print files (`files: true`, a ZIP) or without (one JSON file); nothing is downloaded, the
+    answer names it and the list shows it. When the folder cannot take it (a full disk, a folder the app may not write in) the answer is 507
+    with the reason, and nothing half-written is left behind."""
+    include_files = json_body().get("files") is True
+    began = time.monotonic()
+    try:
+        path, files = keep_manual(g.user_id, include_files)
+        size = path.stat().st_size
+    except OSError as exc:
+        log.warning("backup could not be kept on the server: %s", exc)
+        raise ApiError(507, "backup.keep_failed", reason=str(exc)[:300]) from None
+    backup._remember(include_files)
+    log.info("backup kept as %s: %.1f MB in %.1fs, %d print files", path.name, size / 1048576, time.monotonic() - began, files)
+    return jsonify({"backup": _entry(path.name, size)})
+
+
 @bp.get("/<name>")
 def download(name):
-    """The ZIP as it is on the server, with its size, so the screen can show how far the download is."""
-    return send_file(_path(name), mimetype="application/zip", as_attachment=True, download_name=name, conditional=False)
+    """The file as it is on the server, with its size, so the screen can show how far the download is."""
+    return send_file(_path(name), mimetype="application/zip" if name.endswith(".zip") else "application/json", as_attachment=True,
+                     download_name=name, conditional=False)
+
+
+@bp.delete("/<name>")
+def remove(name):
+    """Removes one backup from the server, automatic or made by hand, after a fresh confirmation that it is this person: a passkey
+    bound to exactly this backup, or the password plus a code (counted against the same lock as signing in). The name is checked first, so
+    an unknown one spends neither a confirmation nor an attempt. Answers the list as it is now."""
+    path = _path(name)
+    _confirm(json_body(), "backup-delete", name)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        raise ApiError(404, "backup.auto_not_found") from None
+    log.info("backup %s removed by hand", name)
+    return listing()
 
 
 @bp.post("/<name>/stage")

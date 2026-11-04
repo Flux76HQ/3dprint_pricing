@@ -154,7 +154,7 @@ def write_zip(doc: dict, attachments: list, handle) -> None:
 
 
 def _remember(with_files: bool) -> None:
-    """A downloaded backup leaves nothing on the server, so the moment is written down: Settings → Over shows when the last one was made."""
+    """The moment of the last backup made in the app (*Maak back-up*, or this download): Settings → Over shows when the last one was made."""
     with pool().connection() as conn:
         conn.execute("INSERT INTO app_state (key, value) VALUES ('last_backup', %s) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
                      (json.dumps({"at": datetime.now(timezone.utc).isoformat(), "with_files": with_files}),))

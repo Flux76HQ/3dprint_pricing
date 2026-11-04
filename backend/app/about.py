@@ -85,7 +85,7 @@ def _legacy(cfg, conn) -> dict:
 
 def _backups(conn, database_path: Path) -> dict:
     """When the last backup was made, from the three places that leave a trace: the copies `update.sh` puts in DATA_PATH/backups (next to db/), the
-    automatic backups (`auto_backup.py`, in DATA_PATH/backups/auto) and the moment of the last backup downloaded in the app (`backup._remember`).
+    automatic backups (`auto_backup.py`, in DATA_PATH/backups/auto) and the moment of the last backup made in the app (`backup._remember`).
     Only names, times and sizes; nothing of what is in them."""
     folder = database_path.parent.parent / "backups"
     copies = []
