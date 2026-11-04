@@ -252,8 +252,10 @@ const AUTO_EVERY = [[0.5, 'backup.auto_every_05'], [1, 'backup.auto_every_1'], [
 
 /** Backup and restore of everything entered (settings, printers, tariffs, packaging, parts, accessories, rolls, calculations).
  *  Both show what they are doing. A restore is a job on the server (`/api/backup/jobs`): once the file is up, leaving the page stops
- *  nothing, and the card picks the job up again when it is shown. Below, the automatic backups the server makes every 12 hours
- *  (`/api/backup/auto`, backend/app/auto_backup.py): each one is downloaded as the ZIP it is, or restored through the same check and job. */
+ *  nothing, and the card picks the job up again when it is shown. *Back-up downloaden* has the server make the backup and keep it
+ *  (`POST /api/backup/auto`), then downloads that file. Below, the settings of the automatic backups and the list of every backup on the
+ *  server, automatic and made by hand (`/api/backup/auto`, backend/app/auto_backup.py): each one is downloaded as it is, restored through
+ *  the same check and job, or deleted after a fresh passkey (or password and code) confirmation bound to that one backup. */
 function backupCard() {
   let withFiles = false;
   let running = false;
@@ -288,22 +290,36 @@ function backupCard() {
     status.textContent = '';
   }
 
+  /** The server makes the backup and keeps it with the others, then this very file is downloaded. When the server cannot keep it (507:
+   *  a full disk, a folder it may not write in), the backup is downloaded straight away instead and the screen says it was not kept. */
   async function download() {
     busy();
     show(withFiles ? t('backup.making_files') : t('backup.making'));                    // the server is putting it together: nothing to count yet
     const began = performance.now();
     let answered = null;
+    let kept = null;
+    let notKept = '';
     try {
-      const { blob, name } = await downloadFile(`/api/backup${withFiles ? '?files=1' : ''}`, {
+      ({ backup: kept } = await api('POST', '/api/backup/auto', { files: withFiles }));
+    } catch (e) {
+      if (e.status !== 507) { toast(e.message, 'error'); idle(); return; }
+      notKept = e.message;
+    }
+    try {
+      const path = kept ? `/api/backup/auto/${encodeURIComponent(kept.name)}` : `/api/backup${withFiles ? '?files=1' : ''}`;
+      const { blob, name } = await downloadFile(path, {
         onProgress: (got, total) => {
           if (answered == null) answered = performance.now();                           // the first answer: the server is done, the file starts to arrive
           show(t('backup.receiving'), total ? (got / total) * 100 : null, total ? t('backup.of', { done: megabytes(got), total: megabytes(total) }) : megabytes(got));
         },
       });
       saveBlob(blob, name);
-      status.textContent = `${t('backup.downloaded', { name })} ${t('backup.timing_download', { made: seconds(answered - began), got: seconds(performance.now() - answered), size: megabytes(blob.size) })}`;
+      const timing = t('backup.timing_download', { made: seconds((answered ?? performance.now()) - began), got: seconds(performance.now() - (answered ?? performance.now())), size: megabytes(blob.size) });
+      status.textContent = kept ? `${t('backup.downloaded_kept', { name })} ${timing}` : `${t('backup.downloaded', { name })} ${notKept} ${timing}`;
+      if (notKept) toast(notKept, 'error');
     } catch (e) { toast(e.message, 'error'); }
     idle();
+    if (kept) loadAuto();                                                               // the new one is in the list, also when the download itself failed
   }
 
   async function restore(file) {
@@ -368,7 +384,7 @@ function backupCard() {
     const timing = sessionStorage.getItem(TIMING_KEY);
     if (timing) { status.textContent = `${t('backup.restored')} ${timing}`; sessionStorage.removeItem(TIMING_KEY); }
   } catch { /* nothing to show */ }
-  // --- the automatic backups: the progress of an action on one of them is shown in the same place as the rest, brought into view
+  // --- the backups on the server: the progress of an action on one of them is shown in the same place as the rest, brought into view
 
   const moment = (iso) => formatDateTime(iso, { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -395,6 +411,24 @@ function backupCard() {
     box.hidden = true;
     await confirmAndStart(staged);
   }
+
+  /** Only with a fresh confirmation that it is this person, bound on the server to this one backup: a passkey, or the password and a code. */
+  async function removeKept(backup) {
+    const when = moment(backup.created_at);
+    const proof = await confirmIdentity({ action: 'backup-delete', target: backup.name, title: t('backup.delete_title'),
+      message: t('backup.delete_msg', { when }), confirmLabel: t('common.delete') });
+    if (!proof) return;                                                                 // cancelled: nothing changes
+    busy();
+    try {
+      await api('DELETE', `/api/backup/auto/${encodeURIComponent(backup.name)}`, proof);
+      toast(t('backup.deleted', { when }));
+    } catch (e) { toast(e.message, 'error'); }
+    idle();
+    loadAuto();
+  }
+
+  const iconButton = (name, label, onclick, extra = '') => h('button', { class: `btn small icon-only${extra}`, type: 'button', disabled: running,
+    title: label, 'aria-label': label, onclick }, icon(name));
 
   /** Switch, how often, how many to keep: saved at once; the list below follows (a lower number removes the surplus on the spot). */
   function autoSettings(state) {
@@ -426,15 +460,20 @@ function backupCard() {
       autoSettings(state),
       state.error ? h('div', { class: 'notice danger', role: 'alert' }, h('p', {}, `${t('backup.auto_failed_at', { when: moment(state.error.at) })} ${state.error.message}`)) : null,
       h('p', { class: 'status-line' }, !on ? t(state.settings.keep === 0 ? 'backup.auto_next_none' : 'backup.auto_next_off') : due ? t('backup.auto_next_soon') : t('backup.auto_next', { when: moment(state.next_at) })),
+      h('h3', {}, t('backup.kept_title')),
+      h('p', { class: 'muted' }, t('backup.kept_intro')),
       state.backups.length
-        ? h('ul', { class: 'plain-list' }, state.backups.map((backup) => h('li', { class: 'list-row' },
-          h('div', {}, h('strong', {}, moment(backup.created_at)), h('p', { class: 'muted' }, fileSize(backup.size))),
-          h('div', { class: 'row' },
-            h('button', { class: 'btn small', type: 'button', disabled: running, 'aria-label': t('backup.auto_download_named', { when: moment(backup.created_at) }),
-              onclick: () => downloadAuto(backup) }, t('backup.auto_download')),
-            h('button', { class: 'btn small', type: 'button', disabled: running, 'aria-label': t('backup.auto_restore_named', { when: moment(backup.created_at) }),
-              onclick: () => restoreAuto(backup) }, t('backup.auto_restore'))))))
-        : h('p', { class: 'muted' }, t('backup.auto_none')));
+        ? h('ul', { class: 'plain-list' }, state.backups.map((backup) => {
+          const when = moment(backup.created_at);
+          const facts = [t(backup.kind === 'manual' ? 'backup.kind_manual' : 'backup.kind_auto'), fileSize(backup.size), backup.with_files ? null : t('backup.without_files')];
+          return h('li', { class: 'list-row' },
+            h('div', {}, h('strong', {}, when), h('p', { class: 'muted' }, facts.filter(Boolean).join(' · '))),
+            h('div', { class: 'row' },
+              iconButton('download', t('backup.download_named', { when }), () => downloadAuto(backup)),
+              iconButton('restore', t('backup.restore_named', { when }), () => restoreAuto(backup)),
+              iconButton('trash', t('backup.delete_named', { when }), () => removeKept(backup), ' danger')));
+        }))
+        : h('p', { class: 'muted' }, t('backup.kept_none')));
   }
 
   picker.addEventListener('change', () => { const file = picker.files[0]; picker.value = ''; if (file) restore(file); });
