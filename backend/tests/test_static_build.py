@@ -43,6 +43,13 @@ def test_every_import_and_the_entry_scripts_carry_the_release(real):
             assert token.search(specifier), f"{script.name} imports {specifier} without the release"
 
 
+def test_the_page_may_use_the_camera_for_scanning_but_nothing_else_may(real):
+    """The barcode scanner needs the camera of this origin; `camera=()` made Chrome and Android refuse it (Safari ignores the header)."""
+    policy = {name: value for name, value in (part.strip().split("=", 1) for part in real.get("/").headers["Permissions-Policy"].split(","))}
+    assert policy == {"camera": "(self)", "microphone": "()", "geolocation": "()"}
+    assert real.get("/").headers["X-Frame-Options"] == "DENY"                       # no other page can borrow it by framing this one
+
+
 def test_the_page_learns_what_it_loaded_from_the_file_itself(real):
     build = real.get("/js/build.js").get_data(as_text=True)
     assert re.search(r"BUILD = \{ version: '[^']+', commit: '0123456', channel: 'stable' \}", build) and "'dev', commit: 'dev'" not in build

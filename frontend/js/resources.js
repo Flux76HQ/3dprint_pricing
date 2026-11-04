@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { getLanguage, t } from './i18n.js';
 import { colourOf, spoolIcon, stockTiles } from './filament-ui.js';
+import { openBulkScan } from './bulk-scan.js';
 import { scanBarcode } from './scanner.js';
 import { spoolmanBar } from './spoolman.js';
 import { askChoice, confirmDialog, enhanceDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
@@ -553,6 +554,7 @@ export function openForm(config, item, reload) {
   dialog.addEventListener('close', () => dialog.remove());
   document.body.append(dialog);
   dialog.showModal();
+  return dialog;
 }
 
 // How the rolls can be ordered: [key, label key, sort value]. Tapping the active one reverses it.
@@ -655,8 +657,13 @@ export function resourceView(key, sub) {
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' },
       h('div', {}, h('h1', {}, config.title)),
-      h('button', { class: 'btn primary', type: 'button', onclick: () => openForm(config, null, load) },
-        icon('plus'), h('span', {}, t(`${config.id}.new`)))),
+      h('div', { class: 'row' },
+        // A delivery of rolls: scan them one after the other and add them in one go. A barcode that is not known yet opens this same form.
+        key === 'filament' ? h('button', { class: 'btn', type: 'button', 'aria-label': t('bulk.title'), onclick: () => openBulkScan({
+          newRoll: (code, saved) => openForm({ ...config, defaults: { ...config.defaults, barcode: code } }, null, saved), reload: load }) },
+        icon('scan'), h('span', {}, t('bulk.open'))) : null,
+        h('button', { class: 'btn primary', type: 'button', onclick: () => openForm(config, null, load) },
+          icon('plus'), h('span', {}, t(`${config.id}.new`))))),
     h('p', { class: 'muted page-intro' }, config.intro),
     key === 'filament' ? h('div', { class: 'subbar' },
       h('nav', { class: 'subnav', 'aria-label': t('filament.parts') },
