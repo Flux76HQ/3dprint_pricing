@@ -76,6 +76,7 @@ def export():
     stamp = datetime.now().strftime("%Y-%m-%d")
     if not include_files:
         log.info("backup: read in %.1fs", queried)
+        _remember(include_files)
         return Response(json.dumps(doc, ensure_ascii=False), mimetype="application/json",
                         headers={"Content-Disposition": f'attachment; filename="printpricing-backup-{stamp}.json"'})
     out = tempfile.TemporaryFile(dir=_upload_dir())                  # on the data disk, not in memory: the models can be large
@@ -86,6 +87,7 @@ def export():
     response.headers["Content-Disposition"] = f'attachment; filename="printpricing-backup-{stamp}.zip"'
     response.headers["Content-Length"] = str(size)
     log.info("backup with files: read in %.1fs, zipped in %.1fs, %.1f MB", queried, time.monotonic() - began - queried, size / 1048576)
+    _remember(include_files)
     return response
 
 
@@ -149,6 +151,13 @@ def write_zip(doc: dict, attachments: list, handle) -> None:
         archive.writestr(ARCHIVE_JSON, json.dumps(doc, ensure_ascii=False), compress_type=zipfile.ZIP_DEFLATED)
         for member, path in attachments:                             # stored, not deflated: a 3MF is a ZIP already, and deflating an STL costs far more time on a small server than the space it saves
             archive.write(path, member, compress_type=zipfile.ZIP_STORED)
+
+
+def _remember(with_files: bool) -> None:
+    """A downloaded backup leaves nothing on the server, so the moment is written down: Settings → Over shows when the last one was made."""
+    with pool().connection() as conn:
+        conn.execute("INSERT INTO app_state (key, value) VALUES ('last_backup', %s) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                     (json.dumps({"at": datetime.now(timezone.utc).isoformat(), "with_files": with_files}),))
 
 
 def _archive_name(filename: str, used: set) -> str:
