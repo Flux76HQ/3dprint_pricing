@@ -49,8 +49,12 @@ def _refused(exc: Exception) -> WebAuthnError:
     text = str(exc)
     for needle, key in _KNOWN:
         if needle in text:
-            return WebAuthnError(key)
-    return WebAuthnError("wa.refused", reason=text or type(exc).__name__)
+            error = WebAuthnError(key)
+            break
+    else:
+        error = WebAuthnError("wa.refused", reason=text or type(exc).__name__)
+    error.detail = (text or type(exc).__name__)[:300]      # the library's own words, for the log (auth._verify_assertion), never for the browser
+    return error
 
 
 def verify_registration(credential: dict, challenge: bytes, rp_id: str, origins) -> dict:

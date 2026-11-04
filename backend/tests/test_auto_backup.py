@@ -514,3 +514,32 @@ def test_with_password_login_the_password_and_a_code_remove_it_and_a_wrong_one_c
     assert os.path.exists(path_of(app, name))
     assert delete(owner, name, {"current_password": PASSWORD, "code": code_for(secret, 1)}).status_code == 200
     assert not os.path.exists(path_of(app, name))
+
+
+def test_why_a_passkey_was_refused_goes_to_the_log_and_not_to_the_browser(owner, app, caplog):
+    """The browser only hears "Verificatie mislukt."; the process log says why, so a passkey that keeps being refused can be explained."""
+    from tests.fake_authenticator import FakeAuthenticator
+    name = make_now(owner, False).get_json()["backup"]["name"]
+    other = auto_backup.run_once(app, T0).name
+    stale = FakeAuthenticator()                                                       # e.g. one left in the password manager by an earlier installation
+    cases = [
+        ({"credential": stale.assert_(post(owner, "/api/auth/stepup/options", {"action": "backup-delete", "target": name}).get_json())},
+         "not registered here"),
+        ({"credential": proof(owner, other)}, "no open challenge matches it"),
+    ]
+
+    def check(body, reason):
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="app.auth"):
+            res = delete(owner, name, body, headers=NL)
+        assert res.status_code == 403 and res.get_json()["error"] == "Verificatie mislukt.", reason
+        line = " ".join(r.getMessage() for r in caplog.records)
+        assert "passkey confirm refused" in line and f"backup:{name}:delete" in line and reason in line, line
+        assert "clientDataJSON" not in line and "signature\":" not in line                 # what went wrong, never the answer itself
+
+    for body, reason in cases:
+        check(body, reason)
+    assert delete(owner, other, {"credential": proof(owner, other)}).status_code == 200    # the server now holds this passkey's counter
+    owner.passkey.counter -= 2                                                        # a copy of the passkey that is behind (synced to another device)
+    check({"credential": proof(owner, name)}, "sign count")
+    assert os.path.exists(path_of(app, name))
