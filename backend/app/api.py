@@ -225,6 +225,8 @@ def _register(path, table, fields, order):
     def create():
         body = json_body()
         values = _validated(fields, body, partial=False)
+        # A roll may be added more than once (Dupliceren): `count` identical rolls, all or none, as many as a scanned delivery may hold.
+        count = (optional_int("f.count", minimum=1, maximum=BULK_MAX_ROLLS)(body.get("count")) or 1) if table == "filament_spools" else 1
         cols = ", ".join(values)
         marks = ", ".join(["%s"] * len(values))
         with pool().connection() as conn:
@@ -240,6 +242,11 @@ def _register(path, table, fields, order):
                                tuple(values.values())).fetchone()
             if table == "filament_spools":
                 row = _share_notify(conn, row, explicit="notify_low" in values, creating=True)
+                if count > 1:                                   # the other rolls are the same kind, so they take the notification the first one ended with
+                    copy = {**values, "notify_low": row["notify_low"]}
+                    cols, marks = ", ".join(copy), ", ".join(["%s"] * len(copy))
+                    for _ in range(count - 1):
+                        conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks})", tuple(copy.values()))
                 if body.get("add_to_library") is True:          # a roll typed in by hand may also be put in the library, if it is not there yet
                     from . import filament_library              # imported here: that module imports this one
                     filament_library.add_roll(conn, row, body.get("library"))

@@ -463,6 +463,36 @@ def test_a_scan_list_puts_the_filament_in_the_library_only_when_it_says_so(owner
     assert len(spools(owner)) == 6
 
 
+# --- the same roll more than once (Dupliceren) --------------------------------------------------------------
+
+def test_a_roll_can_be_added_more_than_once_and_the_copies_are_the_same_kind(owner):
+    roll(owner, 300, barcode="777", notify_low=True)                                    # the kind already has the notification on
+    first = make(owner, "/api/spools", {"brand": "Bambu PLA Basic", "material": "PLA", "colour": "Black", "roll_weight_g": 1000, "price": "21.50",
+                                        "remaining_g": 1000, "barcode": "777", "notes": "levering 4 nov", "count": "3", "add_to_library": True})
+    assert first["barcode"] == "777" and first["notify_low"] is True
+    new = [s for s in spools(owner) if s["remaining_g"] == "1000.0"]
+    assert len(new) == 3 and len({s["id"] for s in new}) == 3
+    assert {(s["price"], s["notes"], s["notify_low"], s["archived"]) for s in new} == {("21.50", "levering 4 nov", True, False)}
+    assert len(owner.get("/api/filament-library").get_json()) == 1                      # the library gets the filament once
+    group = next(g for g in owner.get("/api/spools/stock").get_json()["groups"] if g["barcode"] == "777")
+    assert group["roll_count"] == 4 and Decimal(group["remaining_g"]) == 3300
+
+
+def test_without_a_count_one_roll_is_added_and_other_lists_ignore_it(owner):
+    roll(owner, 1000, count=None)
+    roll(owner, 1000, count="")
+    assert len(spools(owner)) == 2
+    make(owner, "/api/printers", {"name": "X1C", "purchase_price": 750, "lifetime_hours": 3000, "count": 5})
+    assert len(owner.get("/api/printers").get_json()) == 1
+
+
+@pytest.mark.parametrize("count", [0, -1, "1.5", "abc", 201])
+def test_a_count_that_is_not_a_whole_number_from_1_to_200_adds_nothing(owner, count):
+    res = owner.post("/api/spools", json={"brand": "x", "roll_weight_g": 1000, "price": 1, "remaining_g": 1000, "count": count}, headers=H)
+    assert res.status_code == 400, res.get_json()
+    assert spools(owner) == []
+
+
 def test_scanning_needs_a_session(client):
     assert client.get("/api/spools/from-barcode?barcode=1").status_code == 401
     assert client.post("/api/spools/bulk", json={"items": [{"barcode": "1", "count": 1}]}, headers=H).status_code in (401, 403)

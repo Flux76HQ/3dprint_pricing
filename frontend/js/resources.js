@@ -73,9 +73,13 @@ function resources() {
         footnote: [item.barcode ? t('filament.barcode_note', { code: item.barcode }) : null, item.spoolman_id ? t('spoolman.note') : null].filter(Boolean).join(' · ') || null,
       };
     },
-    // A roll from Spoolman is Spoolman's to change (the server refuses it): all that is left here is the low-stock alert.
+    // A roll typed in here can be duplicated: the roll form, filled in with this roll, makes one or more new ones.
+    // A roll from Spoolman is Spoolman's to change (the server refuses it), and a new one is made there: all that is left here is the low-stock alert.
     actions(item, reload) {
-      if (!item.spoolman_id) return [];
+      if (!item.spoolman_id) {
+        return [h('button', { class: 'btn small', type: 'button', 'aria-label': t('filament.duplicate_named', { name: spoolName(item, ' · ') }),
+          onclick: () => openForm(this, null, reload, { copyOf: item }) }, icon('copy'), h('span', {}, t('filament.duplicate')))];
+      }
       return [h('button', { class: 'btn small', type: 'button', onclick: async () => {
         try { await api('PATCH', `${this.path}/${item.id}`, { notify_low: !item.notify_low }); reload(); } catch (e) { toast(e.message, 'error'); }
       } }, item.notify_low ? t('spoolman.notify_off') : t('spoolman.notify_on'))];
@@ -210,6 +214,34 @@ function stockPanel() {
   return { panel, refresh, setFilter(fn) { match = fn; draw(); } };
 }
 
+// The search field above both parts of the filament page. It filters while you type: every word has to be in the name (brand, type,
+// colour), the barcode or the material of a roll or kind, ignoring case and accents. What was typed is kept while switching between the parts.
+let filamentSearch = '';
+const folded = (v) => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+function searchBar(onChange) {
+  const words = () => folded(filamentSearch).split(/\s+/).filter(Boolean);
+  const set = (value) => { filamentSearch = value; input.value = value; onChange(); };
+  const input = h('input', { type: 'search', id: 'filament-search', value: filamentSearch, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
+    enterkeyhint: 'search', placeholder: t('filament.search_ph'), 'aria-label': t('filament.search'),
+    oninput: (e) => { filamentSearch = e.target.value; onChange(); },
+    onkeydown: (e) => { if (e.key === 'Escape' && input.value) { e.preventDefault(); set(''); } } });
+  // On a phone a barcode is scanned rather than typed.
+  const scan = h('button', { class: 'btn', type: 'button', 'aria-label': t('filament.search_scan'), onclick: async () => {
+    const code = await scanBarcode();
+    if (code) set(code.trim());
+  } }, icon('scan'));
+  const bar = h('div', { class: 'search-bar', role: 'search' }, h('div', { class: 'search-field' }, icon('search'), input), scan);
+  return {
+    bar,
+    active: () => words().length > 0,
+    matches(row) {
+      const text = folded([row.brand, row.product_type, row.colour, row.material, row.barcode].join(' '));
+      return words().every((w) => text.includes(w));
+    },
+  };
+}
+
 // Filters for the filament list: by material ("soort"), brand and type. Options come from what you have,
 // each one narrows to what the earlier choices leave, and both the list and the stock overview follow.
 const norm = (v) => String(v || '').trim().toLowerCase();
@@ -279,9 +311,12 @@ async function askToPassOn(config, item, payload) {
   return answer === null ? null : (answer === 'all' ? changed : []);
 }
 
-export function openForm(config, item, reload) {
-  if (item) config = { ...config, fields: config.fields.filter((f) => !f.newOnly) };     // an option of making a new one, not of editing
-  const values = { ...(item || config.defaults) };
+/** The form of `config`: editing `item`, or a new one. `copyOf` (a roll) makes it a new roll with that roll's details, which starts full
+    (what is left is per roll), and asks how many: they are all added at once. */
+export function openForm(config, item, reload, { copyOf = null } = {}) {
+  if (item || copyOf) config = { ...config, fields: config.fields.filter((f) => !f.newOnly) };     // an option of making a new one from scratch, not of editing or copying
+  const copied = copyOf ? { ...Object.fromEntries(config.fields.map((f) => [f.key, copyOf[f.key] ?? ''])), remaining_g: copyOf.roll_weight_g, count: '1' } : null;
+  const values = { ...(item || copied || config.defaults) };
   const error = h('p', { class: 'error', role: 'alert', hidden: true });
   const els = {};          // inputs by key, so "copy from the previous roll" can fill them
   const datalists = [];
@@ -371,7 +406,7 @@ export function openForm(config, item, reload) {
     if (!els[key]) return;
     if (els[key].setValue) els[key].setValue(value); else els[key].value = value;
   };
-  const fresh = config.id === 'filament' && !item;
+  const fresh = config.id === 'filament' && !item && !copyOf;          // a roll from scratch: the library and the Bambu Lab shop can fill it in
   const libraryRows = fresh ? api('GET', '/api/filament-library').catch(() => []) : Promise.resolve([]);   // a convenience: the form works without it
   const fromShop = { filament_id: '', refill: null };          // what the Bambu Lab shop says about the filament that a roll does not hold
 
@@ -524,7 +559,31 @@ export function openForm(config, item, reload) {
     els[f.key] = input;
     return field(f.label, input, f.hint);
   });
-  const original = item || config.defaults;
+  // A copy asks how many rolls it makes (typed, or one less / one more); the button says how many it adds.
+  const submit = h('button', { class: 'btn primary', type: 'submit' }, t('common.save'));
+  let countField = null;
+  if (copyOf) {
+    const label = () => {
+      const n = Number(values.count);
+      submit.textContent = Number.isInteger(n) && n >= 1 ? t('filament.add_rolls', { n }) : t('common.save');
+    };
+    const input = h('input', { type: 'text', id: 'f-count', inputmode: 'numeric', autocomplete: 'off', required: true, value: values.count,
+      oninput: (e) => { values.count = e.target.value.trim(); dirty.add('count'); label(); } });
+    const step = (by) => {
+      values.count = String(Math.max(1, (Number.parseInt(values.count, 10) || 1) + by));
+      input.value = values.count;
+      dirty.add('count');
+      label();
+    };
+    countField = h('div', { class: 'field' }, h('label', { for: 'f-count' }, t('filament.count')),
+      h('div', { class: 'row nowrap count-stepper' },
+        h('button', { class: 'btn small', type: 'button', 'aria-label': t('filament.count_less'), onclick: () => step(-1) }, '−'),
+        input,
+        h('button', { class: 'btn small', type: 'button', 'aria-label': t('filament.count_more'), onclick: () => step(1) }, '+')),
+      h('p', { class: 'hint' }, t('filament.count_hint')));
+    label();
+  }
+  const original = item || copied || config.defaults;
   const changed = () => [...dirty].some((key) => String(values[key] ?? '') !== String(original[key] ?? ''));
   const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
     h('form', { class: 'stack', method: 'dialog', onsubmit: async (e) => {
@@ -537,20 +596,23 @@ export function openForm(config, item, reload) {
           passOn = await askToPassOn(config, item, payload);
           if (passOn === null) return;                                     // closed the question: back to the form
           await api('PATCH', `${config.path}/${item.id}`, payload);
-        } else await api('POST', config.path, payload);
+        } else await api('POST', config.path, copyOf ? { ...payload, count: values.count } : payload);
         let others = 0;
         if (passOn.length) others = (await api('POST', `${config.path}/${item.id}/propagate`, { fields: passOn })).updated;
         dialog.close();
-        toast(others ? t('propagate.done', { n: others }) : t('common.saved'));
+        if (others) toast(t('propagate.done', { n: others }));
+        else toast(copyOf ? t('filament.duplicated', { n: Number(values.count) }) : t('common.saved'));
         reload();
       } catch (err) { error.textContent = err.message; error.hidden = false; }
     } },
-    h('h2', {}, item ? t(`${config.id}.edit`) : t(`${config.id}.new`)),
+    h('h2', {}, item ? t(`${config.id}.edit`) : (copyOf ? t('filament.duplicate_title') : t(`${config.id}.new`))),
+    copyOf ? h('p', { class: 'hint' }, t('filament.duplicate_intro', { name: spoolName(copyOf, ' · ') })) : null,
+    countField,
     fresh ? libraryPicker() : null,
     ...inputs, ...datalists, error,
     h('div', { class: 'row end' },
       h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
-      h('button', { class: 'btn primary', type: 'submit' }, t('common.save'))))), { dirty: changed });
+      submit))), { dirty: changed });
   dialog.addEventListener('close', () => dialog.remove());
   document.body.append(dialog);
   dialog.showModal();
@@ -576,10 +638,10 @@ export function resourceView(key, sub) {
   let items = [];
 
   const render = () => {
-    const visible = items.filter((i) => (showArchived || !i.archived) && (!filters || filters.matches(i)));
+    const visible = items.filter((i) => (showArchived || !i.archived) && matches(i));
     if (!visible.length) {
       list.replaceChildren(h('p', { class: 'empty glass card' },
-        filters?.active() && items.length ? t('filament.no_match') : `${config.empty} ${t('common.add_first')}`));
+        (filters?.active() || search?.active()) && items.length ? t('filament.no_match') : `${config.empty} ${t('common.add_first')}`));
       return;
     }
     if (part === 'rollen') {
@@ -620,10 +682,14 @@ export function resourceView(key, sub) {
   };
 
   const stock = part === 'voorraad' ? stockPanel() : null;
-  const filters = key === 'filament' ? filterBar(() => {
+  const narrowed = () => {
     render();
-    stock?.setFilter((g) => filters.matches(g));       // stock groups carry brand and material too
-  }) : null;
+    stock?.setFilter(matches);                         // stock groups carry brand, type, colour, material and barcode too
+  };
+  const search = key === 'filament' ? searchBar(narrowed) : null;
+  const filters = key === 'filament' ? filterBar(narrowed) : null;
+  const matches = (row) => (!search || search.matches(row)) && (!filters || filters.matches(row));
+  stock?.setFilter(matches);                           // a search typed on the other part still holds
 
   // The sort buttons at the top of the rolls: tap one to order by it, tap it again to reverse.
   const sortBar = part === 'rollen' ? h('div', { class: 'sortbar', role: 'group', 'aria-label': t('sort.label') }) : null;
@@ -671,5 +737,5 @@ export function resourceView(key, sub) {
       spoolmanBar(load)) : null,
     key === 'onderdelen' || key === 'accessoires' ? h('nav', { class: 'subnav', 'aria-label': t('parts.tabs') },
       ...[['onderdelen', 'parts.title'], ['accessoires', 'accessories.title']].map(([to, label]) => h('a', { href: `#/onderdelen${to === 'accessoires' ? '/accessoires' : ''}`, 'aria-current': key === to ? 'page' : null }, t(label)))) : null,
-    sortBar, filters ? h('details', { class: 'filters-details', open: filters.active() }, h('summary', {}, t('filter.title')), filters.bar) : null, stock?.panel || null, part === 'rollen' || !part ? archiveToggle : null, part === 'voorraad' ? null : list);
+    search?.bar || null, sortBar, filters ? h('details', { class: 'filters-details', open: filters.active() }, h('summary', {}, t('filter.title')), filters.bar) : null, stock?.panel || null, part === 'rollen' || !part ? archiveToggle : null, part === 'voorraad' ? null : list);
 }
