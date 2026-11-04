@@ -615,17 +615,131 @@ function invoiceTemplateCard() {
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('invoice_tpl.title')), body);
 }
 
+// --- About: what runs, how healthy the database is, how the app is connected to it (administrators; /api/about) -----------------------------------
+
+// Each check of the health list: its label and the sentence for every state it can have. The server sends facts, these are the words.
+const HEALTH_CHECKS = {
+  reachable: { label: 'about.chk_reachable', ok: 'about.chk_reachable_ok', error: 'about.chk_reachable_error' },
+  write_lock: { label: 'about.chk_write_lock', ok: 'about.chk_write_lock_ok', warn: 'about.chk_write_lock_warn' },
+  journal: { label: 'about.chk_journal', ok: 'about.chk_journal_ok', warn: 'about.chk_journal_warn' },
+  foreign_keys: { label: 'about.chk_foreign_keys', ok: 'about.chk_foreign_keys_ok', error: 'about.chk_foreign_keys_error' },
+  schema: { label: 'about.chk_schema', ok: 'about.chk_schema_ok', warn: 'about.chk_schema_warn', error: 'about.chk_schema_error' },
+  filesystem: { label: 'about.chk_filesystem', ok: 'about.chk_filesystem_ok', warn: 'about.chk_filesystem_warn' },
+  disk_space: { label: 'about.chk_disk_space', ok: 'about.chk_disk_space_ok', warn: 'about.chk_disk_space_warn' },
+  wal_size: { label: 'about.chk_wal_size', ok: 'about.chk_wal_size_ok', warn: 'about.chk_wal_size_warn' },
+};
+const HEALTH_STATE = { ok: 'about.state_ok', warn: 'about.state_warn', error: 'about.state_error' };
+const HEALTH_TITLE = { ok: 'about.health_ok', warn: 'about.health_warn', error: 'about.health_error' };
+const SYNC_MODES = ['about.sync_0', 'about.sync_1', 'about.sync_2', 'about.sync_3'];     // SQLite's PRAGMA synchronous: 0 off, 1 normal, 2 full, 3 extra
+const FEATURES = [['push', 'about.feature_push'], ['ai_images', 'about.feature_ai_images'], ['spoolman', 'about.feature_spoolman'], ['update_check', 'about.feature_update_check']];
+
+const size = (bytes) => (bytes >= 1073741824 ? `${fmt(bytes / 1073741824, 1)} GB` : bytes >= 1048576 ? `${fmt(bytes / 1048576, 1)} MB` : bytes >= 1024 ? `${fmt(bytes / 1024, 1)} KB` : `${bytes} B`);
+const duration = (seconds) => {
+  const days = Math.floor(seconds / 86400), hours = Math.floor((seconds % 86400) / 3600), minutes = Math.floor((seconds % 3600) / 60);
+  return days ? `${t('about.dur_days', { n: days })} ${t('about.dur_hours', { n: hours })}` : hours ? `${t('about.dur_hours', { n: hours })} ${t('about.dur_minutes', { n: minutes })}` : t('about.dur_minutes', { n: minutes });
+};
+const pill = (state) => h('span', { class: `pill ${state}` }, t(HEALTH_STATE[state]));
+const kv = (label, value) => h('div', { class: 'kv' }, h('span', { class: 'muted' }, label), h('strong', {}, value));
+
+function aboutCards() {
+  const app = h('div', { class: 'glass card stack about' });
+  const health = h('div', { class: 'glass card stack about' });
+  const link = h('div', { class: 'glass card stack about' });
+  let data = null, deep = null, busy = false;
+
+  const checkText = (c) => {
+    const entry = HEALTH_CHECKS[c.key];
+    const params = { ms: c.value, mode: c.value, fs: c.value || '?', size: size(Number(c.value) || 0), reason: c.detail || '' };
+    return entry && entry[c.state] ? t(entry[c.state], params) : '';
+  };
+
+  function drawApp() {
+    const a = data.app;
+    fill(app, h('h2', {}, t('about.app_title')), h('p', { class: 'muted' }, t('about.app_intro')),
+      kv(t('about.name'), a.name),
+      kv(t('about.version'), `v${a.version}`),
+      kv(t('about.commit'), a.commit),
+      kv(t('about.channel'), t(a.channel === 'beta' ? 'about.channel_beta' : 'about.channel_stable')),
+      kv(t('about.started'), when(a.started_at)),
+      kv(t('about.uptime'), duration(a.uptime_seconds)),
+      kv(t('about.python'), a.python),
+      kv(t('about.flask'), a.flask),
+      kv(t('about.features'), FEATURES.map(([key, label]) => `${t(label)}: ${t(a.features[key] ? 'about.on' : 'about.off')}`).join(' · ')),
+      h('div', { class: 'row' }, h('a', { class: 'btn', href: a.repository, target: '_blank', rel: 'noopener noreferrer' }, t('about.repo'))));
+  }
+
+  function drawHealth() {
+    const state = data.health.state;
+    const result = deep && (deep.failed
+      ? h('div', { class: 'notice error', role: 'alert' }, h('p', {}, t('about.deep_failed')))
+      : h('div', { class: `notice ${deep.ok ? 'ok' : 'error'}`, role: deep.ok ? 'status' : 'alert' },
+        h('p', {}, deep.ok ? t('about.deep_ok', { seconds: deep.seconds }) : t('about.deep_bad', { seconds: deep.seconds })),
+        deep.ok ? null : h('ul', {}, [...deep.quick_check.map((line) => h('li', {}, line)),
+          ...deep.foreign_key_violations.map((v) => h('li', {}, t('about.deep_fk', { table: v.table, parent: v.parent })))])));
+    fill(health, h('div', { class: 'about-head' }, h('h2', {}, t('about.health_title')), h('span', { class: `pill big ${state}` }, t(HEALTH_TITLE[state]))),
+      h('p', { class: 'muted' }, t('about.health_intro')),
+      h('ul', { class: 'plain-list health-list' }, data.health.checks.map((c) => h('li', { class: 'health-row' },
+        h('div', {}, h('strong', {}, t(HEALTH_CHECKS[c.key]?.label || 'about.state_error')), h('p', { class: 'muted' }, checkText(c))), pill(c.state)))),
+      result,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary', type: 'button', disabled: busy, onclick: runDeep }, busy ? t('about.deep_running') : t('about.deep_button')),
+        h('button', { class: 'btn', type: 'button', disabled: busy, onclick: load }, t('about.refresh'))));
+  }
+
+  function drawLink() {
+    const l = data.link, d = data.database;
+    if (!l) { fill(link, h('h2', {}, t('about.link_title')), h('p', { class: 'muted' }, d.path)); return; }
+    const old = l.legacy;
+    const legacyText = old.state === 'imported'
+      ? t(old.address ? 'about.legacy_imported' : 'about.legacy_imported_alone', { when: old.imported_at ? when(old.imported_at.replace(' ', 'T') + 'Z') : '?', address: old.address })
+      : old.state === 'unused' ? t('about.legacy_unused', { address: old.address }) : t('about.legacy_none');
+    fill(link, h('h2', {}, t('about.link_title')), h('p', { class: 'muted' }, t('about.link_intro')),
+      kv(t('about.engine'), `${d.engine} ${d.version}`),
+      kv(t('about.driver'), t('about.driver_value')),
+      kv(t('about.file'), l.path),
+      kv(t('about.size'), size(d.size_bytes)),
+      kv(t('about.wal'), size(d.wal_bytes)),
+      kv(t('about.mode'), l.journal_mode.toUpperCase()),
+      kv(t('about.sync'), t(SYNC_MODES[l.synchronous] || SYNC_MODES[1])),
+      kv(t('about.refs'), t(l.foreign_keys ? 'about.yes' : 'about.no')),
+      kv(t('about.timeout'), t('about.timeout_value', { n: fmt(l.busy_timeout_ms / 1000, 0) })),
+      kv(t('about.filesystem'), l.filesystem || '?'),
+      kv(t('about.free'), size(d.free_bytes)),
+      kv(t('about.pages'), t('about.pages_value', { count: d.page_count, size: size(d.page_size), free: d.free_pages })),
+      kv(t('about.process'), l.workers ? t('about.process_of', { pid: l.worker_pid, workers: l.workers }) : t('about.process_value', { pid: l.worker_pid })),
+      kv(t('about.legacy'), legacyText),
+      old.old_data_folder ? h('p', { class: 'hint' }, t('about.legacy_folder')) : null,
+      h('details', {}, h('summary', {}, t('about.migrations')),
+        h('ul', { class: 'plain-list' }, d.migrations.applied.map((m) => h('li', {}, h('code', {}, m.filename), ' · ', when(m.applied_at))))),
+      h('details', {}, h('summary', {}, `${t('about.tables')} (${d.tables})`),
+        h('ul', { class: 'plain-list' }, Object.entries(d.rows).map(([name, n]) => h('li', {}, h('code', {}, name), ` · ${n}`)))));
+  }
+
+  const draw = () => { drawApp(); drawHealth(); drawLink(); };
+  async function load() {
+    try { data = await api('GET', '/api/about'); draw(); } catch (e) { toast(e.message || t('about.unavailable'), 'error'); }
+  }
+  async function runDeep() {
+    busy = true; deep = null; drawHealth();
+    try { deep = await api('POST', '/api/about/check', {}); } catch { deep = { failed: true }; }
+    busy = false; drawHealth();
+  }
+  fill(app, h('h2', {}, t('about.app_title')), h('p', { class: 'muted' }, '…'));
+  load();
+  return [app, health, link];
+}
+
 // The parts of the settings, in the order of the sub menu: [route, label key]. "Zakelijk" is only there when it is switched on.
 // A regular user does not see the parts that are for administrators (the server refuses them whatever the screen shows).
 const SECTIONS = [['algemeen', 'settings.tab_general'], ['weergave', 'settings.tab_appearance'], ['beveiliging', 'settings.tab_security'],
   ['zakelijk', 'settings.tab_business'], ['filamenten', 'settings.tab_filaments'], ['notificaties', 'settings.tab_notifications'],
-  ['gebruikers', 'settings.tab_users'], ['ai', 'settings.tab_ai'], ['systeem', 'settings.tab_system']];
-const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'ai', 'systeem'];
+  ['gebruikers', 'settings.tab_users'], ['ai', 'settings.tab_ai'], ['systeem', 'settings.tab_system'], ['over', 'settings.tab_about']];
+const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'ai', 'systeem', 'over'];
 // How the menu is grouped and which icon each part has. A part is only shown when `shown()` lets it through, a group without parts not at all.
 const GROUPS = [['settings.group_personal', ['algemeen', 'weergave', 'beveiliging', 'notificaties']],
-  ['settings.group_data', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'ai', 'systeem']]];
+  ['settings.group_data', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'ai', 'systeem', 'over']]];
 const SECTION_ICONS = { algemeen: 'tune', weergave: 'theme-light-dark', beveiliging: 'shield-lock', notificaties: 'bell', zakelijk: 'domain',
-  filamenten: 'palette-swatch', gebruikers: 'account-group', ai: 'creation', systeem: 'server' };
+  filamenten: 'palette-swatch', gebruikers: 'account-group', ai: 'creation', systeem: 'server', over: 'information-outline' };
 
 export function settingsView(ctx, requested) {
   const { setPrefs, user, highlightPasskey } = ctx;
@@ -789,6 +903,7 @@ export function settingsView(ctx, requested) {
     gebruikers: () => usersCards(),
     ai: () => [aiSettingsCard(), aiLogCard()],
     systeem: () => [backupCard(), updateCard(), resetCard()],
+    over: () => aboutCards(),
   };
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.settings')))),
