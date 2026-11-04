@@ -178,9 +178,9 @@ met een eigen icoon en opstartscherm en reageert als een native app:
 **Nieuwe versie.** De versie in de zijbalk is die van de code die de pagina echt geladen heeft (de server vult hem in `js/build.js` in), niet het antwoord van de server van dit moment; elke script- en stijl-URL draagt de release (`?v=0.7.3-abc1234`), zodat een oude cache of proxy geen oude scripts met een nieuwe server kan mengen. De app vraagt de server bij het openen, na terugkeren naar de voorgrond en elk kwartier welke versie draait.
 Is die nieuwer dan wat de app geladen heeft, dan verschijnt bovenaan “Nieuwe versie beschikbaar: vX.Y.Z (commit)” met
 *Nu bijwerken* en *Later* (een uur rust). Heb je een berekening met niet-opgeslagen wijzigingen open, dan vraagt de app
-eerst of je die wilt kwijtraken. *Instellingen → Systeem → Updatecontrole* toont de geïnstalleerde versie en controleert op verzoek.
+eerst of je die wilt kwijtraken. *Instellingen → Beheer → Over → Updatecontrole* toont de geïnstalleerde versie en controleert op verzoek.
 
-**Nieuwe release (updatecontrole).** Los van het bovenstaande (dat merkt dat *de server* is bijgewerkt) vraagt de server aan GitHub of er een nieuwere release is dan die hij draait, en meldt dat alleen aan de ingelogde eigenaar: een balk bovenaan (“Nieuwe release beschikbaar: vX (je hebt vY)”) met *Bekijken* (opent *Instellingen → Systeem → Updatecontrole*) en *Later* (voor die versie; een nog nieuwere versie meldt zich weer), en een stip bij *Instellingen* (of *Meer*). Onder *Updatecontrole* staan de geïnstalleerde en de nieuwste versie, wanneer er voor het laatst gekeken is, *Nu controleren*, een link naar de release notes en hoe je bijwerkt; ook staat daar of de controle uit staat, of er nog geen release is, of waarom het mislukte (“limiet van GitHub bereikt (HTTP 403)”, certificaat, time-out, geen verbinding). De app **meldt alleen**: bijwerken, herstarten of downloaden doet hij nooit; dat doe je zelf op de server (zie *Deploy en update*).
+**Nieuwe release (updatecontrole).** Los van het bovenstaande (dat merkt dat *de server* is bijgewerkt) vraagt de server aan GitHub of er een nieuwere release is dan die hij draait, en meldt dat alleen aan de ingelogde eigenaar: een balk bovenaan (“Nieuwe release beschikbaar: vX (je hebt vY)”) met *Bekijken* (opent *Instellingen → Beheer → Over → Updatecontrole*) en *Later* (voor die versie; een nog nieuwere versie meldt zich weer), en een stip bij *Instellingen* (of *Meer*). Onder *Updatecontrole* staan de geïnstalleerde en de nieuwste versie, wanneer er voor het laatst gekeken is, *Nu controleren*, een link naar de release notes en hoe je bijwerkt; ook staat daar of de controle uit staat, of er nog geen release is, of waarom het mislukte (“limiet van GitHub bereikt (HTTP 403)”, certificaat, time-out, geen verbinding). De app **meldt alleen**: bijwerken, herstarten of downloaden doet hij nooit; dat doe je zelf op de server (zie *Deploy en update*).
 - De controle leest de nieuwste gepubliceerde, niet-pre-release **GitHub Release** van deze repository, via de doorverwijzing van `github.com/Flux76HQ/3dprint_pricing/releases/latest` (niet via `api.github.com`, dat per IP-adres maar 60 aanvragen per uur toestaat). De aanvraag draagt een vaste `User-Agent` en niets over jouw installatie: geen versie, geen id, geen gegevens. Een beta-build (`PRINTPRICING_TAG=beta`) ziet dus alleen stabiele releases en nooit een nieuwere beta.
 - Het antwoord wordt per worker in het geheugen bewaard: zes uur na een succes, tien minuten na een mislukking; *Nu controleren* slaat dat over maar heeft een ondergrens van 30 seconden. Een mislukking houdt het laatste goede antwoord vast, zodat een gemelde update niet verdwijnt door een storing. Uitzetten: `PRINTPRICING_UPDATE_CHECK=false` in `.env` (dit is een nieuwe, optionele variabele: wie niets doet heeft de controle aan; `docker-compose.yml` geeft `.env` al door).
 
@@ -240,14 +240,18 @@ PostgreSQL: zet `TEST_DATABASE_URL`, of draai als root met PostgreSQL geïnstall
 `docker compose up -d` · `docker compose down` (data blijft in `DATA_PATH`) · logs: `docker compose logs -f app`.
 
 ### Instellingen → Beheer → Over (alleen beheerders)
-De pagina *Over* laat zien wat er draait en hoe gezond de database is. Bovenaan staat één regel met de versie, het gezondheidswoord, de laatste back-up en of er een update is; daaronder de kaarten:
+De pagina *Over* laat zien wat er draait. Bovenaan staan vier gegevens, elk met een kopje: **Versie** (de versie die draait), **Database** (het gezondheidswoord *Gezond*, *Let op* of *Probleem*; klik erop voor de details onder *Systeem*), **Laatste back-up** (*Vandaag*, *Gisteren*, *5 dagen geleden* of *Nog geen*, rood als hij ouder is dan 30 dagen; klik erop voor *Back-up*) en **Updates** (*Je hebt de nieuwste versie* of welke versie er beschikbaar is). Daaronder:
 
+- **Updatecontrole**: de geïnstalleerde en de nieuwste versie, en *Nu controleren* (zie *Meldingen en updates*).
 - **Over deze app**: versie, commit en kanaal (stabiel of beta), wanneer deze werker is gestart en hoe lang hij draait, de versies van Python en Flask, en welke optionele functies aan staan.
-- **Gezondheid van de database** (de eerste kaart): één woord (*Gezond*, *Let op* of *Probleem*) boven een lijst van snelle controles: antwoordt de database, hoe lang duurde het om de schrijfsleutel te krijgen (meer dan 0,5 s betekent dat iets anders hem lang vasthoudt), staat het bestand in WAL-modus, bewaakt de database verwijzingen tussen tabellen, zijn alle migraties toegepast (een ontbrekende of gewijzigde migratie is een fout), staat het bestand op een lokaal bestandssysteem (NFS, SMB en FUSE, zoals Unraids `/mnt/user`, geven een waarschuwing), is er genoeg vrije schijfruimte, is het WAL-bestand niet te groot en is de laatste automatische back-up gelukt (uitgeschakeld is een keuze, geen waarschuwing). De knop *Uitgebreide controle uitvoeren* leest de hele database na (`quick_check` en een zoektocht naar rijen die naar niets verwijzen) op een eigen verbinding, zodat de app intussen gewoon schrijft. *Kopieer diagnose* zet versie, controles, koppeling, laatste back-up en updatestand als platte tekst op het klembord (zonder wachtwoorden, sleutels of het wachtwoord van de oude PostgreSQL), om bij een probleem mee te sturen; lukt het klembord niet, dan staat de tekst in een veld om met de hand te kopiëren.
+
+### Instellingen → Beheer → Systeem (alleen beheerders)
+De pagina *Systeem* laat zien hoe gezond de database is en hoe de app ermee verbonden is; onderaan staat *Opruimen* (zie *Fabrieksinstellingen*).
+
+- **Gezondheid van de database**: één woord (*Gezond*, *Let op* of *Probleem*) boven een lijst van snelle controles: antwoordt de database, hoe lang duurde het om de schrijfsleutel te krijgen (meer dan 0,5 s betekent dat iets anders hem lang vasthoudt), staat het bestand in WAL-modus, bewaakt de database verwijzingen tussen tabellen, zijn alle migraties toegepast (een ontbrekende of gewijzigde migratie is een fout), staat het bestand op een lokaal bestandssysteem (NFS, SMB en FUSE, zoals Unraids `/mnt/user`, geven een waarschuwing), is er genoeg vrije schijfruimte, is het WAL-bestand niet te groot en is de laatste automatische back-up gelukt (uitgeschakeld is een keuze, geen waarschuwing). De knop *Uitgebreide controle uitvoeren* leest de hele database na (`quick_check` en een zoektocht naar rijen die naar niets verwijzen) op een eigen verbinding, zodat de app intussen gewoon schrijft. *Kopieer diagnose* zet versie, controles, koppeling, laatste back-up en updatestand als platte tekst op het klembord (zonder wachtwoorden, sleutels of het wachtwoord van de oude PostgreSQL), om bij een probleem mee te sturen; lukt het klembord niet, dan staat de tekst in een veld om met de hand te kopiëren.
 - **Actieve koppeling met de database**: het bestand waarmee de app nu verbonden is (pad, grootte), de logboekmodus, het bestandssysteem, de **laatste back-up** en de stand van de oude PostgreSQL-koppeling; achter *Meer details*: het stuurprogramma, schrijven naar schijf, de wachttijd op de schrijfsleutel, bewaakte verwijzingen, vrije schijfruimte, het werkproces, de toegepaste migraties en het aantal rijen per tabel. De oude PostgreSQL-koppeling (*niet ingesteld*, *eenmalig overgezet op …* of *ingesteld maar niet gebruikt*; het adres staat er zonder wachtwoord).
 
 De **laatste back-up** is de nieuwste van drie dingen: een kopie in `DATA_PATH/backups` (die `scripts/update.sh` daar zet), de nieuwste automatische back-up in `DATA_PATH/backups/auto` (zie *Automatische back-ups*) of de laatste back-up die in de app is gedownload (de app onthoudt alleen dat tijdstip, in `app_state`). Is de laatste ouder dan 30 dagen, of is er nog geen, dan staat er een waarschuwing in de kaart; het gezondheidswoord verandert daar niet van, zodat een nieuwe installatie niet meteen op *Let op* staat.
-- **Updatecontrole** en **Over deze app** (versies, starttijd, functies) staan eronder; de updatecontrole is dezelfde kaart als onder *Systeem*.
 
 Dezelfde gegevens staan in `GET /api/about` (alleen beheerders); `POST /api/about/check` is de uitgebreide controle.
 
@@ -268,7 +272,7 @@ Alles staat in **één map op de host**, `DATA_PATH` (op een server bijvoorbeeld
 
 **Zet `DATA_PATH` op een lokale schijf.** SQLite heeft werkende bestandsvergrendeling en gedeeld geheugen nodig. Een netwerkshare (NFS, SMB) of een FUSE-mount heeft die niet altijd, en dan kan een
 database beschadigd raken. Op Unraid is `/mnt/user/...` zo'n FUSE-mount: gebruik het pad van de pool zelf, `/mnt/<pool>/appdata/printpricing` (bijvoorbeeld `/mnt/cache/...`; ZFS, Btrfs en XFS zijn lokaal), of `/mnt/diskN/...`, of maak `appdata` een exclusieve share (hieronder). De container waarschuwt bij het opstarten als de map op zo'n bestandssysteem staat
-(*WARNING: the database folder … is on a network or FUSE file system*), en *Instellingen → Beheer → Over* zet dan *Bestandssysteem* op *Let op*. Open het databasebestand niet met een ander programma om erin te schrijven terwijl de app draait; de indexen op namen gebruiken een functie die alleen de app registreert
+(*WARNING: the database folder … is on a network or FUSE file system*), en *Instellingen → Beheer → Systeem* zet dan *Bestandssysteem* op *Let op*. Open het databasebestand niet met een ander programma om erin te schrijven terwijl de app draait; de indexen op namen gebruiken een functie die alleen de app registreert
 (`lower_u`), dus een gewone `sqlite3`-opdrachtregel meldt *unknown function* bij een schrijfactie of `integrity_check`. Lezen kan wel; kopiëren doe je met `backup_db.py` (zie *Back-up en herstel*).
 
 **Unraid: weg van `/mnt/user`.** Staat `DATA_PATH` nu op `/mnt/user/appdata/printpricing`, dan zijn het dezelfde bestanden als op de pool: er hoeft niets gekopieerd te worden. Maak eerst een back-up en kies dan een van twee:
@@ -374,7 +378,7 @@ Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de ap
 | `X-Forwarded-For/-Proto/-Host` doorgeven | aantal proxies = `PROXY_HOPS` | rate-limit op de setupcode per client-IP |
 | TLS | verplicht (behalve `localhost`) | WebAuthn, installeren, camera en push werken alleen in een secure context |
 | Uitgaand https vanaf de app-container | naar de pushdiensten (zie hierboven) | het versturen van push-meldingen; zonder dit falen ze zonder dat de app het merkt, behalve in de testknop |
-| Vrije schijfruimte in `DATA_PATH` | ruim 14 keer een back-up met printbestanden (ongeveer 14 keer de map `uploads/` plus de database) | de automatische back-ups in `DATA_PATH/backups/auto`; past er geen meer bij, dan meldt de app dat in *Instellingen → Systeem* en blijven de bestaande staan |
+| Vrije schijfruimte in `DATA_PATH` | ruim 14 keer een back-up met printbestanden (ongeveer 14 keer de map `uploads/` plus de database) | de automatische back-ups in `DATA_PATH/backups/auto`; past er geen meer bij, dan meldt de app dat in *Instellingen → Beheer → Back-up* (en bij de gezondheid onder *Systeem*) en blijven de bestaande staan |
 
 Er zit geen CDN of proxy in deze repository; wat ervoor staat bepaalt de werkelijke ceilings.
 
@@ -477,7 +481,9 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 | **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
 | **Gebruikers** | alleen beheerders: wie mag inloggen, uitnodigen, nieuwe inloglink, beheerder maken, verwijderen; zie *Gebruikers en rollen* |
 | **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel en het logboek |
-| **Systeem** | alleen beheerders: back-up en herstel (zie *Back-up in de app*), de updatecontrole (zie *Meldingen en updates*) en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
+| **Back-up** | alleen beheerders: back-up en herstel, en de automatische back-ups (zie *Back-up in de app*) |
+| **Systeem** | alleen beheerders: de gezondheid van de database en de actieve koppeling ermee (zie *Instellingen → Beheer → Systeem*), en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
+| **Over** | alleen beheerders: een samenvatting (versie, database, laatste back-up, updates), de updatecontrole (zie *Meldingen en updates*) en wat er draait (zie *Instellingen → Beheer → Over*) |
 
 *Uitloggen* staat onderaan de zijbalk (op een telefoon onderaan *Meer*). *Zakelijk* verbergt alleen dat onderdeel van de instellingen; het menu
 *Bestellingen* blijft gewoon zichtbaar. Een onderdeel dat niet getoond wordt (bijvoorbeeld *Zakelijk* terwijl het uit staat) valt terug op
@@ -671,7 +677,7 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
 
 ## Back-up in de app
 
-*Instellingen → Systeem → Back-up en herstel* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`; met *Printbestanden (STL/3MF) meenemen* is het een ZIP-bestand, zie hieronder):
+*Instellingen → Beheer → Back-up* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`; met *Printbestanden (STL/3MF) meenemen* is het een ZIP-bestand, zie hieronder):
 je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, de filamentbibliotheek, filamentrollen,
 berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: gebruikers en uitnodigingen, passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
@@ -689,7 +695,7 @@ van een eerdere versie (met de modellen er inline in) kan nog steeds worden teru
 
 **Je ziet wat er gebeurt.** Bij het maken van een back-up toont de kaart een voortgangsbalk: eerst dat de server hem samenstelt, daarna hoeveel er al binnen is. Bij herstellen zie je het uploaden (met megabytes), het controleren van het bestand
 en daarna het herstellen zelf, met bij printbestanden *printbestand 4 van 10*. Na de controle vraagt de app om bevestiging; **daarna draait het herstel op de server als achtergrondtaak** (tabel `backup_jobs`, geen onderdeel van een back-up):
-je kunt de pagina verlaten of de browser sluiten en het gaat door. Open *Instellingen → Systeem* weer, dan zie je de stand of de uitkomst; is het klaar, dan laadt de app opnieuw met de teruggezette instellingen. Mislukt het, dan staat er waarom
+je kunt de pagina verlaten of de browser sluiten en het gaat door. Open *Instellingen → Beheer → Back-up* weer, dan zie je de stand of de uitkomst; is het klaar, dan laadt de app opnieuw met de teruggezette instellingen. Mislukt het, dan staat er waarom
 en is er niets veranderd (het vervangen is één transactie). Er loopt hooguit één herstel tegelijk. Een herstel dat 15 minuten niet vooruitkwam (de server was herstart) wordt als onderbroken gemeld; ook dan is er niets veranderd.
 Het geüploade bestand staat tot het herstel klaar is als `.restore-<token>` onder `DATA_PATH/uploads` en wordt daarna, of na een uur, verwijderd.
 
@@ -708,7 +714,7 @@ is er een nieuwe helemaal geschreven, dan verdwijnt de oudste. Andere bestanden 
 
 **Instellen** doet een beheerder bovenaan die kaart: een **schakelaar** (standaard aan; uit laat de bestaande back-ups staan en maakt er geen meer), **hoe vaak** (elke 0,5, 1, 2, 7 of 14 dagen; standaard 0,5, dus elke 12 uur) en het **aantal te bewaren back-ups** (0 tot en met 60; standaard 14). Een lager aantal ruimt de oudste meteen op. Bij **0** worden geen automatische back-ups bewaard: er worden er geen gemaakt en de bestaande worden verwijderd. De keuzes staan in de database (`app_state`); *Terug naar fabrieksinstellingen* zet de standaardwaarden terug, de back-ups zelf blijven staan.
 
-*Instellingen → Systeem → Back-up en herstel → Automatische back-ups* toont ze, nieuwste eerst, met datum, tijd en grootte, en wanneer de volgende
+*Instellingen → Beheer → Back-up → Automatische back-ups* toont ze, nieuwste eerst, met datum, tijd en grootte, en wanneer de volgende
 komt. Per back-up:
 
 - **Downloaden** geeft het ZIP-bestand zoals het op de server staat (met voortgang). Je kunt het later terugzetten met *Herstellen uit back-up…*,

@@ -80,7 +80,7 @@ body:
     id: version
     attributes:
       label: Appversie
-      description: Te vinden onder Instellingen → Systeem → Updatecontrole.
+      description: Te vinden onder Instellingen → Beheer → Over.
       placeholder: "0.26.19"
     validations:
       required: true

@@ -48,7 +48,7 @@ function installCard() {
 const RELEASE_ERRORS = { rate_limit: 'release.err.rate_limit', ssl: 'release.err.ssl', timeout: 'release.err.timeout',
   connection: 'release.err.connection', unexpected: 'release.err.unexpected' };
 
-/** Settings -> Systeem -> Updatecontrole (release.js): the installed and the latest version, which of the states it is in, when it was last
+/** Settings -> Beheer -> Over -> Updatecontrole (release.js): the installed and the latest version, which of the states it is in, when it was last
  *  checked, and how to update. "Check now" also asks whether this screen is behind the server (updates.js), which shows its own banner. */
 function updateCard() {
   const body = h('div', { class: 'stack' });
@@ -712,8 +712,13 @@ async function copyText(text) {
   return ok;
 }
 
-function aboutCards() {
-  const summary = h('div', { class: 'glass card about-summary' });
+// The first letter in capitals: `ago()` is written for the middle of a sentence, the summary shows it on its own.
+const capital = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** The cards that read `/api/about`. `over`: the summary, the update check and the app; `systeem`: the health of the database and the
+ *  connection to it. Only the part that is open is built, so the page loads `/api/about` once. */
+function aboutCards(part) {
+  const summary = h('dl', { class: 'glass card about-summary' });
   const app = h('div', { class: 'glass card stack about' });
   const health = h('div', { class: 'glass card stack about' });
   const link = h('div', { class: 'glass card stack about' });
@@ -735,15 +740,18 @@ function aboutCards() {
     return `${ago(b.age_days)} (${source})`;
   };
 
+  // Four labelled facts, each with the page that has the details: the version, the database (Systeem), the last backup (Back-up), updates (below).
   function drawSummary() {
     const update = releaseStatus();
     const b = data.backups;
+    const item = (label, value) => h('div', { class: 'about-sum-item' }, h('dt', { class: 'muted' }, label), h('dd', {}, value));
     const updateText = update?.available ? t('about.sum_update', { latest: `v${update.latest}` }) : update?.latest ? t('about.sum_current') : null;
     fill(summary,
-      h('strong', {}, `v${data.app.version}`),
-      h('span', { class: `pill big ${data.health.state}` }, t(HEALTH_TITLE[data.health.state])),
-      h('span', { class: b.old ? 'about-flag' : '' }, b.newest_at === null ? t('about.sum_backup_none') : t('about.sum_backup', { ago: ago(b.age_days) })),
-      updateText ? h('span', { class: update.available ? 'about-flag' : '' }, updateText) : null);
+      item(t('about.sum_version'), h('strong', {}, `v${data.app.version}`)),
+      item(t('about.sum_health'), h('a', { href: '#/instellingen/systeem', class: `pill big ${data.health.state}` }, t(HEALTH_TITLE[data.health.state]))),
+      item(t('about.sum_backup'), h('a', { href: '#/instellingen/backup', class: b.old ? 'about-flag' : '' },
+        b.newest_at === null ? t('about.sum_backup_none') : capital(ago(b.age_days)))),
+      updateText ? item(t('about.sum_updates'), h('span', { class: update.available ? 'about-flag' : '' }, updateText)) : null);
   }
 
   function drawApp() {
@@ -815,7 +823,7 @@ function aboutCards() {
             h('ul', { class: 'plain-list' }, Object.entries(d.rows).map(([name, n]) => h('li', {}, h('code', {}, name), ` · ${n}`)))))));
   }
 
-  const draw = () => { drawSummary(); drawApp(); drawHealth(); drawLink(); };
+  const draw = () => { if (part === 'over') { drawSummary(); drawApp(); } else { drawHealth(); drawLink(); } };
   async function load() {
     try { data = await api('GET', '/api/about'); draw(); } catch (e) { toast(e.message || t('about.unavailable'), 'error'); }
   }
@@ -829,31 +837,33 @@ function aboutCards() {
     if (await copyText(text)) { manual = ''; toast(t('about.copied')); } else { manual = text; toast(t('about.copy_failed'), 'error'); }
     drawHealth();
   }
-  fill(summary, h('span', { class: 'muted' }, '…'));
   load();
-  if (!releaseStatus()) initRelease().then(() => { if (data) drawSummary(); });            // the answer of the update check may come after the first draw
-  return [summary, health, link, updateCard(), app];
+  if (part === 'over') {
+    fill(summary, h('div', { class: 'about-sum-item' }, h('dt', { class: 'muted' }, t('about.sum_version')), h('dd', { class: 'muted' }, '…')));
+    if (!releaseStatus()) initRelease().then(() => { if (data) drawSummary(); });          // the answer of the update check may come after the first draw
+    return [summary, updateCard(), app];
+  }
+  return [health, link];
 }
 
 // The parts of the settings, in the order of the sub menu: [route, label key]. "Zakelijk" is only there when it is switched on.
 // A regular user does not see the parts that are for administrators (the server refuses them whatever the screen shows).
 const SECTIONS = [['algemeen', 'settings.tab_general'], ['weergave', 'settings.tab_appearance'], ['beveiliging', 'settings.tab_security'],
   ['zakelijk', 'settings.tab_business'], ['filamenten', 'settings.tab_filaments'], ['notificaties', 'settings.tab_notifications'],
-  ['gebruikers', 'settings.tab_users'], ['ai', 'settings.tab_ai'], ['systeem', 'settings.tab_system'], ['over', 'settings.tab_about']];
-const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'ai', 'systeem', 'over'];
+  ['gebruikers', 'settings.tab_users'], ['ai', 'settings.tab_ai'], ['backup', 'settings.tab_backup'], ['systeem', 'settings.tab_system'], ['over', 'settings.tab_about']];
+const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'ai', 'backup', 'systeem', 'over'];
 // How the menu is grouped and which icon each part has. A part is only shown when `shown()` lets it through, a group without parts not at all.
 const GROUPS = [['settings.group_personal', ['algemeen', 'weergave', 'beveiliging', 'notificaties']],
-  ['settings.group_data', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'ai', 'systeem', 'over']]];
+  ['settings.group_data', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'ai', 'backup', 'systeem', 'over']]];
 const SECTION_ICONS = { algemeen: 'tune', weergave: 'theme-light-dark', beveiliging: 'shield-lock', notificaties: 'bell', zakelijk: 'domain',
-  filamenten: 'palette-swatch', gebruikers: 'account-group', ai: 'creation', systeem: 'server', over: 'information-outline' };
+  filamenten: 'palette-swatch', gebruikers: 'account-group', ai: 'creation', backup: 'backup-restore', systeem: 'server', over: 'information-outline' };
 
 export function settingsView(ctx, requested) {
   const { setPrefs, user, highlightPasskey } = ctx;
   const businessOn = () => !!ctx.prefs.business_mode;
   const admin = user.role === 'admin';
   const shown = () => SECTIONS.filter(([key]) => (admin || !ADMIN_SECTIONS.includes(key)) && (key !== 'zakelijk' || businessOn()) && (key !== 'ai' || ctx.aiImages));   // "AI-afbeeldingen" only when .env switches it on
-  const wanted = requested === 'backup' ? 'systeem' : requested;                          // the address this part had before it was renamed
-  const section = shown().some(([key]) => key === wanted) ? wanted : 'algemeen';
+  const section = shown().some(([key]) => key === requested) ? requested : 'algemeen';
   // The address says what is shown: a part that is not there (Business while it is off) must not stay in the URL, or clicking its tab later would change nothing.
   if (requested && requested !== section) history.replaceState(null, '', `#/instellingen/${section}`);
   let vatTimer = null;
@@ -1008,8 +1018,9 @@ export function settingsView(ctx, requested) {
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
     ai: () => [aiSettingsCard(), aiLogCard()],
-    systeem: () => [backupCard(), updateCard(), resetCard()],
-    over: () => aboutCards(),
+    backup: () => [backupCard()],
+    systeem: () => [...aboutCards('systeem'), resetCard()],
+    over: () => aboutCards('over'),
   };
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.settings')))),

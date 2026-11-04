@@ -5,7 +5,7 @@ how often (every 0.5, 1, 2, 7 or 14 days) and how many to keep (0-60; 0 keeps no
 The file is the ZIP of a download (`backup.document` + `backup.write_zip`): backup.json with everything the owner entered (invoices with
 their numbers and kept PDFs, the template and the logo, customers, calculations, rolls, settings, ...) and every STL/3MF loose under
 files/. So the same rules hold: no credentials, users or invitations, and a restore goes through the same check and the same job as an
-uploaded backup (`backup.stage_copy`, then `POST /api/backup/jobs`). Settings -> Systeem lists them (`GET /api/backup/auto`); one is
+uploaded backup (`backup.stage_copy`, then `POST /api/backup/jobs`). Settings -> Beheer -> Back-up lists them (`GET /api/backup/auto`); one is
 downloaded as it is (`GET /api/backup/auto/<name>`). Administrators only (`access.py`, the /api/backup prefix).
 
 Every web worker runs a small loop (`start_worker`) that looks every few minutes whether a backup is due. Making one takes a lock in

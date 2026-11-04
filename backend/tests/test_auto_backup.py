@@ -1,5 +1,5 @@
 """Automatic backups: every 12 hours a ZIP with everything (print files, orders with their invoices, template and logo) in
-DATA_PATH/backups/auto, the newest 14 kept; listed, downloaded and restored from Settings -> Systeem, through the same check and job as an
+DATA_PATH/backups/auto, the newest 14 kept; listed, downloaded and restored from Settings -> Beheer -> Back-up, through the same check and job as an
 uploaded backup."""
 import base64
 import json

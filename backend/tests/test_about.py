@@ -1,4 +1,4 @@
-"""Settings → Beheer → Over: what runs, how healthy the database is, how the app is connected to it. For administrators only."""
+"""Settings → Beheer → Over (what runs) and → Systeem (how healthy the database is, how the app is connected to it). For administrators only."""
 import dataclasses
 import json
 
