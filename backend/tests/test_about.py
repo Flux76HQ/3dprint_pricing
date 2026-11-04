@@ -166,3 +166,66 @@ def test_every_text_the_about_screen_names_exists_in_both_languages():
         catalog = json.loads((front / "lang" / f"{language}.json").read_text(encoding="utf-8"))
         assert sorted(k for k in named if k not in catalog) == [], language
     assert len(named) > 60
+
+
+# --- the last backup -------------------------------------------------------------------------------------------
+
+def make_copy(app, name, days_ago, size=10):
+    import os
+    import time
+    from pathlib import Path
+    folder = Path(app.config["APP_CONFIG"].database_path).parent.parent / "backups"
+    folder.mkdir(exist_ok=True)
+    path = folder / name
+    path.write_bytes(b"x" * size)
+    stamp = time.time() - days_ago * 86400
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def test_no_backup_at_all_is_flagged_but_the_database_is_still_healthy(owner, app):
+    body = get(owner)
+    assert body["backups"]["newest_at"] is None and body["backups"]["age_days"] is None and body["backups"]["old"] is True
+    assert body["backups"]["copies"] == {"count": 0, "latest": None} and body["backups"]["downloaded"] is None
+    assert body["health"]["state"] == "ok"                             # a fresh installation has none yet: not a reason for "Let op"
+
+
+def test_a_backup_made_in_the_app_is_remembered(owner):
+    assert owner.get("/api/backup").status_code == 200
+    first = get(owner)["backups"]
+    assert first["downloaded"]["with_files"] is False and first["age_days"] == 0 and first["old"] is False
+    assert owner.get("/api/backup?files=1").status_code == 200
+    assert get(owner)["backups"]["downloaded"]["with_files"] is True
+
+
+def test_the_copies_of_update_sh_count_and_the_newest_wins(owner, app):
+    make_copy(app, "pre-update-2026-09-20-101500.sqlite3.gz", 40)
+    make_copy(app, "pre-update-2026-10-30-101500.sqlite3.gz", 3, size=2048)
+    make_copy(app, "pre-update-2026-08-01-090000.sql.gz", 90)             # from the PostgreSQL days
+    make_copy(app, "notes.txt", 0)                                        # not a backup
+    make_copy(app, ".hidden.gz", 0)
+    backups = get(owner)["backups"]
+    assert backups["copies"]["count"] == 3
+    assert backups["copies"]["latest"]["name"] == "pre-update-2026-10-30-101500.sqlite3.gz" and backups["copies"]["latest"]["size_bytes"] == 2048
+    assert backups["age_days"] == 3 and backups["old"] is False
+
+
+def test_the_newer_of_a_copy_and_a_download_is_the_last_backup(owner, app):
+    make_copy(app, "pre-update-2026-09-01-101500.sqlite3.gz", 60)
+    assert get(owner)["backups"]["old"] is True and get(owner)["backups"]["age_days"] == 60
+    owner.get("/api/backup")
+    assert get(owner)["backups"]["old"] is False and get(owner)["backups"]["age_days"] == 0
+
+
+def test_a_garbled_note_about_the_last_backup_is_ignored(owner, app):
+    with app.extensions["pool"].connection() as conn:
+        conn.execute("INSERT INTO app_state (key, value) VALUES ('last_backup', 'not json')")
+    assert get(owner)["backups"]["downloaded"] is None
+
+
+def test_a_factory_reset_forgets_the_last_backup(owner, app):
+    owner.get("/api/backup")
+    with app.extensions["pool"].connection() as conn:
+        assert conn.execute("SELECT 1 FROM app_state WHERE key = 'last_backup'").fetchone()
+        conn.execute("DELETE FROM app_state")                              # what the reset does to every table (tests/test_system.py covers the reset itself)
+    assert get(owner)["backups"]["downloaded"] is None

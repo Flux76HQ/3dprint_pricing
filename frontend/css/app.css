@@ -417,6 +417,10 @@ html.standalone .sidebar { top: calc(12px + env(safe-area-inset-top)); height: c
 .about-head h2 { margin: 0; }
 .health-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: start; padding: 10px 0; border-top: 1px solid var(--lijn); }
 .health-row p { margin: 2px 0 0; }
+.about-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.about-flag { color: var(--danger); font-weight: 600; }
+.about-manual { width: 100%; font: inherit; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; }
+details .stack { margin-top: 8px; }
 .kv strong { overflow-wrap: anywhere; }
 .about .kv > span { min-width: 15em; }               /* the values of the About cards line up, whatever the longest label is */
 .notice.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); }

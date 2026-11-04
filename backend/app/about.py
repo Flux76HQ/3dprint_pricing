@@ -27,6 +27,7 @@ STARTED = time.time()                                     # of this worker: guni
 REPO = "https://github.com/Flux76HQ/3dprint_pricing"
 NETWORK_FILESYSTEMS = ("nfs", "cifs", "smb", "fuse", "9p", "ceph", "afs")      # where SQLite's locks and shared memory cannot be trusted
 SLOW_LOCK_SECONDS = 0.5                                   # waiting longer than this for the write lock says something else holds it for long
+OLD_BACKUP_DAYS = 30                                      # a backup older than this (or none at all) is flagged on the page, not in the health word
 BIG_WAL_BYTES = 64 * 1024 ** 2                            # a log file this large means checkpoints are not happening
 LOW_DISK_BYTES = 200 * 1024 ** 2
 STATES = ("ok", "warn", "error")                          # worst last
@@ -82,6 +83,36 @@ def _legacy(cfg, conn) -> dict:
             "state": "imported" if marker else ("unused" if cfg.legacy_database_url else "none")}
 
 
+def _backups(conn, database_path: Path) -> dict:
+    """When the last backup was made, from both places that leave a trace: the copies `update.sh` puts in DATA_PATH/backups (next to db/), and the
+    moment of the last backup downloaded in the app (`backup._remember`). Only names, times and sizes; nothing of what is in them."""
+    folder = database_path.parent.parent / "backups"
+    copies = []
+    try:
+        for entry in folder.iterdir():
+            if entry.is_file() and not entry.name.startswith(".") and entry.suffix in (".gz", ".sqlite3", ".sql", ".zip", ".json"):
+                stat = entry.stat()
+                copies.append((stat.st_mtime, entry.name, stat.st_size))
+    except OSError:
+        pass
+    latest = max(copies, default=None)
+    row = conn.execute("SELECT value FROM app_state WHERE key = 'last_backup'").fetchone()
+    downloaded = None
+    if row:
+        try:
+            downloaded = json.loads(row["value"])
+        except ValueError:
+            downloaded = None
+    times = [datetime.fromtimestamp(latest[0], timezone.utc)] if latest else []
+    if downloaded and downloaded.get("at"):
+        times.append(datetime.fromisoformat(downloaded["at"]))
+    newest = max(times, default=None)
+    age = (datetime.now(timezone.utc) - newest).days if newest else None
+    return {"copies": {"count": len(copies), "latest": {"name": latest[1], "size_bytes": latest[2], "at": datetime.fromtimestamp(latest[0], timezone.utc).isoformat()} if latest else None},
+            "downloaded": {"at": downloaded["at"], "with_files": bool(downloaded.get("with_files"))} if downloaded and downloaded.get("at") else None,
+            "newest_at": newest.isoformat() if newest else None, "age_days": age, "old": age is None or age > OLD_BACKUP_DAYS, "old_after_days": OLD_BACKUP_DAYS}
+
+
 def _migrations(conn) -> dict:
     applied = {row["filename"]: row for row in conn.execute("SELECT filename, checksum, applied_at FROM schema_migrations ORDER BY filename").fetchall()}
     files = {path.name: db._checksum(path) for path in sorted(db.MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql"))}
@@ -111,7 +142,7 @@ def about():
                      "free_pages": int(_pragma(conn, "freelist_count"))}
             tables = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
             rows = {name: conn.execute(f'SELECT count(*) AS n FROM "{name}"').fetchone()["n"] for name in tables}
-            migrations, legacy = _migrations(conn), _legacy(cfg, conn)
+            migrations, legacy, backups = _migrations(conn), _legacy(cfg, conn), _backups(conn, path)
     except Exception as exc:                                 # the page must still say that the database does not answer
         return jsonify({"app": _app(cfg, VERSION, _commit()), "database": {"engine": "SQLite", "path": str(path)}, "link": None,
                         "health": {"state": "error", "checks": [{"key": "reachable", "state": "error", "detail": type(exc).__name__}]}})
@@ -137,6 +168,7 @@ def about():
         "link": {"kind": "sqlite", "path": str(path), "driver": "sqlite3", "journal_mode": journal, "foreign_keys": bool(foreign_keys),
                  "synchronous": facts["synchronous"], "busy_timeout_ms": facts["busy_timeout_ms"], "filesystem": filesystem, "network_filesystem": network,
                  "worker_pid": os.getpid(), "workers": int(os.environ.get("WEB_CONCURRENCY") or 0) or None, "legacy": legacy},
+        "backups": backups,
         "database": {"engine": "SQLite", "version": sqlite3.sqlite_version, "size_bytes": size, "wal_bytes": wal, "free_bytes": free,
                      "page_size": facts["page_size"], "page_count": facts["page_count"], "free_pages": facts["free_pages"],
                      "tables": len(tables), "rows": rows, "migrations": migrations},
