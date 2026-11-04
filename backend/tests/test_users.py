@@ -112,6 +112,7 @@ ADMIN_ONLY_CALLS = [
     ("GET", "/api/backup"), ("POST", "/api/backup/stage"), ("POST", "/api/backup/restore"), ("GET", "/api/backup/jobs/latest"),
     ("GET", "/api/backup/auto"), ("PUT", "/api/backup/auto"), ("GET", "/api/backup/auto/printpricing-auto-2026-11-04-080000Z.zip"),
     ("POST", "/api/backup/auto/printpricing-auto-2026-11-04-080000Z.zip/stage"),
+    ("POST", "/api/backup/auto"), ("DELETE", "/api/backup/auto/printpricing-manual-2026-11-04-080000Z.json"),
     ("POST", "/api/system/reset"),
     ("GET", "/api/update"), ("POST", "/api/update/check"),
     ("GET", "/api/about"), ("POST", "/api/about/check"),

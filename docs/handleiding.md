@@ -388,7 +388,7 @@ Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de ap
 | `X-Forwarded-For/-Proto/-Host` doorgeven | aantal proxies = `PROXY_HOPS` | rate-limit op de setupcode per client-IP |
 | TLS | verplicht (behalve `localhost`) | WebAuthn, installeren, camera en push werken alleen in een secure context |
 | Uitgaand https vanaf de app-container | naar de pushdiensten (zie hierboven) | het versturen van push-meldingen; zonder dit falen ze zonder dat de app het merkt, behalve in de testknop |
-| Vrije schijfruimte in `DATA_PATH` | ruim 14 keer een back-up met printbestanden (ongeveer 14 keer de map `uploads/` plus de database) | de automatische back-ups in `DATA_PATH/backups/auto`; past er geen meer bij, dan meldt de app dat in *Instellingen → Beheer → Back-up* (en bij de gezondheid onder *Systeem*) en blijven de bestaande staan |
+| Vrije schijfruimte in `DATA_PATH` | ruim 14 keer een back-up met printbestanden (ongeveer 14 keer de map `uploads/` plus de database), plus de back-ups die je zelf downloadt | de back-ups in `DATA_PATH/backups/auto` (een handmatige blijft staan tot je hem verwijdert); past er geen meer bij, dan meldt de app dat in *Instellingen → Beheer → Back-up* (en bij de gezondheid onder *Systeem*) en blijven de bestaande staan |
 
 Er zit geen CDN of proxy in deze repository; wat ervoor staat bepaalt de werkelijke ceilings.
 
@@ -491,7 +491,7 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 | **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
 | **Gebruikers** | alleen beheerders: wie mag inloggen, uitnodigen, nieuwe inloglink, beheerder maken, verwijderen; zie *Gebruikers en rollen* |
 | **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel en het logboek |
-| **Back-up** | alleen beheerders: back-up en herstel, en de automatische back-ups (zie *Back-up in de app*) |
+| **Back-up** | alleen beheerders: back-up en herstel, de automatische back-ups en de lijst van back-ups op de server (zie *Back-up in de app*) |
 | **Systeem** | alleen beheerders: de gezondheid van de database en de actieve koppeling ermee (zie *Instellingen → Beheer → Systeem*), en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
 | **Over** | alleen beheerders: een samenvatting (versie, database, laatste back-up, updates), de updatecontrole (zie *Meldingen en updates*) en wat er draait (zie *Instellingen → Beheer → Over*) |
 
@@ -687,7 +687,9 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
 
 ## Back-up in de app
 
-*Instellingen → Beheer → Back-up* downloadt al je gegevens als één JSON-bestand (`printpricing-backup-JJJJ-MM-DD.json`; met *Printbestanden (STL/3MF) meenemen* is het een ZIP-bestand, zie hieronder):
+*Instellingen → Beheer → Back-up* downloadt al je gegevens als één JSON-bestand (`printpricing-manual-JJJJ-MM-DD-UUMMSSZ.json`, de tijd in UTC; met *Printbestanden (STL/3MF) meenemen* is het een ZIP-bestand, zie hieronder).
+**Elke back-up die je zo downloadt, blijft ook op de server staan**, naast de automatische (zie *Back-ups op de server* hieronder): de server maakt hem, bewaart hem en daarna download je precies dat bestand. Kan de server hem niet bewaren
+(bijvoorbeeld een volle schijf), dan krijg je hem toch, rechtstreeks, en zegt de kaart dat hij niet bewaard is en waarom. In het bestand:
 je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, de filamentbibliotheek, filamentrollen,
 berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: gebruikers en uitnodigingen, passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
@@ -699,7 +701,7 @@ gelezen en tegen hun controlesom gehouden) en laat zien wat er terugkomt. Pas na
 nu staat, in één keer: lukt iets niet, dan verandert er niets. Een bestand uit een nieuwere versie van de app wordt geweigerd; een back-up van een oudere versie (zonder bestellingen) werkt
 nog steeds en laat de bestellingen dan leeg. Het volgende bestel- en factuurnummer gaat door na de hoogste uit de back-up.
 
-**Met printbestanden is het een ZIP-bestand** (`printpricing-backup-JJJJ-MM-DD.zip`): elk STL- of 3MF-bestand staat er los in, onder `files/` met zijn eigen naam (heten twee modellen hetzelfde, dan krijgt de tweede ` (2)`), en `backup.json`
+**Met printbestanden is het een ZIP-bestand** (`printpricing-manual-JJJJ-MM-DD-UUMMSSZ.zip`): elk STL- of 3MF-bestand staat er los in, onder `files/` met zijn eigen naam (heten twee modellen hetzelfde, dan krijgt de tweede ` (2)`), en `backup.json`
 bevat de rest, met per model een verwijzing (`archive_path`) en zijn controlesom. Je kunt het ZIP-bestand dus gewoon openen om een model terug te halen. Een back-up zonder printbestanden blijft één JSON-bestand, en een JSON-back-up
 van een eerdere versie (met de modellen er inline in) kan nog steeds worden teruggezet.
 
@@ -724,14 +726,7 @@ is er een nieuwe helemaal geschreven, dan verdwijnt de oudste. Andere bestanden 
 
 **Instellen** doet een beheerder bovenaan die kaart: een **schakelaar** (standaard aan; uit laat de bestaande back-ups staan en maakt er geen meer), **hoe vaak** (elke 0,5, 1, 2, 7 of 14 dagen; standaard 0,5, dus elke 12 uur) en het **aantal te bewaren back-ups** (0 tot en met 60; standaard 14). Een lager aantal ruimt de oudste meteen op. Bij **0** worden geen automatische back-ups bewaard: er worden er geen gemaakt en de bestaande worden verwijderd. De keuzes staan in de database (`app_state`); *Terug naar fabrieksinstellingen* zet de standaardwaarden terug, de back-ups zelf blijven staan.
 
-*Instellingen → Beheer → Back-up → Automatische back-ups* toont ze, nieuwste eerst, met datum, tijd en grootte, en wanneer de volgende
-komt. Per back-up:
-
-- **Downloaden** geeft het ZIP-bestand zoals het op de server staat (met voortgang). Je kunt het later terugzetten met *Herstellen uit back-up…*,
-  ook op een andere installatie.
-- **Terugzetten…** werkt als *Herstellen uit back-up…*, zonder upload: de server kopieert de back-up naar de wachtrij (`.restore-<token>` onder
-  `DATA_PATH/uploads`), controleert hem helemaal en laat zien wat er terugkomt; na jouw bevestiging vervangt hetzelfde achtergrondherstel alles in één keer.
-  De automatische back-up zelf blijft staan.
+Onder de instellingen staat wanneer de volgende komt.
 
 Hoe het loopt:
 
@@ -744,11 +739,27 @@ Hoe het loopt:
 - Een back-up wordt eerst onder een tijdelijke naam (`.tmp-…`) geschreven en pas als hij compleet op schijf staat hernoemd. Mislukt het (bijvoorbeeld een
   volle schijf), dan blijven de bestaande back-ups staan, staat de reden in rood op de kaart en probeert de app het na een uur opnieuw. Een tijdelijk bestand
   dat een crash achterliet, wordt later opgeruimd.
-- *Terug naar fabrieksinstellingen* laat de automatische back-ups staan (ze staan buiten `DATA_PATH/uploads`): na de eerste start zet je er een terug.
-- **Ruimte:** elke back-up bevat alle printbestanden, dus reken op ongeveer het aantal te bewaren back-ups (standaard 14) keer de map `uploads/` plus de database. Ze staan op dezelfde schijf als de data
+- *Terug naar fabrieksinstellingen* laat de back-ups op de server staan, automatisch en handmatig (ze staan buiten `DATA_PATH/uploads`): na de eerste start zet je er een terug.
+- **Ruimte:** elke back-up bevat alle printbestanden, dus reken op ongeveer het aantal te bewaren back-ups (standaard 14) keer de map `uploads/` plus de database, plus de back-ups die je zelf downloadt (die blijven staan tot je ze verwijdert). Ze staan op dezelfde schijf als de data
   die ze beschermen: kopieer er af en toe een van de server af (*Downloaden*, of de map `DATA_PATH/backups/auto`).
 - In `.env` of `docker-compose.yml` is niets in te stellen: de keuzes hierboven staan in de app. De container maakt de map `DATA_PATH/backups/auto` bij het
   starten zelf aan en geeft hem aan de gebruiker `app`; de rest van `DATA_PATH/backups` blijft van `scripts/update.sh`.
+
+### Back-ups op de server
+
+*Instellingen → Beheer → Back-up → Back-ups op de server* toont **alle** back-ups in `DATA_PATH/backups/auto`, nieuwste eerst: de automatische (*Automatisch*)
+en de back-ups die je met *Back-up downloaden* maakte (*Handmatig*, `printpricing-manual-JJJJ-MM-DD-UUMMSSZ.zip` of `.json`), met datum, tijd, grootte en, bij een
+JSON-bestand, *zonder printbestanden*. Een handmatige back-up telt **niet** mee voor het aantal te bewaren automatische back-ups, schuift het schema niet op en wordt
+nooit door de app opgeruimd, ook niet bij aantal 0; hij blijft staan tot je hem zelf verwijdert. Per back-up staan er drie knoppen:
+
+- **Downloaden** (pijl omlaag) geeft het bestand zoals het op de server staat (met voortgang). Je kunt het later terugzetten met *Herstellen uit back-up…*,
+  ook op een andere installatie.
+- **Terugzetten** (pijl rond) werkt als *Herstellen uit back-up…*, zonder upload: de server kopieert de back-up naar de wachtrij (`.restore-<token>` onder
+  `DATA_PATH/uploads`), controleert hem helemaal en laat zien wat er terugkomt; na jouw bevestiging vervangt hetzelfde achtergrondherstel alles in één keer.
+  De back-up zelf blijft staan.
+- **Verwijderen** (prullenbak) haalt de back-up van de server, automatisch of handmatig. Dat kan niet ongedaan worden gemaakt, dus de app vraagt eerst of jij
+  het bent: met je **passkey**, of met je **wachtwoord** (plus een code uit de authenticator-app of een back-upcode als je tweestapsverificatie hebt). Die bevestiging
+  geldt alleen voor die ene back-up en telt voor de blokkade net als inloggen. Andere bestanden in de map kan de app niet verwijderen.
 
 ## Fabrieksinstellingen
 

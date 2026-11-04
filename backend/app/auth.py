@@ -429,6 +429,8 @@ def _purpose(action: str, target: str | None) -> str:
         return f"password:{action.split('-', 1)[1]}"
     if action in ("user-promote", "user-reset") and target:       # bound to the person it is done to
         return f"user:{target}:{action.split('-', 1)[1]}"
+    if action == "backup-delete" and isinstance(target, str) and re.fullmatch(r"[A-Za-z0-9._-]{1,100}", target):   # bound to the one backup it removes
+        return f"backup:{target}:delete"
     raise ApiError(400, "auth.unknown_action")
 
 

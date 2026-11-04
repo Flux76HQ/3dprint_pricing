@@ -52,7 +52,8 @@ Changes take effect after a restart of the app.
 - The app also has its own backup and restore (Settings > System), which is the way to move an installation between this app and the Docker
   Compose installation, in either direction. A backup file never contains passkeys or users: the person restoring signs up again.
 - By default every 12 hours the app makes such a backup by itself (with the print files) and keeps the newest 14 in `/data/backups/auto`; Settings > System
-  lists them, to download or to restore, and lets an administrator switch it off, choose how often (0.5 to 14 days) and how many to keep (0 to 60). That folder is part of the app's data, so it is in Home Assistant's backups too, which makes them larger.
+  lists them, with every backup made with *Download backup* (kept there too, never removed by the rotation), to download, restore or delete (with a
+  passkey or password confirmation), and lets an administrator switch it off, choose how often (0.5 to 14 days) and how many to keep (0 to 60). That folder is part of the app's data, so it is in Home Assistant's backups too, which makes them larger.
 - An installation from before the SQLite releases still has its database in `/data/postgres`. On the first start after the update the app moves
   it into the SQLite file by itself (PostgreSQL runs for that one start); `/data/postgres` is left alone, and you can remove it once the app works.
   The app refuses to start rather than begin empty when it finds that folder and cannot import it.

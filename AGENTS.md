@@ -213,7 +213,7 @@ Follows the reference in App-Guidance's `shared/framework/technical-framework/au
   replay guard (`last_totp_step`), and keep refusals generic ("Inloggen mislukt."). The TOTP secret being set up waits in `pending_totp_secret` until a code is confirmed; the confirmed one keeps working until then.
 - **Turning a thing on needs only the session** (a password: `POST /password/setup`; the app: `/totp/start` + `/totp/confirm`; it must work on a device without a passkey). **Anything that weakens or changes it needs a fresh
   confirmation**: `password_api._confirm` takes a passkey assertion bound to the action (`auth._purpose`), or the password plus a code *when there is an authenticator app* (`_reauthenticate`: same lock, counter and replay
-  guard as logging in). That covers changing the password, turning it or the authenticator app off, new backup codes, new recovery codes (`/recovery/regenerate`), promoting and resetting users, and the factory reset.
+  guard as logging in). That covers changing the password, turning it or the authenticator app off, new backup codes, new recovery codes (`/recovery/regenerate`), promoting and resetting users, removing a backup from the server (6c), and the factory reset.
 - **Nobody is locked out by their own hand**: the password cannot be turned off without a passkey (409 `pwapi.last_method`), and the last passkey cannot be deleted without a password (409 `auth.last_passkey`).
 - **The owner may start with a password** (`POST /api/auth/onboarding/password`: same setup code, same limiter, same write lock as the passkey path), for an address where no passkey can work. Invitations offer both ways too
   (`/api/invites/password` is one step; no pending state is kept). Both paths hand out the 8 recovery codes.
@@ -248,8 +248,16 @@ Never make the restore depend on the request that started it, and never let a re
 removed only after that, so a failure never leaves fewer. Each web worker runs `start_worker`; `db.try_named_lock` lets one of them do it, and the check is repeated with the lock held.
 When one is due is read from the file names (UTC), never the database (a restore or reset must not restart the clock); none is made without an owner (an empty database must not push
 a real backup out) or while a restore job runs. A failure is kept in `app_state` (`auto_backup:error`, worded when read), shown on the card, and retried after `RETRY` (an hour). Restoring one
-goes through `backup.stage_copy` (a copy staged like an upload, then the same job): never restore from, move or delete the kept file itself. A name from a request is checked against `NAME`
+goes through `backup.stage_copy` (a copy staged like an upload, then the same job): never restore from or move the kept file itself. A name from a request is checked against `NAME` / `MANUAL`
 before it touches a path. Tests turn the loop off (`AUTO_BACKUP_WORKER=off`) and call `run_once(app, now)`; `test_auto_backup.py` starts the real loop once.
+
+**Backups kept by hand.** *Back-up downloaden* has the server make the backup and keep it in the same folder (`POST /api/backup/auto`, `keep_manual`: the person's own download, a ZIP with
+the print files or one JSON file without, written like an automatic one), then the screen downloads that file with `GET /api/backup/auto/<name>`. It is named `printpricing-manual-<UTC>Z.zip|json`
+(`MANUAL`; a second one in the same second gets the next second, never the same name), so `_names()` (the automatic ones only) never counts it: the rotation, `keep == 0` and the schedule leave it
+alone. When the folder cannot take it the answer is 507 (`backup.keep_failed`) and the screen downloads it with `GET /api/backup`, which keeps nothing: a full disk never stands between the owner and a
+backup. The list (`GET /api/backup/auto`) shows both kinds, newest first, with `kind` and `with_files`. **Removing one** (`DELETE /api/backup/auto/<name>`, automatic or by hand) is the only way a
+backup leaves the folder by hand: the name is checked first (an unknown one spends nothing), then `password_api._confirm(body, "backup-delete", name)`, a fresh passkey confirmation bound to that one
+backup (`auth._purpose`: `backup:<name>:delete`) or the password plus a code. Never let it run without that proof.
 
 ## 6d. Factory reset
 
