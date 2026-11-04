@@ -72,7 +72,7 @@ Selling 3D prints means knowing what each one costs: filament by the gram, machi
 - **Passkey login**: no password to leak. Or a password where a passkey cannot work (an IP address on your own network), optionally with two-step verification, and recovery codes for emergencies.
 - **More than one person**: an administrator invites people with a one-time link, and each chooses their own passkey or password, so nobody ever knows anyone else's. Regular users do the daily work; an administrator also manages users, the company details, backups and updates, and can promote a regular user to administrator.
 - **A real app on every device**: installs on the iPhone and Android home screen and on the desktop, works with the camera and with notifications, and speaks Dutch and English.
-- **Your data, your server**: everything runs in your own container, your data stays in one folder on your own host, and you back up and restore all of it from within the app.
+- **Your data, your server**: everything runs in your own container, your data stays in one folder on your own host, and you back up and restore all of it from within the app, which also backs everything up by itself every 12 hours.
 
 The full description of every feature is in the [operations guide](docs/handleiding.md) (Dutch).
 
@@ -212,14 +212,16 @@ Everything lives under `DATA_PATH`:
 |---|---|
 | `db/` | the database, `printpricing.sqlite3` (with a `-wal` and `-shm` file next to it while the app runs) |
 | `uploads/` | the uploaded STL and 3MF files |
-| `backups/` | the copies of the database that `scripts/update.sh` makes before an update |
+| `backups/` | the copies of the database that `scripts/update.sh` makes before an update, and in `backups/auto/` the app's automatic backups |
 | `postgres/` | the database of the releases before SQLite, only when you come from one; read once to move the data over, then yours to remove |
 
 Back up from within the app (*Settings → System → Backup and restore*): one JSON file, or a ZIP when you include the print files. That backup never contains credentials (passkeys, recovery codes, passwords, push subscriptions), users or invitations. For the whole server, copy the database with `docker compose exec -T app python backup_db.py /data/backups/backup-$(date +%F).sqlite3` and back up `uploads/` too, or stop the stack and copy `DATA_PATH`; a plain `cp` of the database while the app runs is not a consistent copy. Keep `.env` apart, in your password manager.
 
+The app also backs up by itself: every 12 hours it makes the same ZIP (with the print files, the orders and their invoices) in `DATA_PATH/backups/auto` and keeps the newest 14, a week; a new one replaces the oldest. *Settings → System* lists them, to download or to restore. They sit on the same disk as the data they protect, so copy one off the server now and then, and count on about 14 times the size of `uploads/` plus the database. Details: [operations guide](docs/handleiding.md), *Automatische back-ups*.
+
 Restoring: *Restore from backup…* checks the whole file first, shows what comes back, and after you confirm replaces everything in one go; if something fails, nothing changes. A database copy is put back with the app stopped, in place of `db/printpricing.sqlite3`, after removing its `-wal` and `-shm` files; the commands are in the [operations guide](docs/handleiding.md), *Back-up en herstel*.
 
-*Settings → System → Clean-up → Reset to factory settings…* puts the app back to a new installation: it deletes everything in the database and the uploads (the passkeys too) after a typed word and a fresh passkey (or password and code) confirmation, and leaves `.env`, the image and `DATA_PATH/backups` alone. Make a backup first if you are not sure.
+*Settings → System → Clean-up → Reset to factory settings…* puts the app back to a new installation: it deletes everything in the database and the uploads (the passkeys too) after a typed word and a fresh passkey (or password and code) confirmation, and leaves `.env`, the image and `DATA_PATH/backups` (the automatic backups too) alone. Make a backup first if you are not sure.
 
 ## Architecture
 

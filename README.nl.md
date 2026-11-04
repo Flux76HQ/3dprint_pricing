@@ -72,7 +72,7 @@ Wie 3D-prints verkoopt moet weten wat elke print kost: filament per gram, machin
 - **Inloggen met passkeys**: geen wachtwoord dat kan lekken. Of een wachtwoord waar een passkey niet kan werken (een IP-adres in je eigen netwerk), optioneel met tweestapsverificatie, en herstelcodes voor noodgevallen.
 - **Met meer dan één persoon**: een beheerder nodigt mensen uit met een link voor eenmalig gebruik en iedereen kiest zelf een passkey of wachtwoord, zodat niemand dat van een ander kent. Gewone gebruikers doen het dagelijkse werk; een beheerder beheert ook de gebruikers, de bedrijfsgegevens, back-ups en updates en kan een gewone gebruiker tot beheerder maken.
 - **Een echte app op elk apparaat**: te installeren op het beginscherm van iPhone en Android en op de desktop, werkt met de camera en met meldingen, en spreekt Nederlands en Engels.
-- **Jij houdt de regie**: alles draait in je eigen container, je gegevens staan in één map op je eigen server, en je maakt er vanuit de app een back-up van en zet die ook weer terug.
+- **Jij houdt de regie**: alles draait in je eigen container, je gegevens staan in één map op je eigen server, en je maakt er vanuit de app een back-up van en zet die ook weer terug; de app maakt er bovendien elke 12 uur zelf een.
 
 De volledige beschrijving van elke functie staat in de [handleiding](docs/handleiding.md).
 
@@ -212,14 +212,16 @@ Alles staat onder `DATA_PATH`:
 |---|---|
 | `db/` | de database, `printpricing.sqlite3` (met een `-wal`- en `-shm`-bestand ernaast zolang de app draait) |
 | `uploads/` | de geüploade STL- en 3MF-bestanden |
-| `backups/` | de kopieën van de database die `scripts/update.sh` vóór een update maakt |
+| `backups/` | de kopieën van de database die `scripts/update.sh` vóór een update maakt, en in `backups/auto/` de automatische back-ups van de app |
 | `postgres/` | de database van de releases vóór SQLite, alleen als je daarvan komt; één keer gelezen om de data over te zetten, daarna mag je hem zelf opruimen |
 
 Maak een back-up vanuit de app (*Instellingen → Systeem → Back-up en herstel*): één JSON-bestand, of een ZIP-bestand als je de printbestanden meeneemt. Die back-up bevat nooit inloggegevens (passkeys, herstelcodes, wachtwoorden, pushaanmeldingen), gebruikers of uitnodigingen. Voor de hele server kopieer je de database met `docker compose exec -T app python backup_db.py /data/backups/backup-$(date +%F).sqlite3` en bewaar je ook `uploads/`, of stop je de stack en kopieer je `DATA_PATH`; een gewone `cp` van de database terwijl de app draait is geen consistente kopie. Bewaar `.env` apart, in je wachtwoordmanager.
 
+De app maakt ook zelf back-ups: elke 12 uur hetzelfde ZIP-bestand (met de printbestanden, de bestellingen en hun facturen) in `DATA_PATH/backups/auto`, en hij bewaart de nieuwste 14, een week; een nieuwe vervangt de oudste. *Instellingen → Systeem* toont ze, om te downloaden of terug te zetten. Ze staan op dezelfde schijf als de data die ze beschermen, dus kopieer er af en toe een van de server af, en reken op ongeveer 14 keer de grootte van `uploads/` plus de database. Details: [handleiding](docs/handleiding.md), *Automatische back-ups*.
+
 Terugzetten: *Herstellen uit back-up…* controleert eerst het hele bestand, laat zien wat er terugkomt en vervangt na jouw bevestiging alles in één keer; lukt iets niet, dan verandert er niets. Een databasekopie zet je terug met de app gestopt, op de plek van `db/printpricing.sqlite3`, nadat je het `-wal`- en `-shm`-bestand hebt weggehaald; de commando's staan in de [handleiding](docs/handleiding.md), *Back-up en herstel*.
 
-*Instellingen → Systeem → Opruimen → Terug naar fabrieksinstellingen…* zet de app terug naar een nieuwe installatie: dat verwijdert alles in de database en de uploads (ook de passkeys), na een getypt woord en een verse bevestiging met passkey (of wachtwoord en code), en laat `.env`, de image en `DATA_PATH/backups` staan. Maak eerst een back-up als je het niet zeker weet.
+*Instellingen → Systeem → Opruimen → Terug naar fabrieksinstellingen…* zet de app terug naar een nieuwe installatie: dat verwijdert alles in de database en de uploads (ook de passkeys), na een getypt woord en een verse bevestiging met passkey (of wachtwoord en code), en laat `.env`, de image en `DATA_PATH/backups` (ook de automatische back-ups) staan. Maak eerst een back-up als je het niet zeker weet.
 
 ## Architectuur
 

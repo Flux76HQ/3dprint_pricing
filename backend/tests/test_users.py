@@ -110,6 +110,8 @@ ADMIN_ONLY_CALLS = [
     ("POST", f"/api/users/{uuid.uuid4()}/reset"), ("PUT", f"/api/users/{uuid.uuid4()}/role"),
     ("DELETE", f"/api/users/invites/{uuid.uuid4()}"),
     ("GET", "/api/backup"), ("POST", "/api/backup/stage"), ("POST", "/api/backup/restore"), ("GET", "/api/backup/jobs/latest"),
+    ("GET", "/api/backup/auto"), ("GET", "/api/backup/auto/printpricing-auto-2026-11-04-080000Z.zip"),
+    ("POST", "/api/backup/auto/printpricing-auto-2026-11-04-080000Z.zip/stage"),
     ("POST", "/api/system/reset"),
     ("GET", "/api/update"), ("POST", "/api/update/check"),
     ("GET", "/api/ai-images/settings"), ("PUT", "/api/ai-images/settings"), ("DELETE", "/api/ai-images/key"),

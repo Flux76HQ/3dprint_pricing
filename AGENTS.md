@@ -238,6 +238,15 @@ The screen sends the file once to `POST /api/backup/stage` (checked, kept as `UP
 thread of the web worker, so leaving the page stops nothing; the state is `backup_jobs` (polled with `GET /api/backup/jobs/latest`, not in a backup, marked done in the same transaction as the swap).
 Never make the restore depend on the request that started it, and never let a refused or finished restore leave its staged file behind.
 
+**Automatic backups** (`backend/app/auto_backup.py`, Settings → Systeem). Every 12 hours (`INTERVAL`) the server writes the ZIP of a download with print files
+(`backup.document` + `backup.write_zip`: one code path, so the same exclusions hold and a new section is in both) to `Config.backup_dir` (`DATA_PATH/backups/auto`, made and handed to
+`app` by `deploy/entrypoint.sh`; outside `UPLOAD_DIR`, so a factory reset leaves it) and keeps the newest `KEEP` (14). A backup is written as `.tmp-*`, fsynced and renamed; the oldest are
+removed only after that, so a failure never leaves fewer. Each web worker runs `start_worker`; `db.try_named_lock` lets one of them do it, and the check is repeated with the lock held.
+When one is due is read from the file names (UTC), never the database (a restore or reset must not restart the clock); none is made without an owner (an empty database must not push
+a real backup out) or while a restore job runs. A failure is kept in `app_state` (`auto_backup:error`, worded when read), shown on the card, and retried after `RETRY` (an hour). Restoring one
+goes through `backup.stage_copy` (a copy staged like an upload, then the same job): never restore from, move or delete the kept file itself. A name from a request is checked against `NAME`
+before it touches a path. Tests turn the loop off (`AUTO_BACKUP_WORKER=off`) and call `run_once(app, now)`; `test_auto_backup.py` starts the real loop once.
+
 ## 6d. Factory reset
 
 Follows App-Guidance's [`shared/guidelines/factory-reset.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/factory-reset.md).
