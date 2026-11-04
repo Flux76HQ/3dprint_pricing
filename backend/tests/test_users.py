@@ -112,6 +112,7 @@ ADMIN_ONLY_CALLS = [
     ("GET", "/api/backup"), ("POST", "/api/backup/stage"), ("POST", "/api/backup/restore"), ("GET", "/api/backup/jobs/latest"),
     ("POST", "/api/system/reset"),
     ("GET", "/api/update"), ("POST", "/api/update/check"),
+    ("GET", "/api/about"), ("POST", "/api/about/check"),
     ("GET", "/api/ai-images/settings"), ("PUT", "/api/ai-images/settings"), ("DELETE", "/api/ai-images/key"),
     ("POST", "/api/ai-images/test"), ("GET", "/api/ai-images/log"),
     ("POST", "/api/spoolman/sync"), ("POST", "/api/spoolman/push-library"), ("PUT", "/api/spoolman/settings"), ("POST", "/api/spoolman/test"), ("POST", "/api/spoolman/push-rolls"), ("POST", "/api/invoice-template"), ("DELETE", "/api/invoice-template"),
@@ -126,7 +127,7 @@ def test_a_regular_user_is_refused_what_is_for_administrators_and_nobody_at_all_
     assert app.test_client().open(path, method=method, json={}, headers=H).status_code == 401
 
 
-@pytest.mark.parametrize("path", ["/api/users", "/api/backup", "/api/update", "/api/ai-images/settings"])
+@pytest.mark.parametrize("path", ["/api/users", "/api/backup", "/api/update", "/api/about", "/api/ai-images/settings"])
 def test_an_administrator_is_let_through_to_the_same_routes(owner, path):
     assert owner.get(path).status_code not in (401, 403)
 

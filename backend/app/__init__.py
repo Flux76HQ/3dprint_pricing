@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import access, ai_images, api, auth, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invites, invoice_template, orders, password_api, push, push_api, relying_party, spoolman, system, updates, users
+from . import about, access, ai_images, api, auth, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invites, invoice_template, orders, password_api, push, push_api, relying_party, spoolman, system, updates, users
 from .config import Config, build_channel, load_config
 from .db import make_pool
 from .http import ApiError, error_response
@@ -86,6 +86,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     app.register_blueprint(spoolman.bp)
     app.register_blueprint(system.bp)
     app.register_blueprint(updates.bp)
+    app.register_blueprint(about.bp)
     app.register_blueprint(users.bp)
     app.register_blueprint(invites.bp)
     app.extensions["update_checker"] = updates.Checker(VERSION, enabled=cfg.update_check)

@@ -238,6 +238,15 @@ PostgreSQL: zet `TEST_DATABASE_URL`, of draai als root met PostgreSQL geïnstall
 ### Draaien en stoppen
 `docker compose up -d` · `docker compose down` (data blijft in `DATA_PATH`) · logs: `docker compose logs -f app`.
 
+### Instellingen → Beheer → Over (alleen beheerders)
+De pagina *Over* laat zien wat er draait en hoe gezond de database is:
+
+- **Over deze app**: versie, commit en kanaal (stabiel of beta), wanneer deze werker is gestart en hoe lang hij draait, de versies van Python en Flask, en welke optionele functies aan staan.
+- **Gezondheid van de database**: één woord (*Gezond*, *Let op* of *Probleem*) boven een lijst van snelle controles: antwoordt de database, hoe lang duurde het om de schrijfsleutel te krijgen (meer dan 0,5 s betekent dat iets anders hem lang vasthoudt), staat het bestand in WAL-modus, bewaakt de database verwijzingen tussen tabellen, zijn alle migraties toegepast (een ontbrekende of gewijzigde migratie is een fout), staat het bestand op een lokaal bestandssysteem (NFS, SMB en FUSE, zoals Unraids `/mnt/user`, geven een waarschuwing), is er genoeg vrije schijfruimte en is het WAL-bestand niet te groot. De knop *Uitgebreide controle uitvoeren* leest de hele database na (`quick_check` en een zoektocht naar rijen die naar niets verwijzen) op een eigen verbinding, zodat de app intussen gewoon schrijft.
+- **Actieve koppeling met de database**: het bestand waarmee de app nu verbonden is (pad, grootte, WAL), de instellingen van die verbinding (logboekmodus, schrijven naar schijf, wachttijd op de schrijfsleutel, bewaakte verwijzingen), het bestandssysteem, het werkproces, de toegepaste migraties en het aantal rijen per tabel, en de stand van de oude PostgreSQL-koppeling (*niet ingesteld*, *eenmalig overgezet op …* of *ingesteld maar niet gebruikt*; het adres staat er zonder wachtwoord).
+
+Dezelfde gegevens staan in `GET /api/about` (alleen beheerders); `POST /api/about/check` is de uitgebreide controle.
+
 ### Health checks
 - `GET /healthz` — proces leeft (gebruikt door de container-healthcheck).
 - `GET /readyz` — proces draait **en** de database antwoordt (503 anders).
