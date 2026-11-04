@@ -63,7 +63,7 @@
  "backup.err_unexpected": "Er ging iets mis op de server. Er is niets veranderd.",
  "backup.expired": "Dit bestand staat niet meer klaar op de server. Kies de back-up opnieuw.",
  "backup.failed": "Herstellen mislukt, er is niets veranderd. {reason}",
- "backup.keep_failed": "De back-up kon niet op de server worden bewaard: {reason}. Hij wordt nu alleen gedownload.",
+ "backup.keep_failed": "De back-up kon niet op de server worden bewaard: {reason}.",
  "backup.missing_file": "Het printbestand {name} ontbreekt in het ZIP-bestand.",
  "backup.not_backup": "Dit is geen back-upbestand van deze app.",
  "backup.not_json": "Dit bestand is geen back-up (het is geen geldig JSON-bestand).",

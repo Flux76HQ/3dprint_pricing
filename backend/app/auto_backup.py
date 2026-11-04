@@ -1,4 +1,4 @@
-"""Automatic backups: by default every 12 hours the server makes the backup that *Back-up downloaden* makes with the print files, and keeps the
+"""Automatic backups: by default every 12 hours the server makes the backup that *Maak back-up* makes with the print files, and keeps the
 newest 14 (a week) in `Config.backup_dir` (DATA_PATH/backups/auto). A new one replaces the oldest. An administrator can switch them off, choose
 how often (every 0.5, 1, 2, 7 or 14 days) and how many to keep (0-60; 0 keeps none: none is made and the ones there are removed): `settings()`.
 
@@ -15,7 +15,7 @@ clock, and the backups themselves stay where they are. An installation without a
 empty database never pushes a real backup out. A backup is written under a temporary name and renamed when complete; the oldest are only
 removed after that. A failure is kept in `app_state`, shown on the screen, and tried again after an hour.
 
-*Back-up downloaden* keeps its backup here too (`POST /api/backup/auto`, `keep_manual`): the same file the person downloads, with or without the
+*Maak back-up* keeps its backup here and nowhere else (`POST /api/backup/auto`, `keep_manual`; nothing is downloaded), with or without the
 print files, named `printpricing-manual-...` so the rotation never counts or removes it and it never moves the schedule of the automatic ones.
 The list shows both kinds. Any of them can be removed by hand (`DELETE /api/backup/auto/<name>`), only after a fresh confirmation bound to that
 one backup (`password_api._confirm`, action `backup-delete`): a backup is the way back after a mistake, so it is never one click away.
@@ -48,7 +48,7 @@ LOCK_SECONDS = 2 * 3600                      # a worker that died while making o
 FIRST_CHECK_SECONDS = 60                     # after the start, so the first one does not slow the start down
 CHECK_SECONDS = 300
 NAME = re.compile(r"printpricing-auto-(\d{4}-\d{2}-\d{2}-\d{6})Z\.zip")      # the moment it was made, UTC: sorting the names sorts the backups
-MANUAL = re.compile(r"printpricing-manual-(\d{4}-\d{2}-\d{2}-\d{6})Z\.(zip|json)")   # one made with *Back-up downloaden*: never counted or removed by the rotation
+MANUAL = re.compile(r"printpricing-manual-(\d{4}-\d{2}-\d{2}-\d{6})Z\.(zip|json)")   # one made with *Maak back-up*: never counted or removed by the rotation
 STAMP = "%Y-%m-%d-%H%M%S"
 TMP_PREFIX = ".tmp-"                         # being written; renamed when complete, removed when a crash left it behind
 ERROR_KEY = "auto_backup:error"              # app_state: the last failure, until a backup succeeds
@@ -212,8 +212,8 @@ def make(now: datetime) -> Path | None:
 
 
 def keep_manual(user_id, include_files: bool, now: datetime | None = None) -> tuple[Path, int]:
-    """*Back-up downloaden*: the backup is made here and kept next to the automatic ones; the screen then downloads this very file. It is the
-    person's own download (their own preferences go along), a ZIP with the print files or one JSON file without. Returns its path and how many
+    """*Maak back-up*: the backup is made here and kept next to the automatic ones; it is downloaded from the list, if at all. It holds what
+    the person's own download would (their own preferences go along), a ZIP with the print files or one JSON file without. Returns its path and how many
     print files went in. Raises OSError when the folder cannot take it (a full disk, a folder the app may not write in)."""
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     folder = _folder()
@@ -375,9 +375,9 @@ def save():
 
 @bp.post("")
 def make_now():
-    """*Back-up downloaden*: made and kept here, with the print files (`files: true`, a ZIP) or without (one JSON file); the answer names it and
-    the screen downloads it with `GET /<name>`. When the folder cannot take it the answer is 507 with the reason, and the screen falls back to
-    the download that keeps nothing (`GET /api/backup`), so a full disk never stands between the owner and a backup."""
+    """*Maak back-up*: made and kept here, with the print files (`files: true`, a ZIP) or without (one JSON file); nothing is downloaded, the
+    answer names it and the list shows it. When the folder cannot take it (a full disk, a folder the app may not write in) the answer is 507
+    with the reason, and nothing half-written is left behind."""
     include_files = json_body().get("files") is True
     began = time.monotonic()
     try:

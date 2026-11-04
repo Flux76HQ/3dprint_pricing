@@ -251,11 +251,11 @@ a real backup out) or while a restore job runs. A failure is kept in `app_state`
 goes through `backup.stage_copy` (a copy staged like an upload, then the same job): never restore from or move the kept file itself. A name from a request is checked against `NAME` / `MANUAL`
 before it touches a path. Tests turn the loop off (`AUTO_BACKUP_WORKER=off`) and call `run_once(app, now)`; `test_auto_backup.py` starts the real loop once.
 
-**Backups kept by hand.** *Back-up downloaden* has the server make the backup and keep it in the same folder (`POST /api/backup/auto`, `keep_manual`: the person's own download, a ZIP with
-the print files or one JSON file without, written like an automatic one), then the screen downloads that file with `GET /api/backup/auto/<name>`. It is named `printpricing-manual-<UTC>Z.zip|json`
+**Backups made by hand.** *Maak back-up* has the server make the backup and keep it in the same folder (`POST /api/backup/auto`, `keep_manual`: what the person's own download would hold, a ZIP with
+the print files or one JSON file without, written like an automatic one); nothing is downloaded, that is done from the list (`GET /api/backup/auto/<name>`). It is named `printpricing-manual-<UTC>Z.zip|json`
 (`MANUAL`; a second one in the same second gets the next second, never the same name), so `_names()` (the automatic ones only) never counts it: the rotation, `keep == 0` and the schedule leave it
-alone. When the folder cannot take it the answer is 507 (`backup.keep_failed`) and the screen downloads it with `GET /api/backup`, which keeps nothing: a full disk never stands between the owner and a
-backup. The list (`GET /api/backup/auto`) shows both kinds, newest first, with `kind` and `with_files`. **Removing one** (`DELETE /api/backup/auto/<name>`, automatic or by hand) is the only way a
+alone. When the folder cannot take it the answer is 507 (`backup.keep_failed`, with the reason) and nothing half-written stays. `GET /api/backup` (the plain download, which keeps nothing)
+still exists for the API; no button uses it. The list (`GET /api/backup/auto`) shows both kinds, newest first, with `kind` and `with_files`. **Removing one** (`DELETE /api/backup/auto/<name>`, automatic or by hand) is the only way a
 backup leaves the folder by hand: the name is checked first (an unknown one spends nothing), then `password_api._confirm(body, "backup-delete", name)`, a fresh passkey confirmation bound to that one
 backup (`auth._purpose`: `backup:<name>:delete`) or the password plus a code. Never let it run without that proof.
 

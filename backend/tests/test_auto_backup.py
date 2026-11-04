@@ -360,7 +360,7 @@ def test_a_factory_reset_puts_the_defaults_back_and_keeps_the_backups(owner, app
     assert owner.get("/api/backup/auto").get_json()["settings"] == {"enabled": True, "keep": 14, "every_days": 0.5}
 
 
-# --- kept by hand: *Back-up downloaden* keeps its backup on the server too ---------------------------------------------------------
+# --- made by hand: *Maak back-up* keeps its backup on the server, and only there --------------------------------------------------
 
 def make_now(owner, files, headers=H):
     return owner.post("/api/backup/auto", json={"files": files}, headers=headers)
@@ -370,7 +370,7 @@ def path_of(app, name):
     return os.path.join(folder(app), name)
 
 
-def test_a_download_is_kept_on_the_server_with_or_without_the_print_files_and_listed(owner, app):
+def test_a_backup_made_by_hand_is_kept_on_the_server_with_or_without_the_print_files_and_listed(owner, app):
     with_file(owner)
     res = make_now(owner, True)
     assert res.status_code == 200, res.get_json()
@@ -387,7 +387,7 @@ def test_a_download_is_kept_on_the_server_with_or_without_the_print_files_and_li
         kept_bytes = handle.read()
     doc = json.loads(kept_bytes)
     assert doc["format"] == backup_module.FORMAT and doc["includes_files"] is False and doc["projects"] and "files" not in doc
-    res = owner.get(f"/api/backup/auto/{plain['name']}")                                           # the screen downloads this very file
+    res = owner.get(f"/api/backup/auto/{plain['name']}")                                           # downloaded from the list as it is kept
     assert res.status_code == 200 and res.mimetype == "application/json" and res.data == kept_bytes
     assert res.headers["Content-Disposition"] == f"attachment; filename={plain['name']}"
 
@@ -431,7 +431,7 @@ def test_the_rotation_never_counts_or_removes_one_kept_by_hand(owner, app):
     assert [b["name"] for b in owner.get("/api/backup/auto").get_json()["backups"]] == [made]
 
 
-def test_when_the_server_cannot_keep_it_the_answer_says_why_and_the_plain_download_still_works(owner, app, monkeypatch):
+def test_when_the_server_cannot_keep_it_the_answer_says_why_and_nothing_half_written_stays(owner, app, monkeypatch):
     with_file(owner)
 
     def full(doc, attachments, handle):
@@ -441,9 +441,6 @@ def test_when_the_server_cannot_keep_it_the_answer_says_why_and_the_plain_downlo
     res = make_now(owner, True, NL)
     assert res.status_code == 507 and "No space left on device" in res.get_json()["error"] and "bewaard" in res.get_json()["error"]
     assert owner.get("/api/backup/auto").get_json()["backups"] == [] and os.listdir(folder(app)) == []     # nothing half-written stays
-    monkeypatch.undo()
-    res = owner.get("/api/backup?files=1")                                                         # what the screen falls back to
-    assert res.status_code == 200 and res.mimetype == "application/zip"
 
 
 def test_one_kept_by_hand_is_restored_through_the_same_check_and_job_and_stays_where_it_is(owner, app):
