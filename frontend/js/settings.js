@@ -267,6 +267,7 @@ function backupCard() {
   const box = h('div', { class: 'op-progress', role: 'status', hidden: true }, h('div', { class: 'row' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), label), bar, note);
   const makeButton = h('button', { class: 'btn primary', type: 'button', onclick: () => make() }, t('backup.make'));
   const restoreButton = h('button', { class: 'btn', type: 'button', onclick: () => picker.click() }, t('backup.restore'));
+  const outcome = h('span', { role: 'status' });                                         // after the two buttons: Back-up gelukt / mislukt
   const autoBox = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
 
   /** `value` 0-100 fills the bar; null leaves it moving without a figure (the server is busy and cannot say how far it is). */
@@ -291,18 +292,19 @@ function backupCard() {
   }
 
   /** The server makes the backup and keeps it with the others; nothing is downloaded. The list below is where it is downloaded, restored
-   *  or deleted. When the server cannot keep it (507: a full disk, a folder it may not write in) the screen says why. */
+   *  or deleted. After the buttons: *Back-up gelukt* or *Back-up mislukt*; why it failed (507: a full disk, a folder the server may not
+   *  write in) is in the toast and in the label's tooltip. */
   async function make() {
     busy();
+    fill(outcome);
     show(withFiles ? t('backup.making_files') : t('backup.making'));                    // the server is putting it together: nothing to count yet
-    const began = performance.now();
-    let made = null;
+    let reason = null;
     try {
-      ({ backup: made } = await api('POST', '/api/backup/auto', { files: withFiles }));
-      status.textContent = t('backup.made', { name: made.name, size: fileSize(made.size), seconds: seconds(performance.now() - began) });
-    } catch (e) { toast(e.message, 'error'); }
+      await api('POST', '/api/backup/auto', { files: withFiles });
+    } catch (e) { reason = e.message; toast(reason, 'error'); }
+    fill(outcome, h('span', { class: `pill ${reason ? 'error' : 'ok'}`, title: reason || '' }, t(reason ? 'backup.make_failed' : 'backup.make_ok')));
     idle();
-    if (made) loadAuto();
+    if (!reason) loadAuto();
   }
 
   async function restore(file) {
@@ -466,7 +468,7 @@ function backupCard() {
     h('p', { class: 'muted' }, t('backup.intro')),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', class: 'toggle', role: 'switch', onchange: (e) => { withFiles = e.target.checked; } }), t('backup.files')),
     h('p', { class: 'hint' }, t('backup.files_hint')),
-    h('div', { class: 'row' }, makeButton, restoreButton, picker),
+    h('div', { class: 'row' }, makeButton, restoreButton, outcome, picker),
     box,
     status,
     h('h3', {}, t('backup.auto_title')),
