@@ -7,6 +7,7 @@ Everyone else comes in through an invitation (`invites.py`) and is managed in `u
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import uuid
@@ -20,6 +21,7 @@ from . import webauthn as wa
 from .http import ApiError, RateLimiter, config, json_body, login_required, pool
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
+log = logging.getLogger(__name__)
 
 COOKIE = "pp_session"
 CHALLENGE_TTL = 300
@@ -143,30 +145,38 @@ def _verify_registration(conn, cred: dict, challenge_row_kind, *, purpose=None, 
 
 
 def _verify_assertion(conn, cred: dict, kind, *, purpose=None, user_id=None):
-    """Return (credential row, new counter). One message for every refusal."""
+    """Return (credential row, new counter). One message for every refusal; why it was refused goes to the process log only
+    (`docker compose logs app`), so a passkey that keeps being refused can be explained without telling the browser more."""
     fail = ApiError(401 if kind == "login" else 403, "auth.verification_failed")
+
+    def refused(reason: str, *args):
+        log.warning("passkey %s refused (%s): " + reason, kind, purpose or "-", *args)
+        return fail
+
     try:
         r = cred["response"]
         raw_id = wa.b64u_decode(cred["rawId"])
         client_data = wa.b64u_decode(r["clientDataJSON"])
     except (KeyError, wa.WebAuthnError, ValueError):
-        raise fail from None
+        raise refused("the answer is not a passkey answer") from None
     stored = conn.execute(
         "SELECT id, user_id, public_key, sign_count FROM webauthn_credentials WHERE credential_id = %s",
         (raw_id,),
     ).fetchone()
     # A confirmation must come from one of the signed-in user's own credentials.
-    if stored is None or (user_id is not None and stored["user_id"] != user_id):
-        raise fail
+    if stored is None:
+        raise refused("this passkey is not registered here (removed, or made for an earlier installation); the password manager offered a stale one")
+    if user_id is not None and stored["user_id"] != user_id:
+        raise refused("this passkey belongs to another person than the one signed in")
     try:
         row = _consume_challenge(conn, client_data, kind, purpose=purpose, user_id=user_id)
     except ApiError:
-        raise fail from None
+        raise refused("no open challenge matches it (older than %d s, already used, or asked for another action)", CHALLENGE_TTL) from None
     try:
         count = wa.verify_assertion(cred, bytes(row["challenge"]), rp.rp_id(), rp.rp_origins(),
                                     bytes(stored["public_key"]), stored["sign_count"])
-    except wa.WebAuthnError:
-        raise fail from None
+    except wa.WebAuthnError as exc:
+        raise refused("the signature did not check out: %s (stored counter %s)", getattr(exc, "detail", exc), stored["sign_count"]) from None
     conn.execute(
         "UPDATE webauthn_credentials SET sign_count = %s, last_used_at = now() WHERE id = %s",
         (count, stored["id"]),

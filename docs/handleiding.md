@@ -705,7 +705,7 @@ nog steeds en laat de bestellingen dan leeg. Het volgende bestel- en factuurnumm
 bevat de rest, met per model een verwijzing (`archive_path`) en zijn controlesom. Je kunt het ZIP-bestand dus gewoon openen om een model terug te halen. Een back-up zonder printbestanden blijft één JSON-bestand, en een JSON-back-up
 van een eerdere versie (met de modellen er inline in) kan nog steeds worden teruggezet.
 
-**Je ziet wat er gebeurt.** Bij het maken van een back-up toont de kaart dat de server hem samenstelt, en daarna hoe groot hij is en hoe hij heet; bij het downloaden uit de lijst hoeveel er al binnen is. Bij herstellen zie je het uploaden (met megabytes), het controleren van het bestand
+**Je ziet wat er gebeurt.** Bij het maken van een back-up toont de kaart dat de server hem samenstelt, en daarna naast de knoppen *Back-up gelukt* of *Back-up mislukt* (waarom het mislukte staat in de melding, en in de tekst die verschijnt als je de muis op het label houdt); bij het downloaden uit de lijst hoeveel er al binnen is. Bij herstellen zie je het uploaden (met megabytes), het controleren van het bestand
 en daarna het herstellen zelf, met bij printbestanden *printbestand 4 van 10*. Na de controle vraagt de app om bevestiging; **daarna draait het herstel op de server als achtergrondtaak** (tabel `backup_jobs`, geen onderdeel van een back-up):
 je kunt de pagina verlaten of de browser sluiten en het gaat door. Open *Instellingen → Beheer → Back-up* weer, dan zie je de stand of de uitkomst; is het klaar, dan laadt de app opnieuw met de teruggezette instellingen. Mislukt het, dan staat er waarom
 en is er niets veranderd (het vervangen is één transactie). Er loopt hooguit één herstel tegelijk. Een herstel dat 15 minuten niet vooruitkwam (de server was herstart) wordt als onderbroken gemeld; ook dan is er niets veranderd.
@@ -760,6 +760,15 @@ nooit door de app opgeruimd, ook niet bij aantal 0; hij blijft staan tot je hem 
 - **Verwijderen** (prullenbak) haalt de back-up van de server, automatisch of handmatig. Dat kan niet ongedaan worden gemaakt, dus de app vraagt eerst of jij
   het bent: met je **passkey**, of met je **wachtwoord** (plus een code uit de authenticator-app of een back-upcode als je tweestapsverificatie hebt). Die bevestiging
   geldt alleen voor die ene back-up en telt voor de blokkade net als inloggen. Andere bestanden in de map kan de app niet verwijderen.
+
+**Verificatie mislukt bij een passkey?** De app zegt in de browser bewust alleen *Verificatie mislukt.*; de reden staat in het log van de container
+(`docker compose logs app | grep "passkey"`, in Home Assistant het logboek van de app), bijvoorbeeld:
+
+- *this passkey is not registered here*: je wachtwoordmanager bood een passkey aan die de app niet (meer) kent, bijvoorbeeld een van vóór
+  *Terug naar fabrieksinstellingen* of van een ander account. Kies de passkey die bij dit account hoort, en ruim de oude op in je wachtwoordmanager.
+- *sign count …*: de teller van de passkey liep niet op. Dat gebeurt als dezelfde passkey via de synchronisatie van je wachtwoordmanager op
+  meerdere apparaten staat en elk apparaat zijn eigen teller bijhoudt. Bevestig dan met je wachtwoord en code, of gebruik de passkey van het apparaat waarmee je hem het laatst gebruikte.
+- *no open challenge matches it*: de bevestiging duurde langer dan 5 minuten, of werd twee keer verstuurd. Probeer het opnieuw.
 
 ## Fabrieksinstellingen
 
