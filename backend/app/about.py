@@ -148,6 +148,7 @@ def about():
             tables = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
             rows = {name: conn.execute(f'SELECT count(*) AS n FROM "{name}"').fetchone()["n"] for name in tables}
             migrations, legacy, backups = _migrations(conn), _legacy(cfg, conn), _backups(conn, path)
+            auto_error, auto_active = auto_backup._last_error(conn), auto_backup._active(auto_backup.settings(conn))
     except Exception as exc:                                 # the page must still say that the database does not answer
         return jsonify({"app": _app(cfg, VERSION, _commit()), "database": {"engine": "SQLite", "path": str(path)}, "link": None,
                         "health": {"state": "error", "checks": [{"key": "reachable", "state": "error", "detail": type(exc).__name__}]}})
@@ -166,6 +167,8 @@ def about():
         {"key": "filesystem", "state": "warn" if network else "ok", "value": filesystem},
         {"key": "disk_space", "state": "ok" if free >= LOW_DISK_BYTES else "warn", "value": free},
         {"key": "wal_size", "state": "ok" if wal < BIG_WAL_BYTES else "warn", "value": wal},
+        # Only a failed attempt is a warning; switched off (or keeping none) is a choice
+        {"key": "auto_backup", "state": "warn" if auto_error else "ok", "value": None if auto_active else "off", "detail": (auto_error["reason"] or "") if auto_error else None},
     ]
     return jsonify({
         "app": _app(cfg, VERSION, _commit()),

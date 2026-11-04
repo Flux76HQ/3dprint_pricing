@@ -31,7 +31,7 @@ def test_it_says_what_is_running(owner, app):
 def test_a_healthy_database_is_ok_in_every_check(owner, app):
     body = get(owner)
     assert states(body) == {"reachable": "ok", "write_lock": "ok", "journal": "ok", "foreign_keys": "ok", "schema": "ok", "filesystem": "ok",
-                            "disk_space": "ok", "wal_size": "ok"}
+                            "disk_space": "ok", "wal_size": "ok", "auto_backup": "ok"}
     assert body["health"]["state"] == "ok"
     assert [c["key"] for c in body["health"]["checks"]][0] == "reachable"
 
@@ -242,3 +242,21 @@ def test_a_factory_reset_forgets_the_last_backup(owner, app):
         assert conn.execute("SELECT 1 FROM app_state WHERE key = 'last_backup'").fetchone()
         conn.execute("DELETE FROM app_state")                              # what the reset does to every table (tests/test_system.py covers the reset itself)
     assert get(owner)["backups"]["downloaded"] is None
+
+
+def test_a_failed_automatic_backup_warns_and_switched_off_is_a_choice(owner, app, monkeypatch):
+    from datetime import datetime, timezone
+    from app import auto_backup, backup as backup_module
+    states = lambda: {c["key"]: c for c in get(owner)["health"]["checks"]}
+    assert states()["auto_backup"]["state"] == "ok" and states()["auto_backup"]["value"] is None
+
+    def full(doc, attachments, handle):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(backup_module, "write_zip", full)
+    auto_backup.run_once(app, datetime.now(timezone.utc))
+    assert states()["auto_backup"]["state"] == "warn" and "No space left" in states()["auto_backup"]["detail"]
+
+    monkeypatch.undo()
+    owner.put("/api/backup/auto", json={"enabled": False}, headers=H)
+    off = states()["auto_backup"]
+    assert off["value"] == "off"

@@ -1,5 +1,6 @@
-"""Automatic backups: every 12 hours the server makes the backup that *Back-up downloaden* makes with the print files, and keeps the
-newest 14 (a week) in `Config.backup_dir` (DATA_PATH/backups/auto). A new one replaces the oldest.
+"""Automatic backups: by default every 12 hours the server makes the backup that *Back-up downloaden* makes with the print files, and keeps the
+newest 14 (a week) in `Config.backup_dir` (DATA_PATH/backups/auto). A new one replaces the oldest. An administrator can switch them off, choose
+how often (every 0.5, 1, 2, 7 or 14 days) and how many to keep (0-60; 0 keeps none: none is made and the ones there are removed): `settings()`.
 
 The file is the ZIP of a download (`backup.document` + `backup.write_zip`): backup.json with everything the owner entered (invoices with
 their numbers and kept PDFs, the template and the logo, customers, calculations, rolls, settings, ...) and every STL/3MF loose under
@@ -27,7 +28,8 @@ from pathlib import Path
 from flask import Blueprint, jsonify, send_file
 
 from . import backup, db
-from .http import ApiError, config, login_required, pool
+from .api import boolean
+from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, render, request_language
 
 bp = Blueprint("auto_backup", __name__, url_prefix="/api/backup/auto")
@@ -43,6 +45,10 @@ NAME = re.compile(r"printpricing-auto-(\d{4}-\d{2}-\d{2}-\d{6})Z\.zip")      # t
 STAMP = "%Y-%m-%d-%H%M%S"
 TMP_PREFIX = ".tmp-"                         # being written; renamed when complete, removed when a crash left it behind
 ERROR_KEY = "auto_backup:error"              # app_state: the last failure, until a backup succeeds
+SETTINGS_KEY = "auto_backup:settings"        # app_state: what the administrator chose; a factory reset puts the defaults back (the backups stay)
+DEFAULTS = {"enabled": True, "keep": KEEP, "every_days": INTERVAL.total_seconds() / 86400}
+EVERY_DAYS = (0.5, 1, 2, 7, 14)
+MAX_KEEP = 60
 
 
 @bp.before_request
@@ -68,6 +74,42 @@ def _names() -> list[str]:
     return sorted(names, reverse=True)
 
 
+def settings(conn) -> dict:
+    """What the administrator chose: on or off, how many to keep (0 keeps none: none is made and the ones there are go), how often."""
+    row = conn.execute("SELECT value FROM app_state WHERE key = %s", (SETTINGS_KEY,)).fetchone()
+    try:
+        stored = json.loads(row["value"]) if row else {}
+    except ValueError:
+        stored = {}
+    return {**DEFAULTS, **{k: v for k, v in stored.items() if k in DEFAULTS}}
+
+
+def validated(body: dict) -> dict:
+    """The settings in `body` that are valid (any of the three); raises ApiError for a bad value."""
+    out = {}
+    if "enabled" in body:
+        out["enabled"] = boolean("f.auto_backup")(body["enabled"])
+    if "keep" in body:
+        value = body["keep"]
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= MAX_KEEP:
+            raise ApiError(400, "err.auto_backup_keep", max=MAX_KEEP)
+        out["keep"] = value
+    if "every_days" in body:
+        value = body["every_days"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or float(value) not in EVERY_DAYS:
+            raise ApiError(400, "err.auto_backup_every")
+        out["every_days"] = float(value)
+    return out
+
+
+def _interval(chosen: dict) -> timedelta:
+    return timedelta(days=chosen["every_days"])
+
+
+def _active(chosen: dict) -> bool:
+    return chosen["enabled"] and chosen["keep"] > 0
+
+
 def _last_error(conn) -> dict | None:
     row = conn.execute("SELECT value FROM app_state WHERE key = %s", (ERROR_KEY,)).fetchone()
     if not row:
@@ -84,9 +126,9 @@ def _owner(conn):
     return row["id"] if row else None
 
 
-def next_at(now: datetime, newest: datetime | None, error: dict | None) -> datetime:
-    """When the next one is due: 12 hours after the newest (at once without one), and not within an hour of a failure."""
-    due = newest + INTERVAL if newest else now
+def next_at(now: datetime, newest: datetime | None, error: dict | None, interval: timedelta = INTERVAL) -> datetime:
+    """When the next one is due: one interval after the newest (at once without one), and not within an hour of a failure."""
+    due = newest + interval if newest else now
     if error:
         due = max(due, error["at"] + RETRY)
     return due
@@ -98,9 +140,11 @@ def _due(now: datetime) -> bool:
             return False                     # not set up: there is nothing of the owner's to keep yet
         if conn.execute("SELECT 1 FROM backup_jobs WHERE status = 'running'").fetchone():
             return False                     # a restore is replacing the data: back up what it leaves, at the next look
-        error = _last_error(conn)
+        error, chosen = _last_error(conn), settings(conn)
+    if not _active(chosen):
+        return False                         # switched off, or told to keep none
     names = _names()
-    return now >= next_at(now, _moment(names[0]) if names else None, error)
+    return now >= next_at(now, _moment(names[0]) if names else None, error, _interval(chosen))
 
 
 def run_once(app, now: datetime | None = None) -> Path | None:
@@ -108,6 +152,11 @@ def run_once(app, now: datetime | None = None) -> Path | None:
     failure is kept for the screen)."""
     with app.app_context():
         now = now or datetime.now(timezone.utc)
+        with pool().connection() as conn:
+            keep = settings(conn)["keep"]
+        if keep == 0:
+            _prune(_folder(), 0)             # keeping none: the ones there are go too (also when the switch is off)
+            return None
         if not _due(now):
             return None
         with db.try_named_lock(pool(), "auto-backup", hold_seconds=LOCK_SECONDS) as got:
@@ -117,7 +166,7 @@ def run_once(app, now: datetime | None = None) -> Path | None:
 
 
 def make(now: datetime) -> Path | None:
-    """Writes one backup with everything, then removes the oldest beyond KEEP."""
+    """Writes one backup with everything, then removes the oldest beyond the number to keep."""
     folder = _folder()
     began = time.monotonic()
     tmp = None
@@ -125,7 +174,7 @@ def make(now: datetime) -> Path | None:
         folder.mkdir(parents=True, exist_ok=True)
         _clear_leftovers(folder)
         with pool().connection() as conn:
-            owner = _owner(conn)
+            owner, keep = _owner(conn), settings(conn)["keep"]
             if owner is None:
                 return None
             doc, attachments = backup.document(conn, owner, include_files=True)      # the owner's own preferences go along, as in their own download
@@ -142,7 +191,7 @@ def make(now: datetime) -> Path | None:
             tmp.unlink(missing_ok=True)
         _failed(now, exc)
         return None
-    removed = _prune(folder)
+    removed = _prune(folder, keep)
     with pool().connection() as conn:
         conn.execute("DELETE FROM app_state WHERE key = %s", (ERROR_KEY,))
     log.info("automatic backup %s: %.1f MB in %.1fs, %d print files; %d old one(s) removed", target.name, target.stat().st_size / 1048576,
@@ -167,10 +216,10 @@ def _failed(now: datetime, exc: Exception) -> None:
         log.exception("could not keep the failure of the automatic backup")
 
 
-def _prune(folder: Path) -> list[str]:
-    """Only the newest KEEP stay. Called after a new one was written in full, so a failure never leaves fewer."""
+def _prune(folder: Path, keep: int) -> list[str]:
+    """Only the newest `keep` stay. Called after a new one was written in full, so a failure never leaves fewer."""
     removed = []
-    for name in _names()[KEEP:]:
+    for name in _names()[keep:]:
         try:
             (folder / name).unlink()
             removed.append(name)
@@ -240,7 +289,7 @@ def listing():
     now = datetime.now(timezone.utc)
     names = _names()
     with pool().connection() as conn:
-        error = _last_error(conn)
+        error, chosen = _last_error(conn), settings(conn)
     backups = []
     for name in names:
         try:
@@ -253,8 +302,20 @@ def listing():
         lang = request_language()
         reason = error["reason"] or render(L("backup.auto_err_unexpected"), lang)
         failure = {"at": error["at"].isoformat(), "message": render(L("backup.auto_failed", reason=reason), lang)}
-    return jsonify({"backups": backups, "interval_hours": int(INTERVAL.total_seconds() // 3600), "keep": KEEP,
-                    "next_at": next_at(now, _moment(names[0]) if names else None, error).isoformat(), "error": failure})
+    due = next_at(now, _moment(names[0]) if names else None, error, _interval(chosen)).isoformat() if _active(chosen) else None
+    return jsonify({"backups": backups, "settings": chosen, "options": {"every_days": list(EVERY_DAYS), "max_keep": MAX_KEEP},
+                    "interval_hours": int(_interval(chosen).total_seconds() // 3600), "keep": chosen["keep"], "next_at": due, "error": failure})
+
+
+@bp.put("")
+def save():
+    """Switch it on or off, how many to keep (0-60), how often. Fewer to keep (or none) takes effect at once, not at the next one."""
+    changes = validated(json_body())
+    with pool().connection() as conn:
+        merged = {**settings(conn), **changes}
+        conn.execute("INSERT INTO app_state (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = excluded.value", (SETTINGS_KEY, json.dumps(merged)))
+    _prune(_folder(), merged["keep"])
+    return listing()
 
 
 @bp.get("/<name>")

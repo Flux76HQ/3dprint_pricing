@@ -255,3 +255,105 @@ def test_a_damaged_kept_backup_is_refused_before_anything_changes_and_nothing_is
     res = post(owner, "/api/backup/auto/printpricing-auto-2026-11-04-080000Z.zip/stage", headers=NL)
     assert res.status_code == 400 and "beschadigd" in res.get_json()["error"]
     assert staged_files(app) == [] and os.path.exists(damaged) and snapshot(owner) == before
+
+
+# --- the settings: on or off, how often, how many to keep ------------------------------------------------------------------------
+
+def settings(owner, **body):
+    res = owner.put("/api/backup/auto", json=body, headers=H)
+    assert res.status_code == 200, res.get_json()
+    return res.get_json()
+
+
+def test_the_defaults_are_on_every_half_day_and_the_fourteen_newest(owner):
+    state = owner.get("/api/backup/auto").get_json()
+    assert state["settings"] == {"enabled": True, "keep": 14, "every_days": 0.5}
+    assert state["options"] == {"every_days": [0.5, 1, 2, 7, 14], "max_keep": 60}
+
+
+def test_the_settings_are_saved_and_a_partial_change_keeps_the_rest(owner):
+    assert settings(owner, enabled=False)["settings"] == {"enabled": False, "keep": 14, "every_days": 0.5}
+    assert settings(owner, keep=60, every_days=14)["settings"] == {"enabled": False, "keep": 60, "every_days": 14.0}
+    assert owner.get("/api/backup/auto").get_json()["settings"]["keep"] == 60
+
+
+@pytest.mark.parametrize("every", [0.5, 1, 2, 7, 14])
+def test_every_choice_of_frequency_is_accepted(owner, every):
+    assert settings(owner, every_days=every)["settings"]["every_days"] == float(every)
+
+
+@pytest.mark.parametrize("keep", [0, 1, 14, 60])
+def test_the_number_to_keep_may_be_zero_to_sixty(owner, keep):
+    assert settings(owner, keep=keep)["settings"]["keep"] == keep
+
+
+@pytest.mark.parametrize("body", [{"keep": 61}, {"keep": -1}, {"keep": 1.5}, {"keep": "14"}, {"keep": True}, {"keep": None},
+                                  {"every_days": 0.75}, {"every_days": 3}, {"every_days": 0}, {"every_days": "1"}, {"every_days": True},
+                                  {"enabled": "yes"}, {"enabled": 1}])
+def test_anything_else_is_refused_and_changes_nothing(owner, body):
+    before = owner.get("/api/backup/auto").get_json()["settings"]
+    res = owner.put("/api/backup/auto", json=body, headers=H)
+    assert res.status_code == 400 and res.get_json()["error"]
+    assert owner.get("/api/backup/auto").get_json()["settings"] == before
+
+
+def test_the_refusals_say_what_is_allowed(owner):
+    assert "0 tot en met 60" in owner.put("/api/backup/auto", json={"keep": 61}, headers=NL).get_json()["error"]
+    assert "0,5, 1, 2, 7 of 14" in owner.put("/api/backup/auto", json={"every_days": 3}, headers=NL).get_json()["error"]
+
+
+@pytest.mark.parametrize("every,gap,due", [(0.5, timedelta(hours=11), False), (0.5, timedelta(hours=12), True), (1, timedelta(hours=23), False), (1, timedelta(days=1), True),
+                                           (2, timedelta(days=1, hours=23), False), (2, timedelta(days=2), True), (7, timedelta(days=6), False), (7, timedelta(days=7), True),
+                                           (14, timedelta(days=13), False), (14, timedelta(days=14), True)])
+def test_the_next_one_is_due_when_the_chosen_time_has_passed(owner, app, every, gap, due):
+    settings(owner, every_days=every)
+    assert auto_backup.run_once(app, T0) is not None
+    assert (auto_backup.run_once(app, T0 + gap) is not None) is due
+    if not due:
+        assert owner.get("/api/backup/auto").get_json()["next_at"] == (T0 + timedelta(days=every)).isoformat()
+
+
+def test_only_the_chosen_number_is_kept_and_other_files_are_left_alone(owner, app):
+    settings(owner, keep=3)
+    os.makedirs(folder(app), exist_ok=True)
+    for name in ("pre-update-2026-10-01-100000.sqlite3.gz", "my-own-copy.zip"):
+        with open(os.path.join(folder(app), name), "wb") as handle:
+            handle.write(b"not an automatic backup")
+    for n in range(6):
+        assert auto_backup.run_once(app, T0 + n * auto_backup.INTERVAL) is not None
+    assert kept(app) == ["printpricing-auto-2026-11-05-200000Z.zip", "printpricing-auto-2026-11-06-080000Z.zip", "printpricing-auto-2026-11-06-200000Z.zip"]
+    assert "pre-update-2026-10-01-100000.sqlite3.gz" in os.listdir(folder(app)) and "my-own-copy.zip" in os.listdir(folder(app))
+
+
+def test_lowering_the_number_removes_the_surplus_at_once(owner, app):
+    for n in range(5):
+        auto_backup.run_once(app, T0 + n * auto_backup.INTERVAL)
+    assert len(kept(app)) == 5
+    state = settings(owner, keep=2)
+    assert len(kept(app)) == 2 and len(state["backups"]) == 2
+    assert kept(app)[-1] == "printpricing-auto-2026-11-06-080000Z.zip"                  # the newest stay
+
+
+def test_keeping_none_removes_them_and_makes_no_more(owner, app):
+    auto_backup.run_once(app, T0)
+    settings(owner, keep=0)
+    assert kept(app) == []
+    assert auto_backup.run_once(app, T0 + timedelta(days=9)) is None and kept(app) == []
+    assert owner.get("/api/backup/auto").get_json()["next_at"] is None
+
+
+def test_switched_off_none_is_made_and_the_ones_there_stay(owner, app):
+    auto_backup.run_once(app, T0)
+    settings(owner, enabled=False)
+    assert auto_backup.run_once(app, T0 + timedelta(days=30)) is None and len(kept(app)) == 1
+    assert owner.get("/api/backup/auto").get_json()["next_at"] is None
+    settings(owner, enabled=True)
+    assert auto_backup.run_once(app, T0 + timedelta(days=30)) is not None
+
+
+def test_a_factory_reset_puts_the_defaults_back_and_keeps_the_backups(owner, app):
+    settings(owner, keep=5, enabled=False)
+    from app import db
+    with app.extensions["pool"].connection() as conn:
+        conn.execute("DELETE FROM app_state")                                           # what a reset does to every table
+    assert owner.get("/api/backup/auto").get_json()["settings"] == {"enabled": True, "keep": 14, "every_days": 0.5}

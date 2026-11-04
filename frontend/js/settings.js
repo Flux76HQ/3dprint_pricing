@@ -248,6 +248,8 @@ const seconds = (ms) => fmt(ms / 1000, 1);
 const TIMING_KEY = 'pp-restore-timing';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const AUTO_EVERY = [[0.5, 'backup.auto_every_05'], [1, 'backup.auto_every_1'], [2, 'backup.auto_every_2'], [7, 'backup.auto_every_7'], [14, 'backup.auto_every_14']];
+
 /** Backup and restore of everything entered (settings, printers, tariffs, packaging, parts, accessories, rolls, calculations).
  *  Both show what they are doing. A restore is a job on the server (`/api/backup/jobs`): once the file is up, leaving the page stops
  *  nothing, and the card picks the job up again when it is shown. Below, the automatic backups the server makes every 12 hours
@@ -394,13 +396,36 @@ function backupCard() {
     await confirmAndStart(staged);
   }
 
+  /** Switch, how often, how many to keep: saved at once; the list below follows (a lower number removes the surplus on the spot). */
+  function autoSettings(state) {
+    const chosen = state.settings;
+    const save = async (change) => {
+      try { await api('PUT', '/api/backup/auto', change); } catch (e) { toast(e.message, 'error'); }
+      loadAuto();
+    };
+    const every = h('select', { disabled: !chosen.enabled, onchange: (e) => save({ every_days: Number(e.target.value) }) },
+      AUTO_EVERY.map(([days, key]) => h('option', { value: String(days), selected: chosen.every_days === days }, t(key))));
+    const keep = numberInput(chosen.keep, () => {}, { inputmode: 'numeric', disabled: !chosen.enabled, onchange: (e) => {
+      const text = e.target.value.trim();
+      const n = /^\d+$/.test(text) ? Number(text) : NaN;
+      if (!(n >= 0 && n <= state.options.max_keep)) { toast(t('backup.auto_keep_invalid', { max: state.options.max_keep }), 'error'); e.target.value = String(chosen.keep); return; }
+      if (n !== chosen.keep) save({ keep: n });
+    } });
+    return h('div', { class: 'stack' },
+      switchRow(t('backup.auto_enabled'), t('backup.auto_enabled_hint'), chosen.enabled, (on) => save({ enabled: on })),
+      field(t('backup.auto_every'), every),
+      field(t('backup.auto_keep'), keep, t('backup.auto_keep_hint', { max: state.options.max_keep })));
+  }
+
   async function loadAuto() {
     let state;
     try { state = await api('GET', '/api/backup/auto'); } catch (e) { fill(autoBox, h('p', { class: 'error' }, e.message)); return; }
-    const due = new Date(state.next_at) <= new Date();
+    const on = state.settings.enabled && state.settings.keep > 0;
+    const due = on && new Date(state.next_at) <= new Date();
     fill(autoBox,
+      autoSettings(state),
       state.error ? h('div', { class: 'notice danger', role: 'alert' }, h('p', {}, `${t('backup.auto_failed_at', { when: moment(state.error.at) })} ${state.error.message}`)) : null,
-      h('p', { class: 'status-line' }, due ? t('backup.auto_next_soon') : t('backup.auto_next', { when: moment(state.next_at) })),
+      h('p', { class: 'status-line' }, !on ? t(state.settings.keep === 0 ? 'backup.auto_next_none' : 'backup.auto_next_off') : due ? t('backup.auto_next_soon') : t('backup.auto_next', { when: moment(state.next_at) })),
       state.backups.length
         ? h('ul', { class: 'plain-list' }, state.backups.map((backup) => h('li', { class: 'list-row' },
           h('div', {}, h('strong', {}, moment(backup.created_at)), h('p', { class: 'muted' }, fileSize(backup.size))),
@@ -627,6 +652,7 @@ const HEALTH_CHECKS = {
   filesystem: { label: 'about.chk_filesystem', ok: 'about.chk_filesystem_ok', warn: 'about.chk_filesystem_warn' },
   disk_space: { label: 'about.chk_disk_space', ok: 'about.chk_disk_space_ok', warn: 'about.chk_disk_space_warn' },
   wal_size: { label: 'about.chk_wal_size', ok: 'about.chk_wal_size_ok', warn: 'about.chk_wal_size_warn' },
+  auto_backup: { label: 'about.chk_auto_backup', ok: 'about.chk_auto_backup_ok', off: 'about.chk_auto_backup_off', warn: 'about.chk_auto_backup_warn' },
 };
 const HEALTH_STATE = { ok: 'about.state_ok', warn: 'about.state_warn', error: 'about.state_error' };
 const HEALTH_TITLE = { ok: 'about.health_ok', warn: 'about.health_warn', error: 'about.health_error' };
@@ -696,7 +722,8 @@ function aboutCards() {
   const checkText = (c) => {
     const entry = HEALTH_CHECKS[c.key];
     const params = { ms: c.value, mode: c.value, fs: c.value || '?', size: size(Number(c.value) || 0), reason: c.detail || '' };
-    return entry && entry[c.state] ? t(entry[c.state], params) : '';
+    const key = c.value === 'off' && entry?.off ? entry.off : entry?.[c.state];                  // switched off is a state of its own, not a problem
+    return key ? t(key, params) : '';
   };
   const backupText = () => {
     const b = data.backups;

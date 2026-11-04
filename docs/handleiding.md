@@ -243,7 +243,7 @@ PostgreSQL: zet `TEST_DATABASE_URL`, of draai als root met PostgreSQL geïnstall
 De pagina *Over* laat zien wat er draait en hoe gezond de database is. Bovenaan staat één regel met de versie, het gezondheidswoord, de laatste back-up en of er een update is; daaronder de kaarten:
 
 - **Over deze app**: versie, commit en kanaal (stabiel of beta), wanneer deze werker is gestart en hoe lang hij draait, de versies van Python en Flask, en welke optionele functies aan staan.
-- **Gezondheid van de database** (de eerste kaart): één woord (*Gezond*, *Let op* of *Probleem*) boven een lijst van snelle controles: antwoordt de database, hoe lang duurde het om de schrijfsleutel te krijgen (meer dan 0,5 s betekent dat iets anders hem lang vasthoudt), staat het bestand in WAL-modus, bewaakt de database verwijzingen tussen tabellen, zijn alle migraties toegepast (een ontbrekende of gewijzigde migratie is een fout), staat het bestand op een lokaal bestandssysteem (NFS, SMB en FUSE, zoals Unraids `/mnt/user`, geven een waarschuwing), is er genoeg vrije schijfruimte en is het WAL-bestand niet te groot. De knop *Uitgebreide controle uitvoeren* leest de hele database na (`quick_check` en een zoektocht naar rijen die naar niets verwijzen) op een eigen verbinding, zodat de app intussen gewoon schrijft. *Kopieer diagnose* zet versie, controles, koppeling, laatste back-up en updatestand als platte tekst op het klembord (zonder wachtwoorden, sleutels of het wachtwoord van de oude PostgreSQL), om bij een probleem mee te sturen; lukt het klembord niet, dan staat de tekst in een veld om met de hand te kopiëren.
+- **Gezondheid van de database** (de eerste kaart): één woord (*Gezond*, *Let op* of *Probleem*) boven een lijst van snelle controles: antwoordt de database, hoe lang duurde het om de schrijfsleutel te krijgen (meer dan 0,5 s betekent dat iets anders hem lang vasthoudt), staat het bestand in WAL-modus, bewaakt de database verwijzingen tussen tabellen, zijn alle migraties toegepast (een ontbrekende of gewijzigde migratie is een fout), staat het bestand op een lokaal bestandssysteem (NFS, SMB en FUSE, zoals Unraids `/mnt/user`, geven een waarschuwing), is er genoeg vrije schijfruimte, is het WAL-bestand niet te groot en is de laatste automatische back-up gelukt (uitgeschakeld is een keuze, geen waarschuwing). De knop *Uitgebreide controle uitvoeren* leest de hele database na (`quick_check` en een zoektocht naar rijen die naar niets verwijzen) op een eigen verbinding, zodat de app intussen gewoon schrijft. *Kopieer diagnose* zet versie, controles, koppeling, laatste back-up en updatestand als platte tekst op het klembord (zonder wachtwoorden, sleutels of het wachtwoord van de oude PostgreSQL), om bij een probleem mee te sturen; lukt het klembord niet, dan staat de tekst in een veld om met de hand te kopiëren.
 - **Actieve koppeling met de database**: het bestand waarmee de app nu verbonden is (pad, grootte), de logboekmodus, het bestandssysteem, de **laatste back-up** en de stand van de oude PostgreSQL-koppeling; achter *Meer details*: het stuurprogramma, schrijven naar schijf, de wachttijd op de schrijfsleutel, bewaakte verwijzingen, vrije schijfruimte, het werkproces, de toegepaste migraties en het aantal rijen per tabel. De oude PostgreSQL-koppeling (*niet ingesteld*, *eenmalig overgezet op …* of *ingesteld maar niet gebruikt*; het adres staat er zonder wachtwoord).
 
 De **laatste back-up** is de nieuwste van drie dingen: een kopie in `DATA_PATH/backups` (die `scripts/update.sh` daar zet), de nieuwste automatische back-up in `DATA_PATH/backups/auto` (zie *Automatische back-ups*) of de laatste back-up die in de app is gedownload (de app onthoudt alleen dat tijdstip, in `app_state`). Is de laatste ouder dan 30 dagen, of is er nog geen, dan staat er een waarschuwing in de kaart; het gezondheidswoord verandert daar niet van, zodat een nieuwe installatie niet meteen op *Let op* staat.
@@ -700,11 +700,13 @@ Een volledige kopie van de database (`backup_db.py`) en de map met uploads blijf
 
 ### Automatische back-ups
 
-**Elke 12 uur maakt de server zelf een back-up**, dezelfde als *Back-up downloaden* met *Printbestanden (STL/3MF) meenemen*: een ZIP-bestand met
+**Standaard elke 12 uur maakt de server zelf een back-up**, dezelfde als *Back-up downloaden* met *Printbestanden (STL/3MF) meenemen*: een ZIP-bestand met
 `backup.json` (alles hierboven, dus ook de bestellingen met hun factuurnummers en bewaarde factuur-PDF's, het factuursjabloon en het logo) en elk
 STL/3MF-bestand los onder `files/`. Ook hier zitten er **geen** gebruikers, passkeys, wachtwoorden of andere inloggegevens in. De bestanden staan op de
-server in `DATA_PATH/backups/auto` en heten `printpricing-auto-JJJJ-MM-DD-UUMMSSZ.zip` (de tijd in UTC). **De nieuwste 14 blijven bewaard**, een week:
+server in `DATA_PATH/backups/auto` en heten `printpricing-auto-JJJJ-MM-DD-UUMMSSZ.zip` (de tijd in UTC). **Standaard blijven de nieuwste 14 bewaard**, een week:
 is er een nieuwe helemaal geschreven, dan verdwijnt de oudste. Andere bestanden in die map raakt de app niet aan.
+
+**Instellen** doet een beheerder bovenaan die kaart: een **schakelaar** (standaard aan; uit laat de bestaande back-ups staan en maakt er geen meer), **hoe vaak** (elke 0,5, 1, 2, 7 of 14 dagen; standaard 0,5, dus elke 12 uur) en het **aantal te bewaren back-ups** (0 tot en met 60; standaard 14). Een lager aantal ruimt de oudste meteen op. Bij **0** worden geen automatische back-ups bewaard: er worden er geen gemaakt en de bestaande worden verwijderd. De keuzes staan in de database (`app_state`); *Terug naar fabrieksinstellingen* zet de standaardwaarden terug, de back-ups zelf blijven staan.
 
 *Instellingen → Systeem → Back-up en herstel → Automatische back-ups* toont ze, nieuwste eerst, met datum, tijd en grootte, en wanneer de volgende
 komt. Per back-up:
@@ -717,9 +719,9 @@ komt. Per back-up:
 
 Hoe het loopt:
 
-- Elke webworker kijkt een minuut na de start en daarna elke 5 minuten of de nieuwste back-up 12 uur oud is (of er nog geen is). Eén worker maakt hem
+- Elke webworker kijkt een minuut na de start en daarna elke 5 minuten of de nieuwste back-up zo oud is als de gekozen tijd (12 uur, standaard; of er nog geen is). Eén worker maakt hem
   (een slot in de tabel `app_state`); een worker die halverwege stopt, laat het slot na 2 uur los. Na een herstart of een update komt er dus binnen een paar
-  minuten een nieuwe als de laatste ouder is dan 12 uur.
+  minuten een nieuwe als de laatste ouder is dan de gekozen tijd.
 - Het tijdstip van de laatste komt uit de bestandsnamen, niet uit de database: een herstel of *Terug naar fabrieksinstellingen* begint de klok niet opnieuw.
   Zolang de app niet is ingericht (nog geen eigenaar, ook direct na de fabrieksinstellingen) en terwijl een herstel loopt, wordt er geen gemaakt; zo duwt een
   lege database nooit een echte back-up weg.
@@ -727,9 +729,9 @@ Hoe het loopt:
   volle schijf), dan blijven de bestaande back-ups staan, staat de reden in rood op de kaart en probeert de app het na een uur opnieuw. Een tijdelijk bestand
   dat een crash achterliet, wordt later opgeruimd.
 - *Terug naar fabrieksinstellingen* laat de automatische back-ups staan (ze staan buiten `DATA_PATH/uploads`): na de eerste start zet je er een terug.
-- **Ruimte:** elke back-up bevat alle printbestanden, dus reken op ongeveer 14 keer de map `uploads/` plus de database. Ze staan op dezelfde schijf als de data
+- **Ruimte:** elke back-up bevat alle printbestanden, dus reken op ongeveer het aantal te bewaren back-ups (standaard 14) keer de map `uploads/` plus de database. Ze staan op dezelfde schijf als de data
   die ze beschermen: kopieer er af en toe een van de server af (*Downloaden*, of de map `DATA_PATH/backups/auto`).
-- Er is niets in te stellen: geen variabele in `.env` en geen wijziging in `docker-compose.yml`. De container maakt de map `DATA_PATH/backups/auto` bij het
+- In `.env` of `docker-compose.yml` is niets in te stellen: de keuzes hierboven staan in de app. De container maakt de map `DATA_PATH/backups/auto` bij het
   starten zelf aan en geeft hem aan de gebruiker `app`; de rest van `DATA_PATH/backups` blijft van `scripts/update.sh`.
 
 ## Fabrieksinstellingen
