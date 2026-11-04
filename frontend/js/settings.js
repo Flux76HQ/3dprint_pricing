@@ -580,17 +580,81 @@ const duration = (seconds) => {
 const pill = (state) => h('span', { class: `pill ${state}` }, t(HEALTH_STATE[state]));
 const kv = (label, value) => h('div', { class: 'kv' }, h('span', { class: 'muted' }, label), h('strong', {}, value));
 
+// The age of a backup in words, from whole days.
+const ago = (days) => (days === 0 ? t('about.ago_today') : days === 1 ? t('about.ago_yesterday') : t('about.ago_days', { n: days }));
+
+// Plain text for a bug report: fixed English keys, nothing secret (the address of the old PostgreSQL has no login, and there is no key or password to leave out).
+function diagnosisText(data, deep) {
+  const { app, health, link, database, backups } = data;
+  const update = releaseStatus();
+  const lines = [
+    '3D Print Pricing diagnostics',
+    `version: v${app.version} (commit ${app.commit}, ${app.channel})`,
+    `started: ${app.started_at} (up ${app.uptime_seconds} s)`,
+    `python: ${app.python}, flask: ${app.flask}, sqlite: ${database?.version || '?'}`,
+    `features: ${Object.entries(app.features).map(([k, v]) => `${k}=${v}`).join(', ')}`,
+    `health: ${health.state}`,
+    ...health.checks.map((c) => `check.${c.key}: ${c.state}${c.value !== undefined && c.value !== null ? ` (${c.value})` : ''}${c.detail ? ` ${c.detail}` : ''}`),
+  ];
+  if (link) {
+    lines.push(`database.path: ${link.path}`,
+      `database.size_bytes: ${database.size_bytes} (wal ${database.wal_bytes}, free on disk ${database.free_bytes})`,
+      `database.journal_mode: ${link.journal_mode}, synchronous: ${link.synchronous}, foreign_keys: ${link.foreign_keys}, busy_timeout_ms: ${link.busy_timeout_ms}`,
+      `database.filesystem: ${link.filesystem || '?'}${link.network_filesystem ? ' (network or FUSE)' : ''}`,
+      `database.pages: ${database.page_count} x ${database.page_size} bytes, ${database.free_pages} free`,
+      `database.migrations: ${database.migrations.applied.length} applied, pending [${database.migrations.pending}], changed [${database.migrations.changed}], unknown [${database.migrations.unknown}]`,
+      `database.rows: ${Object.entries(database.rows).map(([k, v]) => `${k}=${v}`).join(', ')}`,
+      `worker: pid ${link.worker_pid} of ${link.workers || '?'}`,
+      `legacy_postgres: ${link.legacy.state}${link.legacy.address ? ` ${link.legacy.address}` : ''}${link.legacy.imported_at ? `, imported ${link.legacy.imported_at}` : ''}${link.legacy.old_data_folder ? ', old postgres/ folder present' : ''}`);
+  }
+  lines.push(`backup.newest: ${backups.newest_at || 'none'}${backups.age_days !== null ? ` (${backups.age_days} days)` : ''}, copies: ${backups.copies.count}${backups.downloaded ? `, downloaded: ${backups.downloaded.at}` : ''}`);
+  if (update) lines.push(`update: installed ${update.current ? `v${update.current}` : '?'}, latest ${update.latest ? `v${update.latest}` : '?'}, available ${!!update.available}${update.error ? `, error ${update.error}` : ''}`);
+  if (deep && !deep.failed) lines.push(`deep_check: ${deep.ok ? 'ok' : 'problem'} (${deep.seconds} s) ${deep.quick_check.join('; ')}${deep.foreign_key_violations.length ? ` foreign_keys: ${deep.foreign_key_violations.map((v) => `${v.table}->${v.parent}`).join(', ')}` : ''}`);
+  return lines.join('\n');
+}
+
+// The clipboard where the browser allows it, a hidden text field otherwise (an http address on a home network has no navigator.clipboard).
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+  const field = h('textarea', { style: 'position:fixed;opacity:0;pointer-events:none', 'aria-hidden': 'true', readonly: '' }, text);
+  document.body.append(field);
+  field.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  field.remove();
+  return ok;
+}
+
 function aboutCards() {
+  const summary = h('div', { class: 'glass card about-summary' });
   const app = h('div', { class: 'glass card stack about' });
   const health = h('div', { class: 'glass card stack about' });
   const link = h('div', { class: 'glass card stack about' });
-  let data = null, deep = null, busy = false;
+  let data = null, deep = null, busy = false, manual = '';
 
   const checkText = (c) => {
     const entry = HEALTH_CHECKS[c.key];
     const params = { ms: c.value, mode: c.value, fs: c.value || '?', size: size(Number(c.value) || 0), reason: c.detail || '' };
     return entry && entry[c.state] ? t(entry[c.state], params) : '';
   };
+  const backupText = () => {
+    const b = data.backups;
+    if (b.newest_at === null) return t('about.backup_none');
+    const fromApp = b.downloaded && b.downloaded.at === b.newest_at;
+    const source = fromApp ? t(b.downloaded.with_files ? 'about.backup_src_app_files' : 'about.backup_src_app') : t('about.backup_src_copy', { name: b.copies.latest?.name || '' });
+    return `${ago(b.age_days)} (${source})`;
+  };
+
+  function drawSummary() {
+    const update = releaseStatus();
+    const b = data.backups;
+    const updateText = update?.available ? t('about.sum_update', { latest: `v${update.latest}` }) : update?.latest ? t('about.sum_current') : null;
+    fill(summary,
+      h('strong', {}, `v${data.app.version}`),
+      h('span', { class: `pill big ${data.health.state}` }, t(HEALTH_TITLE[data.health.state])),
+      h('span', { class: b.old ? 'about-flag' : '' }, b.newest_at === null ? t('about.sum_backup_none') : t('about.sum_backup', { ago: ago(b.age_days) })),
+      updateText ? h('span', { class: update.available ? 'about-flag' : '' }, updateText) : null);
+  }
 
   function drawApp() {
     const a = data.app;
@@ -622,11 +686,14 @@ function aboutCards() {
       result,
       h('div', { class: 'row' },
         h('button', { class: 'btn primary', type: 'button', disabled: busy, onclick: runDeep }, busy ? t('about.deep_running') : t('about.deep_button')),
-        h('button', { class: 'btn', type: 'button', disabled: busy, onclick: load }, t('about.refresh'))));
+        h('button', { class: 'btn', type: 'button', disabled: busy, onclick: load }, t('about.refresh')),
+        h('button', { class: 'btn', type: 'button', onclick: copyDiagnosis }, t('about.copy'))),
+      h('p', { class: 'hint' }, t('about.copy_hint')),
+      manual ? h('textarea', { class: 'about-manual', readonly: '', rows: 10, 'aria-label': t('about.copy'), onfocus: (e) => e.target.select() }, manual) : null);
   }
 
   function drawLink() {
-    const l = data.link, d = data.database;
+    const l = data.link, d = data.database, b = data.backups;
     if (!l) { fill(link, h('h2', {}, t('about.link_title')), h('p', { class: 'muted' }, d.path)); return; }
     const old = l.legacy;
     const legacyText = old.state === 'imported'
@@ -634,27 +701,31 @@ function aboutCards() {
       : old.state === 'unused' ? t('about.legacy_unused', { address: old.address }) : t('about.legacy_none');
     fill(link, h('h2', {}, t('about.link_title')), h('p', { class: 'muted' }, t('about.link_intro')),
       kv(t('about.engine'), `${d.engine} ${d.version}`),
-      kv(t('about.driver'), t('about.driver_value')),
       kv(t('about.file'), l.path),
       kv(t('about.size'), size(d.size_bytes)),
-      kv(t('about.wal'), size(d.wal_bytes)),
       kv(t('about.mode'), l.journal_mode.toUpperCase()),
-      kv(t('about.sync'), t(SYNC_MODES[l.synchronous] || SYNC_MODES[1])),
-      kv(t('about.refs'), t(l.foreign_keys ? 'about.yes' : 'about.no')),
-      kv(t('about.timeout'), t('about.timeout_value', { n: fmt(l.busy_timeout_ms / 1000, 0) })),
       kv(t('about.filesystem'), l.filesystem || '?'),
-      kv(t('about.free'), size(d.free_bytes)),
-      kv(t('about.pages'), t('about.pages_value', { count: d.page_count, size: size(d.page_size), free: d.free_pages })),
-      kv(t('about.process'), l.workers ? t('about.process_of', { pid: l.worker_pid, workers: l.workers }) : t('about.process_value', { pid: l.worker_pid })),
+      kv(t('about.backup'), backupText()),
+      b.old ? h('div', { class: 'notice warn', role: 'status' }, h('p', {}, t('about.backup_old', { days: b.old_after_days }))) : null,
       kv(t('about.legacy'), legacyText),
       old.old_data_folder ? h('p', { class: 'hint' }, t('about.legacy_folder')) : null,
-      h('details', {}, h('summary', {}, t('about.migrations')),
-        h('ul', { class: 'plain-list' }, d.migrations.applied.map((m) => h('li', {}, h('code', {}, m.filename), ' · ', when(m.applied_at))))),
-      h('details', {}, h('summary', {}, `${t('about.tables')} (${d.tables})`),
-        h('ul', { class: 'plain-list' }, Object.entries(d.rows).map(([name, n]) => h('li', {}, h('code', {}, name), ` · ${n}`)))));
+      h('details', {}, h('summary', {}, t('about.more')),
+        h('div', { class: 'stack' },
+          kv(t('about.driver'), t('about.driver_value')),
+          kv(t('about.wal'), size(d.wal_bytes)),
+          kv(t('about.sync'), t(SYNC_MODES[l.synchronous] || SYNC_MODES[1])),
+          kv(t('about.refs'), t(l.foreign_keys ? 'about.yes' : 'about.no')),
+          kv(t('about.timeout'), t('about.timeout_value', { n: fmt(l.busy_timeout_ms / 1000, 0) })),
+          kv(t('about.free'), size(d.free_bytes)),
+          kv(t('about.pages'), t('about.pages_value', { count: d.page_count, size: size(d.page_size), free: d.free_pages })),
+          kv(t('about.process'), l.workers ? t('about.process_of', { pid: l.worker_pid, workers: l.workers }) : t('about.process_value', { pid: l.worker_pid })),
+          h('details', {}, h('summary', {}, t('about.migrations')),
+            h('ul', { class: 'plain-list' }, d.migrations.applied.map((m) => h('li', {}, h('code', {}, m.filename), ' · ', when(m.applied_at))))),
+          h('details', {}, h('summary', {}, `${t('about.tables')} (${d.tables})`),
+            h('ul', { class: 'plain-list' }, Object.entries(d.rows).map(([name, n]) => h('li', {}, h('code', {}, name), ` · ${n}`)))))));
   }
 
-  const draw = () => { drawApp(); drawHealth(); drawLink(); };
+  const draw = () => { drawSummary(); drawApp(); drawHealth(); drawLink(); };
   async function load() {
     try { data = await api('GET', '/api/about'); draw(); } catch (e) { toast(e.message || t('about.unavailable'), 'error'); }
   }
@@ -663,9 +734,15 @@ function aboutCards() {
     try { deep = await api('POST', '/api/about/check', {}); } catch { deep = { failed: true }; }
     busy = false; drawHealth();
   }
-  fill(app, h('h2', {}, t('about.app_title')), h('p', { class: 'muted' }, '…'));
+  async function copyDiagnosis() {
+    const text = diagnosisText(data, deep);
+    if (await copyText(text)) { manual = ''; toast(t('about.copied')); } else { manual = text; toast(t('about.copy_failed'), 'error'); }
+    drawHealth();
+  }
+  fill(summary, h('span', { class: 'muted' }, '…'));
   load();
-  return [app, health, link];
+  if (!releaseStatus()) initRelease().then(() => { if (data) drawSummary(); });            // the answer of the update check may come after the first draw
+  return [summary, health, link, updateCard(), app];
 }
 
 // The parts of the settings, in the order of the sub menu: [route, label key]. "Zakelijk" is only there when it is switched on.
