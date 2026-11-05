@@ -120,10 +120,10 @@ a { color: var(--accent); }
 .icon.mdi { fill: currentColor; stroke: none; }
 
 /* The bar at the bottom of a phone, in two styles (Settings > Appearance): "ios" floats as a glass capsule and "android" is the native bar:
-   full width on the edge, a pill behind the active icon. How glassy the iOS one is (0-100) is worked out in JavaScript (`navGlass` in ui.js)
+   full width on the edge, a pill behind the active icon. How glassy the iOS one is (0-100) is worked out in JavaScript (`applyNavGlass` in ui.js)
    into plain values, --nav-alpha (the tint) and --nav-blur: Safari drops a backdrop-filter or background whose calc() or color-mix() contains
-   a variable, and the bar is then not glass at all. */
-:root { --surface-rgb: 255, 255, 255; --nav-alpha: .49; --nav-blur: 24px; }
+   a variable, and the bar is then not glass at all. The defaults here are what applyNavGlass gives for its default, 60. */
+:root { --surface-rgb: 255, 255, 255; --nav-alpha: .49; --nav-blur: 28px; }
 :root[data-theme="dark"] { --surface-rgb: 24, 26, 39; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --surface-rgb: 24, 26, 39; } }
 .tabbar.glass { background: rgba(var(--surface-rgb), var(--nav-alpha));
