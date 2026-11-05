@@ -21,7 +21,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://postgres:test@localhost:5432/postgres
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -42,7 +42,7 @@ jobs:
   frontend-syntax:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -58,7 +58,7 @@ jobs:
   docker-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build the image
         run: docker build --build-arg GIT_COMMIT=${{ github.sha }} -t printpricing:ci .
       - name: A Word invoice template can be turned into a PDF inside the image (as the unprivileged user)
