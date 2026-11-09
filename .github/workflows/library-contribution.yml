@@ -33,7 +33,7 @@ jobs:
           token: ${{ secrets.LIBRARY_BOT_TOKEN || github.token }}
       - name: Make sure the label exists
         run: gh label create library-contribution --force --color 1d76db --description "A contribution to the shared filament library"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
