@@ -357,6 +357,7 @@
  "spoolman.bad_url": "This is not a valid address. Use something like http://spoolman:8000, without a login or question mark in it.",
  "spoolman.locked": "The address is set in .env (SPOOLMAN_URL) and cannot be changed here.",
  "spoolman.managed": "This roll comes from Spoolman. Change it there, then sync.",
+ "spoolman.no_booking": "Spoolman is linked and keeps track of what is used, so booking out from a 3D Model is off.",
  "spoolman.off": "Spoolman is not set up (SPOOLMAN_URL).",
  "spoolman.redirect": "Spoolman redirects to another address. Put the final address in SPOOLMAN_URL.",
  "spoolman.too_many": "Spoolman has more than {max} spools; that is more than this app reads.",

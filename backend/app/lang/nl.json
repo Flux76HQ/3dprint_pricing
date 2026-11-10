@@ -357,6 +357,7 @@
  "spoolman.bad_url": "Dit is geen geldig adres. Gebruik bijvoorbeeld http://spoolman:8000, zonder inlog of vraagteken erin.",
  "spoolman.locked": "Het adres staat in .env (SPOOLMAN_URL) en kan hier niet worden gewijzigd.",
  "spoolman.managed": "Deze rol komt uit Spoolman. Pas hem daar aan en synchroniseer daarna.",
+ "spoolman.no_booking": "Spoolman is gekoppeld en houdt het verbruik bij. Afboeken vanuit een 3D Model staat daarom uit.",
  "spoolman.off": "Spoolman is niet ingesteld (SPOOLMAN_URL).",
  "spoolman.redirect": "Spoolman stuurt door naar een ander adres. Zet het uiteindelijke adres in SPOOLMAN_URL.",
  "spoolman.too_many": "Spoolman heeft meer dan {max} rollen; dat is meer dan deze app inleest.",

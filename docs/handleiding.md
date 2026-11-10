@@ -671,19 +671,26 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
   **Prijzen worden overgenomen zoals ze in Spoolman staan en gelden hier als prijs excl. btw**, net als overal in de app.
 - **Een rol uit Spoolman is van Spoolman.** Je past hem daar aan; hier kan je hem niet bewerken, archiveren of verwijderen (de volgende synchronisatie zou het terugzetten). Alleen de melding *bijna op* is van de app
   en blijft staan. Een spoel die in Spoolman is gearchiveerd, wordt hier gearchiveerd; een spoel die uit Spoolman is verdwenen wordt hier **gearchiveerd, nooit verwijderd**, omdat opgeslagen berekeningen ernaar kunnen verwijzen.
-  Rollen die je met de hand invoerde, blijven wat ze waren en worden niet gekoppeld of aangeraakt.
-- **Verbruik gaat terug naar Spoolman.** Boek je het filament van een berekening, dan meldt de app de grammen aan Spoolman (`use`), zodat het niet twee keer wordt afgeboekt. Is Spoolman op dat moment niet bereikbaar,
-  dan lukt het boeken gewoon; de grammen staan in de wachtrij en gaan mee bij de volgende synchronisatie, en tot dan telt de app ze af van het gewicht dat Spoolman meldt. Een melding die Spoolman voorgoed weigert (de spoel bestaat daar niet meer) wordt laten vallen.
+- **Een rol staat hier één keer.** Stond een rol hier al omdat je hem met de hand invoerde, en leest de app daarna de spoel uit Spoolman die dezelfde rol is, dan wordt die rol **aan de spoel gekoppeld** en komt er geen tweede bij
+  (de melding na het synchroniseren telt ze als *gekoppeld*). Dezelfde rol is: hetzelfde merk en dezelfde barcode (in Spoolman het artikelnummer), of zonder barcode hetzelfde merk, dezelfde naam (type en kleur) en hetzelfde materiaal,
+  ongeacht hoofdletters. Eén rol hoort bij één spoel: heb je twee rollen van een soort en staat er één spoel in Spoolman, dan wordt de rol gekoppeld waarvan het gewicht het dichtst bij dat van de spoel ligt en blijft de andere een eigen rol.
+  De gekoppelde rol houdt zijn plek in je 3D Modellen en zijn melding *bijna op*; merk, kleur, prijs, opmerking en wat er nog op zit komen vanaf dan uit Spoolman. Een gearchiveerde rol en een rol zonder naam of barcode worden nooit gekoppeld,
+  en een rol die geen spoel in Spoolman is, blijft wat hij was. Stonden er al rollen dubbel van vóór deze regel (één met de hand, één uit Spoolman), dan verwijder of archiveer je zelf de rol zonder het label *Spoolman*.
+- **Verbruik houdt Spoolman bij.** Zolang Spoolman gekoppeld is, kan je het filament van een 3D Model **niet afboeken**: de knop *Verbruik afboeken van voorraad* is weg en de server weigert het ook. Spoolman krijgt het verbruik
+  al van de printer, dus hier afboeken zou dezelfde grammen twee keer van de rol halen. Dat geldt voor alle rollen, ook voor een rol die je met de hand invoerde. Haal je het adres van Spoolman weg, dan boek je weer af als voorheen.
+  Boekingen van vóór deze regel die Spoolman nog niet had gekregen, gaan nog mee bij de volgende synchronisatie (tot dan telt de app ze af van het gewicht dat Spoolman meldt); een melding die Spoolman voorgoed weigert
+  (de spoel bestaat daar niet meer) wordt laten vallen.
 - **Bibliotheek naar Spoolman.** De knop zet de filamenten van de [filamentbibliotheek](#filamentbibliotheek) in Spoolman, zodat je daar alleen nog een spoel hoeft toe te voegen (en die komt met de volgende synchronisatie hier). Eerst zie je
   hoeveel er worden aangemaakt. Merken die Spoolman nog niet kent worden aangemaakt; een filament dat Spoolman al heeft (zelfde merk en artikelnummer, of zelfde merk, naam en materiaal) blijft **ongemoeid**, en er wordt in Spoolman
   **nooit iets verwijderd of overschreven**. De kleur (met het type ervoor) wordt de naam, barcode (anders SKU) het artikelnummer en de richtprijs de prijs. Spoolman eist een dichtheid: de app neemt een gangbare waarde per materiaal
   (PLA 1,24, PETG 1,27, ABS 1,04, ASA 1,07, TPU 1,21, PC 1,20, PA 1,14), die alleen gebruikt wordt om gram in meters om te rekenen. Per keer worden hoogstens 300 filamenten aangemaakt; de melding zegt of je het nog een keer moet doen.
   Let op: dit zijn **filamenten** (in Spoolman onder *Filaments*), geen **spoelen**; de pagina *Spools* blijft leeg tot je daar een spoel toevoegt of *Rollen naar Spoolman* gebruikt.
 - **Rollen naar Spoolman.** De knop maakt in Spoolman een **spoel** van elke rol die je hier met de hand invoerde (niet gearchiveerd, met naam of barcode): het filament wordt gezocht of aangemaakt zoals hierboven, de spoel krijgt het gewicht dat er nog op zit
-  en de prijs, en de rol wordt meteen aan die spoel gekoppeld, zodat de volgende synchronisatie hem bijwerkt in plaats van er een tweede van te maken. Elke rol wordt apart vastgelegd: gaat het halverwege mis, dan blijven de al gekoppelde
+  en de prijs, en de rol wordt meteen aan die spoel gekoppeld, zodat de volgende synchronisatie hem bijwerkt in plaats van er een tweede van te maken. Heeft Spoolman de rol al als spoel (een spoel waar hier nog geen rol aan hangt, zie *Een rol staat hier één keer*),
+  dan wordt de rol daaraan gekoppeld en wordt er **geen tweede spoel** gemaakt; de bevestiging noemt dat aantal apart. Elke rol wordt apart vastgelegd: gaat het halverwege mis, dan blijven de al gekoppelde
   rollen gekoppeld en maakt een tweede run ze niet opnieuw aan. Daarna komen merk, type en kleur van de rol uit Spoolman (het type komt daar vóór de kleur in de naam te staan). Hoogstens 300 spoelen per keer.
 - **De bibliotheek blijft.** Spoolman vervangt de bibliotheek niet: zonder `SPOOLMAN_URL` werkt alles als voorheen, en de bibliotheek (GitHub-sync, factuurimport, bijdragen) kan ernaast blijven bestaan.
-- **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft. De wachtrij met nog te melden verbruik zit er niet in (werk in uitvoering).
+- **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft. De wachtrij met eerdere boekingen die nog naar Spoolman moeten zit er niet in (werk in uitvoering).
 
 ## Back-up in de app
 

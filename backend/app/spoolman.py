@@ -5,9 +5,15 @@ number (`spoolman_id`). A calculation keeps pointing at a local roll, so prices 
 details come from changes. The details of a mirrored roll are Spoolman's to change (the app refuses to edit them, see `api.update`), a sync
 overwrites them, and a spool that is gone from Spoolman is archived here, never deleted, because calculations may refer to it.
 
-Going the other way, booking a calculation's filament reports the grams to Spoolman (`PUT /api/v1/spool/<id>/use`). The grams are written
-to `spoolman_pending_use` in the same transaction as the booking and sent afterwards, so a Spoolman that is out of reach loses nothing:
-a sync sends what is left first, and until it is sent the weight Spoolman reports is reduced by it, so the shelf does not jump back up.
+A roll is one row here, wherever it was entered first. A spool that is new to the app is first looked for among the rolls typed in by hand
+(`_same`, the rule that finds a roll's filament in Spoolman): the roll that is it gets linked and keeps its id, and only a spool no roll
+is yet becomes a new row. `push_rolls` does the same the other way round: a roll Spoolman already has as a spool is linked to that spool
+instead of being made there a second time. Without this the same roll would show twice, once typed and once mirrored.
+
+What is used is Spoolman's to keep as well (the printer reports it there), so with a Spoolman nothing is booked from a calculation
+(`api.book_stock` refuses): the same grams would be taken off twice. `spoolman_pending_use` only holds what was booked while the app
+still reported it (`PUT /api/v1/spool/<id>/use`): a sync sends what is left of it first, and until it is sent the weight Spoolman
+reports is reduced by it, so the shelf does not jump back up. Nothing is added to it any more.
 
 The address is configuration, never taken from a request. Nothing is followed on a redirect, every answer is capped in size, and Spoolman's
 data is validated and clamped before it reaches a column (a malformed spool is skipped and counted, never fatal). The library
@@ -176,13 +182,7 @@ def _differs(row: dict, values: dict) -> bool:
     return any(row[k] != v for k, v in values.items())
 
 
-# --- reporting what was used -----------------------------------------------------------------------------------------
-
-def queue_use(conn, spoolman_id: int, grams: Decimal) -> None:
-    """Called inside the transaction that books the filament: the grams are owed to Spoolman from now on."""
-    if grams > 0:
-        conn.execute("INSERT INTO spoolman_pending_use (spoolman_id, grams) VALUES (%s, %s)", (spoolman_id, grams))
-
+# --- what was booked before the use became Spoolman's -----------------------------------------------------------------
 
 LEASE = timedelta(minutes=2)            # how long a use that is being sent is left alone by other flushes; longer than the request can take
 
@@ -207,7 +207,7 @@ def flush(*, wait: bool) -> tuple[int, int]:
     """Send what is owed to Spoolman, oldest first; (sent, dropped). Each use is claimed, sent and deleted on its own, so one that was sent is gone
     even when the next one fails. A use that Spoolman refuses for good (the spool no longer exists) is dropped, anything else stays for the next
     time and ends the run. `wait` is whether to queue behind another flush that is sending a use (a sync does, so the weights it reads are final) or
-    to leave it to that flush (a booking does). No transaction is open while Spoolman is called."""
+    to leave it to that flush. No transaction is open while Spoolman is called."""
     sent = dropped = last = 0
     while True:
         row = _claim_use(last, wait=wait)
@@ -228,25 +228,58 @@ def flush(*, wait: bool) -> tuple[int, int]:
             conn.execute("DELETE FROM spoolman_pending_use WHERE id = %s", (row["id"],))
 
 
-def flush_after_booking() -> None:
-    """Best effort, after the booking has been committed: Spoolman being away must never fail it, the rows wait for the next sync."""
-    if not enabled():
-        return
-    try:
-        flush(wait=False)
-    except SpoolmanError:
-        pass
+# --- one roll, one row ---------------------------------------------------------------------------------------------------
+
+def _filament(spool: dict) -> dict:
+    return spool.get("filament") if isinstance(spool.get("filament"), dict) else {}
+
+
+def _as_filament(roll: dict) -> tuple[str, dict]:
+    """The brand and the Spoolman filament of a roll typed in here: what `_same` compares a spool's filament with."""
+    return roll["brand"].strip()[:64], filament_of({**roll, "sku": "", "notes": ""})        # the roll's notes belong to the spool, not to the filament
+
+
+def _named(wanted: dict) -> bool:
+    """Whether a roll can be told from the other rolls of its brand: without a name or a barcode it is nobody's twin."""
+    return bool(wanted.get("name") or wanted.get("article_number"))
+
+
+def _twins(spools: list, typed: list) -> dict:
+    """Which roll typed in here is which of these spools: {spool id: roll id}. A roll is a spool when its filament is the spool's (`_same`,
+    the rule that finds a roll's filament in Spoolman) and it has a name or a barcode to be told by. One roll is never two spools and one
+    spool never two rolls; where several of one kind could be each other's (two rolls, two spools), the nearest in weight are paired first,
+    then the first spool read and the oldest roll."""
+    named = [(roll, *_as_filament(roll)) for roll in typed]
+    weights = [to_roll(spool)["remaining_g"] for spool in spools]
+    close = sorted((abs(roll["remaining_g"] - weights[i]), i, j) for i, spool in enumerate(spools) for j, (roll, brand, wanted) in enumerate(named)
+                   if _named(wanted) and _same(_filament(spool), brand, wanted))
+    twins, paired = {}, set()
+    for _, i, j in close:
+        if spools[i]["id"] not in twins and j not in paired:
+            twins[spools[i]["id"]] = named[j][0]["id"]
+            paired.add(j)
+    return twins
+
+
+def _link(conn, roll_id, spool_id: int, values: dict) -> None:
+    """A roll typed in here turns out to be this spool: it is that spool's roll from now on, with Spoolman's details. It keeps its id, because
+    calculations point at it, and its `notify_low`, which is the app's own."""
+    conn.execute(f"UPDATE filament_spools SET spoolman_id = %s, spoolman_synced_at = now(), {', '.join(f'{k} = %s' for k in values)} WHERE id = %s",
+                 (spool_id, *values.values(), roll_id))
 
 
 # --- the sync ----------------------------------------------------------------------------------------------------------
 
 def sync(conn, spools: list, skipped: int) -> dict:
-    """Bring the rolls in line with the spools just read (`fetch_spools`; what is owed to Spoolman has been sent by now: see `run_sync`)."""
+    """Bring the rolls in line with the spools just read (`fetch_spools`; what is owed to Spoolman has been sent by now: see `run_sync`).
+    A spool that is new here and that a roll typed in by hand already is, is linked to that roll (`linked`) instead of added next to it."""
     owed: dict[int, Decimal] = {}                       # added up here, not in SQL: a SUM would come back as a float
     for r in conn.execute("SELECT spoolman_id, grams FROM spoolman_pending_use").fetchall():
         owed[r["spoolman_id"]] = owed.get(r["spoolman_id"], Decimal(0)) + r["grams"]
     have = {r["spoolman_id"]: r for r in conn.execute("SELECT * FROM filament_spools WHERE spoolman_id IS NOT NULL").fetchall()}
-    created = updated = 0
+    typed = conn.execute("SELECT * FROM filament_spools WHERE spoolman_id IS NULL AND NOT archived ORDER BY created_at, id").fetchall()
+    twins = _twins([s for s in spools if s["id"] not in have and not s.get("archived")], typed)       # only a spool that is new here can be one
+    created = updated = linked = 0
     for spool in spools:
         values = to_roll(spool)
         values["remaining_g"] = max(values["remaining_g"] - owed.get(spool["id"], Decimal(0)), Decimal(0))
@@ -254,6 +287,11 @@ def sync(conn, spools: list, skipped: int) -> dict:
         if row is None:
             if values["archived"]:
                 continue                                 # an archived spool that was never here is not worth a roll
+            twin = twins.pop(spool["id"], None)
+            if twin is not None:                         # typed in here before it was read from Spoolman: the same roll, so not a second row
+                _link(conn, twin, spool["id"], values)
+                linked += 1
+                continue
             row = conn.execute(f"INSERT INTO filament_spools (spoolman_id, spoolman_synced_at, {', '.join(values)}) "
                                f"VALUES (%s, now(), {', '.join(['%s'] * len(values))}) RETURNING *", (spool["id"], *values.values())).fetchone()
             _share_notify(conn, row, explicit=False, creating=True)      # a new roll of a kind that is watched is watched too
@@ -266,7 +304,7 @@ def sync(conn, spools: list, skipped: int) -> dict:
     gone = [r["id"] for r in have.values() if not r["archived"]]
     if gone:
         conn.execute("UPDATE filament_spools SET archived = true WHERE id IN (SELECT value FROM json_each(%s))", (id_list(gone),))
-    return {"created": created, "updated": updated, "archived": len(gone), "skipped": skipped, "total": len(spools)}
+    return {"created": created, "linked": linked, "updated": updated, "archived": len(gone), "skipped": skipped, "total": len(spools)}
 
 
 # --- the library to Spoolman ----------------------------------------------------------------------------------------------
@@ -297,7 +335,7 @@ def filament_of(entry: dict) -> dict:
 def _same(filament: dict, vendor: str, wanted: dict) -> bool:
     """Whether Spoolman already has this filament: the vendor and the article number, else the vendor, name and material."""
     other = (filament.get("vendor") or {}).get("name") if isinstance(filament.get("vendor"), dict) else None
-    if (other or "").strip().lower() != vendor.lower():
+    if str(other or "").strip().lower() != vendor.lower():
         return False
     article = wanted.get("article_number")
     if article and str(filament.get("article_number") or "").strip().lower() == article.lower():
@@ -362,23 +400,36 @@ def push_library(entries: list, *, dry_run: bool) -> dict:
 
 def push_rolls(*, dry_run: bool) -> dict:
     """Make a spool in Spoolman of every roll typed in here (not archived, not yet from Spoolman) and link the roll to it, so the next sync
-    updates it instead of adding a second one. The filament is found in Spoolman, or made, the way `push_library` does. Each roll is its
-    own short transaction while the whole run holds the sync's lock: the link is committed as soon as the spool exists, so a failure half way
-    never leaves a spool in Spoolman that a second run would make again."""
+    updates it instead of adding a second one. A roll that Spoolman already has as a spool (one no roll here is linked to, of the same
+    filament by `_same`) is linked to that spool (`linked`) and nothing is made: a second spool would come back as a second roll. The
+    filament is found in Spoolman, or made, the way `push_library` does. Each roll is its own short transaction while the whole run holds
+    the sync's lock: the link is committed as soon as the spool exists, so a failure half way never leaves a spool in Spoolman that a
+    second run would make again."""
     with named_lock(pool(), LOCK):
+        spools, _ = fetch_spools()
         with pool().connection() as conn:
-            ids = [r["id"] for r in conn.execute("SELECT id FROM filament_spools WHERE spoolman_id IS NULL AND NOT archived ORDER BY created_at, id").fetchall()]
+            typed = conn.execute("SELECT * FROM filament_spools WHERE spoolman_id IS NULL AND NOT archived ORDER BY created_at, id").fetchall()
+            taken = {r["spoolman_id"] for r in conn.execute("SELECT spoolman_id FROM filament_spools WHERE spoolman_id IS NOT NULL").fetchall()}
+        ids = [r["id"] for r in typed]
+        free = {s["id"]: s for s in spools if not s.get("archived") and s["id"] not in taken}           # the spools that no roll here is yet
+        twins = {roll_id: free[spool_id] for spool_id, roll_id in _twins(list(free.values()), typed).items()}
         catalogue = Catalogue()
-        done = {"created": 0, "filaments": 0, "vendors": 0, "skipped": 0, "left": 0}
+        done = {"created": 0, "linked": 0, "filaments": 0, "vendors": 0, "skipped": 0, "left": 0}
         for roll_id in ids:
             with pool().connection() as conn:
                 roll = conn.execute("SELECT * FROM filament_spools WHERE id = %s AND spoolman_id IS NULL AND NOT archived", (roll_id,)).fetchone()
             if roll is None:
                 continue                                  # linked, archived or removed since the list was read
-            brand = roll["brand"].strip()[:64]
-            wanted = filament_of({**roll, "sku": "", "notes": ""})        # the roll's notes belong to the spool, not to the filament
-            if not wanted.get("name") and not wanted.get("article_number"):
+            brand, wanted = _as_filament(roll)
+            if not _named(wanted):
                 done["skipped"] += 1                      # no name or barcode: every such roll would be a filament of its own
+                continue
+            twin = twins.get(roll_id)
+            if twin is not None:                          # Spoolman has this roll already: it is linked, not made a second time
+                done["linked"] += 1
+                if not dry_run:
+                    with pool().connection() as conn:
+                        _link(conn, roll_id, twin["id"], to_roll(twin))
                 continue
             if done["created"] >= MAX_CREATED:
                 done["left"] += 1
@@ -418,10 +469,14 @@ def run_push_library():
 def run_push_rolls():
     if not enabled():
         raise ApiError(400, "spoolman.off")
+    dry_run = request.args.get("dry_run") == "1"
     try:
-        return jsonify(push_rolls(dry_run=request.args.get("dry_run") == "1"))
+        result = push_rolls(dry_run=dry_run)
     except SpoolmanError as exc:
         raise exc.api() from None
+    if result["linked"] and not dry_run:
+        stock_changed()                                   # a linked roll has the weight Spoolman gives it: see whether a kind has run low
+    return jsonify(result)
 
 
 @bp.get("")
