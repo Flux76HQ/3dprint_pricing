@@ -705,8 +705,11 @@ def delete_project(project_id):
 
 @bp.post("/projects/<uuid:project_id>/book-stock")
 def book_stock(project_id):
-    """Subtract the project's filament grams from the spools it used, once."""
+    """Subtract the project's filament grams from the spools it used, once. Not with a Spoolman: what is used is kept there (the printer
+    reports it), so a booking here would take the same grams off a second time. That goes for every roll, also one typed in by hand."""
     from . import spoolman                                  # imported here: that module imports this one
+    if spoolman.enabled():                                  # asked before this request holds a connection (see `spoolman.address`)
+        raise ApiError(409, "spoolman.no_booking")
     with pool().connection() as conn:
         project = conn.execute("SELECT data, stock_booked_at FROM projects WHERE id = %s",
                                (project_id,)).fetchone()
@@ -721,7 +724,7 @@ def book_stock(project_id):
                 used[spool_id] = used.get(spool_id, Decimal(0)) + Decimal(str(line.get("grams") or 0))
         short = []
         for spool_id, grams in used.items():
-            row = conn.execute("SELECT brand, product_type, remaining_g, spoolman_id FROM filament_spools WHERE id = %s",
+            row = conn.execute("SELECT brand, product_type, remaining_g FROM filament_spools WHERE id = %s",
                                (spool_id,)).fetchone()
             if row is None:
                 continue  # spool was deleted since; nothing to subtract from
@@ -729,9 +732,6 @@ def book_stock(project_id):
                 short.append(tr("book.short_item", name=" ".join(x for x in (row["brand"], row["product_type"]) if x), left=row["remaining_g"], need=grams))
             conn.execute("UPDATE filament_spools SET remaining_g = round(max(remaining_g - %s, 0), 1) WHERE id = %s",
                          (grams, spool_id))
-            if row["spoolman_id"] is not None:
-                spoolman.queue_use(conn, row["spoolman_id"], grams)       # owed to Spoolman, sent below once the booking is safe
         conn.execute("UPDATE projects SET stock_booked_at = now() WHERE id = %s", (project_id,))
-    spoolman.flush_after_booking()
     stock_changed()
     return jsonify({"ok": True, "spools_updated": len(used), "short": short})

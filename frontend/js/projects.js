@@ -68,17 +68,18 @@ export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: asy
     api('GET', '/api/spools'), api('GET', '/api/printers'), api('GET', '/api/tariffs'), api('GET', '/api/packaging'),
     api('GET', '/api/parts'), api('GET', '/api/accessories'),
     id ? api('GET', `/api/projects/${id}`) : Promise.resolve(null),
-  ]).then(([spools, printers, tariffs, packaging, parts, accessories, project]) => {
+    api('GET', '/api/spoolman').catch(() => ({ enabled: false })),         // only decides what is offered; the server refuses a booking itself
+  ]).then(([spools, printers, tariffs, packaging, parts, accessories, project, spoolman]) => {
     root.replaceChildren(buildEditor({
       spools: spools.filter((s) => !s.archived), printers: printers.filter((p) => !p.archived), tariffs,
       packaging: packaging.filter((p) => !p.archived), parts: parts.filter((p) => !p.archived),
-      accessories: accessories.filter((p) => !p.archived), project, navigate, ctx,
+      accessories: accessories.filter((p) => !p.archived), project, navigate, ctx, spoolman: !!spoolman.enabled,
     }));
   }).catch((e) => root.replaceChildren(h('p', { class: 'error', role: 'alert' }, e.message)));
   return root;
 }
 
-function buildEditor({ spools, printers, tariffs, packaging, parts, accessories, project, navigate, ctx }) {
+function buildEditor({ spools, printers, tariffs, packaging, parts, accessories, project, navigate, ctx, spoolman }) {
   const state = project ? fromSaved(project) : {
     id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, file_id: null, source_url: '',
     vat_pct: ctx.prefs.vat_pct ?? '21',
@@ -476,7 +477,9 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
   const notes = h('textarea', { rows: 2, oninput: (e) => bind(state, 'notes')(e.target.value) }, state.notes || '');
   const objectDescription = h('textarea', { rows: 2, maxlength: 500, placeholder: t('calc.object_description_ph'),
     oninput: (e) => bind(state, 'object_description')(e.target.value) }, state.object_description || '');
-  const canBook = state.id && !state.stock_booked_at && state.filament.some((r) => r.spool_id);
+  // With Spoolman linked, what is used is kept there: booking it here as well would take the same grams off twice.
+  const bookable = state.id && !state.stock_booked_at && state.filament.some((r) => r.spool_id);
+  const canBook = bookable && !spoolman;
 
   redraw();
   recalc();
@@ -504,6 +507,7 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
           h('button', { class: 'btn primary', type: 'button', onclick: () => save(false) }, t('common.save')),
           state.id ? h('button', { class: 'btn', type: 'button', onclick: () => save(true) }, t('calc.save_copy')) : null,
           canBook ? h('button', { class: 'btn', type: 'button', onclick: bookStock }, t('calc.book_stock')) : null,
+          bookable && spoolman ? h('p', { class: 'hint' }, t('calc.book_spoolman')) : null,
           state.id ? h('button', { class: 'btn danger', type: 'button', onclick: async () => {
             if (await confirmDialog(t('calc.delete_confirm'))) {
               await api('DELETE', `/api/projects/${state.id}`).catch((e) => toast(e.message, 'error'));
