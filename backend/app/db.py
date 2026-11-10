@@ -148,9 +148,14 @@ def _classify(exc: sqlite3.IntegrityError) -> sqlite3.IntegrityError:
     name = getattr(exc, "sqlite_errorname", "")
     if name in ("SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"):
         return UniqueViolation(*exc.args)
-    if name == "SQLITE_CONSTRAINT_FOREIGNKEY":
+    if name == "SQLITE_CONSTRAINT_FOREIGNKEY" or (name == "SQLITE_CONSTRAINT_TRIGGER" and exc.args[:1] == (_FK_MESSAGE,)):
         return ForeignKeyViolation(*exc.args)
     return exc
+
+
+# ON DELETE RESTRICT is a trigger inside SQLite: a refused delete reports SQLITE_CONSTRAINT_TRIGGER with the foreign-key text, where
+# every other foreign-key failure reports SQLITE_CONSTRAINT_FOREIGNKEY. The text is SQLite's own, fixed in its source (fkey.c).
+_FK_MESSAGE = "FOREIGN KEY constraint failed"
 
 
 # ---- Connections -----------------------------------------------------------------------------------------------------

@@ -101,6 +101,17 @@ def test_with_the_passkey_everything_is_gone_and_the_app_is_set_up_again(owner, 
     assert owner.get("/api/printers").get_json() == [] and owner.get("/api/projects").get_json() == []
 
 
+def test_a_customer_with_orders_does_not_stop_the_reset(owner, app):
+    """`customers` is emptied before `orders` (by name), and an order holds on to its customer (ON DELETE RESTRICT)."""
+    from tests.test_backup import fill_orders
+    fill_orders(owner)
+    assert tables(app)["customers"] == 1 and tables(app)["orders"] == 1
+
+    res = post(owner, RESET, {**WORD, "credential": confirmation(owner, "factory-reset")})
+    assert res.status_code == 200 and res.get_json() == {"ok": True}
+    assert {name: n for name, n in tables(app).items() if n} == {}
+
+
 def test_numbers_start_over(owner):
     from tests.test_domain_api import make, sheet_payload
     first = make(owner, "/api/projects", sheet_payload())
