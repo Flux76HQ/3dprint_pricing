@@ -95,6 +95,22 @@ def test_violations_say_which_kind_they_are(database):
     assert not isinstance(caught.value, (UniqueViolation, ForeignKeyViolation))               # a failed CHECK is neither
 
 
+def test_a_refused_delete_is_a_foreign_key_violation_too(database):
+    """ON DELETE RESTRICT is a trigger inside SQLite, so it reports SQLITE_CONSTRAINT_TRIGGER and not ..._FOREIGNKEY."""
+    with database.connection() as conn:
+        customer = conn.execute("INSERT INTO customers (number, name) VALUES ('1', 'Jan') RETURNING id").fetchone()["id"]
+        conn.execute("INSERT INTO orders (number, customer_name, customer_id) VALUES (1, 'Jan', %s)", (customer,))
+    with pytest.raises(ForeignKeyViolation):
+        with database.connection() as conn:
+            conn.execute("DELETE FROM customers")
+    with database.connection() as conn:
+        conn.execute("CREATE TRIGGER no_tariffs BEFORE INSERT ON energy_tariffs BEGIN SELECT RAISE(ABORT, 'no tariffs today'); END")
+    with pytest.raises(sqlite3.IntegrityError) as caught:
+        with database.connection() as conn:
+            conn.execute("INSERT INTO energy_tariffs (name, price_per_kwh) VALUES ('x', 1)")
+    assert not isinstance(caught.value, ForeignKeyViolation)                                   # a trigger of our own that says no is not one
+
+
 def test_a_failed_block_changes_nothing_and_a_successful_one_commits(database):
     with pytest.raises(RuntimeError):
         with database.connection() as conn:
