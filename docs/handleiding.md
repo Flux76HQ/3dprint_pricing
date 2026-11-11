@@ -12,8 +12,12 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
 - **Printbestand koppelen** — upload een `.3mf` of `.stl` bij een berekening; het bestand blijft bewaard en is later
   te downloaden. Uit een **gesliced 3MF** (Bambu Studio / Orca, “Export plate sliced file”) leest de app de
   echte **gram per filament** en **printtijd**. Die worden standaard **automatisch** verwerkt in de berekening (uit te
-  zetten): filamentregels met de prijs van de passende rol, printtijd naar boven op hele uren, en een printerregel
-  met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik. Bevat het bestand meerdere platen, dan kies je in het menu *Plaat* één plaat of *Alle platen*: dan worden uren en gram van alle platen bij elkaar opgeteld (hetzelfde filament telt als één regel). Uit een **STL** (of een 3MF zonder
+  zetten): een filamentregel per filament uit het bestand, gekoppeld aan het filament uit je voorraad met hetzelfde materiaal en de kleur die er het dichtst bij ligt
+  (met de prijs daarvan; ligt geen kleur dichtbij, dan blijft de regel *Handmatig*), printtijd naar boven op hele uren, en een printerregel
+  met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik (*Filament overnemen*). In een filamentregel kies je
+  een **soort uit de voorraad**, niet een losse rol: drie rollen van hetzelfde filament staan er één keer, met wat er samen van over is. Vraagt de berekening
+  meer van een soort dan er op voorraad is, dan staat er een waarschuwing onder de regels. *Verbruik afboeken van voorraad* haalt het gewicht van de soort af:
+  eerst van de aangebroken rol, de rest van de andere rollen van die soort. Bevat het bestand meerdere platen, dan kies je in het menu *Plaat* één plaat of *Alle platen*: dan worden uren en gram van alle platen bij elkaar opgeteld (hetzelfde filament telt als één regel). Uit een **STL** (of een 3MF zonder
   slicer-data) leest de app het volume en **schat** het gewicht (volume × dichtheid × effectieve vulling);
   de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast kun je een **link** naar het model
   bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.

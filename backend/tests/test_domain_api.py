@@ -96,6 +96,23 @@ def test_book_stock_subtracts_once(owner):
     assert post(owner, f"/api/projects/{p['id']}/book-stock").status_code == 409
 
 
+def test_book_stock_takes_from_the_other_rolls_of_the_kind(owner):
+    roll = {"brand": "Bambu", "product_type": "PLA Basic", "material": "PLA", "colour": "Zwart", "roll_weight_g": 1000, "price": 20}
+    open_roll = make(owner, "/api/spools", {**roll, "remaining_g": 30})             # the line points at this one: 70 g is asked
+    full = make(owner, "/api/spools", {**roll, "remaining_g": 1000})
+    nearly = make(owner, "/api/spools", {**roll, "remaining_g": 25})
+    other = make(owner, "/api/spools", {**roll, "colour": "Wit", "remaining_g": 500})
+    stock = owner.get("/api/spools/stock").get_json()["groups"]
+    black = [g for g in stock if g["colour"] == "Zwart"][0]
+    assert black["remaining_g"] == "1055.0" and set(black["spool_ids"]) == {open_roll["id"], full["id"], nearly["id"]}
+    p = make(owner, "/api/projects", sheet_payload(open_roll["id"]))
+    res = post(owner, f"/api/projects/{p['id']}/book-stock").get_json()
+    assert res["short"] == []                                                      # the kind has enough, though its roll has not
+    left = {x["id"]: x["remaining_g"] for x in owner.get("/api/spools").get_json()}
+    # its own roll first, then the roll nearest to empty, then the full one; another colour is never touched
+    assert (left[open_roll["id"]], left[nearly["id"]], left[full["id"]], left[other["id"]]) == ("0.0", "0.0", "985.0", "500.0")
+
+
 def test_book_stock_never_goes_negative_and_says_so(owner):
     s = make(owner, "/api/spools", {"brand": "ABS", "roll_weight_g": 1000, "price": 20, "remaining_g": 30})
     p = make(owner, "/api/projects", sheet_payload(s["id"]))

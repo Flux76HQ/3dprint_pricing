@@ -722,16 +722,29 @@ def book_stock(project_id):
             spool_id = line.get("spool_id")
             if spool_id:
                 used[spool_id] = used.get(spool_id, Decimal(0)) + Decimal(str(line.get("grams") or 0))
+        # A line names one roll but means the kind of filament: what its roll does not hold is taken from the other rolls of
+        # that kind (the ones nearest to empty first), and it is only short when all of them together are.
+        shelf = {str(r["id"]): r for r in stock.fetch(conn)}
+        left = {roll_id: r["remaining_g"] for roll_id, r in shelf.items()}
         short = []
         for spool_id, grams in used.items():
-            row = conn.execute("SELECT brand, product_type, remaining_g FROM filament_spools WHERE id = %s",
-                               (spool_id,)).fetchone()
+            row = shelf.get(str(spool_id)) or conn.execute(
+                "SELECT id, brand, product_type, material, colour, barcode, remaining_g FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
             if row is None:
                 continue  # spool was deleted since; nothing to subtract from
-            if row["remaining_g"] < grams:
-                short.append(tr("book.short_item", name=" ".join(x for x in (row["brand"], row["product_type"]) if x), left=row["remaining_g"], need=grams))
-            conn.execute("UPDATE filament_spools SET remaining_g = round(max(remaining_g - %s, 0), 1) WHERE id = %s",
-                         (grams, spool_id))
+            left.setdefault(str(row["id"]), row["remaining_g"])
+            kind = stock.key_of(row)
+            others = sorted((roll_id for roll_id, r in shelf.items() if roll_id != str(row["id"]) and stock.key_of(r) == kind and left[roll_id] > 0),
+                            key=lambda roll_id: left[roll_id])
+            have, need = left[str(row["id"])] + sum(left[o] for o in others), grams
+            for roll_id in [str(row["id"]), *others]:
+                take = min(left[roll_id], need)
+                if take > 0:
+                    left[roll_id] -= take
+                    need -= take
+                    conn.execute("UPDATE filament_spools SET remaining_g = round(max(remaining_g - %s, 0), 1) WHERE id = %s", (take, roll_id))
+            if need > 0:
+                short.append(tr("book.short_item", name=" ".join(x for x in (row["brand"], row["product_type"]) if x), left=have, need=grams))
         conn.execute("UPDATE projects SET stock_booked_at = now() WHERE id = %s", (project_id,))
     stock_changed()
     return jsonify({"ok": True, "spools_updated": len(used), "short": short})
