@@ -304,8 +304,10 @@ textarea.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size
 
 /* Dialogs & toasts */
 /* A pop-up never outgrows the screen: it is as wide as fits (with a gutter), as tall as fits (the content scrolls, the
-   X stays), and keeps clear of the notch and the home indicator. */
-dialog.sheet { position: relative; border-radius: var(--radius); padding: 0; margin: auto; overflow: hidden;
+   X stays), and keeps clear of the notch and the home indicator. It is `position: fixed` (a modal dialog's own default, and
+   still what the X is placed against): with `relative` it was laid out at the top of the document, so opening one from far down
+   a long page scrolled the page to the top, and it stayed there after the pop-up closed. */
+dialog.sheet { position: fixed; inset: 0; border-radius: var(--radius); padding: 0; margin: auto; overflow: hidden;
   width: min(calc(100vw - 24px), 560px); max-width: none;
   max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   color: var(--text); background: var(--surface-solid); overscroll-behavior: contain; }

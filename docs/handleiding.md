@@ -523,11 +523,13 @@ zie je in de app niets. De server beslist, niet de browser.
    | *Productafbeeldingen voor een webshop* | studio, vierkant, detail van dichtbij, liggend 3:2; strak en gelijkmatig belicht |
 
    **Teksten op de afbeelding**: *Productnaam*, *Korte specs* (een per regel, hooguit 5) en *Extra tekst*. Zijn alle drie ingevuld, dan wordt de **eerste**
-   van de vier een poster: de naam als grote kop, de specs puntsgewijs en de extra tekst op een schuin label, in een vast sjabloon met per keuze eigen kleuren.
-   De andere drie blijven foto's zonder tekst. De app zet de teksten er zelf op (het model krijgt alleen de opdracht ruimte vrij te houden), dus ze staan er
-   precies zoals getypt. Ontbreekt een van de drie velden, dan worden alle vier zonder tekst gemaakt. De schakelaar *Logo linksboven op de afbeelding* zet het
-   logo van de factuur op alle vier; hij werkt alleen als *Zakelijk* aan staat (Instellingen → Algemeen) en er een logo is geüpload. De keuze en de teksten
-   worden bij de berekening bewaard zodra je een veld verlaat, en zitten in de back-up.
+   van de vier een reclameposter: de teksten liggen als overlay over de foto (geen vlak of kader, de foto loopt er zacht in over), met de naam als grote kop
+   in een posterlettertype, de specs puntsgewijs eronder en de extra tekst op een schuin label. Elke keuze heeft een eigen lettertype en accentkleur
+   (Marktplaats: Bebas Neue met oranje, sociale media: Anton met geel, webshop: DM Serif Display met blauw). De tekstkleur volgt de foto: wit op een donkere of
+   drukke foto, donker op een lichte (studio)foto, zodat de tekst leesbaar blijft. De andere drie blijven foto's zonder tekst. De app zet de teksten er zelf op
+   (het model krijgt alleen de opdracht ruimte vrij te houden), dus ze staan er precies zoals getypt. Ontbreekt een van de drie velden, dan worden alle vier
+   zonder tekst gemaakt. De schakelaar *Logo linksboven op de afbeelding* zet het logo van de factuur op alle vier; hij werkt alleen als *Zakelijk* aan staat
+   (Instellingen → Algemeen) en er een logo is geüpload. De keuze en de teksten worden bij de berekening bewaard zodra je een veld verlaat, en zitten in de back-up.
 
    Kies *Afbeeldingen maken*: de app toont eerst een **waarschuwing** met wat er gemaakt gaat worden (voor welke keuze, met of zonder teksten en logo) en dat
    elke afbeelding API-tegoed bij OpenAI kost; met *Annuleren* breek je daar nog af. Verder begrenst de app het aantal per uur en bewaart er hooguit 12 per

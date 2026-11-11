@@ -1249,7 +1249,7 @@
  "ai.test": "Test connection",
  "ai.test_ok": "The connection to OpenAI works.",
  "ai.text_off": "Not all text fields are filled in: the images are made without texts.",
- "ai.text_on": "All text fields are filled in: the first image becomes a poster with these texts in a fixed template, the other three stay without text.",
+ "ai.text_on": "All text fields are filled in: the first image becomes an advertising poster with these texts over the photo, the other three stay without text.",
  "ai.text_title": "Texts on the image",
  "ai.title": "AI images",
  "ai.uploading": "Uploading photo…",
