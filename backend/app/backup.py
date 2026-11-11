@@ -50,7 +50,7 @@ STALE_MINUTES = 15                           # a restore that has not moved for 
 SECTIONS = (("printers", "printers"), ("tariffs", "tariffs"), ("packaging", "packaging"), ("parts", "parts"),
             ("accessories", "accessories"), ("filament_library", "filament-library"), ("spools", "spools"))
 PROJECT_COLUMNS = ("id", "number", "name", "notes", "object_description", "image_text", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
-                   "file_id", "stock_booked_at", "created_at", "updated_at")
+                   "links", "file_id", "stock_booked_at", "created_at", "updated_at")
 
 
 @bp.before_request
@@ -877,7 +877,7 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                 values = {"id": item["id"], "number": item["number"], "name": f["name"], "notes": f["notes"], "object_description": f["object_description"],
                           "image_text": json.dumps(item["image_text"]), "margin_pct": f["margin_pct"],
                           "vat_pct": f["vat_pct"], "price_rounding": f["price_rounding"], "data": json.dumps(f["data"]),
-                          "totals": json.dumps(f["totals"]), "source_url": f["source_url"], "file_id": file_id,
+                          "totals": json.dumps(f["totals"]), "source_url": f["source_url"], "links": json.dumps(f["links"]), "file_id": file_id,
                           "stock_booked_at": item["stock_booked_at"]}
                 if item["created_at"]:
                     values["created_at"] = item["created_at"]
