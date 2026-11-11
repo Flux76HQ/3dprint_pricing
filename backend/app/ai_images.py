@@ -405,7 +405,7 @@ def test_connection():
 
 # --- pictures ----------------------------------------------------------------------------------------------------
 
-def _clean(content: bytes, *, jpeg_quality: int = 92) -> "tuple[bytes, int, int]":
+def _clean(content: bytes, *, jpeg_quality: int = 92, max_edge: int = MAX_EDGE) -> "tuple[bytes, int, int]":
     """Decode an image, apply its rotation, scale it down, and write it again as JPEG: nothing of the original file (metadata, a
     second payload after the image data) is kept. Raises ApiError for what is not a usable photo."""
     if len(content) > MAX_PHOTO_BYTES * 2:
@@ -424,7 +424,7 @@ def _clean(content: bytes, *, jpeg_quality: int = 92) -> "tuple[bytes, int, int]
                 image = flat
             else:
                 image = image.convert("RGB")
-            image.thumbnail((MAX_EDGE, MAX_EDGE))
+            image.thumbnail((max_edge, max_edge))
             out = BytesIO()
             image.save(out, "JPEG", quality=jpeg_quality, optimize=True)
             return out.getvalue(), image.width, image.height
