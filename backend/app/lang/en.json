@@ -30,6 +30,7 @@
  "ai.err_variant": "Unknown variant.",
  "ai.f_extra_text": "Extra text",
  "ai.f_product_name": "Product name",
+ "ai.f_scene": "Setting",
  "ai.f_spec": "Spec",
  "ai.log_cleared": "The log was cleared.",
  "ai.log_done": "Image finished after {seconds} s.",

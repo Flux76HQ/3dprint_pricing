@@ -21,7 +21,7 @@ varying vec3 vNormal;
 varying vec4 vColour;
 void main() {
   vec4 world = uModel * vec4(aPosition, 1.0);
-  vNormal = mat3(uModel) * aNormal;
+  vNormal = (uModel * vec4(aNormal, 0.0)).xyz;
   vColour = aColour;
   gl_Position = uProjection * world;
 }`;
@@ -40,7 +40,12 @@ void main() {
   float light = 0.34 + 0.62 * key + 0.2 * fill;
   // The colour the file names for this triangle, unless it names none or a colour was chosen for the whole item.
   vec3 base = mix(uColour, vColour.rgb, vColour.a * (1.0 - uOwn));
-  gl_FragColor = vec4(base * light, 1.0);
+  // Black filament is still an object with a shape: a little light of its own on the edges and where the lamp hits, so that a
+  // dark model does not become one black blot.
+  float dark = 1.0 - clamp(dot(base, vec3(0.299, 0.587, 0.114)) * 4.0, 0.0, 1.0);        // 1 for black, 0 from a quarter grey up
+  float rim = pow(1.0 - abs(n.z), 2.0);
+  vec3 lift = vec3(0.10) * light + vec3(0.26) * rim + vec3(0.16) * pow(key, 5.0);
+  gl_FragColor = vec4(base * light + lift * dark, 1.0);
 }`;
 
 /** The model of a print file: { positions, colours }. `positions` holds nine numbers per triangle (x, y, z of the three corners, in
@@ -85,9 +90,10 @@ function prepare(mesh, colours) {
     nx /= length; ny /= length; nz /= length;
     for (let k = 0; k < 9; k += 3) { normals[i + k] = nx; normals[i + k + 1] = ny; normals[i + k + 2] = nz; }
   }
-  let shades = null;
-  if (colours) {                                                   // one colour per triangle becomes one per corner
-    shades = new Uint8Array(mesh.length / 3 * 4);
+  // One colour per triangle becomes one per corner. Without colours in the file every corner says "none" (all zeros): the buffer
+  // is always there, so the shader never reads a switched-off attribute, which not every graphics driver does the same way.
+  const shades = new Uint8Array(mesh.length / 3 * 4);
+  if (colours) {
     for (let n = 0; n < colours.length; n += 4) {
       for (let k = 0; k < 3; k += 1) shades.set(colours.subarray(n, n + 4), n * 3 + k * 4);
     }
@@ -132,15 +138,10 @@ export function modelViewer({ positions: mesh, colours }, colour, own = false) {
     gl.vertexAttribPointer(at, 3, gl.FLOAT, false, 0, 0);
   }
   const shade = gl.getAttribLocation(program, 'aColour');
-  if (shades) {
-    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-    gl.bufferData(gl.ARRAY_BUFFER, shades, gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(shade);
-    gl.vertexAttribPointer(shade, 4, gl.UNSIGNED_BYTE, true, 0, 0);
-  } else if (shade >= 0) {
-    gl.disableVertexAttribArray(shade);
-    gl.vertexAttrib4f(shade, 0, 0, 0, 0);                          // no colours in the file: every triangle "names none"
-  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER, shades, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(shade);
+  gl.vertexAttribPointer(shade, 4, gl.UNSIGNED_BYTE, true, 0, 0);
   const uniform = (name) => gl.getUniformLocation(program, name);
   gl.enable(gl.DEPTH_TEST);
   gl.viewport(0, 0, SIZE, SIZE);

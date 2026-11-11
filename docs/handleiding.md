@@ -14,7 +14,7 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
   echte **gram per filament** en **printtijd**. Die worden standaard **automatisch** verwerkt in de berekening (uit te
   zetten): een filamentregel per filament uit het bestand, gekoppeld aan het filament uit je voorraad met hetzelfde materiaal en de kleur die er het dichtst bij ligt
   (met de prijs daarvan; ligt geen kleur dichtbij, dan blijft de regel *Handmatig*), printtijd naar boven op hele uren, en een printerregel
-  met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik (*Filament overnemen*). In een filamentregel kies je
+  met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik (*Filament overnemen*). Elke filamentregel toont zijn kleur als icoon: die van het gekozen filament, of anders de kleur die het printbestand voor die regel noemt. In een filamentregel kies je
   een **soort uit de voorraad**, niet een losse rol: drie rollen van hetzelfde filament staan er één keer, met wat er samen van over is. Vraagt de berekening
   meer van een soort dan er op voorraad is, dan staat er een waarschuwing onder de regels. *Verbruik afboeken* (in de titelbalk van het model) haalt het gewicht van de soort af:
   eerst van de aangebroken rol, de rest van de andere rollen van die soort. Bevat het bestand meerdere platen, dan kies je in het menu *Plaat* één plaat of *Alle platen*: dan worden uren en gram van alle platen bij elkaar opgeteld (hetzelfde filament telt als één regel). Uit een **STL** (of een 3MF zonder
@@ -537,7 +537,7 @@ zie je in de app niets. De server beslist, niet de browser.
 
    - *Foto*: upload een foto (JPEG, PNG of WebP, maximaal 8 MB; hij wordt opnieuw opgeslagen en tot 2048 px verkleind, zonder metadata).
    - *3D-model*: is er een STL of 3MF aan de berekening gekoppeld, dan toont *3D-model laden* het model in de browser. Sleep om het te draaien (of gebruik de
-     pijltjestoetsen), zoom met twee vingers of de schuif en kies *Beeld opslaan bij deze berekening*. Het model krijgt de kleuren uit het 3D-bestand als die erin staan: de materialen van een 3MF, of bij een project uit Bambu Studio of OrcaSlicer de filamentkleur per object en onderdeel (opgeschilderde kleuren en STL-bestanden kennen geen kleur). Wat het bestand geen kleur geeft, krijgt die van de eerste filamentrol. Kies je bij *Kleur van het item* een eigen kleur, dan krijgt het hele model die kleur.
+     pijltjestoetsen), zoom met twee vingers of de schuif en kies *Beeld opslaan bij deze berekening*. Het model krijgt de kleuren uit het 3D-bestand als die erin staan: de materialen van een 3MF, of bij een project uit Bambu Studio of OrcaSlicer de filamentkleur per object en onderdeel, en de kleuren die in de slicer op het model zijn geschilderd (per driehoek de kleur die het grootste deel bedekt; een STL kent geen kleur). Wat het bestand geen kleur geeft, krijgt die van de eerste filamentrol. Kies je bij *Kleur van het item* een eigen kleur, dan krijgt het hele model die kleur.
      Het beeld staat daarna naast de foto en is net als de foto te verwijderen of te vervangen door een nieuw beeld. De server leest het model uit het
      bestand; een model met meer dan 400.000 driehoeken is te gedetailleerd om te tonen, en een gesliced 3MF dat alleen de printopdracht bevat heeft geen
      model. De weergave vraagt WebGL van de browser.
@@ -553,6 +553,10 @@ zie je in de app niets. De server beslist, niet de browser.
 
    **Kleur van het item**: standaard blijft het item zoals op de foto of in het 3D-bestand. Kies *Eigen kleur kiezen* en een kleur, dan krijgt het item die kleur op de
    afbeeldingen (ook als de foto een andere kleur laat zien) en in de 3D-weergave. De kleur wordt bij de berekening bewaard.
+
+   **Setting (extra aanwijzing)**: optioneel beschrijf je in je eigen woorden de omgeving waarin het item te zien moet zijn (bijvoorbeeld “op een houten
+   bureau naast een laptop, in zacht ochtendlicht”). Dat komt boven op de *Omschrijving van het object* in de opdracht voor het model; de studiofoto houdt zijn
+   neutrale achtergrond. Het wordt bij de berekening bewaard.
 
    **Teksten op de afbeelding**: *Productnaam*, *Korte specs* (een per regel, hooguit 5) en *Extra tekst*. Zijn alle drie ingevuld, dan wordt de **eerste**
    van de vier een reclameposter: de teksten liggen als overlay over de foto (geen vlak of kader, de foto loopt er zacht in over), met de naam als grote kop

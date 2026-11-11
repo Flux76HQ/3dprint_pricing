@@ -178,7 +178,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       if (shownFile !== fileId) return;                            // the file changed while this one was loading
       if (!made) { status.textContent = t('ai.view3d_no_webgl'); return; }
       viewer = made;
-      status.textContent = mesh.colours ? t('ai.view3d_file_colours') : '';
+      status.textContent = t(mesh.colours ? 'ai.view3d_file_colours' : 'ai.view3d_no_colours');
       const save = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
         save.disabled = true;
         try {
@@ -232,6 +232,8 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     tint.addEventListener('input', showColour);
     tint.addEventListener('change', () => store());
     tint.hidden = !saved.colour;
+    const scene = h('textarea', { rows: 2, maxlength: limits.scene, placeholder: t('ai.scene_ph') }, saved.scene || '');
+    scene.addEventListener('change', () => store());
     let logo = saved.logo;
     const specLines = () => specs.value.split('\n').map((line) => line.trim()).filter(Boolean);
     // The logo is the business's: without the business mode the switch is shown off and cannot be turned (the saved choice is kept).
@@ -240,7 +242,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       business && logo, (on) => { logo = on; store(); });
     logoRow.querySelector('.switch').disabled = !business;
     form = {
-      values: () => ({ purpose: purpose.value || null, colour: chosenColour(), product_name: name.value.trim(), specs: specLines(), extra_text: extra.value.trim(), logo }),
+      values: () => ({ purpose: purpose.value || null, colour: chosenColour(), scene: scene.value.trim(), product_name: name.value.trim(), specs: specLines(), extra_text: extra.value.trim(), logo }),
       complete: () => !!(name.value.trim() && specLines().length && extra.value.trim()),
       logoShown: () => business && logo && got.logo_available,
     };
@@ -257,6 +259,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       field(t('ai.purpose'), purpose, t('ai.purpose_hint')),
       h('div', { class: 'model-controls' }, field(t('ai.colour'), tintMode), tint),
       h('p', { class: 'hint' }, t('ai.colour_hint')),
+      field(t('ai.scene'), scene, t('ai.scene_hint')),
       h('h3', {}, t('ai.text_title')),
       field(t('ai.product_name'), name),
       field(t('ai.specs'), specs, t('ai.specs_hint', { max: limits.specs, len: limits.spec })),

@@ -30,6 +30,7 @@
  "ai.err_variant": "Onbekende variant.",
  "ai.f_extra_text": "Extra tekst",
  "ai.f_product_name": "Productnaam",
+ "ai.f_scene": "Setting",
  "ai.f_spec": "Spec",
  "ai.log_cleared": "Het logboek is leeggemaakt.",
  "ai.log_done": "Afbeelding klaar na {seconds} s.",
