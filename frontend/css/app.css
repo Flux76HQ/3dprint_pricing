@@ -961,3 +961,26 @@ a.cell-title:hover { color: var(--accent); text-decoration: underline; text-unde
 }
 @container (max-width: 519.98px) { .data-table { font-size: .875rem; } .data-table .main { min-width: 8.5rem; } .data-table th, .data-table td { padding: 8px; } }
 @container (max-width: 519.98px) { .th-sort .icon { display: none; } th[aria-sort] .th-sort .icon { display: block; } .data-table thead th { letter-spacing: .02em; } .data-table .main { min-width: 7rem; } }
+
+/* Settings is one menu with the rest: on its pages its parts stand under it in the menu on the left, grouped as on the page. The page shows its own
+   menu only where that one is not there (a phone) or is folded away. */
+@media (min-width: 860px) {
+  .nav-settings { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--lijn); }
+  .sidebar a[aria-current="true"] { background: none; box-shadow: none; color: var(--accent); font-weight: 600; }   /* where you are; the part under it is the page */
+  .nav-sub { display: flex; flex-direction: column; gap: 4px; padding-bottom: 4px; }
+  .nav-sub-group { display: flex; flex-direction: column; gap: 1px; }
+  .nav-sub .nav-group-title { margin: 6px 12px 2px 22px; }
+  .sidebar .nav-sub a { min-height: 34px; padding: 4px 12px 4px 22px; gap: 10px; font-size: .9rem; }
+  .nav-sub .icon { width: 18px; height: 18px; color: var(--text-muted); }
+  .nav-sub a[aria-current="page"] .icon { color: var(--accent); }
+  .sidebar-collapsed .nav-sub { display: none; }
+  html:not(.sidebar-collapsed) .settings-nav { display: none; }
+  html:not(.sidebar-collapsed) .settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-content { max-width: 880px; }
+}
+
+/* The picture of an item (packaging): small in a tile and in the list, larger in its form. */
+.item-thumb { flex: none; width: 44px; height: 44px; border: 1px solid var(--lijn-strong); border-radius: var(--radius-sm); background: var(--surface-solid); object-fit: cover; }
+.item-thumb.placeholder { display: inline-grid; place-items: center; background: var(--track); color: var(--text-muted); }
+.data-table .item-thumb { width: 36px; height: 36px; }
+.image-preview { max-width: min(100%, 200px); max-height: 200px; border: 1px solid var(--lijn-strong); border-radius: var(--radius-sm); object-fit: contain; }
