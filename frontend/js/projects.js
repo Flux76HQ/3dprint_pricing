@@ -1,6 +1,6 @@
 import { busyBadge, coverUrl, productImagesCard } from './ai-images.js';
 import { api, upload } from './api.js';
-import { colourOf } from './filament-ui.js';
+import { colourOf, spoolIcon } from './filament-ui.js';
 import { formatDate, t } from './i18n.js';
 import { setDirty } from './updates.js';
 import { blurToggle, confirmDialog, eur, field, fill, fmt, h, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
@@ -47,13 +47,22 @@ export function projectListView(ctx) {
 const stockLabel = (g) => [spoolName(g), g.material,
   g.roll_count > 1 ? t('calc.in_stock_rolls', { grams: fmt(g.remaining_g, 0), n: g.roll_count }) : t('calc.in_stock', { grams: fmt(g.remaining_g, 0) })].filter(Boolean).join(' · ');
 const HEX_COLOUR = /^#[0-9a-f]{6}$/i;
-/** How far two colours (`#rrggbb`) are apart: 0 is the same, about 440 is black against white. */
-function colourGap(a, b) {
-  const part = (hex, at) => parseInt(hex.slice(at, at + 2), 16);
-  return Math.hypot(part(a, 1) - part(b, 1), part(a, 3) - part(b, 3), part(a, 5) - part(b, 5));
+/** A colour as `#rrggbb`: a slicer may write capitals, or a fourth pair for opacity. '' for anything that is no colour. */
+const colourCode = (value) => (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(value || '') ? value.slice(0, 7).toLowerCase() : '');
+/** A colour as the eye sees it (CIE L*a*b*): in these numbers equal steps look equally far apart, which they do not in red, green, blue. */
+function lab(hex) {
+  const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255).map((v) => (v > 0.04045 ? ((v + 0.055) / 1.055) ** 2.4 : v / 12.92));
+  const f = (v) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116);
+  const [x, y, z] = [f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047), f(0.2126 * r + 0.7152 * g + 0.0722 * b), f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883)];
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
 }
-const SAME_COLOUR = 80;                           // a slicer's colour and a roll's are never typed the same: this close counts as the same
-const blankFilament = () => ({ spool_id: '', label: '', grams: '', price_per_kg: '' });
+/** How different two colours (`#rrggbb`) look: 0 is the same, about 2 is the least one can see, 100 is black against white. */
+function colourGap(a, b) {
+  const [p, q] = [lab(a), lab(b)];
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+}
+const SAME_COLOUR = 22;                           // a slicer's colour and a roll's are never typed the same: this close counts as the same
+const blankFilament = () => ({ spool_id: '', colour: '', label: '', grams: '', price_per_kg: '' });
 const blankPart = (group) => ({ group, packaging_id: '', part_id: '', accessory_id: '', label: '', quantity: '1', unit: 'stuks', unit_price: '' });
 
 function fromSaved(project) {
@@ -64,7 +73,7 @@ function fromSaved(project) {
     file_id: project.file_id || null, source_url: project.source_url || '',
     vat_pct: str(project.vat_pct),
     stock_booked_at: project.stock_booked_at,
-    filament: (d.filament || []).map((r) => ({ spool_id: r.spool_id || '', label: str(r.label), grams: str(r.grams), price_per_kg: str(r.price_per_kg) })),
+    filament: (d.filament || []).map((r) => ({ spool_id: r.spool_id || '', colour: colourCode(r.colour), label: str(r.label), grams: str(r.grams), price_per_kg: str(r.price_per_kg) })),
     parts: (d.parts || []).map((r) => ({ group: r.group || 'onderdeel', packaging_id: r.packaging_id || '', part_id: r.part_id || '', accessory_id: r.accessory_id || '', label: str(r.label), quantity: str(r.quantity), unit: r.unit || 'stuks', unit_price: str(r.unit_price) })),
     depreciation: ((d.print || {}).depreciation || []).map((r) => ({ label: str(r.label), printer_id: r.printer_id || '', hours: str(r.hours), price_per_hour: str(r.price_per_hour) })),
     energy: ((d.print || {}).energy || []).map((r) => ({ label: str(r.label), tariff_id: r.tariff_id || '', hours: str(r.hours), kw: str(r.kw), price_per_kwh: str(r.price_per_kwh) })),
@@ -134,7 +143,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     vat_pct: parseNum(state.vat_pct), price_rounding: 'none',      // rounding is decided per order
     file_id: state.file_id, source_url: state.source_url.trim(),
     data: {
-      filament: state.filament.map((r) => ({ spool_id: r.spool_id || null, label: r.label, grams: parseNum(r.grams), price_per_kg: parseNum(r.price_per_kg) })),
+      filament: state.filament.map((r) => ({ spool_id: r.spool_id || null, colour: colourCode(r.colour) || null, label: r.label, grams: parseNum(r.grams), price_per_kg: parseNum(r.price_per_kg) })),
       parts: state.parts.map((r) => ({ group: r.group, packaging_id: r.packaging_id || null, part_id: r.part_id || null, accessory_id: r.accessory_id || null, label: r.label, quantity: parseNum(r.quantity), unit: r.unit, unit_price: parseNum(r.unit_price) })),
       print: {
         depreciation: state.depreciation.map((r) => ({ label: r.label, printer_id: r.printer_id || null, hours: parseNum(r.hours), price_per_hour: parseNum(r.price_per_hour) })),
@@ -220,8 +229,17 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
 
   function filamentSection() {
     costEls.filament = [];
+    // Every line shows its colour: that of the filament chosen from stock, else the one the print file gave the line.
+    const withColour = (r, picker) => {
+      const kind = kindOf(r.spool_id);
+      const cell = field(t('calc.roll'), picker);
+      const row = h('div', { class: 'with-swatch' });
+      picker.replaceWith(row);
+      row.append(spoolIcon(kind ? colourOf(kind) : colourCode(r.colour) || null, 32), picker);
+      return cell;
+    };
     const rows = state.filament.map((r, i) => h('div', { class: 'line filament' },
-      field(t('calc.roll'), select([['', t('calc.manual')], ...stock.map((g) => [g.key, stockLabel(g)])], kindOf(r.spool_id)?.key || '', (v) => {
+      withColour(r, select([['', t('calc.manual')], ...stock.map((g) => [g.key, stockLabel(g)])], kindOf(r.spool_id)?.key || '', (v) => {
         const s = v ? rollOf(stock.find((g) => g.key === v)) : null;
         r.spool_id = s ? s.id : '';
         if (s) { r.label = spoolName(s); r.price_per_kg = perKg(s); }
@@ -356,11 +374,14 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   let estimateTimer = null;
   const fileBox = h('div', { class: 'glass card stack' });
 
-  // The kind of filament in stock that a file's filament is: the same material, and the colour nearest to the slicer's (close
-  // enough to be that colour). Without a colour in the file it is only chosen when there is one kind of that material.
+  // The kind of filament in stock that a file's filament is: the same material, and the colour that looks nearest to the slicer's
+  // (close enough to be that colour). Without a colour in the file it is only chosen when there is one kind of that material.
+  // "PLA" in the file is also a roll typed as "PLA Matte" or "PLA+", but only when no roll is plain "PLA".
   const stockFor = (type, colour) => {
     const material = String(type || '').trim().toUpperCase();
-    const same = stock.filter((g) => material && (g.material || '').trim().toUpperCase() === material);
+    const of = (g) => (g.material || '').trim().toUpperCase();
+    let same = stock.filter((g) => material && of(g) === material);
+    if (!same.length) same = stock.filter((g) => material && of(g).startsWith(material) && !/[A-Z0-9]/.test(of(g)[material.length] || ' '));
     if (!HEX_COLOUR.test(colour || '')) return same.length === 1 ? same[0] : null;
     const near = same.map((g) => [g, colourOf(g)]).filter(([, hex]) => hex).map(([g, hex]) => [g, colourGap(hex, colour)])
       .filter(([, gap]) => gap <= SAME_COLOUR)
@@ -368,9 +389,10 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     return near.length ? near[0][0] : null;
   };
   const filamentRow = (label, grams, type, colour) => {
-    const g = stockFor(type, colour);
+    const code = colourCode(colour);
+    const g = stockFor(type, code);
     const sp = g ? rollOf(g) : null;
-    return { spool_id: sp ? sp.id : '', label: sp ? spoolName(sp) : label, grams: String(grams), price_per_kg: sp ? perKg(sp) : '' };
+    return { spool_id: sp ? sp.id : '', colour: code, label: sp ? spoolName(sp) : label, grams: String(grams), price_per_kg: sp ? perKg(sp) : '' };
   };
 
   // All plates as one: hours and grams added up, the same filament (type and colour) on different plates as one line.
@@ -380,7 +402,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     for (const pl of plates) {
       if (pl.hours) hours = (hours || 0) + pl.hours;
       for (const f of pl.filaments) {
-        const key = `${f.type}|${f.color}`;
+        const key = `${f.type}|${colourCode(f.color) || f.color}`;
         const known = byFilament.get(key);
         if (known) known.grams += f.grams;
         else byFilament.set(key, { ...f });
@@ -471,7 +493,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
           h('div', {}, h('dt', {}, t('file.filament_total')), h('dd', {}, plate.grams ? `${fmt(plate.grams, 1)} g` : '—'))),
         h('ul', { class: 'plain-list' }, plate.filaments.map((f) => {
           const dot = h('span', { class: 'dot', 'aria-hidden': 'true' });
-          if (/^#[0-9a-f]{6}$/i.test(f.color)) dot.style.background = f.color;
+          if (colourCode(f.color)) dot.style.background = colourCode(f.color);
           return h('li', { class: 'row' }, dot, `${f.type || t('calc.filament')} ${f.color}`.trim(), h('span', { class: 'muted' }, `· ${fmt(f.grams, 1)} g`));
         })),
         h('button', { class: 'btn primary', type: 'button', onclick: () => adoptSliced(plate) }, t('file.adopt')),
@@ -523,6 +545,17 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   const bookable = state.id && !state.stock_booked_at && state.filament.some((r) => r.spool_id);
   const canBook = bookable && !spoolman;
 
+  // The colour of the 3D model where its file names none: what the first filament line says, the print file's own colour for it
+  // before that of the roll chosen for it.
+  const modelColour = () => {
+    for (const r of state.filament) {
+      const kind = kindOf(r.spool_id);
+      const colour = colourCode(r.colour) || (kind ? colourOf(kind) : '');
+      if (colour) return colour;
+    }
+    return '';
+  };
+
   redraw();
   recalc();
   return h('div', { class: 'editor' },
@@ -542,7 +575,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
           field(t('calc.object_description'), objectDescription, t('calc.object_description_hint'))),
         fileBox,
         ctx.aiImages && state.id ? productImagesCard(state.id, () => state.object_description, () => !!ctx.prefs.business_mode,
-          () => ({ fileId: state.file_id || null, colour: spools.find((sp) => state.filament.some((r) => r.spool_id === sp.id))?.colour_hex || '' })) : null,
+          () => ({ fileId: state.file_id || null, colour: modelColour() })) : null,
         sections),
       h('aside', { class: 'glass card summary', 'aria-label': t('calc.cost_price') },
         h('div', { class: 'row between' }, h('h2', {}, t('calc.cost_price')), blurToggle(ctx)), totals, calcError,

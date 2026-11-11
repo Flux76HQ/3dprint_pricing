@@ -116,6 +116,30 @@ def test_the_colours_a_3mf_names_come_with_the_model(owner):
     assert parts(mesh(owner, pf.stl_binary()))[1] is None
 
 
+def test_colours_painted_on_in_the_slicer_are_read(owner):
+    from app.printfile import _painted
+    # one digit per whole triangle: 4 and 8 are filaments 1 and 2, "0C" and "1C" are 3 and 4 (read from the end), 0 is unpainted
+    assert [_painted(code) for code in ("4", "8", "0C", "1C", "0", "", "zz", "F" * 30000)] == [1, 2, 3, 4, 0, 0, 0, 0]
+    # a triangle split in two ("1" = split once; its pieces follow): most of it wins. Read from the end: split, filament 2, then
+    # a piece that is split again into filament 2 and filament 1
+    assert _painted("881") == 2 and _painted("48181") == 2                         # half of it, and half of the other half
+    assert _painted("1") == 0 and _painted("C") == 0                                # cut off: not painted, never an error
+    project = '{"filament_colour": ["#FFFFFF", "#D32F2FFF", "#1976D2"]}'
+    body = pf.mesh_xml().replace('<triangle ', '<triangle paint_color="8" ', 1).replace('/><triangle ', '/><triangle paint_color="0C" ', 1)
+    model = (f'<?xml version="1.0"?><model unit="millimeter" {pf.NS}><resources><object id="1" type="model">{body}</object></resources>'
+             '<build><item objectid="1"/></build></model>')
+    shades = parts(mesh(owner, pf.zip_bytes({"3D/3dmodel.model": model, "Metadata/project_settings.config": project}), "painted.3mf"))[1]
+    assert shades[:2] == [(211, 47, 47, 255), (25, 118, 210, 255)] and set(shades[2:]) == {(255, 255, 255, 255)}     # the rest: its filament
+    prusa = model.replace('paint_color="8"', 'xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06" slic3rpe:mmu_segmentation="8"')
+    assert parts(mesh(owner, pf.zip_bytes({"3D/3dmodel.model": prusa, "Metadata/project_settings.config": project}), "prusa.3mf"))[1][0] == (211, 47, 47, 255)
+
+
+def test_a_filament_colour_is_read_in_one_spelling(owner):
+    info = pf.SLICE_INFO.replace('color="#FFFFFF"', 'color="#FF8800FF"').replace('color="#000000"', 'color="#1A2B3C"')
+    plates = upload(owner, pf.zip_bytes({"3D/3dmodel.model": pf.model_3mf(), "Metadata/slice_info.config": info}), "a.gcode.3mf").get_json()["analysis"]["plates"]
+    assert [f["color"] for plate in plates for f in plate["filaments"]] == ["#1a2b3c", "#1a2b3c", "#ff8800"]
+
+
 def test_the_filament_colours_of_a_slicer_project_colour_its_objects(owner):
     files = pf.component_3mf()                                                      # object 2, made of part 1 in a file of its own
     settings = ('<?xml version="1.0"?><config><object id="2"><metadata key="extruder" value="2"/>'
@@ -131,6 +155,8 @@ def test_the_filament_colours_of_a_slicer_project_colour_its_objects(owner):
                        "Metadata/model_settings.config": settings.format(part=3)})) == {(0, 174, 66, 255)}         # a colour that is none: the object's
     assert made(**{"Metadata/model_settings.config": settings.format(part=1)}) is None                              # filaments without colours
     assert set(made(**{"Metadata/slice_info.config": pf.SLICE_INFO})) == {(0, 0, 0, 255)}                           # a sliced file: its first filament
+    only_second = pf.SLICE_INFO.replace('<filament id="1"', '<filament id="7"')     # a sliced file lists only the filaments it uses
+    assert set(made(**{"Metadata/slice_info.config": only_second})) == {(255, 255, 255, 255)}                       # the first that has a colour
     for broken in ("<config><object", "{not json"):                                 # settings that cannot be read never stop the model
         assert made(**{"Metadata/project_settings.config": broken, "Metadata/model_settings.config": broken}) is None
 
