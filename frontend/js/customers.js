@@ -1,7 +1,8 @@
 import { api } from './api.js';
 import { t } from './i18n.js';
+import { listView } from './listview.js';
 import { setDirty } from './updates.js';
-import { confirmDialog, field, h, icon, toast } from './ui.js';
+import { backLink, confirmDialog, field, h, headAction, icon, toast } from './ui.js';
 
 export const emptyCustomer = () => ({ number: '', name: '', address: '', postal_code: '', city: '', country: '', email: '', phone: '', notes: '' });
 
@@ -32,28 +33,51 @@ export function customerLines(c) {
 
 // --- list -----------------------------------------------------------------------
 
-export function customerListView() {
-  let query = '';
-  let timer = null;
-  const list = h('div', { class: 'cards' }, h('p', { class: 'muted' }, t('common.loading')));
-  const search = h('input', { type: 'text', 'aria-label': t('customers.search'), placeholder: t('customers.search_ph'), autocomplete: 'off',
-    oninput: (e) => { query = e.target.value.trim(); clearTimeout(timer); timer = setTimeout(load, 250); } });
+const LIST_CAP = 500;                                 // what the server lists at most; with more customers than that, the search is asked of the server too
 
-  function draw(items) {
-    if (!items.length) {
-      list.replaceChildren(h('p', { class: 'empty glass card' }, query ? t('customers.no_match') : `${t('customers.none_yet')} ${t('common.add_first')}`));
-      return;
-    }
-    list.replaceChildren(...items.map((c) => h('article', { class: 'glass card item' },
+export function customerListView() {
+  const href = (c) => `#/klanten/${c.id}`;
+  let timer = null;
+  let asked = '';
+  const mail = (c) => (c.email ? h('a', { href: `mailto:${c.email}` }, c.email) : '—');
+  const view = listView({
+    id: 'customers',
+    search: { label: t('customers.search'), placeholder: t('customers.search_ph'), text: (c) => [c.name, c.number, c.city, c.email, c.phone, c.postal_code] },
+    filters: [{ key: 'city', label: t('orders.city'), all: t('customers.all_cities'), value: (c) => c.city }],
+    sorts: [
+      { key: 'name', label: t('sort.name'), value: (c) => c.name },
+      { key: 'number', label: t('orders.customer_number'), value: (c) => c.number },
+      { key: 'city', label: t('orders.city'), value: (c) => c.city || '\uffff' },
+      { key: 'orders', label: t('nav.orders'), value: (c) => Number(c.orders), desc: true }],
+    tie: (c) => c.name,
+    href,
+    columns: [
+      { label: t('sort.name'), sort: 'name', cls: 'main', cell: (c) => h('div', {}, h('a', { class: 'cell-title', href: href(c) }, c.name),
+        h('div', { class: 'cell-sub muted' }, t('customers.number_n', { number: c.number }))) },
+      { label: t('orders.city'), sort: 'city', cell: (c) => c.city || '—' },
+      { label: t('orders.email'), wide: true, cell: mail },
+      { label: t('orders.phone'), cls: 'nowrap', wide: true, cell: (c) => c.phone || '—' },
+      { label: t('nav.orders'), sort: 'orders', cls: 'num', cell: (c) => String(c.orders) }],
+    tile: (c) => h('article', { class: 'glass card item' },
       h('div', { class: 'item-head' },
-        h('div', {}, h('h3', {}, h('a', { href: `#/klanten/${c.id}` }, c.name)),
+        h('div', {}, h('h3', {}, h('a', { href: href(c) }, c.name)),
           h('p', { class: 'muted' }, [t('customers.number_n', { number: c.number }), c.city].filter(Boolean).join(' · '))),
         h('span', { class: 'badge' }, t('customers.orders_n', { n: c.orders }))),
-      customerLines(c).length ? h('p', { class: 'muted' }, customerLines(c).join(' · ')) : null)));
-  }
+      customerLines(c).length ? h('p', { class: 'muted' }, customerLines(c).join(' · ')) : null),
+    empty: `${t('customers.none_yet')} ${t('common.add_first')}`, noMatch: t('customers.no_match'),
+  });
 
-  async function load() {
-    try { draw(await api('GET', `/api/customers${query ? `?q=${encodeURIComponent(query)}` : ''}`)); } catch (e) { toast(e.message, 'error'); }
+  async function load(query = '') {
+    try {
+      const items = await api('GET', `/api/customers${query ? `?q=${encodeURIComponent(query)}` : ''}`);
+      asked = query;
+      view.setItems(items);
+      // The list is filtered here while typing. Only when there are more customers than one answer holds does the server search as well.
+      if (items.length >= LIST_CAP || query) view.el.oninput = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => { if (view.query.trim() !== asked) load(view.query.trim()); }, 250);
+      };
+    } catch (e) { toast(e.message, 'error'); }
   }
 
   load();
@@ -62,8 +86,7 @@ export function customerListView() {
       h('div', {}, h('h1', {}, t('nav.customers'))),
       h('a', { class: 'btn primary', href: '#/klanten/nieuw' }, icon('plus'), h('span', {}, t('customers.new')))),
     h('p', { class: 'muted page-intro' }, t('customers.intro')),
-    h('div', { class: 'filters' }, search),
-    list);
+    view.el);
 }
 
 // --- editor ---------------------------------------------------------------------
@@ -101,14 +124,15 @@ function buildEditor(customer, navigate) {
 
   return h('div', { class: 'editor' },
     h('header', { class: 'page-head' },
-      h('div', {}, h('a', { class: 'back', href: '#/klanten' }, t('customers.back')),
-        h('h1', {}, customer ? customer.name : t('customers.new')))),
+      h('div', {}, backLink('#/klanten', t('nav.customers')),
+        h('h1', {}, customer ? customer.name : t('customers.new'))),
+      h('div', { class: 'row actions' },
+        customer ? h('div', { class: 'btn-group', role: 'group', 'aria-label': t('customers.actions') },
+          headAction('trash', t('common.delete'), remove, ' danger', { id: 'delete-customer', disabled: orderCount > 0, title: orderCount > 0 ? t('customers.delete_blocked') : t('common.delete') })) : null,
+        headAction('save', t('common.save'), save, ' primary', { id: 'save-customer' }))),
     h('div', { class: 'glass card stack' },
       ...customerFields(state, () => setDirty(true)),
       field(t('orders.notes'), notes, t('customers.notes_hint')),
       customer ? h('p', { class: 'muted' }, t('customers.orders_of', { n: orderCount })) : null,
-      h('div', { class: 'row' },
-        h('button', { class: 'btn primary', type: 'button', id: 'save-customer', onclick: save }, t('common.save')),
-        customer ? h('button', { class: 'btn danger', type: 'button', id: 'delete-customer', disabled: orderCount > 0, onclick: remove }, t('common.delete')) : null),
       customer && orderCount > 0 ? h('p', { class: 'hint' }, t('customers.delete_blocked')) : null));
 }

@@ -5,7 +5,7 @@
 import { api, downloadFile, upload } from './api.js';
 import { formatDateTime, t } from './i18n.js';
 import { loadMesh, modelViewer } from './model-viewer.js';
-import { confirmDialog, field, fill, h, saveBlob, switchRow, toast } from './ui.js';
+import { confirmDialog, field, fill, foldHead, h, saveBlob, switchRow, toast } from './ui.js';
 
 const VARIANT_LABEL = { square: 'ai.variant_square', landscape: 'ai.variant_landscape', portrait: 'ai.variant_portrait', studio: 'ai.variant_studio', detail: 'ai.variant_detail', context: 'ai.variant_context' };
 // What the pictures are for; the server makes four per purpose and has a template with its own colours for each.
@@ -363,7 +363,8 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   }
 
   setTimeout(refresh, 0);
-  return h('div', { class: 'glass card stack' }, h('h2', {}, t('ai.card_title')), h('p', { class: 'muted' }, t('ai.card_intro')), options, modelBox, body);
+  // Folded away until it is wanted: the pictures are not what a calculation is opened for. The choice is remembered in this browser.
+  return h('div', { class: 'glass card stack' }, foldHead('product-images', t('ai.card_title'), { open: false }), h('p', { class: 'muted' }, t('ai.card_intro')), options, modelBox, body);
 }
 
 /** The "busy" mark on a calculation in the list. */

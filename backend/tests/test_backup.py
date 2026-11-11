@@ -57,6 +57,7 @@ def fill(owner):
     payload["data"]["parts"] = [{"group": "verpakking", "packaging_id": box["id"], "label": "Doos", "quantity": 1, "unit": "stuks", "unit_price": "0.45"},
                                 {"group": "onderdeel", "part_id": part["id"], "label": "JST-connector", "quantity": 2, "unit": "stuks", "unit_price": "0.12"},
                                 {"group": "oplader", "accessory_id": cable["id"], "label": "USB-C-kabel", "quantity": 1.5, "unit": "m", "unit_price": "1.80"}]
+    payload["links"] = [{"kind": "model", "label": "", "url": "https://makerworld.com/en/models/1"}]     # one, to the model: all the database before SQLite could hold
     project = make(owner, "/api/projects", payload)
     owner.put("/api/preferences", json={"theme": "dark", "language": "en", "vat_pct": "9", "blur_costs": True}, headers=H)
     return {"printer": printer, "tariff": tariff, "box": box, "part": part, "cable": cable, "spool": spool, "project": project}
@@ -166,6 +167,25 @@ def test_restoring_brings_back_exactly_what_was_backed_up_including_the_links_be
     full = owner.get(f"/api/projects/{project['id']}").get_json()
     assert full["data"]["filament"][0]["spool_id"] == before["spools"][0]["id"] or full["data"]["filament"][0]["spool_id"] in {s["id"] for s in before["spools"]}
     assert Decimal(full["totals"]["cost_price"]) > 0
+
+
+def test_the_links_of_a_model_come_back_with_their_kind_and_name(owner):
+    project = fill(owner)["project"]
+    links = [{"kind": "model", "label": "", "url": "https://makerworld.com/en/models/1"},
+             {"kind": "marktplaats", "label": "Zwart", "url": "https://www.marktplaats.nl/v/a1"},
+             {"kind": "bol", "label": "", "url": "https://www.bol.com/nl/nl/p/x/9300000000000000/"}]
+    body = {key: project[key] for key in ("name", "notes", "margin_pct", "vat_pct", "price_rounding", "data")}
+    assert owner.put(f"/api/projects/{project['id']}", json={**body, "links": links}, headers=H).status_code == 200
+    doc = backup(owner).get_json()
+    assert doc["projects"][0]["links"] == links
+    wipe(owner)
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    assert owner.get("/api/projects").get_json()[0]["links"] == links
+    # A backup from before there were several links holds only `source_url`: it becomes the link to the model.
+    del doc["projects"][0]["links"]
+    wipe(owner)
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    assert owner.get("/api/projects").get_json()[0]["links"] == links[:1]
 
 
 def test_restoring_replaces_what_is_there_now(owner):

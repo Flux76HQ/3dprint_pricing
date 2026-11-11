@@ -1,5 +1,5 @@
 import { t } from './i18n.js';
-import { fmt, h, icon, spoolName } from './ui.js';
+import { fmt, h, spoolName } from './ui.js';
 
 // The colour of a roll: its own colour code when it has one, else a guess from the name ("Black", "zwart", "Jet Black", ...), else none.
 const NAMES = {
@@ -37,31 +37,12 @@ export function spoolIcon(colour, size = 36) {
   return svg;
 }
 
-/** The kinds of filament in stock as tiles: two side by side on a phone, more when there is room, and at most three rows with a
-    chevron to show the rest. */
-export function stockTiles(groups, { rows = 3 } = {}) {
-  const plural = (n) => t('stock.rolls', { n });
-  const list = h('ul', { class: 'stock-grid', 'aria-label': t('stock.title') }, groups.map((g) => h('li', { class: ['tile', g.roll_count ? '' : 'out', g.low ? 'low' : ''].join(' ').trim() },
+/** One kind of filament in stock as a tile: what is left of it in all, and on each roll. */
+export function stockTile(g) {
+  return h('div', { class: ['tile', g.roll_count ? '' : 'out', g.low ? 'low' : ''].join(' ').trim() },
     h('div', { class: 'tile-top' }, spoolIcon(colourOf(g), 40), h('strong', { class: 'tile-grams' }, `${fmt(g.remaining_g, 0)} g`)),
     h('strong', { class: 'tile-name' }, spoolName(g, ' · ')),
-    h('p', { class: 'muted tile-meta' }, [g.material, g.roll_count ? plural(g.roll_count) : t('stock.sold_out')].filter(Boolean).join(' · ')),
+    h('p', { class: 'muted tile-meta' }, [g.material, g.roll_count ? t('stock.rolls', { n: g.roll_count }) : t('stock.sold_out')].filter(Boolean).join(' · ')),
     g.roll_count ? h('p', { class: 'muted tile-weights' }, t('stock.per_roll', { weights: g.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ') })) : null,
-    g.notify_low && g.low ? h('p', { class: 'stock-low' }, t('stock.low_badge')) : null)));
-  let expanded = false;
-  const toggle = h('button', { class: 'btn small more-tiles', type: 'button', hidden: true, 'aria-expanded': 'false', onclick: () => { expanded = !expanded; layout(); } });
-  const el = h('div', { class: 'stack' }, list, toggle);
-
-  function layout() {
-    const tiles = [...list.children];
-    const columns = getComputedStyle(list).gridTemplateColumns.split(' ').filter(Boolean).length || 2;
-    const max = columns * rows;
-    const over = tiles.length > max;
-    tiles.forEach((tile, i) => { tile.hidden = over && !expanded && i >= max; });
-    toggle.hidden = !over;
-    toggle.setAttribute('aria-expanded', String(expanded));
-    toggle.replaceChildren(icon(expanded ? 'chevron-up' : 'chevron-down'), h('span', {}, expanded ? t('stock.show_less') : t('stock.show_all', { n: tiles.length })));
-  }
-  if ('ResizeObserver' in window) new ResizeObserver(layout).observe(list);       // also runs once the list is on the page
-  else { window.addEventListener('resize', layout); requestAnimationFrame(layout); }
-  return el;
+    g.notify_low && g.low ? h('p', { class: 'stock-low' }, t('stock.low_badge')) : null);
 }

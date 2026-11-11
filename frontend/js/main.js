@@ -13,7 +13,7 @@ import { goTo, installNativeBehaviour } from './pwa.js';
 import { BUILD } from './build.js';
 import { getLanguage, initLanguage, setLanguage, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
-import { applyNavGlass, h, icon, navIcon, navStyle, betaBadge, toast, versionLabel } from './ui.js';
+import { applyNavGlass, h, icon, navIcon, navStyle, betaBadge, themeToggle, toast, versionLabel } from './ui.js';
 
 const root = document.getElementById('root');
 // [route, label key, icon]: the route is the URL part and stays as it is in every language.
@@ -27,6 +27,12 @@ const NAV = [
   ['printers', 'nav.printers', 'printer-3d'],
   ['energie', 'nav.energy', 'lightning-bolt'],
   ['instellingen', 'nav.settings', 'cog'],
+];
+// The sidebar shows them in groups, by what they are for: [label key, routes]. Settings stand apart, at the bottom.
+const NAV_GROUPS = [
+  ['nav.group_sales', ['berekeningen', 'bestellingen', 'klanten']],
+  ['nav.group_stock', ['filament', 'verpakking', 'onderdelen']],
+  ['nav.group_production', ['printers', 'energie']],
 ];
 // On compact widths the bottom bar holds five destinations: the first four, then "Meer",
 // which lists the rest. The sidebar shows all of them in the same order.
@@ -108,7 +114,8 @@ function pageContent({ page, id }) {
     case 'onderdelen': return resourceView(id === 'accessoires' ? 'accessoires' : 'onderdelen', id);
     case 'meer':
       return h('section', { class: 'page' },
-        h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.more'))), langSwitch(chooseLanguage)),
+        h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, t('nav.more'))),
+          h('div', { class: 'row tools' }, themeToggle({ get prefs() { return prefs; }, setPrefs }, route), langSwitch(chooseLanguage))),
         h('div', { class: 'cards' }, OVERFLOW.map(([key, label, ic]) => h('a', { class: 'glass card item link-card', href: `#/${key}` },
           h('h3', {}, navIcon(ic, false), t(label))))),
         h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: logout }, icon('logout'), h('span', {}, t('session.logout')))));
@@ -143,16 +150,21 @@ function route() {
   setDirty(false);                       // a new screen starts clean; the editor raises it again on edits
   const r = currentRoute();
   const main = h('main', { id: 'main', tabindex: '-1' }, pageContent(r));
+  const entry = (page) => { const n = NAV.find((x) => x[0] === page); return navLink(n, n[0] === r.page); };
+  const collapsed = !!prefs.sidebar_collapsed;
   const sidebar = h('nav', { class: 'sidebar glass', 'aria-label': t('nav.main') },
     h('div', { class: 'sidebar-brand' }, h('img', { src: '/icons/icon.svg', alt: '', width: 32, height: 32 }),
       h('span', { class: 'nav-label brand-text' }, h('span', { class: 'brand-name' }, '3D Print Pricing', betaBadge()),
-        appVersion ? h('small', { class: 'version', id: 'sidebar-version' }, versionLabel(appVersion)) : null)),
-    ...NAV.map((n) => navLink(n, n[0] === r.page)),
-    langSwitch(chooseLanguage),
-    h('button', { class: 'collapse', type: 'button', 'aria-label': prefs.sidebar_collapsed ? t('nav.expand') : t('nav.collapse'),
-      onclick: () => { setPrefs({ sidebar_collapsed: !prefs.sidebar_collapsed }).then(route); } },
-    icon(prefs.sidebar_collapsed ? 'expand' : 'collapse'), h('span', { class: 'nav-label' }, t('nav.collapse_short'))),
-    h('button', { class: 'logout', type: 'button', onclick: logout }, icon('logout'), h('span', { class: 'nav-label' }, t('session.logout'))));
+        appVersion ? h('small', { class: 'version', id: 'sidebar-version' }, versionLabel(appVersion)) : null),
+      // Folding the menu away is done where the menu starts, not next to signing out.
+      h('button', { class: 'tool-btn sidebar-toggle', type: 'button', 'aria-expanded': String(!collapsed), title: collapsed ? t('nav.expand') : t('nav.collapse'),
+        'aria-label': collapsed ? t('nav.expand') : t('nav.collapse'), onclick: () => { setPrefs({ sidebar_collapsed: !prefs.sidebar_collapsed }).then(route); } }, icon('sidebar'))),
+    h('div', { class: 'sidebar-nav' }, NAV_GROUPS.map(([label, pages]) => h('div', { class: 'nav-group', role: 'group', 'aria-label': t(label) },
+      h('span', { class: 'nav-group-title', 'aria-hidden': 'true' }, t(label)), pages.map(entry)))),
+    h('div', { class: 'sidebar-foot' },
+      entry('instellingen'),
+      h('div', { class: 'sidebar-tools' }, themeToggle({ get prefs() { return prefs; }, setPrefs }, route), langSwitch(chooseLanguage)),
+      h('button', { class: 'logout', type: 'button', title: t('session.logout'), onclick: logout }, icon('logout'), h('span', { class: 'nav-label' }, t('session.logout')))));
   // One primary navigator at a time: CSS shows the tab bar on compact widths, the sidebar otherwise.
   const inOverflow = r.page === 'meer' || OVERFLOW.some((n) => n[0] === r.page);
   const tabbar = h('nav', { class: 'tabbar glass', 'aria-label': t('nav.main_mobile') },

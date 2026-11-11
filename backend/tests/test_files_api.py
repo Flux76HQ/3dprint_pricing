@@ -207,8 +207,32 @@ def test_project_links_the_file_and_a_source_url(owner):
     assert unlinked.get_json()["file_id"] is None and unlinked.get_json()["source_url"] == ""
 
 
+def test_a_model_keeps_several_links_each_with_its_kind(owner):
+    links = [{"kind": "model", "label": "", "url": "https://makerworld.com/en/models/12345"},
+             {"kind": "marktplaats", "label": "Zwarte uitvoering", "url": "https://www.marktplaats.nl/v/a1"},
+             {"kind": "bol", "label": "", "url": "https://www.bol.com/nl/nl/p/x/9300000000000000/"}]
+    p = make(owner, "/api/projects", {**sheet_payload(), "links": links})
+    assert p["links"] == links
+    assert p["source_url"] == links[0]["url"]                           # the link to the model itself, for a backup read by an older release
+    assert owner.get("/api/projects").get_json()[0]["links"] == links   # the list shows where a model is offered
+    fewer = owner.put(f"/api/projects/{p['id']}", json={**sheet_payload(), "links": links[1:]}, headers=H).get_json()
+    assert fewer["links"] == links[1:] and fewer["source_url"] == ""
+
+
+def test_one_source_url_becomes_the_link_to_the_model(owner):
+    # A client or backup from before there were several links sends only `source_url`.
+    p = make(owner, "/api/projects", {**sheet_payload(), "source_url": "https://www.printables.com/model/1"})
+    assert p["links"] == [{"kind": "model", "label": "", "url": "https://www.printables.com/model/1"}]
+    assert make(owner, "/api/projects", sheet_payload())["links"] == []
+
+
 @pytest.mark.parametrize("extra", [{"file_id": "00000000-0000-0000-0000-000000000000"}, {"file_id": "nope"},
-                                   {"source_url": "javascript:alert(1)"}, {"source_url": "ftp://x/y"}])
+                                   {"source_url": "javascript:alert(1)"}, {"source_url": "ftp://x/y"},
+                                   {"links": "https://x.example"}, {"links": ["https://x.example"]},
+                                   {"links": [{"kind": "model", "url": "javascript:alert(1)"}]}, {"links": [{"kind": "model", "url": ""}]},
+                                   {"links": [{"kind": "ebay", "url": "https://x.example"}]},
+                                   {"links": [{"kind": "other", "url": "https://x.example", "label": "x" * 61}]},
+                                   {"links": [{"kind": "other", "url": "https://x.example"}] * 13}])
 def test_project_rejects_bad_links(owner, extra):
     assert owner.post("/api/projects", json={**sheet_payload(), **extra}, headers=H).status_code == 400
 

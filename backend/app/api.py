@@ -623,7 +623,7 @@ def _project_row(row):
 @bp.get("/projects")
 def list_projects():
     with pool().connection() as conn:
-        rows = conn.execute("SELECT id, number, name, margin_pct, vat_pct, price_rounding, totals, stock_booked_at, updated_at, "
+        rows = conn.execute("SELECT id, number, name, margin_pct, vat_pct, price_rounding, totals, links, stock_booked_at, created_at, updated_at, "
                             "(SELECT i.id FROM project_images i WHERE i.project_id = projects.id AND i.is_cover) AS cover_image_id , "
                             "EXISTS (SELECT 1 FROM ai_image_jobs j WHERE j.project_id = projects.id AND j.status IN ('queued', 'running')) AS ai_busy "
                             "FROM projects ORDER BY updated_at DESC").fetchall()
@@ -640,13 +640,36 @@ def get_project(project_id):
 
 
 URL = re.compile(r"^https?://[^\s]+$", re.I)
+# What a link of a 3D model points at: the model itself (MakerWorld, Printables...) or a place where it is offered for sale. The kind is
+# kept with the link so that a connection to such a channel can find, and later make, its own listing.
+LINK_KINDS = ("model", "marktplaats", "bol", "etsy", "vinted", "webshop", "other")
+MAX_LINKS = 12
+
+
+def _project_links(body):
+    """The links of a 3D model: `links` (a list of kind, label and address), or the single `source_url` of a client or backup from before
+    there were several. Returns the list and the address of the model itself (still kept in `source_url`)."""
+    source_url = text("f.source_url", required=False, max_len=500)(body.get("source_url"))
+    if source_url and not URL.match(source_url):
+        raise ApiError(400, "err.source_url")
+    given = body.get("links")
+    if given is None:
+        return ([{"kind": "model", "label": "", "url": source_url}] if source_url else []), source_url
+    if not isinstance(given, list) or len(given) > MAX_LINKS or not all(isinstance(item, dict) for item in given):
+        raise ApiError(400, "err.links", max=MAX_LINKS)
+    links = []
+    for item in given:
+        url = text("f.link", max_len=500)(item.get("url"))
+        if not URL.match(url):
+            raise ApiError(400, "err.source_url")
+        links.append({"kind": choice("f.link_kind", LINK_KINDS)(item.get("kind") or "other"),
+                      "label": text("f.link_label", required=False, max_len=60)(item.get("label")), "url": url})
+    return links, next((link["url"] for link in links if link["kind"] == "model"), "")
 
 
 def _project_fields(body):
     name = text("f.name")(body.get("name"))
-    source_url = text("f.source_url", required=False, max_len=500)(body.get("source_url"))
-    if source_url and not URL.match(source_url):
-        raise ApiError(400, "err.source_url")
+    links, source_url = _project_links(body)
     file_id = body.get("file_id") or None
     if file_id is not None:
         try:
@@ -665,7 +688,7 @@ def _project_fields(body):
         raise ApiError(400, "err.rounding")
     data, totals = _calc({"data": body.get("data"), "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding})
     return {"name": name, "notes": notes, "object_description": object_description, "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding, "data": data,
-            "totals": totals, "source_url": source_url, "file_id": file_id}
+            "totals": totals, "source_url": source_url, "links": links, "file_id": file_id}
 
 
 @bp.post("/projects")
@@ -674,9 +697,9 @@ def create_project():
     with pool().connection() as conn:
         row = conn.execute(
             "INSERT INTO projects (name, notes, object_description, margin_pct, vat_pct, price_rounding, data, totals, source_url, "
-            "file_id, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "links, file_id, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
-             json.dumps(f["totals"]), f["source_url"], f["file_id"], next_number(conn, "project"))).fetchone()
+             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], next_number(conn, "project"))).fetchone()
     return jsonify(_project_row(row)), 201
 
 
@@ -686,9 +709,9 @@ def update_project(project_id):
     with pool().connection() as conn:
         row = conn.execute(
             "UPDATE projects SET name=%s, notes=%s, object_description=%s, margin_pct=%s, vat_pct=%s, price_rounding=%s, data=%s, "
-            "totals=%s, source_url=%s, file_id=%s, updated_at=now() WHERE id=%s RETURNING *",
+            "totals=%s, source_url=%s, links=%s, file_id=%s, updated_at=now() WHERE id=%s RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
-             json.dumps(f["totals"]), f["source_url"], f["file_id"], project_id)).fetchone()
+             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], project_id)).fetchone()
     if row is None:
         raise ApiError(404, "err.calc_not_found")
     return jsonify(_project_row(row))

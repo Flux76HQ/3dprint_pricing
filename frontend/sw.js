@@ -14,7 +14,7 @@ const CACHE = `pp-shell-${TOKEN || 'dev'}`;
 // with this list), so the installed app starts without the network after its first visit.
 const PAGE = '/';
 const SHELL = ['/css/app.css', '/js/main.js', '/js/ai-images.js', '/js/api.js', '/js/auth-views.js', '/js/build.js', '/js/bulk-scan.js', '/js/customers.js',
-  '/js/filament-library.js', '/js/filament-ui.js', '/js/i18n.js', '/js/install.js', '/js/langswitch.js', '/js/mdi.js', '/js/model-viewer.js', '/js/orders.js',
+  '/js/filament-library.js', '/js/filament-ui.js', '/js/i18n.js', '/js/install.js', '/js/langswitch.js', '/js/listview.js', '/js/mdi.js', '/js/model-viewer.js', '/js/orders.js',
   '/js/password.js', '/js/projects.js', '/js/push.js', '/js/pwa.js', '/js/release.js', '/js/resources.js', '/js/scanner.js', '/js/settings.js', '/js/spoolman.js',
   '/js/theme-boot.js', '/js/ui.js', '/js/updates.js', '/js/users.js', '/lang/nl.json', '/lang/en.json'];
 const versioned = (path) => (TOKEN ? `${path}?v=${TOKEN}` : path);

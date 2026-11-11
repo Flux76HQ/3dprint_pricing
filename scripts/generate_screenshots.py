@@ -171,9 +171,10 @@ def seed(api):
     def part(group, label, qty, unit, price, packaging=None, **link):
         return {"group": group, "packaging_id": packaging["id"] if packaging else "", "label": label, "quantity": str(qty), "unit": unit, "unit_price": str(price), **link}
 
-    def calc(name, fils, hours, printer_key, parts, margin="120", url=""):
+    def calc(name, fils, hours, printer_key, parts, margin="120", url="", listings=()):
+        links = ([{"kind": "model", "label": "", "url": url}] if url else []) + [{"kind": kind, "label": "", "url": address} for kind, address in listings]
         return api("POST", "/api/projects", {
-            "name": name, "notes": "", "margin_pct": margin, "vat_pct": "21", "source_url": url,
+            "name": name, "notes": "", "margin_pct": margin, "vat_pct": "21", "links": links,
             "data": {"filament": fils, "parts": parts, "print": {"depreciation": [dep(printer_key, hours)], "energy": [energy(printer_key, hours)]}}})
 
     calc("Telefoonstandaard Hexa", [fil("zwart", "PLA Basic Zwart", 38)], 2.4, "p1s", [], url="https://makerworld.com/nl/models/123456")
@@ -181,12 +182,13 @@ def seed(api):
     calc("Kabelhouder bureau (set van 4)", [fil("wit", "PLA Basic Wit", 46)], 3.1, "a1", [], margin="140")
     calc("Sleutelhanger Vos", [fil("rood", "PLA Matte Rood", 9), fil("wit", "PLA Basic Wit", 3)], 0.9, "a1",
          [part("onderdeel", "Sleutelring", 1, "stuks", "0.15")], margin="250")
-    calc("Vaas Silk Goud", [fil("goud", "PLA Silk Goud", 164)], 7.8, "x1", [], margin="130")
+    calc("Vaas Silk Goud", [fil("goud", "PLA Silk Goud", 164)], 7.8, "x1", [], margin="130", listings=[("marktplaats", "https://www.marktplaats.nl/v/huis-en-inrichting/a1234567891")])
     # The one the screenshots open: several lines per section, and a model link so the file box is filled in.
     calc("Raspberry Pi 5 behuizing", [fil("zwart", "PLA Basic Zwart", 58), fil("blauw", "PLA Basic Blauw", 6)], 4.4, "p1s",
          [part("onderdeel", "M2.5 schroeven", 4, "stuks", "0.06", part_id=extra["schroef"]["id"]),
           part("oplader", "USB-C kabel", 1, "stuks", "1.40", accessory_id=extra["kabel"]["id"])],
-         margin="110", url="https://makerworld.com/nl/models/987654")
+         margin="110", url="https://makerworld.com/nl/models/987654",
+         listings=[("marktplaats", "https://www.marktplaats.nl/v/computers-en-software/a1234567890"), ("bol", "https://www.bol.com/nl/nl/p/raspberry-pi-5-behuizing/9300000123456789/")])
     calc("Fietsbel-houder (TPU)", [fil("tpu", "TPU 95A Geel", 21)], 1.6, "a1", [], margin="200")
 
     seed_library(api)
@@ -294,6 +296,8 @@ def capture(browser, api, origin, project_id, raw):
     for theme in ("light", "dark"):
         prefs(theme=theme, navbar_style="ios")
         ctx = open_context(browser, origin, api.token, width=DESKTOP["w"], height=DESKTOP["h"], scale=1.5)
+        # An overview is tiles or a list, remembered per overview in the browser: on the desktop the orders are shown as the list, the rest as tiles.
+        ctx.add_init_script("localStorage.setItem('pp-list-orders', JSON.stringify({ view: 'list' }))")
         page = ctx.new_page()
         for name in ("editor", "list", "filament", "orders", "library", "settings", "newroll") if theme == "light" else ("editor",):
             page.goto(f"{origin}/#/{routes[name]}")
