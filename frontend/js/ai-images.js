@@ -15,7 +15,8 @@ const POLL_MS = 3000;
 const LOG_POLL_MS = 5000;
 const imageUrl = (id) => `/api/project-images/${id}/file`;
 
-export const coverUrl = imageUrl;
+/** The small version for a list (the stored picture is up to 2048 pixels a side). */
+export const coverUrl = (id) => `/api/project-images/${id}/thumb`;
 
 /** Runs `load` now and again every `ms` while `watch()` says so, until the element has been taken off the page (the user went elsewhere). */
 function keepFresh(element, load, ms, watch = () => true) {

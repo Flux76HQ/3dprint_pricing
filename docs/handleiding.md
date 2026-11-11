@@ -84,7 +84,8 @@ Bouwen uit een checkout (met de `Dockerfile`) kan ook:
 GIT_COMMIT=$(git rev-parse --short HEAD) docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
-(`GIT_COMMIT` verschijnt naast het versienummer; zonder staat er `dev`. CI zet hem automatisch.)
+(`GIT_COMMIT` verschijnt naast het versienummer; zonder staat er `dev`. CI zet hem automatisch. Geef hem altijd mee als je zelf bouwt: een browser bewaart de bestanden van een release
+onder versie plus commit, dus twee verschillende builds met dezelfde commit zou hij door elkaar halen. Een `dev`-build wordt nooit bewaard.)
 
 Zonder `--domain` blijven `RP_ID` en `RP_ORIGINS` leeg: de app volgt dan het adres waarop je hem opent, ook een IP-adres, genoeg om het uit te proberen. Een passkey vraagt wel een domein met https (zie hieronder).
 Handmatig kan ook: `cp .env.example .env` en de waarden invullen.
@@ -190,6 +191,8 @@ met een eigen icoon en opstartscherm en reageert als een native app:
 ### Meldingen en updates
 
 **Nieuwe versie.** De versie in de zijbalk is die van de code die de pagina echt geladen heeft (de server vult hem in `js/build.js` in), niet het antwoord van de server van dit moment; elke script- en stijl-URL draagt de release (`?v=0.7.3-abc1234`), zodat een oude cache of proxy geen oude scripts met een nieuwe server kan mengen. De app vraagt de server bij het openen, na terugkeren naar de voorgrond en elk kwartier welke versie draait.
+Omdat de release in de URL staat, bewaart de browser die bestanden zolang de release draait (`Cache-Control: immutable`) en vraagt hij bij het openen alleen nog de pagina zelf en `sw.js` op; die twee
+worden altijd bij de server nagevraagd, en daaraan merkt de browser een nieuwe release. De productafbeeldingen bewaart hij op dezelfde manier (`private`, dus alleen in de browser van wie ingelogd is). De app comprimeert zelf (gzip): een proxy ervoor hoeft dat niet te doen, maar moet `Cache-Control`, `ETag`, `Vary` en `Content-Encoding` ongewijzigd doorgeven. Gemeten cijfers: [`performance.md`](performance.md).
 Is die nieuwer dan wat de app geladen heeft, dan verschijnt bovenaan “Nieuwe versie beschikbaar: vX.Y.Z (commit)” met
 *Nu bijwerken* en *Later* (een uur rust). Heb je een berekening met niet-opgeslagen wijzigingen open, dan vraagt de app
 eerst of je die wilt kwijtraken. *Instellingen → Beheer → Over → Updatecontrole* toont de geïnstalleerde versie en controleert op verzoek.
@@ -347,8 +350,8 @@ Hosten op de gedeelde Flux76-server: zie `shared/infrastructure/adding-an-app.md
 - `docker compose up -d` pullt een image die al lokaal bestaat **niet** opnieuw; gebruik `docker compose pull && docker compose up -d`.
   Een eerder lokaal gebouwde `…:latest` heeft voorrang tot je pullt.
 - Controleer of `PRINTPRICING_TAG` in `.env` niet op een oude versie staat; zet hem desnoods op `latest`. Een oude `APP_IMAGE` in `.env` wordt niet meer gelezen.
-- Draait alles goed maar toont je browser oude schermen, ververs dan één keer hard (de service worker haalt bestanden
-  vanaf versie 0.3.1 eerst van het netwerk).
+- Draait alles goed maar toont je browser oude schermen, ververs dan één keer hard (de service worker haalt de pagina altijd
+  eerst van het netwerk; alleen bestanden met de draaiende release in hun URL komen uit zijn cache, en die van een vorige release ruimt hij op).
 
 ### Back-up en herstel
 ```bash
@@ -380,6 +383,7 @@ De container start als root om de rechten van de gemounte map te zetten en draai
 | `backend/app/files.py`, `printfile.py` | upload/download van STL/3MF en het uitlezen ervan (slicer-gegevens of volume) |
 | `backend/app/db.py`, `migrations/` | migratierunner (vooruit-only, checksum-bewaakt) |
 | `frontend/` | statische PWA zonder buildstap, plus service worker voor offline schil |
+| `backend/app/static_files.py` | de bestanden van `frontend/`: release in elke URL, één keer gecomprimeerd, en wat de browser mag bewaren |
 
 ### Limieten buiten de repository
 Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de app nodig heeft:
