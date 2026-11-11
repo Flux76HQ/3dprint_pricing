@@ -158,6 +158,33 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   }
   const refresh = keepFresh(body, load, POLL_MS, busy);
 
+  // A file without a model to turn (a sliced 3MF holds only the print job) often has the slicer's own picture of the build plate,
+  // in colour. It is offered instead: not to turn, but it can be kept as the view of the model all the same.
+  function offerPlate(fileId, status) {
+    const url = `/api/print-files/${fileId}/preview`;
+    const picture = h('img', { class: 'ai-source model-plate', alt: t('ai.plate_alt') });
+    picture.addEventListener('load', () => {
+      if (shownFile !== fileId) return;
+      const save = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
+        save.disabled = true;
+        try {
+          const { blob } = await downloadFile(url);
+          const data = new FormData();
+          data.append('file', blob, 'printplaat.jpg');
+          data.append('origin', 'model');
+          await upload(`/api/projects/${projectId}/images/source`, data);
+          lastError = '';
+          toast(t('ai.view3d_saved'));
+        } catch (e) { lastError = e.message; }
+        save.disabled = false;
+        await refresh();
+      } }, t('ai.plate_save'));
+      modelBox.querySelector('.plate-offer')?.remove();           // asked again: one offer, not two
+      status.after(h('div', { class: 'stack plate-offer' }, h('p', { class: 'muted' }, t('ai.plate_intro')), picture, h('div', { class: 'row' }, save)));
+    });
+    picture.src = url;                                             // no picture in the file: nothing is added
+  }
+
   function drawModel() {
     const { fileId, colour } = getModel();
     if (fileId === shownFile) return;                              // another file was linked (or none): start again
@@ -174,7 +201,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
         const chosen = form ? form.values().colour : '';
         mesh = await loadMesh(fileId);
         made = modelViewer(mesh, chosen || colour, !!chosen);      // the file's colours; a chosen colour is the whole item's, the roll's fills in
-      } catch (e) { status.textContent = e.message; open.disabled = false; return; }
+      } catch (e) { status.textContent = e.message; open.disabled = false; offerPlate(fileId, status); return; }
       if (shownFile !== fileId) return;                            // the file changed while this one was loading
       if (!made) { status.textContent = t('ai.view3d_no_webgl'); return; }
       viewer = made;

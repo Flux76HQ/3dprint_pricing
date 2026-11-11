@@ -562,7 +562,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         h('div', {}, h('strong', {}, fileMeta.filename),
           h('p', { class: 'muted' }, `${fileMeta.size_bytes < 1048576 ? `${fmt(fileMeta.size_bytes / 1024, 0)} kB` : `${fmt(fileMeta.size_bytes / 1048576, 1)} MB`} · `, h('span', { class: `badge${a.exact ? '' : ' muted'}` }, a.exact ? t('file.exact') : t('file.estimated')))),
         h('div', { class: 'row' },
-          imagesCard && (a.volume_cm3 || a.bbox_mm) ? h('button', { class: 'btn small', type: 'button', onclick: () => imagesCard.showModel() }, t('file.view_3d')) : null,
+          imagesCard ? h('button', { class: 'btn small', type: 'button', onclick: () => imagesCard.showModel() }, t('file.view_3d')) : null,
           h('a', { class: 'btn small', href: `/api/print-files/${fileMeta.id}/download` }, t('file.download')),
           h('button', { class: 'btn small', type: 'button', onclick: () => { fileMeta = null; state.file_id = null; touch(); drawFile(); } }, t('file.unlink')))));
       if (a.plates.length) {

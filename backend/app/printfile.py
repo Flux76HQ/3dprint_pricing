@@ -31,6 +31,7 @@ MAX_COLOURS = 256                     # colours read from one group of materials
 MAX_SETTINGS_BYTES = 8 * 1024 * 1024  # a slicer's settings file that is read for the filament colours
 MAX_PAINT_DIGITS = 20_000            # of one triangle's painted-on colours
 PAINT_ATTRIBUTES = ("paint_color", "mmu_segmentation")      # Bambu Studio / OrcaSlicer, PrusaSlicer
+MAX_PICTURE_BYTES = 16 * 1024 * 1024  # the slicer's picture of a plate
 MESH_MAGIC = b"PPM1"
 NO_COLOUR = b"\x00\x00\x00\x00"
 
@@ -490,6 +491,24 @@ def triangles(path: Path, extension: str) -> bytes:
     if sys.byteorder != "little":
         out.byteswap()
     return MESH_MAGIC + struct.pack("<II", count, 1 if coloured else 0) + out.tobytes() + (bytes(shades) if coloured else b"")
+
+
+def plate_picture(path: Path, extension: str) -> "bytes | None":
+    """The picture of the build plate a slicer puts in a 3MF (Bambu Studio, OrcaSlicer: `Metadata/plate_1.png`, the first plate
+    there is one of), as it is in the file; None when there is none. A sliced file often holds no model to draw, but it does hold
+    this. The bytes are untrusted: whoever shows them decodes and re-encodes them first."""
+    if extension.lower().lstrip(".") != "3mf":
+        return None
+    try:
+        zf = zipfile.ZipFile(path)
+    except zipfile.BadZipFile:
+        return None
+    with zf:
+        plates = sorted((int(m.group(1)), info) for info in zf.infolist() if (m := re.fullmatch(r"Metadata/plate_(\d{1,3})\.png", info.filename)))
+        for _number, info in plates:
+            if 0 < info.file_size <= MAX_PICTURE_BYTES:
+                return zf.read(info)
+    return None
 
 
 # --- slicer data ----------------------------------------------------------------------

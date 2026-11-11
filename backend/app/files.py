@@ -126,6 +126,25 @@ def mesh(file_id):
     return Response(data, mimetype="application/octet-stream")
 
 
+@bp.get("/<uuid:file_id>/preview")
+def preview(file_id):
+    """The slicer's own picture of the build plate, for a file that holds no model to draw. It is decoded and written again
+    (`ai_images._clean`: size and pixel caps, nothing of the original file kept), like every picture that comes from an upload."""
+    from .ai_images import _clean                           # imported here: that module imports the API this one stands next to
+    row = _get(file_id)
+    path = _dir() / row["stored_name"]
+    if not path.is_file():
+        raise ApiError(404, "files.gone")
+    picture = printfile.plate_picture(path, row["kind"])
+    if picture is None:
+        raise ApiError(404, "files.no_preview")
+    try:
+        content, _width, _height = _clean(picture)
+    except ApiError:
+        raise ApiError(404, "files.no_preview") from None
+    return Response(content, mimetype="image/jpeg")
+
+
 @bp.get("/<uuid:file_id>/estimate")
 def estimate(file_id):
     row = _get(file_id)

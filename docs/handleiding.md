@@ -540,8 +540,9 @@ zie je in de app niets. De server beslist, niet de browser.
      standaard dichtgeklapt; de knop *3D-model bekijken* bij het printbestand klapt haar open en laadt het model meteen. Sleep om het te draaien (of gebruik de
      pijltjestoetsen), zoom met twee vingers of de schuif en kies *Beeld opslaan bij deze berekening*. Het model krijgt de kleuren uit het 3D-bestand als die erin staan: de materialen van een 3MF, of bij een project uit Bambu Studio of OrcaSlicer de filamentkleur per object en onderdeel, en de kleuren die in de slicer op het model zijn geschilderd (per driehoek de kleur die het grootste deel bedekt; een STL kent geen kleur). Wat het bestand geen kleur geeft, krijgt die van de eerste filamentrol. Kies je bij *Kleur van het item* een eigen kleur, dan krijgt het hele model die kleur.
      Het beeld staat daarna naast de foto en is net als de foto te verwijderen of te vervangen door een nieuw beeld. De server leest het model uit het
-     bestand; een model met meer dan 400.000 driehoeken is te gedetailleerd om te tonen, en een gesliced 3MF dat alleen de printopdracht bevat heeft geen
-     model. De weergave vraagt WebGL van de browser.
+     bestand; een model met meer dan 400.000 driehoeken is te gedetailleerd om te tonen, en een gesliced 3MF (`.gcode.3mf`) bevat alleen de printopdracht en dus geen
+     model om te draaien: koppel daarvoor het projectbestand (`.3mf`) uit de slicer. Zo'n gesliced bestand bevat meestal wel de afbeelding die de slicer van
+     de printplaat maakte, in de kleuren van het filament; de app toont die dan en je kunt haar met één klik als beeld van het model opslaan. De weergave vraagt WebGL van de browser.
 
    Kies daarna **waar de afbeeldingen voor zijn**; zonder keuze wordt er niets gemaakt.
    Per keuze worden vier afbeeldingen gemaakt, een voor een:

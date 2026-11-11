@@ -190,6 +190,29 @@ def test_a_file_without_a_model_or_with_too_much_of_it_says_so(owner, monkeypatc
     assert owner.get("/api/print-files/00000000-0000-0000-0000-000000000000/mesh").status_code == 404
 
 
+def test_a_sliced_file_without_a_model_still_has_the_picture_of_its_plate(owner):
+    from PIL import Image
+    def plate(colour, size=(512, 512)):
+        out = io.BytesIO()
+        Image.new("RGBA", size, colour).save(out, "PNG")
+        return out.getvalue()
+    sliced = {"Metadata/slice_info.config": pf.SLICE_INFO, "Metadata/plate_2.png": plate((0, 0, 255, 255)),
+              "Metadata/plate_1.png": plate((255, 0, 0, 255)), "Metadata/plate_1_small.png": plate((0, 255, 0, 255), (64, 64)),
+              "Metadata/top_1.png": plate((0, 255, 0, 255))}
+    fid = upload(owner, pf.zip_bytes(sliced), "bak.gcode.3mf").get_json()["id"]
+    res = owner.get(f"/api/print-files/{fid}/mesh")
+    assert res.status_code == 422 and ".gcode.3mf" in res.get_json()["error"]         # no model, and it says what to do
+    res = owner.get(f"/api/print-files/{fid}/preview")
+    assert res.status_code == 200 and res.mimetype == "image/jpeg"
+    picture = Image.open(io.BytesIO(res.data))
+    assert picture.format == "JPEG" and picture.size == (512, 512) and picture.convert("RGB").getpixel((5, 5))[0] > 240       # the first plate, re-encoded
+    for data, name in ((pf.sliced_3mf(), "a.gcode.3mf"), (pf.stl_binary(), "a.stl"),
+                       (pf.zip_bytes({**sliced, "Metadata/plate_1.png": b"not a picture", "Metadata/plate_2.png": b""}), "b.gcode.3mf")):
+        fid = upload(owner, data, name).get_json()["id"]
+        assert owner.get(f"/api/print-files/{fid}/preview").status_code == 404, name
+    assert owner.get("/api/print-files/00000000-0000-0000-0000-000000000000/preview").status_code == 404
+
+
 def test_the_model_needs_a_session(client, owner):
     fid = upload(owner, pf.stl_binary()).get_json()["id"]
     client.delete_cookie("pp_session")
