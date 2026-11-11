@@ -1249,7 +1249,7 @@
  "ai.test": "Verbinding testen",
  "ai.test_ok": "De verbinding met OpenAI werkt.",
  "ai.text_off": "Niet alle tekstvelden zijn ingevuld: de afbeeldingen worden zonder teksten gemaakt.",
- "ai.text_on": "Alle tekstvelden zijn ingevuld: de eerste afbeelding wordt een poster met deze teksten in een vast sjabloon, de andere drie blijven zonder tekst.",
+ "ai.text_on": "Alle tekstvelden zijn ingevuld: de eerste afbeelding wordt een reclameposter met deze teksten over de foto, de andere drie blijven zonder tekst.",
  "ai.text_title": "Teksten op de afbeelding",
  "ai.title": "AI-afbeeldingen",
  "ai.uploading": "Foto wordt geüpload…",

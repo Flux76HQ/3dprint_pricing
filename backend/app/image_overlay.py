@@ -1,35 +1,48 @@
-"""The fixed templates that turn a generated picture into a poster: the product texts and the logo, drawn here.
+"""The fixed templates that turn a generated picture into an advertising poster: the product texts and the logo, drawn here.
 
 The model is asked for a picture *without* text (it cannot be trusted to spell) and to keep part of it calm; the texts are then
-drawn by this module, so they are exactly what was typed. A poster has one loud thing and the rest is quiet, so the template is a
-short accent bar, the product name as a large headline in capitals, the specifications as a plain list under it and the extra text on
-a tilted label. Only one picture of the four is made a poster (the others stay photos, so a carousel is not four times the same
-text). Where the block goes depends on the shape of the picture (`LAYOUTS`): a slanted colour field rising across the bottom (`wedge`), the picture fading into the colour (`ground`), or a slanted
-column on the left of a wide picture (`side`). Each purpose has its own colours (`TEMPLATES`). Nothing here is random: the same
-texts on the same picture give the same poster. Sizes follow the picture, and a text that does not fit is made smaller, then cut."""
+laid over the photo by this module, so they are exactly what was typed. The photo stays the whole poster: there is no panel or box,
+only a soft shade under the texts that fades into the picture. A poster has one loud thing and the rest is quiet: a short accent
+bar, the product name as a large headline in a display typeface, a thin rule, the specifications as a plain list and the extra
+text on a tilted label. Only one picture of the four is made a poster (the others stay photos, so a carousel is not four times
+the same text).
+
+Each purpose has its own typeface and accent (`TEMPLATES`); where the texts go depends on the shape of the picture (`LAYOUTS`).
+**The colours follow the photo**: under a dark or busy picture the texts are white on a dark shade, under a light one (a studio
+picture) they are dark on a light shade, decided by measuring the picture where the texts come, so they are always readable.
+Nothing here is random: the same texts on the same picture give the same poster. Sizes follow the picture, and a text that does
+not fit is made smaller, then cut. The typefaces are in `app/fonts`, each with its licence (SIL Open Font License)."""
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageStat
 
 FONTS = Path(__file__).parent / "fonts"
-# purpose -> the colour field (with its opacity), the headline, the list, the accent (bar, bullets, label) and the text on the label
+BODY, BODY_BOLD = "OpenSans-Regular.ttf", "OpenSans-Bold.ttf"
+# purpose -> the headline's typeface (`scale` evens out how large the typefaces run, `caps` sets it in capitals), and the accent
+# with the colour of the text on the label, for a dark and for a light picture
 TEMPLATES = {
-    "marktplaats": {"panel": (250, 248, 244), "alpha": 242, "ink": (24, 24, 27), "soft": (63, 63, 70), "accent": (234, 88, 12), "accent_ink": (255, 255, 255)},
-    "social": {"panel": (14, 14, 17), "alpha": 236, "ink": (255, 255, 255), "soft": (228, 228, 231), "accent": (250, 204, 21), "accent_ink": (24, 24, 27)},
-    "webshop": {"panel": (255, 255, 255), "alpha": 242, "ink": (15, 23, 42), "soft": (51, 65, 85), "accent": (37, 99, 235), "accent_ink": (255, 255, 255)},
+    "marktplaats": {"display": "BebasNeue-Regular.ttf", "scale": 1.32, "caps": True,
+                    "dark": ((255, 122, 26), (24, 24, 27)), "light": ((224, 82, 6), (255, 255, 255))},
+    "social": {"display": "Anton-Regular.ttf", "scale": 1.08, "caps": True,
+               "dark": ((255, 214, 10), (17, 17, 20)), "light": ((255, 214, 10), (17, 17, 20))},
+    "webshop": {"display": "DMSerifDisplay-Regular.ttf", "scale": 1.06, "caps": False,
+                "dark": ((147, 197, 253), (15, 23, 42)), "light": ((29, 78, 216), (255, 255, 255))},
 }
-# shape of the picture -> where the texts go
-LAYOUTS = {"square": "wedge", "portrait": "wedge", "context": "wedge", "studio": "ground", "detail": "ground", "landscape": "side"}
+# what the texts look like on a dark and on a light picture: the headline, the list, the shade and how strong it gets (of 255)
+INK = {"dark": {"ink": (255, 255, 255), "soft": (240, 240, 244), "shade": (6, 6, 10), "strength": 158},
+       "light": {"ink": (15, 23, 42), "soft": (51, 65, 85), "shade": (255, 255, 255), "strength": 190}}
+LIGHT_FROM = 150                                          # mean brightness (0-255) of the picture under the texts from which it counts as light
+# shape of the picture -> where the texts go: along the bottom, or in the left part of a wide picture
+LAYOUTS = {"square": "bottom", "portrait": "bottom", "context": "bottom", "studio": "bottom", "detail": "bottom", "landscape": "left"}
 # what the model is told, so that the object is not where the texts come
 ROOM = {
-    "wedge": "Compose the picture so that the object sits in the upper part and the bottom third stays calm and uncluttered: a caption is put there afterwards. ",
-    "ground": "Compose the picture so that the object sits in the upper part and the bottom third stays calm and uncluttered: a caption is put there afterwards. ",
-    "side": "Compose the picture so that the object sits in the right half and the left 40% stays calm and uncluttered: a caption is put there afterwards. ",
+    "bottom": "Compose the picture so that the object sits in the upper part and the bottom third stays calm and uncluttered: a caption is put there afterwards. ",
+    "left": "Compose the picture so that the object sits in the right half and the left 40% stays calm and uncluttered: a caption is put there afterwards. ",
 }
-HEADLINE = (0.094, 0.082, 0.072, 0.063, 0.055, 0.048)     # sizes tried for the headline, largest first (times the unit)
-SCALES = (1.0, 0.9, 0.8, 0.7, 0.6, 0.5)                   # the whole block is made smaller, step by step, until it fits its field
-SMOOTH = 3                                                # slanted edges are drawn this much larger and scaled down, so they are not jagged
+HEADLINE = (0.118, 0.104, 0.092, 0.08, 0.07, 0.06, 0.052)   # sizes tried for the headline, largest first (times the unit)
+SCALES = (1.0, 0.9, 0.8, 0.7, 0.6, 0.5)                   # the whole block is made smaller, step by step, until it fits its room
+SMOOTH = 3                                                # the label is drawn this much larger and scaled down, so its edges are not jagged
 TILT = 3                                                  # degrees the label leans
 
 
@@ -37,8 +50,16 @@ def room(variant: str) -> str:
     return ROOM[LAYOUTS[variant]]
 
 
-def _font(bold: bool, size: float):
-    return ImageFont.truetype(str(FONTS / ("OpenSans-Bold.ttf" if bold else "OpenSans-Regular.ttf")), max(8, round(size)))
+def _font(name: str, size: float):
+    return ImageFont.truetype(str(FONTS / name), max(8, round(size)))
+
+
+def _covers(name: str, text: str) -> bool:
+    """Whether the typeface has every character of the text (a display typeface has fewer than the one for running text)."""
+    font = _font(name, 40)
+    missing = font.getmask("￿")
+    blank = (missing.size, bytes(missing))
+    return all((lambda m: (m.size, bytes(m)) != blank)(font.getmask(char)) for char in set(text) if not char.isspace())
 
 
 def _wrap(text: str, font, width: float, max_lines: int) -> "tuple[list, bool]":
@@ -68,125 +89,139 @@ def _wrap(text: str, font, width: float, max_lines: int) -> "tuple[list, bool]":
     if len(lines) > max_lines:
         damaged = True
         last = lines[max_lines - 1]
-        while last and font.getlength(last + "…") > width:
+        while last and font.getlength(last + "...") > width:
             last = last[:-1]
-        lines = lines[:max_lines - 1] + [last.rstrip() + "…"]
+        lines = lines[:max_lines - 1] + [last.rstrip() + "..."]
     return lines, damaged
 
 
-def _label(text: str, style: dict, unit: float, width: float):
+def _label(text: str, accent: tuple, label_ink: tuple, unit: float, width: float):
     """The extra text on a slanted, slightly tilted label of the accent colour."""
-    font = _font(True, unit * 0.04)
+    font = _font(BODY_BOLD, unit * 0.04)
     pad_x, pad_y, lean = unit * 0.03, unit * 0.014, unit * 0.022
     lines, _ = _wrap(text, font, width * 0.93 - 2 * pad_x - lean, 2)
     line_height = font.size * 1.25
     w = round(max(font.getlength(line) for line in lines) + 2 * pad_x + lean)
     h = round(len(lines) * line_height + 2 * pad_y)
     big = Image.new("RGBA", (w * SMOOTH, h * SMOOTH), (0, 0, 0, 0))
-    ImageDraw.Draw(big).polygon([(lean * SMOOTH, 0), (w * SMOOTH, 0), ((w - lean) * SMOOTH, h * SMOOTH), (0, h * SMOOTH)], fill=style["accent"] + (255,))
+    ImageDraw.Draw(big).polygon([(lean * SMOOTH, 0), (w * SMOOTH, 0), ((w - lean) * SMOOTH, h * SMOOTH), (0, h * SMOOTH)], fill=accent + (255,))
     label = big.resize((w, h), Image.LANCZOS)
     draw = ImageDraw.Draw(label)
     for n, line in enumerate(lines):
-        draw.text((pad_x + lean / 2, pad_y + n * line_height + line_height / 2), line, font=font, fill=style["accent_ink"], anchor="lm")
+        draw.text((pad_x + lean / 2, pad_y + n * line_height + line_height / 2), line, font=font, fill=label_ink, anchor="lm")
     return label.rotate(TILT, resample=Image.BICUBIC, expand=True)
 
 
-def _block(text: dict, style: dict, unit: float, width: int):
-    """The texts as one transparent picture `width` wide: bar, headline, list, label."""
-    steps, y = [], 0.0
-    bar = (unit * 0.12, unit * 0.016)
-    y += bar[1] + unit * 0.03
-    name = text["product_name"].upper()
+def _block(text: dict, style: dict, tone: str, unit: float, width: int):
+    """The texts as one transparent picture `width` wide: bar, headline, rule, list, label."""
+    ink, (accent, label_ink) = INK[tone], style[tone]
+    name = text["product_name"].upper() if style["caps"] else text["product_name"]
+    face = style["display"] if _covers(style["display"], name) else BODY_BOLD      # a character the display typeface lacks: the plain one
+    scale = style["scale"] if face == style["display"] else 0.8
+    steps, rules, y = [], [], 0.0
+    bar = (unit * 0.13, unit * 0.017)
+    y += bar[1] + unit * 0.034
     for size in HEADLINE:                                            # the largest size at which the name fits whole
-        head_font = _font(True, unit * size)
+        head_font = _font(face, unit * size * scale)
         head, damaged = _wrap(name, head_font, width, 3)
         if not damaged:
             break
-    for line in head:
-        steps.append((line, head_font, style["ink"], 0, y))
-        y += head_font.size * 1.06
-    y += unit * 0.026
-    spec_font = _font(False, unit * 0.035)
-    indent, bullets = unit * 0.04, []
-    for spec in text["specs"]:
-        bullets.append(y + spec_font.size * 0.7)
-        for line in _wrap(spec, spec_font, width - indent, 2)[0]:
-            steps.append((line, spec_font, style["soft"], indent, y))
-            y += spec_font.size * 1.36
+    box = head_font.getbbox("Hdl" if not style["caps"] else "H", anchor="ls")       # how far the letters rise above the line they stand on
+    rise, advance = -box[1], (-box[1]) * (1.2 if style["caps"] else 1.32)
+    for n, line in enumerate(head):
+        steps.append((line, head_font, ink["ink"], 0, y + rise + n * advance))
+    y += rise + (len(head) - 1) * advance + (head_font.size * 0.24 if not style["caps"] else 0)
+    y += unit * 0.04
+    rules.append(y)
     y += unit * 0.03
-    label = _label(text["extra_text"], style, unit, width)
+    spec_font = _font(BODY, unit * 0.037)
+    indent, bullets = unit * 0.042, []
+    spec_rise = -spec_font.getbbox("H", anchor="ls")[1]
+    for spec in text["specs"]:
+        bullets.append(y + spec_rise / 2)
+        for line in _wrap(spec, spec_font, width - indent, 2)[0]:
+            steps.append((line, spec_font, ink["soft"], indent, y + spec_rise))
+            y += spec_font.size * 1.38
+    y += unit * 0.026
+    label = _label(text["extra_text"], accent, label_ink, unit, width)
     block = Image.new("RGBA", (width, round(y + label.height) + 1), (0, 0, 0, 0))
     draw = ImageDraw.Draw(block)
-    draw.rectangle((0, 0, bar[0], bar[1]), fill=style["accent"])
-    for line, font, colour, x, top in steps:
-        draw.text((x, top), line, font=font, fill=colour)
+    draw.rectangle((0, 0, bar[0], bar[1]), fill=accent)
+    for top in rules:
+        draw.rectangle((0, top, min(width, unit * 0.46), top + max(1, round(unit * 0.003))), fill=ink["ink"] + (120,))
+    for line, font, colour, x, baseline in steps:
+        draw.text((x, baseline), line, font=font, fill=colour, anchor="ls")
     side = spec_font.size * 0.3
     for middle in bullets:                                           # drawn, so a bullet never depends on a glyph
-        draw.rectangle((0, middle - side / 2, side, middle + side / 2), fill=style["accent"])
+        draw.rectangle((0, middle - side / 2, side, middle + side / 2), fill=accent)
     block.alpha_composite(label, (0, round(y)))
     return block
 
 
-def _fitting(text: dict, style: dict, base: int, width: int, limit: float):
+def _fitting(text: dict, style: dict, tone: str, base: int, width: int, limit: float):
     for scale in SCALES:
-        block = _block(text, style, base * scale, width)
+        block = _block(text, style, tone, base * scale, width)
         if block.height <= limit:
             break
     return block
 
 
-def _fields(image, *fields) -> None:
-    """Colour fields with slanted edges, (points, colour with opacity) each, smooth."""
-    width, height = image.size
-    big = Image.new("RGBA", (width * SMOOTH, height * SMOOTH), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(big)
-    for points, colour in fields:
-        draw.polygon([(x * SMOOTH, y * SMOOTH) for x, y in points], fill=colour)
-    image.alpha_composite(big.resize(image.size, Image.LANCZOS))
+def _tone(image, box: tuple) -> str:
+    """Light or dark: how bright the picture is where the texts come."""
+    region = image.crop(tuple(max(0, round(v)) for v in box)).convert("L")
+    return "light" if ImageStat.Stat(region).mean[0] >= LIGHT_FROM else "dark"
 
 
-def _wedge(image, style: dict, text: dict) -> None:
-    """A colour field across the bottom whose top edge rises to the right, with the accent along it."""
-    width, height = image.size
-    base = min(width, height)
-    pad, rise, stripe = round(base * 0.05), round(height * 0.085), max(3, round(base * 0.011))
-    block = _fitting(text, style, base, width - 2 * pad, height * 0.44)
-    top = height - pad - block.height
-    left, right = top - pad, top - pad - rise
-    _fields(image,
-            ([(0, left), (width, right), (width, height), (0, height)], style["panel"] + (style["alpha"],)),
-            ([(0, left - stripe), (width, right - stripe), (width, right), (0, left)], style["accent"] + (255,)))
-    image.alpha_composite(block, (pad, top))
+def _ramp(length: int, start: float, full: float, strength: int):
+    """A strip of `length` values: nothing up to `start`, then rising smoothly to `strength` at `full`, and staying there."""
+    span = max(1.0, full - start)
+    values = []
+    for n in range(length):
+        t = min(1.0, max(0.0, (n - start) / span))
+        values.append(round(strength * t * t * (3 - 2 * t)))
+    return values
 
 
-def _ground(image, style: dict, text: dict) -> None:
-    """The picture fades into the colour towards the bottom; the texts stand in it."""
-    width, height = image.size
-    base = min(width, height)
-    pad = round(base * 0.05)
-    block = _fitting(text, style, base, width - 2 * pad, height * 0.46)
-    top = height - pad - block.height
-    fade, solid = round(base * 0.2), max(0, top - pad // 2)
-    mask = Image.new("L", image.size, 0)
-    ramp = Image.linear_gradient("L").resize((width, fade)).point(lambda v: v * style["alpha"] // 255)
-    mask.paste(ramp, (0, solid - fade))
-    mask.paste(style["alpha"], (0, solid, width, height))
-    colour = Image.new("RGBA", image.size, style["panel"] + (255,))
+def _shade(image, tone: str, mask) -> None:
+    colour = Image.new("RGBA", image.size, INK[tone]["shade"] + (255,))
     colour.putalpha(mask)
     image.alpha_composite(colour)
-    image.alpha_composite(block, (pad, top))
 
 
-def _side(image, style: dict, text: dict) -> None:
-    """A column on the left whose right edge leans, with the accent along it; for a wide picture."""
+def _place(image, block, position: tuple, tone: str, unit: int) -> None:
+    """The texts on the picture; on a dark picture with a soft shadow, which keeps white letters sharp on a pale spot."""
+    if tone == "dark":
+        shadow = Image.new("RGBA", block.size, (0, 0, 0, 0))
+        shadow.putalpha(block.getchannel("A").filter(ImageFilter.GaussianBlur(max(1, unit * 0.008))).point(lambda v: v * 150 // 255))
+        image.alpha_composite(shadow, (position[0], position[1] + max(1, round(unit * 0.004))))
+    image.alpha_composite(block, position)
+
+
+def _bottom(image, style: dict, text: dict) -> None:
+    """The texts along the bottom, left-aligned; the picture darkens (or lightens) towards them."""
     width, height = image.size
     base = min(width, height)
-    pad, column, lean, stripe = round(base * 0.05), round(width * 0.47), round(width * 0.075), max(3, round(base * 0.011))
-    block = _fitting(text, style, base, column - lean - 2 * pad, height * 0.68)
-    _fields(image,
-            ([(0, 0), (column, 0), (column - lean, height), (0, height)], style["panel"] + (style["alpha"],)),
-            ([(column, 0), (column + stripe, 0), (column - lean + stripe, height), (column - lean, height)], style["accent"] + (255,)))
-    image.alpha_composite(block, (pad, height - pad - block.height))
+    pad = round(base * 0.055)
+    tone = _tone(image, (0, height * 0.6, width, height))
+    block = _fitting(text, style, tone, base, min(width - 2 * pad, round(width * 0.9)), height * 0.48)
+    top = height - pad - block.height
+    column = Image.new("L", (1, height))
+    column.putdata(_ramp(height, top - base * 0.34, top + base * 0.08, INK[tone]["strength"]))
+    _shade(image, tone, column.resize((width, height)))
+    _place(image, block, (pad, top), tone, base)
+
+
+def _left(image, style: dict, text: dict) -> None:
+    """The texts in the left part of a wide picture; the picture darkens (or lightens) towards the left."""
+    width, height = image.size
+    base = min(width, height)
+    pad = round(base * 0.055)
+    tone = _tone(image, (0, 0, width * 0.45, height))
+    block = _fitting(text, style, tone, base, round(width * 0.4), height * 0.7)
+    row = Image.new("L", (width, 1))                                  # full on the left, gone at 68% of the width
+    row.putdata(_ramp(width, width * 0.32, width * 0.62, INK[tone]["strength"])[::-1])
+    _shade(image, tone, row.resize((width, height)))
+    _place(image, block, (pad, height - pad - block.height), tone, base)
 
 
 def _logo(image, logo: bytes) -> None:
@@ -209,7 +244,7 @@ def compose(content: bytes, purpose: str, variant: str, *, text: "dict | None" =
     with Image.open(BytesIO(content)) as opened:
         image = opened.convert("RGBA")
     if text:
-        {"wedge": _wedge, "ground": _ground, "side": _side}[LAYOUTS[variant]](image, TEMPLATES[purpose], text)
+        {"bottom": _bottom, "left": _left}[LAYOUTS[variant]](image, TEMPLATES[purpose], text)
     if logo:
         _logo(image, logo)
     out = BytesIO()

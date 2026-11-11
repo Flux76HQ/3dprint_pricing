@@ -341,11 +341,12 @@ def test_the_first_picture_becomes_a_poster_when_all_texts_are_filled_in(ai, pro
     first, *others = ai_images.PURPOSES["webshop"][0]
     image = picture(ai, project, first)
     assert image.size == (1024, 1024)
-    assert near(image.getpixel((512, 100)), PLAIN)                                 # the picture itself is untouched
-    assert near(image.getpixel((1000, 1010)), (242, 248, 242), 20)                 # the web shop's light field along the bottom
-    field = image.crop((0, 500, 1024, 1024))
-    assert any(near(p, (37, 99, 235), 30) for p in pixels(field))                  # its accent
-    assert any(near(p, (15, 23, 42), 30) for p in pixels(field))                   # and the headline, in ink
+    assert near(image.getpixel((512, 100)), PLAIN)                                 # the top of the picture is untouched
+    corner = image.getpixel((1000, 1010))
+    assert sum(corner) < sum(PLAIN) - 40 and corner[1] > corner[0]                 # the texts lie over the photo: shaded, not covered by a box
+    lower = image.crop((0, 500, 1024, 1024))
+    assert any(near(p, (255, 255, 255), 12) for p in pixels(lower))                # the headline, white on this dark picture
+    assert any(near(p, (147, 197, 253), 30) for p in pixels(lower))                # and the web shop's accent
     prompts = [c["data"]["prompt"] for c in fake.calls]
     assert "caption" in prompts[0] and all("No text" in p for p in prompts)        # the model leaves room, it never writes
     assert not any("Plantenbak Vensterbank" in p for p in prompts)
@@ -362,16 +363,43 @@ def test_the_first_picture_becomes_a_poster_when_all_texts_are_filled_in(ai, pro
         assert "caption" not in fake.calls[-1]["data"]["prompt"]
 
 
-def test_every_purpose_has_its_own_template(ai, project, monkeypatch):
-    ready(ai, project, monkeypatch, result=png((1024, 1024), PLAIN))
-    corners = {}
-    for purpose, (made, _style) in ai_images.PURPOSES.items():
-        wipe(ai, project)
-        assert queue(ai, project, made[0], purpose=purpose, text=TEXT).status_code == 202
-        corners[purpose] = picture(ai, project, made[0]).getpixel((10, 1014))       # bottom left: in the colour field of every layout
-    assert sum(corners["social"]) < 200 < 600 < sum(corners["webshop"])            # a dark field for social media, a light one for a shop
-    assert set(ai_images.image_overlay.TEMPLATES) == set(ai_images.PURPOSES)
-    assert set(ai_images.image_overlay.LAYOUTS) == set(ai_images.VARIANTS)
+POSTER = {k: TEXT[k] for k in ("product_name", "specs", "extra_text")}
+
+
+def poster(purpose, variant, size, colour, **more):
+    made = ai_images.image_overlay.compose(ai_images._clean(png(size, colour))[0], purpose, variant, text={**POSTER, **more})
+    return Image.open(BytesIO(made)).convert("RGB")
+
+
+def test_every_purpose_has_its_own_template_and_typeface(ai):
+    overlay = ai_images.image_overlay
+    assert set(overlay.TEMPLATES) == set(ai_images.PURPOSES) and set(overlay.LAYOUTS) == set(ai_images.VARIANTS)
+    faces = {style["display"] for style in overlay.TEMPLATES.values()}
+    assert len(faces) == len(overlay.TEMPLATES)                                    # three purposes, three headline typefaces
+    for face in faces | {overlay.BODY, overlay.BODY_BOLD}:
+        assert (overlay.FONTS / face).is_file() and overlay._covers(face, "Plantenbak é ë ï € 14,95 & 30 x 12 cm!")
+    assert len(list(overlay.FONTS.glob("OFL*.txt"))) == 4                           # every typeface comes with its licence
+    made = [poster(purpose, "square", (1024, 1024), PLAIN).tobytes() for purpose in overlay.TEMPLATES]
+    assert len(set(made)) == 3
+    assert poster("social", "square", (1024, 1024), PLAIN).tobytes() == made[list(overlay.TEMPLATES).index("social")]     # nothing random
+
+
+def test_the_colours_of_the_texts_follow_the_picture(ai):
+    for variant, size in (("square", (1024, 1024)), ("landscape", (1536, 1024))):
+        dark = poster("webshop", variant, size, (40, 60, 45))
+        light = poster("webshop", variant, size, (244, 242, 238))                  # a studio picture
+        zone = (0, size[1] // 2, size[0] // 2, size[1])
+        assert any(near(p, (255, 255, 255), 10) for p in pixels(dark.crop(zone))), variant          # white letters on the dark one
+        assert any(near(p, (15, 23, 42), 25) for p in pixels(light.crop(zone))), variant            # dark letters on the light one
+        spot = (size[0] - 20, 20)                                                  # far from the texts: the picture as it was
+        assert near(dark.getpixel(spot), (40, 60, 45)) and near(light.getpixel(spot), (244, 242, 238))
+
+
+def test_a_character_the_display_typeface_lacks_falls_back_to_the_plain_one(ai):
+    overlay = ai_images.image_overlay
+    assert not overlay._covers("DMSerifDisplay-Regular.ttf", "Ω") and overlay._covers(overlay.BODY_BOLD, "Ω")
+    plain = poster("webshop", "square", (1024, 1024), PLAIN, product_name="Weerstand 10 Ω")
+    assert plain.size == (1024, 1024) and plain.tobytes() != poster("webshop", "square", (1024, 1024), PLAIN, product_name="Weerstand 10 O").tobytes()
 
 
 def test_long_texts_stay_inside_the_picture(ai):
@@ -379,11 +407,12 @@ def test_long_texts_stay_inside_the_picture(ai):
     for variant, size in (("square", (1024, 1024)), ("landscape", (1536, 1024)), ("portrait", (1024, 1536)), ("studio", (1024, 1024)),
                           ("square", (64, 64))):
         source = ai_images._clean(png(size, PLAIN))[0]
-        made = Image.open(BytesIO(ai_images.image_overlay.compose(source, "social", variant, text=text, logo=png((900, 90)))))
-        assert made.size == size
-        if size[0] >= 1024:                                                        # the field leaves the picture room
-            spot = (round(size[0] * 0.8), round(size[1] * 0.3)) if variant == "landscape" else (size[0] // 2, round(size[1] * 0.12))
-            assert near(made.convert("RGB").getpixel(spot), PLAIN), variant
+        for purpose in ai_images.PURPOSES:
+            made = Image.open(BytesIO(ai_images.image_overlay.compose(source, purpose, variant, text=text, logo=png((900, 90)))))
+            assert made.size == size
+            if size[0] >= 1024:                                                    # the texts leave the picture room
+                spot = (round(size[0] * 0.85), round(size[1] * 0.3)) if variant == "landscape" else (size[0] // 2, round(size[1] * 0.12))
+                assert near(made.convert("RGB").getpixel(spot), PLAIN), (purpose, variant)
 
 
 def test_what_is_left_out_is_said_on_the_page(ai, project, monkeypatch):
