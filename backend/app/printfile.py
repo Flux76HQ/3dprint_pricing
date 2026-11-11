@@ -10,6 +10,7 @@ Files are untrusted: XML goes through defusedxml, zips are size-capped before re
 malformed input becomes a PrintFileError with a message the user can act on.
 """
 import io
+import json
 import math
 import sys
 import re
@@ -25,7 +26,11 @@ from .i18n import Localized
 
 MAX_UNZIPPED_BYTES = 400 * 1024 * 1024
 MAX_TRIANGLES = 5_000_000
-MAX_VIEW_TRIANGLES = 400_000          # what the browser is given to draw: 36 bytes each, so at most about 14 MB
+MAX_VIEW_TRIANGLES = 400_000          # what the browser is given to draw: 36 bytes each (40 with a colour), so at most about 16 MB
+MAX_COLOURS = 256                     # colours read from one group of materials, or filaments of one project
+MAX_SETTINGS_BYTES = 8 * 1024 * 1024  # a slicer's settings file that is read for the filament colours
+MESH_MAGIC = b"PPM1"
+NO_COLOUR = b"\x00\x00\x00\x00"
 
 DENSITIES = {"PLA": 1.24, "PETG": 1.27, "ABS": 1.04, "ASA": 1.07, "TPU": 1.21, "PA": 1.14, "PC": 1.20}
 UNIT_MM = {"micron": 0.001, "millimeter": 1.0, "centimeter": 10.0, "inch": 25.4, "foot": 304.8, "meter": 1000.0}
@@ -146,8 +151,11 @@ def _apply(m, p):
 
 def _parse_model_file(stream, keep: bool = False):
     """Return (unit_scale, {object_id: object}, [build items]) for one .model XML file. With `keep` every object also carries its
-    triangles (`tris`: nine numbers each, in the object's own coordinates), for drawing; at most MAX_VIEW_TRIANGLES per file."""
+    triangles (`tris`: nine numbers each, in the object's own coordinates), for drawing, and their colours where the file names
+    one (`cols`: red, green, blue and 255 per triangle, or four zeros for "none"); at most MAX_VIEW_TRIANGLES per file. A colour
+    comes from the 3MF's own materials (`basematerials`, or a `colorgroup` of the materials extension), per triangle or per object."""
     unit, objects, items = 1.0, {}, []
+    groups, group = {}, None                                             # property group id -> its colours, and the one being read
     current = None
     kept = 0
     verts = array("d")
@@ -157,8 +165,19 @@ def _parse_model_file(stream, keep: bool = False):
             if name == "model":
                 unit = UNIT_MM.get(el.get("unit", "millimeter"), 1.0)
             elif name == "object":
-                current = {"id": el.get("id"), "type": el.get("type", "model"), "mesh": _Mesh(), "components": [], "tris": array("f")}
+                current = {"id": el.get("id"), "type": el.get("type", "model"), "mesh": _Mesh(), "components": [], "tris": array("f"),
+                           "cols": bytearray(), "pid": el.get("pid"), "pindex": el.get("pindex") or "0"}
                 verts = array("d")
+            elif name in ("basematerials", "colorgroup"):
+                group = groups.setdefault(el.get("id"), [])
+            continue
+        if name in ("base", "color") and group is not None:
+            if len(group) < MAX_COLOURS:
+                group.append(_rgb(el.get("displaycolor") if name == "base" else el.get("color")))
+            el.clear()
+            continue
+        if name in ("basematerials", "colorgroup"):
+            group = None
             continue
         if name == "vertex":
             try:
@@ -178,6 +197,11 @@ def _parse_model_file(stream, keep: bool = False):
                     if kept > MAX_VIEW_TRIANGLES:
                         raise PrintFileError("pf.too_detailed", max=MAX_VIEW_TRIANGLES)
                     current["tris"].extend((*a, *b, *c))
+                    # the triangle's own material, else the object's; a file may point at one that is not there
+                    listed = groups.get(el.get("pid") or current["pid"]) or ()
+                    at = el.get("p1") if el.get("pid") else current["pindex"]
+                    at = int(at) if at is not None and str(at).isdigit() else -1
+                    current["cols"].extend((*listed[at], 255) if 0 <= at < len(listed) and listed[at] else NO_COLOUR)
             except PrintFileError:
                 raise
             except (TypeError, ValueError):
@@ -281,12 +305,69 @@ def _stl_triangles(data: bytes) -> array:
     return out
 
 
-def _threemf_triangles(zf: zipfile.ZipFile) -> array:
-    """Everything on the build plate, every object where its transforms put it, in millimetres."""
+def _rgb(text) -> "tuple | None":
+    """(red, green, blue) of `#RRGGBB` or `#RRGGBBAA`; None for anything else."""
+    text = str(text or "").strip()
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?", text):
+        return None
+    return tuple(int(text[at:at + 2], 16) for at in (1, 3, 5))
+
+
+def _slicer_colours(zf: zipfile.ZipFile) -> "tuple[dict, dict, list]":
+    """What Bambu Studio and OrcaSlicer keep next to the model instead of in it: which filament an object and each of its parts
+    is printed with (`Metadata/model_settings.config`), and the colours of the filaments (`Metadata/project_settings.config`,
+    else those of a sliced file's `slice_info.config`). Returns ({object id: filament number}, {part id: number}, [colours]).
+    Painted-on colours (per triangle, in the slicer's own encoding) are not read. Nothing here is essential: whatever cannot be
+    read is left out, and the model is then drawn without a colour of its own."""
+    names = set(zf.namelist())
+    objects, parts, colours = {}, {}, []
+
+    def number(el):
+        for meta in el.findall("metadata"):
+            if meta.get("key") == "extruder" and str(meta.get("value", "")).isdigit():
+                return int(meta.get("value"))
+        return None
+
+    try:
+        if "Metadata/model_settings.config" in names and zf.getinfo("Metadata/model_settings.config").file_size <= MAX_SETTINGS_BYTES:
+            with zf.open("Metadata/model_settings.config") as fh:
+                for obj in ET.parse(fh).getroot().iter("object"):
+                    if number(obj) is not None:
+                        objects[obj.get("id")] = number(obj)
+                    for part in obj.findall("part"):
+                        if number(part) is not None:
+                            parts[part.get("id")] = number(part)
+        if "Metadata/project_settings.config" in names and zf.getinfo("Metadata/project_settings.config").file_size <= MAX_SETTINGS_BYTES:
+            with zf.open("Metadata/project_settings.config") as fh:
+                listed = json.loads(fh.read().decode("utf-8", errors="replace")).get("filament_colour")
+            if isinstance(listed, list):
+                colours = [_rgb(c) for c in listed[:MAX_COLOURS]]
+        if not colours and "Metadata/slice_info.config" in names and zf.getinfo("Metadata/slice_info.config").file_size <= MAX_SETTINGS_BYTES:
+            with zf.open("Metadata/slice_info.config") as fh:
+                found = {}
+                for filament in ET.parse(fh).getroot().iter("filament"):
+                    if str(filament.get("id", "")).isdigit() and 1 <= int(filament.get("id")) <= MAX_COLOURS:
+                        found.setdefault(int(filament.get("id")), _rgb(filament.get("color")))
+            colours = [found.get(n) for n in range(1, max(found, default=0) + 1)]
+    except (ET.ParseError, DefusedXmlException, ValueError, AttributeError, KeyError):
+        return {}, {}, []
+    return objects, parts, colours
+
+
+def _threemf_triangles(zf: zipfile.ZipFile) -> "tuple[array, bytearray]":
+    """Everything on the build plate, every object where its transforms put it, in millimetres, with a colour per triangle
+    (four bytes: red, green, blue, 255; or four zeros where the file does not say)."""
     main = "3D/3dmodel.model"
     if main not in zf.namelist():
         raise PrintFileError("pf.no_model")
-    parsed, out = {}, array("f")
+    parsed, out, shades = {}, array("f"), bytearray()
+    by_object, by_part, filaments = _slicer_colours(zf)
+
+    def filament(number):
+        """The colour of filament `number` (1 is the first), as four bytes; None when it is not known."""
+        if number is None or not 1 <= number <= len(filaments) or not filaments[number - 1]:
+            return None
+        return bytes((*filaments[number - 1], 255))
 
     def load(path):
         path = path.lstrip("/")
@@ -297,7 +378,7 @@ def _threemf_triangles(zf: zipfile.ZipFile) -> array:
                 parsed[path] = _parse_model_file(fh, keep=True)
         return parsed[path]
 
-    def emit(path, oid, chain, depth=0):
+    def emit(path, oid, chain, depth=0, tint=None):
         if depth > 8:
             raise PrintFileError("pf.too_deep")
         _, objects, _ = load(path)
@@ -312,22 +393,32 @@ def _threemf_triangles(zf: zipfile.ZipFile) -> array:
             for transform in chain:                                      # innermost first
                 point = _apply(transform, point)
             out.extend(point)
+        cols = obj["cols"]
+        if tint is not None:                                              # the slicer's filament, where the model names no colour
+            cols = bytearray(cols)
+            for n in range(0, len(cols), 4):
+                if not cols[n + 3]:
+                    cols[n:n + 4] = tint
+        shades.extend(cols)
         for cpath, cid, ctr in obj["components"]:
-            emit(cpath or path, cid, [ctr] + chain, depth + 1)
+            emit(cpath or path, cid, [ctr] + chain, depth + 1, filament(by_part.get(cid)) or tint)
 
     unit, _, items = load(main)
     for oid, tr in items:
-        emit(main, oid, [tr])
+        emit(main, oid, [tr], 0, filament(by_object.get(oid)) or (filament(1) if filaments else None))
     if unit != 1.0:
         out = array("f", (v * unit for v in out))
-    return out
+    return out, shades
 
 
 def triangles(path: Path, extension: str) -> bytes:
-    """The model as triangles for the browser to draw: little-endian 32-bit floats, nine per triangle (x, y, z of its three
-    corners, in millimetres, Z up as on the printer). Raises PrintFileError when the file holds no model (a sliced 3MF may hold
-    only G-code) or one too detailed to send."""
+    """The model for the browser to draw, little-endian: the four bytes `PPM1`, the number of triangles and a flag (two unsigned
+    32-bit numbers; the flag is 1 when colours follow), then nine 32-bit floats per triangle (x, y, z of its three corners, in
+    millimetres, Z up as on the printer), then, with the flag, four bytes per triangle: red, green, blue and 255, or four zeros
+    for a triangle the file names no colour for. An STL has no colours. Raises PrintFileError when the file holds no model (a
+    sliced 3MF may hold only G-code) or one too detailed to send."""
     ext = extension.lower().lstrip(".")
+    shades = bytearray()
     if ext == "stl":
         out = _stl_triangles(Path(path).read_bytes())
     elif ext == "3mf":
@@ -339,16 +430,18 @@ def triangles(path: Path, extension: str) -> bytes:
             if sum(i.file_size for i in zf.infolist()) > MAX_UNZIPPED_BYTES:
                 raise PrintFileError("pf.too_big_unpacked")
             try:
-                out = _threemf_triangles(zf)
+                out, shades = _threemf_triangles(zf)
             except (ET.ParseError, DefusedXmlException):
                 raise PrintFileError("pf.bad_xml") from None
     else:
         raise PrintFileError("pf.unsupported")
     if not len(out) or not _finite(out):
         raise PrintFileError("pf.no_model")
+    count = len(out) // 9
+    coloured = len(shades) == count * 4 and any(shades[3::4])
     if sys.byteorder != "little":
         out.byteswap()
-    return out.tobytes()
+    return MESH_MAGIC + struct.pack("<II", count, 1 if coloured else 0) + out.tobytes() + (bytes(shades) if coloured else b"")
 
 
 # --- slicer data ----------------------------------------------------------------------

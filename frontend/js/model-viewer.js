@@ -14,37 +14,51 @@ const FOV = 0.5;                                  // radians
 const VERTEX = `
 attribute vec3 aPosition;
 attribute vec3 aNormal;
+attribute vec4 aColour;
 uniform mat4 uModel;
 uniform mat4 uProjection;
 varying vec3 vNormal;
+varying vec4 vColour;
 void main() {
   vec4 world = uModel * vec4(aPosition, 1.0);
   vNormal = mat3(uModel) * aNormal;
+  vColour = aColour;
   gl_Position = uProjection * world;
 }`;
 // Two lamps and some ambient light; both sides of a triangle are lit, because not every file has its faces the right way round.
 const FRAGMENT = `
 precision mediump float;
 uniform vec3 uColour;
+uniform float uOwn;
 varying vec3 vNormal;
+varying vec4 vColour;
 void main() {
   vec3 n = normalize(vNormal);
   if (!gl_FrontFacing) n = -n;
   float key = max(dot(n, normalize(vec3(0.45, 0.7, 0.75))), 0.0);
   float fill = max(dot(n, normalize(vec3(-0.7, 0.2, 0.5))), 0.0);
   float light = 0.34 + 0.62 * key + 0.2 * fill;
-  gl_FragColor = vec4(uColour * light, 1.0);
+  // The colour the file names for this triangle, unless it names none or a colour was chosen for the whole item.
+  vec3 base = mix(uColour, vColour.rgb, vColour.a * (1.0 - uOwn));
+  gl_FragColor = vec4(base * light, 1.0);
 }`;
 
-/** The triangles of a print file: nine numbers each (x, y, z of the three corners, in millimetres, Z up). */
+/** The model of a print file: { positions, colours }. `positions` holds nine numbers per triangle (x, y, z of the three corners, in
+ *  millimetres, Z up); `colours` four bytes per triangle (red, green, blue, and 255 or 0 for "the file names none"), or null when
+ *  the file names no colours at all. The layout is the server's (printfile.triangles). */
 export async function loadMesh(fileId) {
   const { blob } = await downloadFile(`/api/print-files/${fileId}/mesh`);
   const buffer = await blob.arrayBuffer();
-  return new Float32Array(buffer, 0, Math.floor(buffer.byteLength / 36) * 9);
+  const head = new DataView(buffer);
+  if (buffer.byteLength < 12 || head.getUint32(0, false) !== 0x50504d31) throw new Error(t('ai.view3d_unreadable'));       // "PPM1"
+  const count = head.getUint32(4, true);
+  const coloured = head.getUint32(8, true) === 1;
+  if (buffer.byteLength < 12 + count * (coloured ? 40 : 36)) throw new Error(t('ai.view3d_unreadable'));
+  return { positions: new Float32Array(buffer, 12, count * 9), colours: coloured ? new Uint8Array(buffer, 12 + count * 36, count * 4) : null };
 }
 
 /** The model centred in a ball of radius 1 with Y up (the printer's Z), and a normal per corner (flat faces). */
-function prepare(mesh) {
+function prepare(mesh, colours) {
   const lo = [Infinity, Infinity, Infinity];
   const hi = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < mesh.length; i += 3) {
@@ -71,7 +85,14 @@ function prepare(mesh) {
     nx /= length; ny /= length; nz /= length;
     for (let k = 0; k < 9; k += 3) { normals[i + k] = nx; normals[i + k + 1] = ny; normals[i + k + 2] = nz; }
   }
-  return { positions, normals };
+  let shades = null;
+  if (colours) {                                                   // one colour per triangle becomes one per corner
+    shades = new Uint8Array(mesh.length / 3 * 4);
+    for (let n = 0; n < colours.length; n += 4) {
+      for (let k = 0; k < 3; k += 1) shades.set(colours.subarray(n, n + 4), n * 3 + k * 4);
+    }
+  }
+  return { positions, normals, shades };
 }
 
 function compile(gl, type, source) {
@@ -88,9 +109,10 @@ function rgb(hex) {
   return [1, 3, 5].map((at) => parseInt(value.slice(at, at + 2), 16) / 255);
 }
 
-/** The model on a canvas that can be turned. Returns { element, setColour(hex), snapshot() } or null when the browser has no WebGL.
- *  `snapshot()` resolves a PNG of what is shown. */
-export function modelViewer(mesh, colour) {
+/** The model on a canvas that can be turned. Returns { element, controls, setColour(hex, own), snapshot() } or null when the browser
+ *  has no WebGL. The model is drawn in the colours its file names; `colour` is for what the file names none for, and with `own` it
+ *  is the colour of the whole item instead. `snapshot()` resolves a PNG of what is shown. */
+export function modelViewer({ positions: mesh, colours }, colour, own = false) {
   const canvas = h('canvas', { class: 'model-canvas', width: SIZE, height: SIZE, tabindex: '0', role: 'img', 'aria-label': t('ai.view3d_canvas') });
   // The drawing is kept after it is shown, so that a picture can be taken of it at any moment.
   const gl = canvas.getContext('webgl', { antialias: true, preserveDrawingBuffer: true });
@@ -101,13 +123,23 @@ export function modelViewer(mesh, colour) {
   gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || 'program');
   gl.useProgram(program);
-  const { positions, normals } = prepare(mesh);
+  const { positions, normals, shades } = prepare(mesh, colours);
   for (const [name, data] of [['aPosition', positions], ['aNormal', normals]]) {
     const at = gl.getAttribLocation(program, name);
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
     gl.enableVertexAttribArray(at);
     gl.vertexAttribPointer(at, 3, gl.FLOAT, false, 0, 0);
+  }
+  const shade = gl.getAttribLocation(program, 'aColour');
+  if (shades) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, shades, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(shade);
+    gl.vertexAttribPointer(shade, 4, gl.UNSIGNED_BYTE, true, 0, 0);
+  } else if (shade >= 0) {
+    gl.disableVertexAttribArray(shade);
+    gl.vertexAttrib4f(shade, 0, 0, 0, 0);                          // no colours in the file: every triangle "names none"
   }
   const uniform = (name) => gl.getUniformLocation(program, name);
   gl.enable(gl.DEPTH_TEST);
@@ -116,6 +148,7 @@ export function modelViewer(mesh, colour) {
 
   const view = { ...START };
   let tint = rgb(colour);
+  let whole = own;
   let queued = false;
 
   function draw() {
@@ -137,6 +170,7 @@ export function modelViewer(mesh, colour) {
     gl.uniformMatrix4fv(uniform('uModel'), false, model);
     gl.uniformMatrix4fv(uniform('uProjection'), false, projection);
     gl.uniform3fv(uniform('uColour'), tint);
+    gl.uniform1f(uniform('uOwn'), whole ? 1 : 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLES, 0, positions.length / 3);
   }
@@ -183,7 +217,7 @@ export function modelViewer(mesh, colour) {
   return {
     element: canvas,
     controls: [zoom, reset],
-    setColour(hex) { tint = rgb(hex); redraw(); },
+    setColour(hex, asWhole = false) { tint = rgb(hex); whole = asWhole; redraw(); },
     snapshot() {
       draw();                                                        // what is on screen now, not what was there a frame ago
       return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('snapshot'))), 'image/png'));

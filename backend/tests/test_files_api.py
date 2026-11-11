@@ -1,5 +1,6 @@
 import io
 import os
+import struct
 from array import array
 
 import pytest
@@ -82,11 +83,56 @@ def mesh(client, data, name="part.stl"):
     return client.get(f"/api/print-files/{fid}/mesh")
 
 
-def corners(res):
+def parts(res):
+    """(the corners, the colours or None) of what the mesh route sent."""
+    assert res.status_code == 200 and res.data[:4] == b"PPM1"
+    count, coloured = struct.unpack_from("<II", res.data, 4)
     values = array("f")
-    values.frombytes(res.data)
-    assert len(values) % 9 == 0
-    return values
+    values.frombytes(res.data[12:12 + count * 36])
+    shades = res.data[12 + count * 36:]
+    assert len(shades) == (count * 4 if coloured else 0)
+    return values, ([tuple(shades[n:n + 4]) for n in range(0, len(shades), 4)] if coloured else None)
+
+
+def corners(res):
+    return parts(res)[0]
+
+
+COLOURED = ('<?xml version="1.0"?><model unit="millimeter" ' + pf.NS + ' xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">'
+            '<resources><basematerials id="5"><base name="rood" displaycolor="#FF0000"/><base name="blauw" displaycolor="#0000FFFF"/></basematerials>'
+            '<m:colorgroup id="6"><m:color color="#00FF0080"/></m:colorgroup>'
+            '<object id="1" type="model" pid="5" pindex="1">{mesh}</object></resources><build><item objectid="1"/></build></model>')
+
+
+def test_the_colours_a_3mf_names_come_with_the_model(owner):
+    # the object is blue; its first triangle says red itself, its second green from another group, its third points at nothing
+    body = pf.mesh_xml().replace('<triangle ', '<triangle pid="5" p1="0" ', 1).replace('/><triangle ', '/><triangle pid="6" p1="0" ', 1)
+    head, rest = body.split('/><triangle ', 2)[:2], body.split('/><triangle ', 2)[2]
+    body = '/><triangle '.join(head) + '/><triangle pid="9" p1="4" ' + rest
+    values, shades = parts(mesh(owner, pf.zip_bytes({"3D/3dmodel.model": COLOURED.format(mesh=body)}), "kleur.3mf"))
+    assert len(values) == 12 * 9 and len(shades) == 12
+    assert shades[:3] == [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 0, 0)] and set(shades[3:]) == {(0, 0, 255, 255)}
+    assert parts(mesh(owner, pf.unsliced_3mf(), "kaal.3mf"))[1] is None             # no colour named: none sent
+    assert parts(mesh(owner, pf.stl_binary()))[1] is None
+
+
+def test_the_filament_colours_of_a_slicer_project_colour_its_objects(owner):
+    files = pf.component_3mf()                                                      # object 2, made of part 1 in a file of its own
+    settings = ('<?xml version="1.0"?><config><object id="2"><metadata key="extruder" value="2"/>'
+                '<part id="1" subtype="normal_part"><metadata key="extruder" value="{part}"/></part></object></config>')
+    project = '{"filament_colour": ["#FFFFFF", "#00AE42", "nope"], "other": 1}'
+    made = lambda **more: parts(mesh(owner, pf.zip_bytes({**files, **more}), "project.3mf"))[1]
+    assert set(made(**{"Metadata/project_settings.config": project})) == {(255, 255, 255, 255)}                   # nothing said: the first filament
+    assert set(made(**{"Metadata/project_settings.config": project,
+                       "Metadata/model_settings.config": settings.format(part=9)})) == {(0, 174, 66, 255)}         # the object's filament
+    assert set(made(**{"Metadata/project_settings.config": project,
+                       "Metadata/model_settings.config": settings.format(part=1)})) == {(255, 255, 255, 255)}      # the part's own wins
+    assert set(made(**{"Metadata/project_settings.config": project,
+                       "Metadata/model_settings.config": settings.format(part=3)})) == {(0, 174, 66, 255)}         # a colour that is none: the object's
+    assert made(**{"Metadata/model_settings.config": settings.format(part=1)}) is None                              # filaments without colours
+    assert set(made(**{"Metadata/slice_info.config": pf.SLICE_INFO})) == {(0, 0, 0, 255)}                           # a sliced file: its first filament
+    for broken in ("<config><object", "{not json"):                                 # settings that cannot be read never stop the model
+        assert made(**{"Metadata/project_settings.config": broken, "Metadata/model_settings.config": broken}) is None
 
 
 def test_the_model_is_served_as_triangles(owner):
@@ -94,6 +140,7 @@ def test_the_model_is_served_as_triangles(owner):
         res = mesh(owner, data)
         assert res.status_code == 200 and res.mimetype == "application/octet-stream" and res.headers["Cache-Control"] == "no-store"
         values = corners(res)
+        assert res.data[:12] == b"PPM1" + struct.pack("<II", 12, 0) and len(res.data) == 12 + 12 * 36
         assert len(values) == 12 * 9 and (min(values), max(values)) == (0.0, 10.0)       # the cube: twelve triangles, 10 mm
 
 

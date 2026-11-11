@@ -169,13 +169,16 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       open.disabled = true;
       status.textContent = t('ai.view3d_loading');
       let made = null;
+      let mesh = null;
       try {
-        made = modelViewer(await loadMesh(fileId), (form && form.values().colour) || colour);    // the item's own colour, else the roll's
+        const chosen = form ? form.values().colour : '';
+        mesh = await loadMesh(fileId);
+        made = modelViewer(mesh, chosen || colour, !!chosen);      // the file's colours; a chosen colour is the whole item's, the roll's fills in
       } catch (e) { status.textContent = e.message; open.disabled = false; return; }
       if (shownFile !== fileId) return;                            // the file changed while this one was loading
       if (!made) { status.textContent = t('ai.view3d_no_webgl'); return; }
       viewer = made;
-      status.textContent = '';
+      status.textContent = mesh.colours ? t('ai.view3d_file_colours') : '';
       const save = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
         save.disabled = true;
         try {
@@ -223,7 +226,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     const chosenColour = () => (tintMode.value ? tint.value.toLowerCase() : '');
     const showColour = () => {
       tint.hidden = !tintMode.value;
-      if (viewer) viewer.setColour(chosenColour() || getModel().colour);
+      if (viewer) viewer.setColour(chosenColour() || getModel().colour, !!chosenColour());
     };
     tintMode.addEventListener('change', () => { showColour(); store(); });
     tint.addEventListener('input', showColour);
