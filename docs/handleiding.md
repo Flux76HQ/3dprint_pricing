@@ -535,8 +535,10 @@ zie je in de app niets. De server beslist, niet de browser.
 4. **Op de achtergrond**: het maken gebeurt op de server, niet in je browser. Een draaiende cirkel en grijze plekhouders in de vorm van de komende afbeelding laten de
    voortgang zien (“1 van 4 klaar”); je kunt de pagina verlaten of de browser sluiten, het maken gaat door. In de lijst met berekeningen staat intussen een
    *Afbeeldingen worden gemaakt*-label, en terug in de berekening zie je de voortgang of het resultaat. Per berekening loopt er één reeks tegelijk. Zakt de server
-   er tussendoor uit (herstart), dan geeft de app een afbeelding die ruim vijf minuten niet verder kwam op als *onderbroken* en kun je het opnieuw proberen. Wat niet
-   lukte staat onder de kaart, met een knop naar het logboek. Een probleem met sleutel, tegoed of model stopt de rest van de reeks meteen; een time-out of
+   er tussendoor uit (herstart), dan geeft de app een afbeelding die ruim vijf minuten niet verder kwam op als *onderbroken* en kun je het opnieuw proberen. Meldingen
+   staan in de kaart zelf, bij de knop *Afbeeldingen maken*, zodra ze er zijn (ook terwijl de rest nog gemaakt wordt): elke mislukte afbeelding met de reden en wat
+   OpenAI erover zei, en waarschuwingen over wat is weggelaten (geen teksten omdat een veld leeg is, geen logo omdat Zakelijk uit staat of er geen logo is), met een
+   knop naar het logboek. Een probleem met sleutel, tegoed of model stopt de rest van de reeks meteen; een time-out of
    inhoudsfilter niet.
 5. **Logboek**: *Instellingen → AI-afbeeldingen* heeft onder de sleutel een *Logboek* met wat er gebeurde: foto geüpload, reeks in de wachtrij, afbeelding gestart en
    klaar (met de duur), een gewijzigde sleutel of gewijzigde instellingen, en elke fout met de melding en wat OpenAI zelf zei (bijvoorbeeld `HTTP 429

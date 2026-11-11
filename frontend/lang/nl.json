@@ -1260,6 +1260,7 @@
  "ai.variant_square": "Vierkant (1:1)",
  "ai.variant_studio": "Studio, neutrale achtergrond",
  "ai.view_log": "Logboek bekijken",
+ "ai.warnings_title": "Let op:",
  "calc.object_description": "Omschrijving van het object",
  "calc.object_description_hint": "Waar is het voor? Dit bepaalt de achtergrond van de AI-afbeeldingen.",
  "calc.object_description_ph": "Bijvoorbeeld: plantenbak voor op een vensterbank",

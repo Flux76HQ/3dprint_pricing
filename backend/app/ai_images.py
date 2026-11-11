@@ -86,6 +86,7 @@ PURPOSES = {
                 "The picture is a product image for a web shop: clean, professional and evenly lit, with the object as the clear subject. "),
 }
 assert set(PURPOSES) == set(image_overlay.TEMPLATES) and all(len(p[0]) == 4 and set(p[0]) <= set(VARIANTS) for p in PURPOSES.values())
+WARNINGS = ("ai.warn_text_incomplete", "ai.warn_logo_business", "ai.warn_logo_none")
 NAME_MAX, SPEC_MAX, SPECS_MAX, EXTRA_MAX = 60, 60, 5, 80          # what fits in the template
 ROOM_FOR_LOGO = "Keep the top left corner calm and uncluttered as well. "
 PROMPT = (
@@ -408,6 +409,17 @@ def _job_json(row) -> dict:
             "detail": row["detail"]}
 
 
+def _warnings(jobs) -> list:
+    """What the pictures of this batch are made without, although it was asked for, worded for whoever reads it. They are decided
+    when the batch is queued and kept on its jobs, so the page shows them while the pictures are made and afterwards."""
+    keys = []
+    for job in jobs:
+        for key in (job["overlay"] or {}).get("warnings") or []:
+            if key in WARNINGS and key not in keys:
+                keys.append(key)
+    return [render(L(key), request_language()) for key in keys]
+
+
 def _recover(conn) -> None:
     """Give up on jobs that have not moved for a while: their thread died with its container, and nobody would ever finish them."""
     rows = conn.execute(
@@ -429,7 +441,8 @@ def list_images(project_id):
                             (project_id,)).fetchall()
         jobs = conn.execute("SELECT * FROM ai_image_jobs WHERE project_id = %s ORDER BY created_at, position",
                             (project_id,)).fetchall()
-    return jsonify({"images": [_serialise(r) for r in rows], "jobs": [_job_json(j) for j in jobs], "text": _stored_text(project),
+    return jsonify({"images": [_serialise(r) for r in rows], "jobs": [_job_json(j) for j in jobs], "warnings": _warnings(jobs),
+                    "text": _stored_text(project),
                     "logo_available": has_logo, "purposes": {name: list(made) for name, (made, _style) in PURPOSES.items()},
                     "limits": {"product_name": NAME_MAX, "spec": SPEC_MAX, "specs": SPECS_MAX, "extra_text": EXTRA_MAX}})
 
@@ -480,8 +493,17 @@ def _enqueue(project_id, body: dict) -> "tuple[uuid.UUID, list]":
                 or any(v not in PURPOSES[purpose][0] for v in variants)):
             raise ApiError(400, "ai.err_variant")
         # the logo is the business's: it only goes on while the person asking has the business mode on, whatever the switch says
-        logo = settings["logo"] and bool(preferences.load(conn, g.user_id).get("business_mode"))
+        business = bool(preferences.load(conn, g.user_id).get("business_mode"))
+        has_logo = conn.execute("SELECT 1 FROM invoice_logo").fetchone() is not None
+        logo = settings["logo"] and business
         poster = {k: settings[k] for k in ("product_name", "specs", "extra_text")} if text_complete(settings) else None
+        warnings = []
+        if poster is None and (settings["product_name"] or settings["specs"] or settings["extra_text"]):
+            warnings.append("ai.warn_text_incomplete")             # some texts were typed, and none of them will be on a picture
+        if settings["logo"] and not business:
+            warnings.append("ai.warn_logo_business")
+        elif logo and not has_logo:
+            warnings.append("ai.warn_logo_none")
         _recover(conn)
         if conn.execute("SELECT 1 FROM ai_image_jobs WHERE project_id = %s AND status IN ('queued', 'running')", (project_id,)).fetchone():
             raise ApiError(409, "ai.err_already_busy")
@@ -500,8 +522,10 @@ def _enqueue(project_id, body: dict) -> "tuple[uuid.UUID, list]":
             conn.execute("INSERT INTO ai_image_jobs (project_id, batch_id, position, variant, description, purpose, overlay) "
                          "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                          (project_id, batch, position, variant, description, purpose,
-                          json.dumps({"text": poster if variant == PURPOSES[purpose][0][0] else None, "logo": logo})))
+                          json.dumps({"text": poster if variant == PURPOSES[purpose][0][0] else None, "logo": logo, "warnings": warnings})))
         _log(conn, "info", "ai.log_queued", project=project, n=len(variants))
+        for key in warnings:
+            _log(conn, "info", key, project=project)
         jobs = conn.execute("SELECT * FROM ai_image_jobs WHERE batch_id = %s ORDER BY position", (batch,)).fetchall()
     return batch, jobs
 
@@ -516,7 +540,7 @@ def generate(project_id):
         _log_error(exc, project=_project_of(project_id))
         raise
     _start(current_app._get_current_object(), project_id, batch)
-    return jsonify({"jobs": [_job_json(j) for j in jobs]}), 202
+    return jsonify({"jobs": [_job_json(j) for j in jobs], "warnings": _warnings(jobs)}), 202
 
 
 # --- the background thread ---------------------------------------------------------------------------------------------
