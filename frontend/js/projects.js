@@ -1,5 +1,6 @@
 import { busyBadge, coverUrl, productImagesCard } from './ai-images.js';
 import { api, upload } from './api.js';
+import { colourOf } from './filament-ui.js';
 import { formatDate, t } from './i18n.js';
 import { setDirty } from './updates.js';
 import { blurToggle, confirmDialog, eur, field, fill, fmt, h, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
@@ -42,8 +43,16 @@ export function projectListView(ctx) {
 
 // --- editor ---------------------------------------------------------------------
 
-// "Bambu ABS Basis Black · ABS · 430 g over": the material is part of the choice (ABS/PLA/PLA+ ...).
-const spoolLabel = (s) => [spoolName(s), s.material, t('calc.left', { grams: fmt(s.remaining_g, 0) })].filter(Boolean).join(' · ');
+// "Bambu ABS Basis Black · ABS · 1.430 g op voorraad (3 rollen)": a kind of filament, not a roll, so three rolls of it are one choice.
+const stockLabel = (g) => [spoolName(g), g.material,
+  g.roll_count > 1 ? t('calc.in_stock_rolls', { grams: fmt(g.remaining_g, 0), n: g.roll_count }) : t('calc.in_stock', { grams: fmt(g.remaining_g, 0) })].filter(Boolean).join(' · ');
+const HEX_COLOUR = /^#[0-9a-f]{6}$/i;
+/** How far two colours (`#rrggbb`) are apart: 0 is the same, about 440 is black against white. */
+function colourGap(a, b) {
+  const part = (hex, at) => parseInt(hex.slice(at, at + 2), 16);
+  return Math.hypot(part(a, 1) - part(b, 1), part(a, 3) - part(b, 3), part(a, 5) - part(b, 5));
+}
+const SAME_COLOUR = 80;                           // a slicer's colour and a roll's are never typed the same: this close counts as the same
 const blankFilament = () => ({ spool_id: '', label: '', grams: '', price_per_kg: '' });
 const blankPart = (group) => ({ group, packaging_id: '', part_id: '', accessory_id: '', label: '', quantity: '1', unit: 'stuks', unit_price: '' });
 
@@ -65,13 +74,13 @@ function fromSaved(project) {
 export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: async () => {} }) {
   const root = h('section', { class: 'page' }, h('p', { class: 'muted' }, t('common.loading')));
   Promise.all([
-    api('GET', '/api/spools'), api('GET', '/api/printers'), api('GET', '/api/tariffs'), api('GET', '/api/packaging'),
+    api('GET', '/api/spools'), api('GET', '/api/spools/stock').catch(() => ({ groups: [] })), api('GET', '/api/printers'), api('GET', '/api/tariffs'), api('GET', '/api/packaging'),
     api('GET', '/api/parts'), api('GET', '/api/accessories'),
     id ? api('GET', `/api/projects/${id}`) : Promise.resolve(null),
     api('GET', '/api/spoolman').catch(() => ({ enabled: false })),         // only decides what is offered; the server refuses a booking itself
-  ]).then(([spools, printers, tariffs, packaging, parts, accessories, project, spoolman]) => {
+  ]).then(([spools, stock, printers, tariffs, packaging, parts, accessories, project, spoolman]) => {
     root.replaceChildren(buildEditor({
-      spools: spools.filter((s) => !s.archived), printers: printers.filter((p) => !p.archived), tariffs,
+      spools: spools.filter((s) => !s.archived), stock: stock.groups, printers: printers.filter((p) => !p.archived), tariffs,
       packaging: packaging.filter((p) => !p.archived), parts: parts.filter((p) => !p.archived),
       accessories: accessories.filter((p) => !p.archived), project, navigate, ctx, spoolman: !!spoolman.enabled,
     }));
@@ -79,7 +88,7 @@ export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: asy
   return root;
 }
 
-function buildEditor({ spools, printers, tariffs, packaging, parts, accessories, project, navigate, ctx, spoolman }) {
+function buildEditor({ spools, stock, printers, tariffs, packaging, parts, accessories, project, navigate, ctx, spoolman }) {
   const state = project ? fromSaved(project) : {
     id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, file_id: null, source_url: '',
     vat_pct: ctx.prefs.vat_pct ?? '21',
@@ -91,6 +100,29 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
   let timer = null;
   const defaultTariff = tariffs.find((t) => t.is_default) || tariffs[0];
   const perKg = (s) => String(Math.round((Number(s.price) / Number(s.roll_weight_g)) * 1000 * 100) / 100);
+
+  // Filament is chosen per kind in stock, not per roll. A line still names one roll (the price it copies, and what a saved
+  // calculation holds); `kindOf` finds the kind a roll belongs to.
+  const kindOf = (spoolId) => stock.find((g) => g.spool_ids.includes(spoolId)) || null;
+  const rollOf = (g) => {                                          // the roll a line of this kind points at: the one nearest to empty
+    const open = [...g.rolls].sort((a, b) => Number(a.remaining_g) - Number(b.remaining_g))[0];
+    return spools.find((sp) => sp.id === (open ? open.id : g.spool_ids[0])) || null;
+  };
+  const stockWarning = h('div', { class: 'notice warn', role: 'status', hidden: true });
+  /** Says so when the lines ask for more of a kind of filament than there is. */
+  function checkStock() {
+    const asked = new Map();
+    if (!state.stock_booked_at) {                                  // once it is booked, what is left no longer includes this print
+      for (const r of state.filament) {
+        const g = kindOf(r.spool_id);
+        if (g) asked.set(g, (asked.get(g) || 0) + (parseNum(r.grams) || 0));
+      }
+    }
+    const short = [...asked].filter(([g, grams]) => grams > Number(g.remaining_g));
+    fill(stockWarning, h('strong', {}, t('calc.stock_short_title')),
+      h('ul', {}, short.map(([g, grams]) => h('li', {}, t('calc.stock_short', { name: [spoolName(g), g.material].filter(Boolean).join(' · '), need: fmt(grams, 1), left: fmt(g.remaining_g, 0) })))));
+    stockWarning.hidden = !short.length;
+  }
 
   const costEls = { filament: [], parts: [], depreciation: [], energy: [] };
   const totals = h('dl', { class: 'totals' });
@@ -151,6 +183,7 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
     }
   }
   function touch() {
+    checkStock();
     dirty = true;
     setDirty(true);
     clearTimeout(timer);
@@ -188,9 +221,9 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
   function filamentSection() {
     costEls.filament = [];
     const rows = state.filament.map((r, i) => h('div', { class: 'line filament' },
-      field(t('calc.roll'), select([['', t('calc.manual')], ...spools.map((s) => [s.id, spoolLabel(s)])], r.spool_id, (v) => {
-        r.spool_id = v;
-        const s = spools.find((x) => x.id === v);
+      field(t('calc.roll'), select([['', t('calc.manual')], ...stock.map((g) => [g.key, stockLabel(g)])], kindOf(r.spool_id)?.key || '', (v) => {
+        const s = v ? rollOf(stock.find((g) => g.key === v)) : null;
+        r.spool_id = s ? s.id : '';
         if (s) { r.label = spoolName(s); r.price_per_kg = perKg(s); }
         touch(); redraw();
       })),
@@ -199,7 +232,8 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
       field(t('calc.price_per_kg'), numberInput(r.price_per_kg, bind(r, 'price_per_kg'))),
       costCell('filament', i),
       removeBtn(t('calc.remove_filament'), () => { state.filament.splice(i, 1); touch(); redraw(); })));
-    return section(t('calc.filament'), spools.length ? null : t('calc.tip_spools'), rows,
+    checkStock();
+    return section(t('calc.filament'), spools.length ? null : t('calc.tip_spools'), [...rows, stockWarning],
       h('button', { class: 'btn small', type: 'button', onclick: () => { state.filament.push(blankFilament()); redraw(); } }, icon('plus'), h('span', {}, t('calc.add_filament'))));
   }
 
@@ -322,12 +356,20 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
   let estimateTimer = null;
   const fileBox = h('div', { class: 'glass card stack' });
 
-  const spoolFor = (type) => {
-    const matches = spools.filter((sp) => type && (sp.material || '').toUpperCase() === type.toUpperCase());
-    return matches.length === 1 ? matches[0] : null;
+  // The kind of filament in stock that a file's filament is: the same material, and the colour nearest to the slicer's (close
+  // enough to be that colour). Without a colour in the file it is only chosen when there is one kind of that material.
+  const stockFor = (type, colour) => {
+    const material = String(type || '').trim().toUpperCase();
+    const same = stock.filter((g) => material && (g.material || '').trim().toUpperCase() === material);
+    if (!HEX_COLOUR.test(colour || '')) return same.length === 1 ? same[0] : null;
+    const near = same.map((g) => [g, colourOf(g)]).filter(([, hex]) => hex).map(([g, hex]) => [g, colourGap(hex, colour)])
+      .filter(([, gap]) => gap <= SAME_COLOUR)
+      .sort((a, b) => a[1] - b[1] || Number(b[0].remaining_g) - Number(a[0].remaining_g));     // nearest first, then where most is left
+    return near.length ? near[0][0] : null;
   };
-  const filamentRow = (label, grams, type) => {
-    const sp = spoolFor(type);
+  const filamentRow = (label, grams, type, colour) => {
+    const g = stockFor(type, colour);
+    const sp = g ? rollOf(g) : null;
     return { spool_id: sp ? sp.id : '', label: sp ? spoolName(sp) : label, grams: String(grams), price_per_kg: sp ? perKg(sp) : '' };
   };
 
@@ -349,10 +391,10 @@ function buildEditor({ spools, printers, tariffs, packaging, parts, accessories,
     return { hours: hours && Math.round(hours * 100) / 100, grams: grams || null, filaments };
   }
 
-  // Takes grams and hours from the slicer into the calculation: filament lines (priced from the
-  // matching roll), whole print hours, and a printer line with depreciation and energy.
+  // Takes the filament and the hours from the slicer into the calculation: a line per filament of the file, each on the kind in
+  // stock with its material and colour (and priced from it), whole print hours, and a printer line with depreciation and energy.
   function adoptSliced(plate, auto = false) {
-    state.filament = plate.filaments.map((f) => filamentRow(`${f.type} ${f.color}`.trim() || t('calc.filament'), f.grams, f.type));
+    state.filament = plate.filaments.map((f) => filamentRow(`${f.type} ${f.color}`.trim() || t('calc.filament'), f.grams, f.type, f.color));
     const notes = [];
     let whole = null;
     if (plate.hours) {

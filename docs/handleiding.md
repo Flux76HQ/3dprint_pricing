@@ -12,8 +12,12 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
 - **Printbestand koppelen** — upload een `.3mf` of `.stl` bij een berekening; het bestand blijft bewaard en is later
   te downloaden. Uit een **gesliced 3MF** (Bambu Studio / Orca, “Export plate sliced file”) leest de app de
   echte **gram per filament** en **printtijd**. Die worden standaard **automatisch** verwerkt in de berekening (uit te
-  zetten): filamentregels met de prijs van de passende rol, printtijd naar boven op hele uren, en een printerregel
-  met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik. Bevat het bestand meerdere platen, dan kies je in het menu *Plaat* één plaat of *Alle platen*: dan worden uren en gram van alle platen bij elkaar opgeteld (hetzelfde filament telt als één regel). Uit een **STL** (of een 3MF zonder
+  zetten): een filamentregel per filament uit het bestand, gekoppeld aan het filament uit je voorraad met hetzelfde materiaal en de kleur die er het dichtst bij ligt
+  (met de prijs daarvan; ligt geen kleur dichtbij, dan blijft de regel *Handmatig*), printtijd naar boven op hele uren, en een printerregel
+  met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik (*Filament overnemen*). In een filamentregel kies je
+  een **soort uit de voorraad**, niet een losse rol: drie rollen van hetzelfde filament staan er één keer, met wat er samen van over is. Vraagt de berekening
+  meer van een soort dan er op voorraad is, dan staat er een waarschuwing onder de regels. *Verbruik afboeken van voorraad* haalt het gewicht van de soort af:
+  eerst van de aangebroken rol, de rest van de andere rollen van die soort. Bevat het bestand meerdere platen, dan kies je in het menu *Plaat* één plaat of *Alle platen*: dan worden uren en gram van alle platen bij elkaar opgeteld (hetzelfde filament telt als één regel). Uit een **STL** (of een 3MF zonder
   slicer-data) leest de app het volume en **schat** het gewicht (volume × dichtheid × effectieve vulling);
   de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast kun je een **link** naar het model
   bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
@@ -517,7 +521,7 @@ zie je in de app niets. De server beslist, niet de browser.
 
    - *Foto*: upload een foto (JPEG, PNG of WebP, maximaal 8 MB; hij wordt opnieuw opgeslagen en tot 2048 px verkleind, zonder metadata).
    - *3D-model*: is er een STL of 3MF aan de berekening gekoppeld, dan toont *3D-model laden* het model in de browser. Sleep om het te draaien (of gebruik de
-     pijltjestoetsen), zoom met twee vingers of de schuif en kies *Beeld opslaan bij deze berekening*. Het model heeft de kleur die je bij *Kleur van het item* kiest (anders die van de eerste filamentrol).
+     pijltjestoetsen), zoom met twee vingers of de schuif en kies *Beeld opslaan bij deze berekening*. Het model krijgt de kleuren uit het 3D-bestand als die erin staan: de materialen van een 3MF, of bij een project uit Bambu Studio of OrcaSlicer de filamentkleur per object en onderdeel (opgeschilderde kleuren en STL-bestanden kennen geen kleur). Wat het bestand geen kleur geeft, krijgt die van de eerste filamentrol. Kies je bij *Kleur van het item* een eigen kleur, dan krijgt het hele model die kleur.
      Het beeld staat daarna naast de foto en is net als de foto te verwijderen of te vervangen door een nieuw beeld. De server leest het model uit het
      bestand; een model met meer dan 400.000 driehoeken is te gedetailleerd om te tonen, en een gesliced 3MF dat alleen de printopdracht bevat heeft geen
      model. De weergave vraagt WebGL van de browser.
@@ -531,7 +535,7 @@ zie je in de app niets. De server beslist, niet de browser.
    | *Reclame op sociale media* | vier keer vierkant 1:1 (omgeving, in gebruik, detail, studio), zodat ze samen een carrousel vormen |
    | *Productafbeeldingen voor een webshop* | studio, vierkant, detail van dichtbij, liggend 3:2; strak en gelijkmatig belicht |
 
-   **Kleur van het item**: standaard blijft het item zoals op de foto. Kies *Eigen kleur kiezen* en een kleur, dan krijgt het item die kleur op de
+   **Kleur van het item**: standaard blijft het item zoals op de foto of in het 3D-bestand. Kies *Eigen kleur kiezen* en een kleur, dan krijgt het item die kleur op de
    afbeeldingen (ook als de foto een andere kleur laat zien) en in de 3D-weergave. De kleur wordt bij de berekening bewaard.
 
    **Teksten op de afbeelding**: *Productnaam*, *Korte specs* (een per regel, hooguit 5) en *Extra tekst*. Zijn alle drie ingevuld, dan wordt de **eerste**
