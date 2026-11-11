@@ -2,6 +2,7 @@
  "ai.err_already_busy": "Er worden al afbeeldingen gemaakt voor deze berekening. Wacht tot ze klaar zijn.",
  "ai.err_bad_result": "OpenAI gaf geen bruikbare afbeelding terug. Probeer het opnieuw.",
  "ai.err_busy": "OpenAI is nu druk of de limiet is bereikt. Probeer het over een minuut opnieuw.",
+ "ai.err_colour": "Ongeldige kleur.",
  "ai.err_interrupted": "Het maken van deze afbeelding is onderbroken (de server is herstart of het duurde te lang). Probeer het opnieuw.",
  "ai.err_key_format": "Dit lijkt geen geldige API-sleutel (20 tot 300 tekens, zonder spaties).",
  "ai.err_key_invalid": "OpenAI weigert de API-sleutel. Controleer de sleutel onder Instellingen.",

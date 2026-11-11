@@ -131,6 +131,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   // The 3D model of the print file, to turn and take a picture of. It keeps its own box, for the same reason: redrawing it would
   // throw the loaded model away.
   const modelBox = h('div', { class: 'stack' });
+  let viewer = null;                                               // the model on screen, once it is loaded
   let shownFile;                                                   // the file the box was last built for (undefined: not built yet)
   let images = [];
   let jobs = [];
@@ -161,19 +162,20 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     const { fileId, colour } = getModel();
     if (fileId === shownFile) return;                              // another file was linked (or none): start again
     shownFile = fileId;
+    viewer = null;
     const status = h('p', { class: 'hint', role: 'status' });
     if (!fileId) { fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_none'))); return; }
     const open = h('button', { class: 'btn', type: 'button', onclick: async () => {
       open.disabled = true;
       status.textContent = t('ai.view3d_loading');
-      let viewer = null;
+      let made = null;
       try {
-        viewer = modelViewer(await loadMesh(fileId), colour);
+        made = modelViewer(await loadMesh(fileId), (form && form.values().colour) || colour);    // the item's own colour, else the roll's
       } catch (e) { status.textContent = e.message; open.disabled = false; return; }
       if (shownFile !== fileId) return;                            // the file changed while this one was loading
-      if (!viewer) { status.textContent = t('ai.view3d_no_webgl'); return; }
+      if (!made) { status.textContent = t('ai.view3d_no_webgl'); return; }
+      viewer = made;
       status.textContent = '';
-      const tint = h('input', { type: 'color', value: /^#[0-9a-f]{6}$/i.test(colour) ? colour : '#8c96a3', oninput: () => viewer.setColour(tint.value) });
       const save = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
         save.disabled = true;
         try {
@@ -189,7 +191,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       } }, t('ai.view3d_save'));
       fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_intro')),
         viewer.element, h('p', { class: 'hint' }, t('ai.view3d_hint')),
-        h('div', { class: 'model-controls' }, field(t('ai.view3d_colour'), tint), field(t('ai.view3d_zoom'), viewer.controls[0]), viewer.controls[1]),
+        h('div', { class: 'model-controls' }, field(t('ai.view3d_zoom'), viewer.controls[0]), viewer.controls[1]),
         h('div', { class: 'row' }, save), status);
     } }, t('ai.view3d_load'));
     fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_intro')), h('div', { class: 'row' }, open), status);
@@ -215,6 +217,18 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     const specs = h('textarea', { rows: 4, placeholder: t('ai.specs_ph') }, saved.specs.join('\n'));
     const extra = h('input', { type: 'text', maxlength: limits.extra_text, value: saved.extra_text, placeholder: t('ai.extra_text_ph') });
     const status = h('p', { class: 'hint', role: 'status' });
+    // The item's own colour: as it is in the photo, or one that is picked (then it also colours the 3D view).
+    const tint = h('input', { type: 'color', value: saved.colour || getModel().colour || '#8c96a3', 'aria-label': t('ai.colour_pick') });
+    const tintMode = h('select', {}, h('option', { value: '' }, t('ai.colour_as_is')), h('option', { value: 'own', selected: !!saved.colour }, t('ai.colour_own')));
+    const chosenColour = () => (tintMode.value ? tint.value.toLowerCase() : '');
+    const showColour = () => {
+      tint.hidden = !tintMode.value;
+      if (viewer) viewer.setColour(chosenColour() || getModel().colour);
+    };
+    tintMode.addEventListener('change', () => { showColour(); store(); });
+    tint.addEventListener('input', showColour);
+    tint.addEventListener('change', () => store());
+    tint.hidden = !saved.colour;
     let logo = saved.logo;
     const specLines = () => specs.value.split('\n').map((line) => line.trim()).filter(Boolean);
     // The logo is the business's: without the business mode the switch is shown off and cannot be turned (the saved choice is kept).
@@ -223,7 +237,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       business && logo, (on) => { logo = on; store(); });
     logoRow.querySelector('.switch').disabled = !business;
     form = {
-      values: () => ({ purpose: purpose.value || null, product_name: name.value.trim(), specs: specLines(), extra_text: extra.value.trim(), logo }),
+      values: () => ({ purpose: purpose.value || null, colour: chosenColour(), product_name: name.value.trim(), specs: specLines(), extra_text: extra.value.trim(), logo }),
       complete: () => !!(name.value.trim() && specLines().length && extra.value.trim()),
       logoShown: () => business && logo && got.logo_available,
     };
@@ -238,6 +252,8 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     tell();
     fill(options,
       field(t('ai.purpose'), purpose, t('ai.purpose_hint')),
+      h('div', { class: 'model-controls' }, field(t('ai.colour'), tintMode), tint),
+      h('p', { class: 'hint' }, t('ai.colour_hint')),
       h('h3', {}, t('ai.text_title')),
       field(t('ai.product_name'), name),
       field(t('ai.specs'), specs, t('ai.specs_hint', { max: limits.specs, len: limits.spec })),

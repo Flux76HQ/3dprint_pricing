@@ -14,6 +14,7 @@ specifications and the extra text typed with the calculation (`projects.image_te
 as a poster in a fixed template, never by the model, and only when all three are filled in; the logo of the invoice goes on when its switch is on and
 whoever asks has the business mode on."""
 import base64
+import colorsys
 import json
 import logging
 import re
@@ -120,15 +121,36 @@ def _guard():
         raise ApiError(404, "err.not_found")
 
 
+COLOUR = re.compile(r"^#[0-9a-f]{6}$")
+
+
+def colour_name(colour: str) -> str:
+    """A plain word for a colour (`#rrggbb`), to go with its code: the model follows "dark green" better than six hex digits."""
+    red, green, blue = (int(colour[at:at + 2], 16) / 255 for at in (1, 3, 5))
+    hue, light, saturation = colorsys.rgb_to_hls(red, green, blue)
+    if saturation < 0.12 or light < 0.06 or light > 0.96:
+        return "black" if light < 0.14 else "white" if light > 0.88 else "dark grey" if light < 0.4 else "light grey" if light > 0.66 else "grey"
+    degrees = hue * 360
+    name = next(word for upto, word in ((15, "red"), (42, "orange"), (68, "yellow"), (165, "green"), (195, "turquoise"), (255, "blue"),
+                                        (290, "purple"), (340, "pink"), (361, "red")) if degrees < upto)
+    if name == "orange" and light < 0.34:
+        return "brown"
+    return ("dark " if light < 0.3 else "light " if light > 0.72 else "") + name
+
+
 def build_prompt(variant: str, description: str = "", purpose: "str | None" = None, *, text: bool = False, logo: bool = False,
-                 sources: tuple = ("photo",)) -> str:
+                 sources: tuple = ("photo",), colour: str = "") -> str:
     """The text sent with the photo. Without a description the model picks a neutral setting. The model never writes the texts
     itself: it only leaves room where the template puts them (`text`) and where the logo goes (`logo`)."""
     _size, shape, placement = VARIANTS[variant]
     description = " ".join(str(description or "").split())[:500]
     setting = (f"The object is: {description}. Choose the surroundings or background that suit this object and how it is used. "
                if description and variant != "studio" else "")
-    return PROMPT.format(lead=LEAD[tuple(sources)].format(shape=shape), placement=placement, setting=setting, purpose=PURPOSES[purpose][1] if purpose else "",
+    # a colour chosen for the item wins over the colour it has in the pictures given
+    tint = (f"Show the object 3D printed in {colour_name(colour)} filament (colour {colour}), whatever colour it has in the picture given; "
+            "its shape and everything else about it stay the same. " if COLOUR.match(colour or "") else "")
+    return PROMPT.format(lead=LEAD[tuple(sources)].format(shape=shape), placement=placement, setting=setting + tint,
+                         purpose=PURPOSES[purpose][1] if purpose else "",
                          room=(image_overlay.room(variant) if text else "") + (ROOM_FOR_LOGO if logo else ""))
 
 
@@ -139,7 +161,8 @@ def _line(value) -> str:
 
 
 def image_text(value) -> dict:
-    """The purpose and the texts of a calculation's pictures, checked: {purpose, product_name, specs, extra_text, logo}. The
+    """The purpose and the texts of a calculation's pictures, checked: {purpose, colour, product_name, specs, extra_text, logo}. The
+    colour is the item's own (`#rrggbb`), or empty to leave it as it is in the photo. The
     specifications are a list of short lines (a text is split on its lines, and a typed bullet is dropped)."""
     if value in (None, ""):
         value = {}
@@ -157,7 +180,10 @@ def image_text(value) -> dict:
     specs = [s for s in specs if s]
     if len(specs) > SPECS_MAX:
         raise ApiError(400, "ai.err_specs_many", max=SPECS_MAX)
-    return {"purpose": purpose,
+    colour = str(value.get("colour") or "").strip().lower()
+    if colour and not COLOUR.match(colour):
+        raise ApiError(400, "ai.err_colour")
+    return {"purpose": purpose, "colour": colour,
             "product_name": text("ai.f_product_name", required=False, max_len=NAME_MAX)(_line(value.get("product_name"))),
             "specs": specs,
             "extra_text": text("ai.f_extra_text", required=False, max_len=EXTRA_MAX)(_line(value.get("extra_text"))),
@@ -541,7 +567,8 @@ def _enqueue(project_id, body: dict) -> "tuple[uuid.UUID, list]":
             conn.execute("INSERT INTO ai_image_jobs (project_id, batch_id, position, variant, description, purpose, overlay) "
                          "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                          (project_id, batch, position, variant, description, purpose,
-                          json.dumps({"text": poster if variant == PURPOSES[purpose][0][0] else None, "logo": logo, "warnings": warnings})))
+                          json.dumps({"text": poster if variant == PURPOSES[purpose][0][0] else None, "logo": logo, "warnings": warnings,
+                                      "colour": settings["colour"]})))
         _log(conn, "info", "ai.log_queued", project=project, n=len(variants))
         for key in warnings:
             _log(conn, "info", key, project=project)
@@ -584,9 +611,10 @@ def _run_batch(app, project_id, batch) -> None:
                 log.exception("could not mark AI image batch %s as failed", batch)
 
 
-def _generate(key: str, model: str, quality: str, variant: str, description: str, sources: list, purpose=None, *, text=False, logo=False):
+def _generate(key: str, model: str, quality: str, variant: str, description: str, sources: list, purpose=None, *, text=False, logo=False,
+              colour=""):
     """`sources` is [(origin, jpeg), ...], the photo first. One picture is sent as `image`, two as `image[]`."""
-    prompt = build_prompt(variant, description, purpose, text=text, logo=logo, sources=tuple(origin for origin, _ in sources))
+    prompt = build_prompt(variant, description, purpose, text=text, logo=logo, sources=tuple(origin for origin, _ in sources), colour=colour)
     if len(sources) == 1:
         files = {"image": (f"{sources[0][0]}.jpg", sources[0][1], "image/jpeg")}
     else:
@@ -636,7 +664,7 @@ def _run_next(project_id, batch) -> bool:
         if not sources:
             raise ApiError(400, "ai.err_no_photo")
         content, width, height = _generate(key, model, quality, job["variant"], job["description"], sources, job["purpose"],
-                                           text=bool(overlay.get("text")), logo=logo is not None)
+                                           text=bool(overlay.get("text")), logo=logo is not None, colour=overlay.get("colour") or "")
         if job["purpose"] and (overlay.get("text") or logo):
             content = image_overlay.compose(content, job["purpose"], job["variant"], text=overlay.get("text"), logo=logo["content"] if logo else None)
     except ApiError as exc:

@@ -2,6 +2,7 @@
  "ai.err_already_busy": "Images are already being made for this calculation. Wait until they are done.",
  "ai.err_bad_result": "OpenAI returned no usable image. Try again.",
  "ai.err_busy": "OpenAI is busy or a limit was reached. Try again in a minute.",
+ "ai.err_colour": "Invalid colour.",
  "ai.err_interrupted": "Making this image was interrupted (the server restarted or it took too long). Try again.",
  "ai.err_key_format": "This does not look like a valid API key (20 to 300 characters, no spaces).",
  "ai.err_key_invalid": "OpenAI refuses the API key. Check the key under Settings.",
