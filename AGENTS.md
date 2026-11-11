@@ -143,7 +143,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
   | `enforce-version-bump` | the pull request changed `VERSION` (it is raised after the merge, not in the pull request) |
   | `agent-instructions-lint` | that this file stays canonical and unduplicated |
   | `backend-tests` | calculator, WebAuthn, migrations, API; fails if any test was skipped |
-  | `frontend-syntax` | every frontend module parses, checked as an ES module (a copy named `.mjs`: `node --check` on a `.js` file that uses `import` reports nothing, even for a broken one); the manifest is valid JSON |
+  | `frontend-syntax` | every frontend module parses, checked as an ES module (a copy named `.mjs`: `node --check` on a `.js` file that uses `import` reports nothing, even for a broken one); the manifest is valid JSON; the service worker answers from its cache only what it may (`scripts/test_service_worker.mjs`, section 6i) |
   | `docker-build` | the image builds (also for arm64), a Word invoice template is turned into a PDF inside it (LibreOffice, as the unprivileged user), and both compose files are valid for `.env.example` |
 
 - A control has to be findable on the pull request under the name a document cites it by.
@@ -362,6 +362,27 @@ are kept in `migrations_legacy/` only for `pg_import.py` and its test). Never ed
 - **Project and order numbers** come from `db.next_number(conn, "project" | "order")` (the `counters` table): never reused, also after a delete, as the sequences were. A restore carries them on with `backup._restart_numbers`.
 - **The About page** (`app/about.py`, `GET /api/about` and `POST /api/about/check`, administrators only: `access.ADMIN_ONLY`; `aboutCards(part)` in `frontend/js/settings.js`) feeds two pages. Settings → Beheer → Over shows a summary of four labelled facts (version, database health, last backup, updates; the second and third link to their pages), the update check card and the app. Settings → Beheer → Systeem shows the health of the database (a list of cheap checks, each `ok`, `warn` or `error`, plus `Database.check()` on request on a connection of its own) and the active link with it (the technical rows folded away), above the factory reset; the health card has a *Copy diagnostics* button whose text, built in `diagnosisText()`, has fixed English keys and no secrets. Backup and restore have a page of their own, Settings → Beheer → Back-up (`#/instellingen/backup`). The last backup is the newer of the copies in `DATA_PATH/backups` and the moment `backup.export()` writes to `app_state` (`last_backup`); a backup older than 30 days is flagged in the card, not in the health word. The server sends facts and keys, the screen the words; a new check is an entry in `about.about()` **and** in `HEALTH_CHECKS` with its texts in both languages (`test_about.py` checks that every named text exists). Nothing secret goes in: the old PostgreSQL address is shown without its login.
 - **The one-off import** (`app/pg_import.py`, called by `migrate.py`; the address is `LEGACY_DATABASE_URL`, or `DATABASE_URL` when it names a PostgreSQL, so a docker-compose.yml that was never replaced still works) goes away, with `psycopg`, `migrations_legacy/`, the `db` service and `POSTGRES_*`, in the release after the one that introduced it.
+
+## 6i. Performance and what a browser may keep
+
+Performance work follows App-Guidance's [`shared/guidelines/performance-playbook.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/performance-playbook.md):
+a number first, on data of a stated size, then the smallest fix, a test that fails when the fix is undone, and the number again. **The measured numbers live in
+[`docs/performance.md`](docs/performance.md)** (dated, with the data size and what was only estimated) and are made by `python scripts/perf_baseline.py` (the demo data of
+`generate_screenshots.py` grown to size, Gunicorn started with the flags of `deploy/entrypoint.sh`, a real browser; needs `playwright`). A change made for speed adds its before and after there,
+measured on one machine on one day, and names its test.
+
+- **The app's own files** (`backend/app/static_files.py`). Every script, style sheet, PNG icon and language file is asked for with `?v=<version>-<commit>`; a URL of the *running* release is
+  `immutable`, everything else is `no-cache`: index.html and `sw.js` (how a new release is noticed), a URL without a release, a URL of another release (an app that stayed open during an update)
+  and every file of a `dev` build. Never give a plain URL a `max-age` (it left the previous release's scripts in the browser), and load a new kind of file with the release in its URL
+  (`BUILD` in `js/build.js`) or it is revalidated at every launch. Stamping and compressing happen once per process and file, checked against the file's size and modification time; a path is
+  resolved with `safe_join`, never joined by hand.
+- **The service worker** answers a URL of its own release from its cache and nothing else: the page always comes from the network, so a new release shows on the very next load. Its cache is
+  named after the release, so activating a new worker removes the older ones. `SHELL` in `frontend/sw.js` lists every module under `frontend/js` and both language files
+  (`test_static_build.py` compares it with the folder): add a new module there.
+- **Nothing under `/api/` is kept** (`no-store`, set in `create_app` after the handler, also over Flask's own header for a file), with one way past it: `http.keep_forever(response)`, for an
+  answer whose bytes can never change under its URL. Today that is a stored product image and its thumbnail (`ai_images._kept`: `private`, the id is the ETag), which holds only while
+  `project_images.content` is written once; `test_ai_images.py` lists every `UPDATE` of that table. A kept answer can be shown without a session on the device that kept it: decide that on purpose.
+- **Compression is the app's own** (gzip: its files once, a JSON answer of 1 kB or more per request, `http.compressed`), because the app also runs without a proxy. A download is left alone.
 
 ## 7. Work done in one client leaves the other clients correct
 

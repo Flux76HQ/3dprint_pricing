@@ -31,7 +31,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from . import image_overlay, invoice_logo, passwords, preferences
 from .api import text
 from .db import ForeignKeyViolation
-from .http import ApiError, RateLimiter, config, json_body, login_required, pool
+from .http import ApiError, RateLimiter, config, json_body, keep_forever, login_required, pool
 from .i18n import L, render, request_language
 
 log = logging.getLogger(__name__)
@@ -46,6 +46,7 @@ MAX_PHOTO_BYTES = 8 * 1024 * 1024
 MAX_PIXELS = 40_000_000
 MAX_EDGE = 2048                      # the photo is scaled down to this before it is stored and sent
 MAX_GENERATED = 12                   # per calculation; delete some to make more
+THUMB_EDGE = 192                     # the cover in the list of calculations is 56 CSS pixels, so this is sharp up to a 3x screen
 PHOTO_FORMATS = {"PNG", "JPEG", "MPO", "WEBP"}      # MPO is what some phones write as a JPEG
 CONNECT_TIMEOUT, READ_TIMEOUT = 10, 100             # the whole request has to fit in gunicorn's 120 seconds
 MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,59}$")
@@ -736,16 +737,39 @@ def _image_row(conn, image_id, columns=COLUMNS):
     return row
 
 
+def _kept(response, image_id):
+    """A stored picture never changes: its bytes are written once (`project_images.content`; only `is_cover` is ever updated, which
+    test_ai_images.py checks), so its id is its validator and the browser may keep it. The list of calculations shows a cover per
+    row; without this every visit fetched every picture again."""
+    response.set_etag(str(image_id))
+    return keep_forever(response.make_conditional(request))
+
+
 @bp.get("/project-images/<uuid:image_id>/file")
 def image_file(image_id):
     with pool().connection() as conn:
         row = _image_row(conn, image_id, "id, kind, variant, purpose, mime, content, project_id")
         number = conn.execute("SELECT number FROM projects WHERE id = %s", (row["project_id"],)).fetchone()["number"]
-    headers = {"Cache-Control": "no-store"}
-    if request.args.get("download") == "1":
+    if request.args.get("download") == "1":            # a download is named after the calculation, whose number is not part of the picture
         name = f"berekening-{number}-{'-'.join(filter(None, (row['purpose'], row['variant']))) or 'foto'}.jpg"
-        headers["Content-Disposition"] = f'attachment; filename="{name}"'
-    return Response(bytes(row["content"]), mimetype=row["mime"], headers=headers)
+        return Response(bytes(row["content"]), mimetype=row["mime"], headers={"Content-Disposition": f'attachment; filename="{name}"'})
+    return _kept(Response(bytes(row["content"]), mimetype=row["mime"]), image_id)
+
+
+@bp.get("/project-images/<uuid:image_id>/thumb")
+def image_thumb(image_id):
+    """The picture as the list shows it: at most THUMB_EDGE pixels a side instead of the stored one of up to 2048. It is made when asked
+    for and not stored (a JPEG is decoded at a fraction of its size, which takes milliseconds), and kept by the browser like the picture
+    itself, so each browser asks once per picture."""
+    with pool().connection() as conn:
+        row = _image_row(conn, image_id, "id, content")
+    with Image.open(BytesIO(bytes(row["content"]))) as image:
+        image.draft("RGB", (THUMB_EDGE, THUMB_EDGE))
+        image = image.convert("RGB")
+        image.thumbnail((THUMB_EDGE, THUMB_EDGE))
+        out = BytesIO()
+        image.save(out, "JPEG", quality=80, optimize=True)
+    return _kept(Response(out.getvalue(), mimetype="image/jpeg"), image_id)
 
 
 @bp.put("/project-images/<uuid:image_id>/cover")
