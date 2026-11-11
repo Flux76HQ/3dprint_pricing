@@ -128,6 +128,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   let form = null;
   let images = [];
   let jobs = [];
+  let warnings = [];
   let uploading = false;
   let wasBusy = false;
   let lastError = '';
@@ -138,6 +139,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       const got = await api('GET', `/api/projects/${projectId}/images`);
       images = got.images;
       jobs = got.jobs;
+      warnings = got.warnings || [];
       lastError = '';
       if (!form) buildForm(got);
     } catch (e) { lastError = e.message; }
@@ -268,12 +270,17 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
           h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !source || uploading || !purposeChosen, onclick: generate }, t('ai.generate'))),
           form && !purposeChosen ? h('p', { class: 'hint' }, t('ai.purpose_needed')) : null),
       h('p', { class: 'error', role: 'alert', hidden: !lastError }, lastError),
-      failed.length && !working ? h('div', { class: 'stack ai-failed', role: 'alert' },
+      // Everything that went wrong or was left out, here on the page and as soon as it is known (also while the rest is still being made).
+      warnings.length ? h('div', { class: 'notice warn stack', role: 'status' },
+        h('strong', {}, t('ai.warnings_title')),
+        h('ul', {}, warnings.map((w) => h('li', {}, w)))) : null,
+      failed.length ? h('div', { class: 'stack ai-failed', role: 'alert' },
         h('strong', { class: 'error' }, t('ai.failed_title')),
-        h('ul', {}, failed.map((j) => h('li', {}, h('strong', {}, label(j.variant)), ': ', j.message))),
-        h('div', { class: 'row' },
-          h('a', { class: 'btn small', href: '#/instellingen/ai' }, t('ai.view_log')),
-          h('button', { class: 'btn small', type: 'button', onclick: () => act(() => api('DELETE', `/api/projects/${projectId}/images/jobs`)) }, t('ai.failed_dismiss')))) : null,
+        h('ul', {}, failed.map((j) => h('li', {}, h('strong', {}, label(j.variant)), ': ', j.message,
+          j.detail ? h('code', { class: 'ai-log-detail' }, j.detail) : null)))) : null,
+      failed.length || warnings.length ? h('div', { class: 'row' },
+        h('a', { class: 'btn small', href: '#/instellingen/ai' }, t('ai.view_log')),
+        working ? null : h('button', { class: 'btn small', type: 'button', onclick: () => act(() => api('DELETE', `/api/projects/${projectId}/images/jobs`)) }, t('ai.failed_dismiss'))) : null,
       made.length || coming.length ? h('div', { class: 'ai-grid' }, made.map(tile), coming.map(pending)) : null);
   }
 

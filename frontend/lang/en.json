@@ -1260,6 +1260,7 @@
  "ai.variant_square": "Square (1:1)",
  "ai.variant_studio": "Studio, plain background",
  "ai.view_log": "View the log",
+ "ai.warnings_title": "Note:",
  "calc.object_description": "Object description",
  "calc.object_description_hint": "What is it for? This decides the background of the AI images.",
  "calc.object_description_ph": "For example: planter for a windowsill",

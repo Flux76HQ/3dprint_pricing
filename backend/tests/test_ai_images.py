@@ -386,6 +386,26 @@ def test_long_texts_stay_inside_the_picture(ai):
             assert near(made.convert("RGB").getpixel(spot), PLAIN), variant
 
 
+def test_what_is_left_out_is_said_on_the_page(ai, project, monkeypatch):
+    ready(ai, project, monkeypatch)
+    res = queue(ai, project, "studio", text={**TEXT, "extra_text": "", "logo": True})       # a text missing, and no business mode
+    assert len(res.get_json()["warnings"]) == 2
+    told = state(ai, project)["warnings"]
+    assert len(told) == 2 and "tekstvelden" in told[0] and "Zakelijk staat uit" in told[1]
+    assert "text fields" in ai.get(f"/api/projects/{project['id']}/images", headers={"X-Lang": "en"}).get_json()["warnings"][0]
+    assert told[0] in [e["message"] for e in log(ai)]                               # and in the log
+    business(ai)
+    queue(ai, project, "square", text={**TEXT, "logo": True})                       # the business mode is on, but there is no logo
+    told = state(ai, project)["warnings"]
+    assert len(told) == 1 and "nog geen logo" in told[0]
+    assert ai.delete(f"/api/projects/{project['id']}/images/jobs", headers=H).status_code == 200
+    assert state(ai, project)["warnings"] == []                                    # hidden with the other messages
+    set_logo(ai)
+    for text in (TEXT, {**TEXT, "logo": True}, {"purpose": "webshop"}):             # nothing left out, or nothing asked: nothing to say
+        wipe(ai, project)
+        assert queue(ai, project, "square", text=text).get_json()["warnings"] == [] and state(ai, project)["warnings"] == []
+
+
 def test_the_logo_goes_on_only_with_the_business_mode_and_the_switch(ai, project, monkeypatch):
     fake = ready(ai, project, monkeypatch, result=png((1024, 1024), PLAIN))
     set_logo(ai)
