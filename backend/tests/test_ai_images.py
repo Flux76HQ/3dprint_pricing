@@ -192,6 +192,56 @@ def test_a_photo_for_a_missing_calculation(ai):
     assert photo(ai, "00000000-0000-0000-0000-000000000000").status_code == 404
 
 
+def view(owner, project, data=None):
+    """Save a view of the 3D model, as the viewer in the browser does."""
+    return owner.post(f"/api/projects/{project}/images/source", headers=H, content_type="multipart/form-data",
+                      data={"file": (BytesIO(png((400, 400), (30, 60, 200)) if data is None else data), "3d-model.png"), "origin": "model"})
+
+
+def test_a_view_of_the_3d_model_is_kept_next_to_the_photo(ai, project):
+    first = view(ai, project["id"])
+    assert first.status_code == 201 and first.get_json()["origin"] == "model" and first.get_json()["kind"] == "source"
+    shot = photo(ai, project["id"]).get_json()
+    assert shot["origin"] == "photo"
+    second = view(ai, project["id"]).get_json()                                    # a new view replaces the view, not the photo
+    kept = [(i["origin"], i["id"]) for i in state(ai, project)["images"]]
+    assert kept == [("photo", shot["id"]), ("model", second["id"])]
+    assert Image.open(BytesIO(ai.get(f"/api/project-images/{second['id']}/file").data)).format == "JPEG"       # re-encoded like a photo
+    assert view(ai, project["id"], b"not an image").status_code == 400
+    res = ai.post(f"/api/projects/{project['id']}/images/source", headers=H, content_type="multipart/form-data",
+                  data={"file": (BytesIO(png()), "x.png"), "origin": "drawing"})
+    assert res.status_code == 400 and len(state(ai, project)["images"]) == 2
+    assert ai.delete(f"/api/project-images/{second['id']}", headers=H).status_code == 200
+    assert [i["origin"] for i in state(ai, project)["images"]] == ["photo"]
+    assert "Beeld van het 3D-model opgeslagen." in [e["message"] for e in log(ai)]
+
+
+def test_pictures_are_made_from_the_view_of_the_model_alone(ai, project, monkeypatch):
+    set_key(ai)
+    fake = FakeOpenAI(monkeypatch)
+    assert queue(ai, project, "square").status_code == 400                         # neither a photo nor a view
+    view(ai, project["id"])
+    assert queue(ai, project, "square").status_code == 202
+    call = fake.calls[0]
+    name, content, mime = call["files"]["image"]
+    assert name == "model.jpg" and mime == "image/jpeg" and Image.open(BytesIO(content)).size == (400, 400)
+    assert "rendering of the 3D model" in call["data"]["prompt"] and "photo of a 3D-printed object" not in call["data"]["prompt"]
+    assert "real photograph" in call["data"]["prompt"] and state(ai, project)["jobs"][0]["status"] == "done"
+
+
+def test_with_a_photo_and_a_view_both_are_sent_the_photo_first(ai, project, monkeypatch):
+    fake = ready(ai, project, monkeypatch)
+    view(ai, project["id"])
+    assert queue(ai, project, "square").status_code == 202
+    files = fake.calls[0]["files"]
+    assert [(field, part[0]) for field, part in files] == [("image[]", "photo.jpg"), ("image[]", "model.jpg")]
+    assert [Image.open(BytesIO(part[1])).size for _field, part in files] == [(300, 200), (400, 400)]
+    prompt = fake.calls[0]["data"]["prompt"]
+    assert "The first picture is a photo" in prompt and "the second is a plain rendering" in prompt
+    for sources in ai_images.LEAD:                                                 # every set of pictures has its own words
+        assert set(sources) <= set(ai_images.ORIGINS) and "{shape}" in ai_images.LEAD[sources]
+
+
 # --- generating ---------------------------------------------------------------------------------------------------------
 
 def state(owner, project):
@@ -275,7 +325,7 @@ def test_nothing_is_made_before_a_purpose_is_chosen(ai, project, monkeypatch):
 
 # --- the texts and the logo on the pictures -------------------------------------------------------------------------------
 
-TEXT = {"purpose": "webshop", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 x 10 cm", "Waterdicht PETG"],
+TEXT = {"purpose": "webshop", "colour": "", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 x 10 cm", "Waterdicht PETG"],
         "extra_text": "Op maat gemaakt", "logo": False}
 PLAIN = (10, 120, 10)                                                              # what FakeOpenAI paints
 
@@ -316,10 +366,10 @@ def set_logo(owner):
 
 
 def test_the_texts_are_kept_with_the_calculation(ai, project):
-    assert state(ai, project)["text"] == {"purpose": None, "product_name": "", "specs": [], "extra_text": "", "logo": False}
+    assert state(ai, project)["text"] == {"purpose": None, "colour": "", "product_name": "", "specs": [], "extra_text": "", "logo": False}
     res = put_text(ai, project, {"purpose": "social", "product_name": "  Plantenbak   Vensterbank ", "specs": "- 30 x 12 cm\n\n• Waterdicht ",
                                  "extra_text": " Op maat\ngemaakt ", "logo": True})
-    kept = {"purpose": "social", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 cm", "Waterdicht"], "extra_text": "Op maat gemaakt",
+    kept = {"purpose": "social", "colour": "", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 cm", "Waterdicht"], "extra_text": "Op maat gemaakt",
             "logo": True}
     assert res.status_code == 200 and res.get_json() == kept and state(ai, project)["text"] == kept
     # saving the calculation itself leaves them alone
@@ -328,7 +378,7 @@ def test_the_texts_are_kept_with_the_calculation(ai, project):
     assert ai.put("/api/projects/00000000-0000-0000-0000-000000000000/images/settings", json=TEXT, headers=H).status_code == 404
 
 
-@pytest.mark.parametrize("body", [{"purpose": "billboard"}, {"product_name": "x" * 61}, {"extra_text": "x" * 81}, {"specs": ["x" * 61]},
+@pytest.mark.parametrize("body", [{"purpose": "billboard"}, {"colour": "red"}, {"colour": "#12345"}, {"product_name": "x" * 61}, {"extra_text": "x" * 81}, {"specs": ["x" * 61]},
                                   {"specs": ["a", "b", "c", "d", "e", "f"]}, {"specs": [1]}, {"specs": {"a": 1}}])
 def test_the_texts_are_validated(ai, project, body):
     assert put_text(ai, project, body).status_code == 400
@@ -413,6 +463,19 @@ def test_long_texts_stay_inside_the_picture(ai):
             if size[0] >= 1024:                                                    # the texts leave the picture room
                 spot = (round(size[0] * 0.85), round(size[1] * 0.3)) if variant == "landscape" else (size[0] // 2, round(size[1] * 0.12))
                 assert near(made.convert("RGB").getpixel(spot), PLAIN), (purpose, variant)
+
+
+def test_the_colour_of_the_item_can_be_chosen(ai, project, monkeypatch):
+    fake = ready(ai, project, monkeypatch)
+    assert put_text(ai, project, {**TEXT, "colour": " #1F7A3D "}).get_json()["colour"] == "#1f7a3d"          # kept, in one spelling
+    assert queue(ai, project, "square").status_code == 202
+    assert "in green filament (colour #1f7a3d), whatever colour it has in the picture given" in fake.calls[0]["data"]["prompt"]
+    assert queue(ai, project, "studio", text={**TEXT, "colour": ""}).status_code == 202                       # as in the photo again
+    assert "filament (colour" not in fake.calls[1]["data"]["prompt"] and state(ai, project)["text"]["colour"] == ""
+    for code, word in (("#000000", "black"), ("#ffffff", "white"), ("#808080", "grey"), ("#d9480f", "orange"), ("#ffd60a", "yellow"),
+                       ("#1d4ed8", "blue"), ("#5b3a1e", "brown"), ("#f9a8d4", "light pink"), ("#0b3d1e", "dark green"), ("#7c3aed", "purple")):
+        assert ai_images.colour_name(code) == word, code
+    assert "filament (colour" not in ai_images.build_prompt("square", colour="javascript:")                   # only a real colour is ever said
 
 
 def test_what_is_left_out_is_said_on_the_page(ai, project, monkeypatch):
@@ -722,6 +785,7 @@ def test_the_description_is_a_plain_project_field(owner):
 def test_pictures_and_the_description_survive_a_backup_but_the_key_does_not(ai, project, monkeypatch):
     ready(ai, project, monkeypatch)
     ai.put("/api/ai-images/settings", json={"model": "gpt-image-2-mini", "quality": "low"}, headers=H)
+    view(ai, project["id"])
     queue(ai, project, "context", purpose="social", text={**TEXT, "purpose": "social", "logo": True})
     made = [i for i in state(ai, project)["images"] if i["kind"] == "generated"][0]
     ai.put(f"/api/project-images/{made['id']}/cover", headers=H)
@@ -729,7 +793,7 @@ def test_pictures_and_the_description_survive_a_backup_but_the_key_does_not(ai, 
     assert KEY not in text and "api_key" not in text
     doc = backup(ai).get_json()
     assert doc["projects"][0]["object_description"] == "plantenbak voor op een vensterbank"
-    assert [i["kind"] for i in doc["project_images"]] == ["source", "generated"]
+    assert [(i["kind"], i["origin"]) for i in doc["project_images"]] == [("source", "photo"), ("source", "model"), ("generated", "photo")]
     assert doc["projects"][0]["image_text"] == {**TEXT, "purpose": "social", "logo": True}
 
     ai.delete(f"/api/projects/{project['id']}", headers=H)
@@ -737,10 +801,11 @@ def test_pictures_and_the_description_survive_a_backup_but_the_key_does_not(ai, 
     restored = ai.get(f"/api/projects/{project['id']}").get_json()
     assert restored["object_description"] == "plantenbak voor op een vensterbank"
     images = state(ai, project)["images"]
-    assert [(i["kind"], i["variant"], i["is_cover"]) for i in images] == [("source", None, False), ("generated", "context", True)]
-    assert [i["purpose"] for i in images] == [None, "social"]
+    assert [(i["kind"], i["variant"], i["is_cover"]) for i in images] == [("source", None, False), ("source", None, False),
+                                                                             ("generated", "context", True)]
+    assert [i["purpose"] for i in images] == [None, None, "social"] and [i["origin"] for i in images] == ["photo", "model", None]
     assert state(ai, project)["text"] == {**TEXT, "purpose": "social", "logo": True}                 # the purpose and the texts came back
-    assert ai.get("/api/projects").get_json()[0]["cover_image_id"] == images[1]["id"]
+    assert ai.get("/api/projects").get_json()[0]["cover_image_id"] == images[2]["id"]
     assert ai.get("/api/ai-images/settings").get_json()["model"] == "gpt-image-2-mini"
     assert ai.get("/api/ai-images/settings").get_json()["last4"] == KEY[-4:]                    # the key was not touched by the restore
 
@@ -754,6 +819,13 @@ def test_a_backup_with_a_damaged_picture_is_refused_before_anything_changes(ai, 
     doc = backup(ai).get_json()
     doc["project_images"][0]["project_id"] = "00000000-0000-0000-0000-000000000000"
     assert post(ai, "/api/backup/restore", doc).status_code == 400
+    doc = backup(ai).get_json()
+    doc["project_images"].append({**doc["project_images"][0]})                     # two photos for one calculation
+    assert post(ai, "/api/backup/restore", doc).status_code == 400
+    doc["project_images"][1]["origin"] = "drawing"
+    assert post(ai, "/api/backup/restore", doc).status_code == 400
+    doc["project_images"][1]["origin"] = "model"                                   # a photo and a view: that is fine
+    assert post(ai, "/api/backup/restore", doc).status_code == 200 and len(state(ai, project)["images"]) == 2
     for damage in ({"image_text": {"purpose": "billboard"}}, {"image_text": {"specs": ["x"] * 9}}, {"image_text": "tekst"}):
         doc = backup(ai).get_json()
         doc["projects"][0].update(damage)

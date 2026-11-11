@@ -533,6 +533,17 @@ code { overflow-wrap: anywhere; white-space: normal; }
 /* AI product images: the cover in the list, the photo and the made pictures in a calculation */
 .cover-thumb { flex: none; width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: #fff; }
 .ai-source { max-width: 220px; max-height: 220px; object-fit: contain; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: #fff; }
+.ai-sources { display: flex; flex-wrap: wrap; gap: 12px; }
+.ai-kept { width: min(220px, 100%); }
+.ai-kept .ai-source { width: 100%; height: auto; max-height: none; }
+/* The 3D model: a square that follows the width; the finger turns the model, so the page does not scroll from it. */
+.model-canvas { display: block; width: min(100%, 440px); height: auto; aspect-ratio: 1 / 1; border-radius: var(--radius-sm); border: 1px solid var(--rand);
+  background: #f0f0ed; touch-action: none; cursor: grab; }
+.model-canvas:active { cursor: grabbing; }
+.model-canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.model-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.model-controls input[type="range"] { accent-color: var(--accent); min-height: 44px; width: 180px; }
+.model-controls input[type="color"] { width: 64px; min-height: 44px; padding: 2px; }
 .ai-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
 .ai-tile { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .ai-tile img { width: 100%; height: auto; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: #fff; }

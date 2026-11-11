@@ -115,9 +115,9 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
     except ApiError:                                             # the file went missing: the rest of the backup is still worth having
         template = None
     doc["project_images"] = [
-        {"project_id": str(r["project_id"]), "kind": r["kind"], "variant": r["variant"], "purpose": r["purpose"], "is_cover": r["is_cover"],
+        {"project_id": str(r["project_id"]), "kind": r["kind"], "origin": r["origin"], "variant": r["variant"], "purpose": r["purpose"], "is_cover": r["is_cover"],
          "created_at": r["created_at"].isoformat(), "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
-        for r in conn.execute("SELECT project_id, kind, variant, purpose, is_cover, created_at, content FROM project_images "
+        for r in conn.execute("SELECT project_id, kind, origin, variant, purpose, is_cover, created_at, content FROM project_images "
                               "ORDER BY created_at, id").fetchall()]
     ai = conn.execute("SELECT model, quality FROM ai_image_settings").fetchone()      # never the API key
     if ai:
@@ -444,13 +444,16 @@ def _parse_project_images(entries, project_ids: set) -> list:
                 raise Localized("backup.bad_file") from None
             content, width, height = ai_images._clean(content)                      # read again, never taken on trust from the file
             is_cover = entry.get("is_cover") is True and project_id not in covers
+            origin = entry.get("origin", "photo") if entry["kind"] == "source" else "photo"      # a file of before the 3D view has photos only
+            if origin not in ai_images.ORIGINS:
+                raise Localized("backup.bad_row_type")
             if entry["kind"] == "source":
-                if project_id in sources:
+                if (project_id, origin) in sources:
                     raise Localized("backup.bad_row_type")
-                sources.add(project_id)
+                sources.add((project_id, origin))
             if is_cover:
                 covers.add(project_id)
-            items.append({"project_id": project_id, "kind": entry["kind"], "variant": variant if entry["kind"] == "generated" else None, "purpose": purpose,
+            items.append({"project_id": project_id, "kind": entry["kind"], "variant": variant if entry["kind"] == "generated" else None, "purpose": purpose, "origin": origin,
                           "is_cover": is_cover, "created_at": _when(entry.get("created_at")), "content": content, "width": width, "height": height})
         except (ApiError, Localized) as exc:
             raise _row_error("project_images", n, exc) from None
@@ -881,10 +884,10 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                     values["updated_at"] = item["updated_at"] or item["created_at"]
                 _insert(conn, "projects", values)
             for img in plan["project_images"]:
-                conn.execute("INSERT INTO project_images (project_id, kind, variant, purpose, mime, content, width_px, height_px, is_cover"
-                             + (", created_at" if img["created_at"] else "") + ") VALUES (%s, %s, %s, %s, 'image/jpeg', %s, %s, %s, %s"
+                conn.execute("INSERT INTO project_images (project_id, kind, origin, variant, purpose, mime, content, width_px, height_px, is_cover"
+                             + (", created_at" if img["created_at"] else "") + ") VALUES (%s, %s, %s, %s, %s, 'image/jpeg', %s, %s, %s, %s"
                              + (", %s" if img["created_at"] else "") + ")",
-                             (img["project_id"], img["kind"], img["variant"], img["purpose"], img["content"], img["width"], img["height"], img["is_cover"],
+                             (img["project_id"], img["kind"], img["origin"], img["variant"], img["purpose"], img["content"], img["width"], img["height"], img["is_cover"],
                               *([img["created_at"]] if img["created_at"] else [])))
             if plan["ai_settings"]:                                 # model and quality only; the API key stays where it is
                 conn.execute("INSERT INTO ai_image_settings (id, model, quality) VALUES (true, %s, %s) "

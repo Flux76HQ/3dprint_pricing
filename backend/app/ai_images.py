@@ -14,6 +14,7 @@ specifications and the extra text typed with the calculation (`projects.image_te
 as a poster in a fixed template, never by the model, and only when all three are filled in; the logo of the invoice goes on when its switch is on and
 whoever asks has the business mode on."""
 import base64
+import colorsys
 import json
 import logging
 import re
@@ -89,9 +90,21 @@ assert set(PURPOSES) == set(image_overlay.TEMPLATES) and all(len(p[0]) == 4 and 
 WARNINGS = ("ai.warn_text_incomplete", "ai.warn_logo_business", "ai.warn_logo_none")
 NAME_MAX, SPEC_MAX, SPECS_MAX, EXTRA_MAX = 60, 60, 5, 80          # what fits in the template
 ROOM_FOR_LOGO = "Keep the top left corner calm and uncluttered as well. "
+ORIGINS = ("photo", "model")         # what a calculation's pictures are made from: a photo of the object, a picture of its 3D model
+# what the model is told it is looking at, per set of pictures it is given
+LEAD = {
+    ("photo",): "Edit this photo of a 3D-printed object into {shape}. Keep the object itself exactly as it is: same shape, proportions, "
+                "colour and visible print layers; do not redesign, restyle or add parts to it.",
+    ("model",): "This picture is a plain rendering of the 3D model of an object that is 3D printed. Turn it into {shape} of the real, "
+                "printed object: keep its shape and proportions exactly as shown and seen from the same side, in the colour shown, made of "
+                "matte plastic with fine horizontal print layers; do not redesign, restyle or add parts to it.",
+    ("photo", "model"): "The first picture is a photo of a 3D-printed object; the second is a plain rendering of its 3D model, which shows "
+                        "its exact shape, possibly from another side. Make {shape} of the object. Keep the object itself exactly as it is: "
+                        "the shape and proportions of the model, the colour, material and visible print layers of the photo; do not "
+                        "redesign, restyle or add parts to it.",
+}
 PROMPT = (
-    "Edit this photo of a 3D-printed object into {shape}. Keep the object itself exactly as it is: same shape, proportions, colour "
-    "and visible print layers; do not redesign, restyle or add parts to it. {placement} {setting}{purpose}{room}"
+    "{lead} {placement} {setting}{purpose}{room}"
     "It must look like a real photograph taken with a camera in natural light: no 3D render, illustration, cartoon or glossy CGI look. "
     "No text, no logos, no watermarks, no people."
 )
@@ -108,14 +121,36 @@ def _guard():
         raise ApiError(404, "err.not_found")
 
 
-def build_prompt(variant: str, description: str = "", purpose: "str | None" = None, *, text: bool = False, logo: bool = False) -> str:
+COLOUR = re.compile(r"^#[0-9a-f]{6}$")
+
+
+def colour_name(colour: str) -> str:
+    """A plain word for a colour (`#rrggbb`), to go with its code: the model follows "dark green" better than six hex digits."""
+    red, green, blue = (int(colour[at:at + 2], 16) / 255 for at in (1, 3, 5))
+    hue, light, saturation = colorsys.rgb_to_hls(red, green, blue)
+    if saturation < 0.12 or light < 0.06 or light > 0.96:
+        return "black" if light < 0.14 else "white" if light > 0.88 else "dark grey" if light < 0.4 else "light grey" if light > 0.66 else "grey"
+    degrees = hue * 360
+    name = next(word for upto, word in ((15, "red"), (42, "orange"), (68, "yellow"), (165, "green"), (195, "turquoise"), (255, "blue"),
+                                        (290, "purple"), (340, "pink"), (361, "red")) if degrees < upto)
+    if name == "orange" and light < 0.34:
+        return "brown"
+    return ("dark " if light < 0.3 else "light " if light > 0.72 else "") + name
+
+
+def build_prompt(variant: str, description: str = "", purpose: "str | None" = None, *, text: bool = False, logo: bool = False,
+                 sources: tuple = ("photo",), colour: str = "") -> str:
     """The text sent with the photo. Without a description the model picks a neutral setting. The model never writes the texts
     itself: it only leaves room where the template puts them (`text`) and where the logo goes (`logo`)."""
     _size, shape, placement = VARIANTS[variant]
     description = " ".join(str(description or "").split())[:500]
     setting = (f"The object is: {description}. Choose the surroundings or background that suit this object and how it is used. "
                if description and variant != "studio" else "")
-    return PROMPT.format(shape=shape, placement=placement, setting=setting, purpose=PURPOSES[purpose][1] if purpose else "",
+    # a colour chosen for the item wins over the colour it has in the pictures given
+    tint = (f"Show the object 3D printed in {colour_name(colour)} filament (colour {colour}), whatever colour it has in the picture given; "
+            "its shape and everything else about it stay the same. " if COLOUR.match(colour or "") else "")
+    return PROMPT.format(lead=LEAD[tuple(sources)].format(shape=shape), placement=placement, setting=setting + tint,
+                         purpose=PURPOSES[purpose][1] if purpose else "",
                          room=(image_overlay.room(variant) if text else "") + (ROOM_FOR_LOGO if logo else ""))
 
 
@@ -126,7 +161,8 @@ def _line(value) -> str:
 
 
 def image_text(value) -> dict:
-    """The purpose and the texts of a calculation's pictures, checked: {purpose, product_name, specs, extra_text, logo}. The
+    """The purpose and the texts of a calculation's pictures, checked: {purpose, colour, product_name, specs, extra_text, logo}. The
+    colour is the item's own (`#rrggbb`), or empty to leave it as it is in the photo. The
     specifications are a list of short lines (a text is split on its lines, and a typed bullet is dropped)."""
     if value in (None, ""):
         value = {}
@@ -144,7 +180,10 @@ def image_text(value) -> dict:
     specs = [s for s in specs if s]
     if len(specs) > SPECS_MAX:
         raise ApiError(400, "ai.err_specs_many", max=SPECS_MAX)
-    return {"purpose": purpose,
+    colour = str(value.get("colour") or "").strip().lower()
+    if colour and not COLOUR.match(colour):
+        raise ApiError(400, "ai.err_colour")
+    return {"purpose": purpose, "colour": colour,
             "product_name": text("ai.f_product_name", required=False, max_len=NAME_MAX)(_line(value.get("product_name"))),
             "specs": specs,
             "extra_text": text("ai.f_extra_text", required=False, max_len=EXTRA_MAX)(_line(value.get("extra_text"))),
@@ -389,7 +428,8 @@ def _clean(content: bytes, *, jpeg_quality: int = 92) -> "tuple[bytes, int, int]
 
 
 def _serialise(row) -> dict:
-    return {"id": str(row["id"]), "kind": row["kind"], "variant": row["variant"], "purpose": row["purpose"], "width_px": row["width_px"],
+    return {"id": str(row["id"]), "kind": row["kind"], "origin": row["origin"] if row["kind"] == "source" else None,
+            "variant": row["variant"], "purpose": row["purpose"], "width_px": row["width_px"],
             "height_px": row["height_px"], "is_cover": row["is_cover"], "created_at": row["created_at"].isoformat()}
 
 
@@ -400,7 +440,7 @@ def _project(conn, project_id):
     return row
 
 
-COLUMNS = "id, kind, variant, purpose, width_px, height_px, is_cover, created_at"
+COLUMNS = "id, kind, origin, variant, purpose, width_px, height_px, is_cover, created_at"
 
 
 def _job_json(row) -> dict:
@@ -437,7 +477,7 @@ def list_images(project_id):
         project = _project(conn, project_id)
         _recover(conn)
         has_logo = conn.execute("SELECT 1 FROM invoice_logo").fetchone() is not None
-        rows = conn.execute(f"SELECT {COLUMNS} FROM project_images WHERE project_id = %s ORDER BY kind DESC, created_at, id",
+        rows = conn.execute(f"SELECT {COLUMNS} FROM project_images WHERE project_id = %s ORDER BY kind DESC, origin DESC, created_at, id",
                             (project_id,)).fetchall()
         jobs = conn.execute("SELECT * FROM ai_image_jobs WHERE project_id = %s ORDER BY created_at, position",
                             (project_id,)).fetchall()
@@ -458,8 +498,13 @@ def dismiss_jobs(project_id):
 
 @bp.post("/projects/<uuid:project_id>/images/source")
 def upload_source(project_id):
+    """Keep the picture the images are made from: a photo of the object, or (`origin=model`) a picture of its 3D model as the viewer
+    in the browser drew it. One of each; a new one replaces the one of its kind."""
     upload = request.files.get("file")
+    origin = request.form.get("origin", "photo")
     try:
+        if origin not in ORIGINS:
+            raise ApiError(400, "ai.err_origin")
         if upload is None or not upload.filename:
             raise ApiError(400, "ai.err_photo_pick")
         content, width, height = _clean(upload.stream.read(MAX_PHOTO_BYTES * 2 + 1))
@@ -468,11 +513,11 @@ def upload_source(project_id):
         raise
     with pool().connection() as conn:
         project = _project(conn, project_id)
-        conn.execute("DELETE FROM project_images WHERE project_id = %s AND kind = 'source'", (project_id,))
+        conn.execute("DELETE FROM project_images WHERE project_id = %s AND kind = 'source' AND origin = %s", (project_id, origin))
         row = conn.execute(
-            f"INSERT INTO project_images (project_id, kind, mime, content, width_px, height_px) VALUES (%s, 'source', 'image/jpeg', %s, %s, %s) "
-            f"RETURNING {COLUMNS}", (project_id, content, width, height)).fetchone()
-        _log(conn, "info", "ai.log_photo", project=project)
+            f"INSERT INTO project_images (project_id, kind, origin, mime, content, width_px, height_px) "
+            f"VALUES (%s, 'source', %s, 'image/jpeg', %s, %s, %s) RETURNING {COLUMNS}", (project_id, origin, content, width, height)).fetchone()
+        _log(conn, "info", "ai.log_photo" if origin == "photo" else "ai.log_model_view", project=project)
     return jsonify(_serialise(row)), 201
 
 
@@ -522,7 +567,8 @@ def _enqueue(project_id, body: dict) -> "tuple[uuid.UUID, list]":
             conn.execute("INSERT INTO ai_image_jobs (project_id, batch_id, position, variant, description, purpose, overlay) "
                          "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                          (project_id, batch, position, variant, description, purpose,
-                          json.dumps({"text": poster if variant == PURPOSES[purpose][0][0] else None, "logo": logo, "warnings": warnings})))
+                          json.dumps({"text": poster if variant == PURPOSES[purpose][0][0] else None, "logo": logo, "warnings": warnings,
+                                      "colour": settings["colour"]})))
         _log(conn, "info", "ai.log_queued", project=project, n=len(variants))
         for key in warnings:
             _log(conn, "info", key, project=project)
@@ -565,11 +611,17 @@ def _run_batch(app, project_id, batch) -> None:
                 log.exception("could not mark AI image batch %s as failed", batch)
 
 
-def _generate(key: str, model: str, quality: str, variant: str, description: str, source: bytes, purpose=None, *, text=False, logo=False):
-    prompt = build_prompt(variant, description, purpose, text=text, logo=logo)
+def _generate(key: str, model: str, quality: str, variant: str, description: str, sources: list, purpose=None, *, text=False, logo=False,
+              colour=""):
+    """`sources` is [(origin, jpeg), ...], the photo first. One picture is sent as `image`, two as `image[]`."""
+    prompt = build_prompt(variant, description, purpose, text=text, logo=logo, sources=tuple(origin for origin, _ in sources), colour=colour)
+    if len(sources) == 1:
+        files = {"image": (f"{sources[0][0]}.jpg", sources[0][1], "image/jpeg")}
+    else:
+        files = [("image[]", (f"{origin}.jpg", content, "image/jpeg")) for origin, content in sources]
     response = _call("POST", f"{OPENAI}/images/edits", key,
                      data={"model": model, "prompt": prompt, "size": VARIANTS[variant][0], "quality": quality, "n": "1"},
-                     files={"image": ("photo.jpg", source, "image/jpeg")})
+                     files=files)
     try:
         encoded = response.json()["data"][0]["b64_json"]
         return _clean(base64.b64decode(encoded, validate=True))
@@ -598,7 +650,8 @@ def _run_next(project_id, batch) -> bool:
             return False
         conn.execute("UPDATE ai_image_jobs SET updated_at = now() WHERE batch_id = %s AND status = 'queued'", (batch,))     # still alive
         project = conn.execute("SELECT id, number, name FROM projects WHERE id = %s", (project_id,)).fetchone()
-        source = conn.execute("SELECT content FROM project_images WHERE project_id = %s AND kind = 'source'", (project_id,)).fetchone()
+        sources = [(r["origin"], bytes(r["content"])) for r in conn.execute(
+            "SELECT origin, content FROM project_images WHERE project_id = %s AND kind = 'source' ORDER BY origin DESC", (project_id,)).fetchall()]
         overlay = job["overlay"] or {}
         logo = invoice_logo.load(conn) if overlay.get("logo") else None        # no logo uploaded: the picture is made without one
         if project is not None:
@@ -608,10 +661,10 @@ def _run_next(project_id, batch) -> bool:
     started = time.monotonic()
     try:
         key, model, quality = _need_key()
-        if source is None:
+        if not sources:
             raise ApiError(400, "ai.err_no_photo")
-        content, width, height = _generate(key, model, quality, job["variant"], job["description"], bytes(source["content"]), job["purpose"],
-                                           text=bool(overlay.get("text")), logo=logo is not None)
+        content, width, height = _generate(key, model, quality, job["variant"], job["description"], sources, job["purpose"],
+                                           text=bool(overlay.get("text")), logo=logo is not None, colour=overlay.get("colour") or "")
         if job["purpose"] and (overlay.get("text") or logo):
             content = image_overlay.compose(content, job["purpose"], job["variant"], text=overlay.get("text"), logo=logo["content"] if logo else None)
     except ApiError as exc:

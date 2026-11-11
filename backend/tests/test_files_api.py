@@ -1,5 +1,6 @@
 import io
 import os
+from array import array
 
 import pytest
 
@@ -72,6 +73,54 @@ def test_estimate_uses_density_and_fill(owner):
     assert owner.get(f"/api/print-files/{fid}/estimate?density=9&fill=40").status_code == 400
     assert owner.get(f"/api/print-files/{fid}/estimate?density=abc").status_code == 400
     assert "ABS" in owner.get("/api/print-files/materials").get_json()
+
+
+# --- the model, for the viewer in the browser ---------------------------------------------------------------------
+
+def mesh(client, data, name="part.stl"):
+    fid = upload(client, data, name).get_json()["id"]
+    return client.get(f"/api/print-files/{fid}/mesh")
+
+
+def corners(res):
+    values = array("f")
+    values.frombytes(res.data)
+    assert len(values) % 9 == 0
+    return values
+
+
+def test_the_model_is_served_as_triangles(owner):
+    for data in (pf.stl_binary(), pf.stl_ascii()):
+        res = mesh(owner, data)
+        assert res.status_code == 200 and res.mimetype == "application/octet-stream" and res.headers["Cache-Control"] == "no-store"
+        values = corners(res)
+        assert len(values) == 12 * 9 and (min(values), max(values)) == (0.0, 10.0)       # the cube: twelve triangles, 10 mm
+
+
+def test_a_3mf_model_is_put_where_its_transforms_put_it(owner):
+    values = corners(mesh(owner, pf.unsliced_3mf(unit="centimeter", item_transform="1 0 0 0 1 0 0 0 1 5 0 0"), "part.3mf"))
+    xs, ys = values[0::3], values[1::3]
+    assert len(values) == 12 * 9 and (min(xs), max(xs)) == (50.0, 150.0) and (min(ys), max(ys)) == (0.0, 100.0)     # moved 5 cm, in mm
+    values = corners(mesh(owner, pf.zip_bytes(pf.component_3mf()), "bambu.3mf"))        # a part in a file of its own, twice the size
+    assert len(values) == 12 * 9 and (min(values), max(values)) == (0.0, 20.0)
+
+
+def test_a_file_without_a_model_or_with_too_much_of_it_says_so(owner, monkeypatch):
+    only_gcode = pf.zip_bytes({"Metadata/slice_info.config": pf.SLICE_INFO})
+    res = mesh(owner, only_gcode, "plate.gcode.3mf")
+    assert res.status_code == 422 and "geen 3D-model" in res.get_json()["error"]
+    from app import printfile
+    monkeypatch.setattr(printfile, "MAX_VIEW_TRIANGLES", 11)
+    for data, name in ((pf.stl_binary(), "a.stl"), (pf.stl_ascii(), "b.stl"), (pf.unsliced_3mf(), "c.3mf")):
+        res = mesh(owner, data, name)
+        assert res.status_code == 422 and "te gedetailleerd" in res.get_json()["error"], name
+    assert owner.get("/api/print-files/00000000-0000-0000-0000-000000000000/mesh").status_code == 404
+
+
+def test_the_model_needs_a_session(client, owner):
+    fid = upload(owner, pf.stl_binary()).get_json()["id"]
+    client.delete_cookie("pp_session")
+    assert client.get(f"/api/print-files/{fid}/mesh").status_code == 401
 
 
 def test_project_links_the_file_and_a_source_url(owner):
