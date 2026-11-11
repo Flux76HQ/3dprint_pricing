@@ -198,8 +198,10 @@ def state(owner, project):
     return owner.get(f"/api/projects/{project['id']}/images").get_json()
 
 
-def queue(owner, project, *variants, **extra):
-    return post(owner, f"/api/projects/{project['id']}/images/generate", {"variants": list(variants), **extra} if variants else extra)
+def queue(owner, project, *variants, purpose="webshop", **extra):
+    """Ask for pictures for a purpose: all four of it, or the ones named."""
+    body = {"purpose": purpose, **extra}
+    return post(owner, f"/api/projects/{project['id']}/images/generate", {"variants": list(variants), **body} if variants else body)
 
 
 def log(owner, lang="nl"):
@@ -244,10 +246,166 @@ def test_the_request_to_openai(ai, project, monkeypatch):
     assert Image.open(BytesIO(ai.get(f"/api/project-images/{made[0]['id']}/file").data)).size == (64, 64)
 
 
-def test_all_four_variants_are_made_by_default(ai, project, monkeypatch):
+@pytest.mark.parametrize("purpose,sizes", [
+    ("marktplaats", ["1536x1024", "1024x1024", "1024x1024", "1024x1024"]),
+    ("social", ["1024x1024"] * 4),                                                  # one shape: they are posted as a carousel
+    ("webshop", ["1024x1024", "1024x1024", "1024x1024", "1536x1024"]),
+])
+def test_four_pictures_are_made_for_the_purpose(ai, project, monkeypatch, purpose, sizes):
     fake = ready(ai, project, monkeypatch)
-    assert queue(ai, project).status_code == 202
-    assert [c["data"]["size"] for c in fake.calls] == ["1024x1024", "1536x1024", "1024x1536", "1024x1024"]
+    assert queue(ai, project, purpose=purpose).status_code == 202
+    assert [c["data"]["size"] for c in fake.calls] == sizes
+    assert all(ai_images.PURPOSES[purpose][1].strip() in c["data"]["prompt"] for c in fake.calls)
+    got = state(ai, project)
+    made = [i for i in got["images"] if i["kind"] == "generated"]
+    assert [i["variant"] for i in made] == list(ai_images.PURPOSES[purpose][0]) == got["purposes"][purpose]
+    assert {i["purpose"] for i in made} == {purpose} and got["text"]["purpose"] == purpose      # the choice is kept
+
+
+def test_nothing_is_made_before_a_purpose_is_chosen(ai, project, monkeypatch):
+    fake = ready(ai, project, monkeypatch)
+    url = f"/api/projects/{project['id']}/images/generate"
+    for body in ({}, {"purpose": None}, {"purpose": "billboard"}, {"purpose": ["webshop"]}, {"text": {"product_name": "Bak"}}):
+        assert post(ai, url, body).status_code == 400, body
+    assert queue(ai, project, "portrait").status_code == 400                       # not one of the web shop's four
+    assert not fake.calls and state(ai, project)["jobs"] == []
+    assert put_text(ai, project, {"purpose": "social"}).status_code == 200          # the saved choice is enough
+    assert post(ai, url, {}).status_code == 202 and len(fake.calls) == 4
+
+
+# --- the texts and the logo on the pictures -------------------------------------------------------------------------------
+
+TEXT = {"purpose": "webshop", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 x 10 cm", "Waterdicht PETG"],
+        "extra_text": "Op maat gemaakt", "logo": False}
+PLAIN = (10, 120, 10)                                                              # what FakeOpenAI paints
+
+
+def put_text(owner, project, body):
+    return owner.put(f"/api/projects/{project['id']}/images/settings", json=body, headers=H)
+
+
+def picture(owner, project, variant="square"):
+    """The one picture of this shape that was made."""
+    made = [i for i in state(owner, project)["images"] if i["kind"] == "generated" and i["variant"] == variant]
+    assert len(made) == 1
+    return Image.open(BytesIO(owner.get(f"/api/project-images/{made[0]['id']}/file").data)).convert("RGB")
+
+
+def wipe(owner, project):
+    for image in state(owner, project)["images"]:
+        if image["kind"] == "generated":
+            assert owner.delete(f"/api/project-images/{image['id']}", headers=H).status_code == 200
+
+
+def pixels(image):
+    return image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata()
+
+
+def near(pixel, colour, slack=12):
+    return all(abs(a - b) <= slack for a, b in zip(pixel, colour))
+
+
+def business(owner, on=True):
+    assert owner.put("/api/preferences", json={"business_mode": on}, headers=H).status_code == 200
+
+
+def set_logo(owner):
+    res = owner.post("/api/invoice-logo", data={"file": (BytesIO(png((120, 60), (0, 0, 200))), "logo.png")}, headers=H,
+                     content_type="multipart/form-data")
+    assert res.status_code == 201
+
+
+def test_the_texts_are_kept_with_the_calculation(ai, project):
+    assert state(ai, project)["text"] == {"purpose": None, "product_name": "", "specs": [], "extra_text": "", "logo": False}
+    res = put_text(ai, project, {"purpose": "social", "product_name": "  Plantenbak   Vensterbank ", "specs": "- 30 x 12 cm\n\n• Waterdicht ",
+                                 "extra_text": " Op maat\ngemaakt ", "logo": True})
+    kept = {"purpose": "social", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 cm", "Waterdicht"], "extra_text": "Op maat gemaakt",
+            "logo": True}
+    assert res.status_code == 200 and res.get_json() == kept and state(ai, project)["text"] == kept
+    # saving the calculation itself leaves them alone
+    assert ai.put(f"/api/projects/{project['id']}", json=sheet_payload(), headers=H).status_code == 200
+    assert state(ai, project)["text"] == kept
+    assert ai.put("/api/projects/00000000-0000-0000-0000-000000000000/images/settings", json=TEXT, headers=H).status_code == 404
+
+
+@pytest.mark.parametrize("body", [{"purpose": "billboard"}, {"product_name": "x" * 61}, {"extra_text": "x" * 81}, {"specs": ["x" * 61]},
+                                  {"specs": ["a", "b", "c", "d", "e", "f"]}, {"specs": [1]}, {"specs": {"a": 1}}])
+def test_the_texts_are_validated(ai, project, body):
+    assert put_text(ai, project, body).status_code == 400
+    assert state(ai, project)["text"]["product_name"] == ""
+
+
+def test_the_first_picture_becomes_a_poster_when_all_texts_are_filled_in(ai, project, monkeypatch):
+    fake = ready(ai, project, monkeypatch, result=png((1024, 1024), PLAIN))
+    assert queue(ai, project, text=TEXT).status_code == 202
+    first, *others = ai_images.PURPOSES["webshop"][0]
+    image = picture(ai, project, first)
+    assert image.size == (1024, 1024)
+    assert near(image.getpixel((512, 100)), PLAIN)                                 # the picture itself is untouched
+    assert near(image.getpixel((1000, 1010)), (242, 248, 242), 20)                 # the web shop's light field along the bottom
+    field = image.crop((0, 500, 1024, 1024))
+    assert any(near(p, (37, 99, 235), 30) for p in pixels(field))                  # its accent
+    assert any(near(p, (15, 23, 42), 30) for p in pixels(field))                   # and the headline, in ink
+    prompts = [c["data"]["prompt"] for c in fake.calls]
+    assert "caption" in prompts[0] and all("No text" in p for p in prompts)        # the model leaves room, it never writes
+    assert not any("Plantenbak Vensterbank" in p for p in prompts)
+    for n, variant in enumerate(others, 1):                                        # the other three stay photos: no text, no room asked
+        assert "caption" not in prompts[n]
+        if variant != "landscape":                                                 # (the fake answers 1024x1024 for every shape)
+            assert all(near(p, PLAIN) for p in pixels(picture(ai, project, variant))), variant
+    assert state(ai, project)["text"] == TEXT                                      # what the form held was saved with the request
+
+    for missing in ("product_name", "specs", "extra_text"):
+        wipe(ai, project)
+        assert queue(ai, project, first, text={**TEXT, missing: [] if missing == "specs" else ""}).status_code == 202
+        assert all(near(p, PLAIN) for p in pixels(picture(ai, project, first))), missing     # one field empty: no texts at all
+        assert "caption" not in fake.calls[-1]["data"]["prompt"]
+
+
+def test_every_purpose_has_its_own_template(ai, project, monkeypatch):
+    ready(ai, project, monkeypatch, result=png((1024, 1024), PLAIN))
+    corners = {}
+    for purpose, (made, _style) in ai_images.PURPOSES.items():
+        wipe(ai, project)
+        assert queue(ai, project, made[0], purpose=purpose, text=TEXT).status_code == 202
+        corners[purpose] = picture(ai, project, made[0]).getpixel((10, 1014))       # bottom left: in the colour field of every layout
+    assert sum(corners["social"]) < 200 < 600 < sum(corners["webshop"])            # a dark field for social media, a light one for a shop
+    assert set(ai_images.image_overlay.TEMPLATES) == set(ai_images.PURPOSES)
+    assert set(ai_images.image_overlay.LAYOUTS) == set(ai_images.VARIANTS)
+
+
+def test_long_texts_stay_inside_the_picture(ai):
+    text = {"product_name": "W" * 60, "specs": ["M" * 60] * 5, "extra_text": "W" * 80}
+    for variant, size in (("square", (1024, 1024)), ("landscape", (1536, 1024)), ("portrait", (1024, 1536)), ("studio", (1024, 1024)),
+                          ("square", (64, 64))):
+        source = ai_images._clean(png(size, PLAIN))[0]
+        made = Image.open(BytesIO(ai_images.image_overlay.compose(source, "social", variant, text=text, logo=png((900, 90)))))
+        assert made.size == size
+        if size[0] >= 1024:                                                        # the field leaves the picture room
+            spot = (round(size[0] * 0.8), round(size[1] * 0.3)) if variant == "landscape" else (size[0] // 2, round(size[1] * 0.12))
+            assert near(made.convert("RGB").getpixel(spot), PLAIN), variant
+
+
+def test_the_logo_goes_on_only_with_the_business_mode_and_the_switch(ai, project, monkeypatch):
+    fake = ready(ai, project, monkeypatch, result=png((1024, 1024), PLAIN))
+    set_logo(ai)
+    at = (90, 75)                                                                  # inside the logo, top left
+    blue = lambda variant: near(picture(ai, project, variant).getpixel(at), (0, 0, 200), 30)
+    assert state(ai, project)["logo_available"] is True
+    queue(ai, project, "square", text={**TEXT, "logo": True})                      # the switch is on, the business mode is not
+    assert not blue("square") and "top left" not in fake.calls[-1]["data"]["prompt"]
+    business(ai)
+    queue(ai, project, "studio", text={**TEXT, "logo": False})                     # the business mode is on, the switch is not
+    assert not blue("studio")
+    queue(ai, project, "detail", text={**TEXT, "logo": True})
+    assert blue("detail") and "top left" in fake.calls[-1]["data"]["prompt"]
+    queue(ai, project, "landscape", text={**TEXT, "logo": True, "extra_text": ""})  # the logo does not need the texts
+    image = picture(ai, project, "landscape")
+    assert near(image.getpixel(at), (0, 0, 200), 30) and near(image.getpixel((1000, 1010)), PLAIN)
+    ai.delete("/api/invoice-logo", headers=H)
+    wipe(ai, project)
+    assert queue(ai, project, "square", text={**TEXT, "logo": True}).status_code == 202      # no logo uploaded: made without one
+    assert not blue("square") and state(ai, project)["logo_available"] is False and state(ai, project)["jobs"][0]["status"] == "done"
 
 
 def test_a_description_from_the_form_wins_over_the_saved_one(ai, project, monkeypatch):
@@ -274,7 +432,7 @@ def test_nothing_is_sent_without_a_key_or_a_photo(ai, project, monkeypatch):
     assert queue(ai, project, "square").status_code == 400                         # no photo
     photo(ai, project["id"])
     for bad in (["wide"], [], "square", ["square", "square"]):
-        assert post(ai, f"/api/projects/{project['id']}/images/generate", {"variants": bad}).status_code == 400
+        assert post(ai, f"/api/projects/{project['id']}/images/generate", {"purpose": "webshop", "variants": bad}).status_code == 400
     assert not fake.calls and state(ai, project)["jobs"] == []
     assert len([e for e in log(ai) if e["level"] == "error"]) == 6                 # every refusal is in the log: no key, no photo, four bad asks
 
@@ -489,7 +647,7 @@ def test_cover_download_and_delete(ai, project, monkeypatch):
     ai.put(f"/api/project-images/{second['id']}/cover", headers=H)
     assert listed() == {project["id"]: second["id"]}                                 # one cover at a time
     download = ai.get(f"/api/project-images/{first['id']}/file?download=1")
-    assert f"berekening-{project['number']}-square.jpg" in download.headers["Content-Disposition"]
+    assert f"berekening-{project['number']}-webshop-square.jpg" in download.headers["Content-Disposition"]
     assert ai.delete(f"/api/project-images/{second['id']}", headers=H).status_code == 200
     assert listed() == {project["id"]: None} and ai.get(f"/api/project-images/{second['id']}/file").status_code == 404
 
@@ -515,7 +673,7 @@ def test_the_description_is_a_plain_project_field(owner):
 def test_pictures_and_the_description_survive_a_backup_but_the_key_does_not(ai, project, monkeypatch):
     ready(ai, project, monkeypatch)
     ai.put("/api/ai-images/settings", json={"model": "gpt-image-2-mini", "quality": "low"}, headers=H)
-    queue(ai, project, "portrait")
+    queue(ai, project, "context", purpose="social", text={**TEXT, "purpose": "social", "logo": True})
     made = [i for i in state(ai, project)["images"] if i["kind"] == "generated"][0]
     ai.put(f"/api/project-images/{made['id']}/cover", headers=H)
     text = backup(ai).get_data(as_text=True)
@@ -523,13 +681,16 @@ def test_pictures_and_the_description_survive_a_backup_but_the_key_does_not(ai, 
     doc = backup(ai).get_json()
     assert doc["projects"][0]["object_description"] == "plantenbak voor op een vensterbank"
     assert [i["kind"] for i in doc["project_images"]] == ["source", "generated"]
+    assert doc["projects"][0]["image_text"] == {**TEXT, "purpose": "social", "logo": True}
 
     ai.delete(f"/api/projects/{project['id']}", headers=H)
     assert post(ai, "/api/backup/restore", doc).status_code == 200
     restored = ai.get(f"/api/projects/{project['id']}").get_json()
     assert restored["object_description"] == "plantenbak voor op een vensterbank"
     images = state(ai, project)["images"]
-    assert [(i["kind"], i["variant"], i["is_cover"]) for i in images] == [("source", None, False), ("generated", "portrait", True)]
+    assert [(i["kind"], i["variant"], i["is_cover"]) for i in images] == [("source", None, False), ("generated", "context", True)]
+    assert [i["purpose"] for i in images] == [None, "social"]
+    assert state(ai, project)["text"] == {**TEXT, "purpose": "social", "logo": True}                 # the purpose and the texts came back
     assert ai.get("/api/projects").get_json()[0]["cover_image_id"] == images[1]["id"]
     assert ai.get("/api/ai-images/settings").get_json()["model"] == "gpt-image-2-mini"
     assert ai.get("/api/ai-images/settings").get_json()["last4"] == KEY[-4:]                    # the key was not touched by the restore
@@ -544,6 +705,10 @@ def test_a_backup_with_a_damaged_picture_is_refused_before_anything_changes(ai, 
     doc = backup(ai).get_json()
     doc["project_images"][0]["project_id"] = "00000000-0000-0000-0000-000000000000"
     assert post(ai, "/api/backup/restore", doc).status_code == 400
+    for damage in ({"image_text": {"purpose": "billboard"}}, {"image_text": {"specs": ["x"] * 9}}, {"image_text": "tekst"}):
+        doc = backup(ai).get_json()
+        doc["projects"][0].update(damage)
+        assert post(ai, "/api/backup/restore", doc).status_code == 400, damage
 
 
 def test_an_older_backup_restores_with_an_empty_description(ai, project):
@@ -553,5 +718,7 @@ def test_an_older_backup_restores_with_an_empty_description(ai, project):
         doc.pop(key, None)
     for row in doc["projects"]:
         row.pop("object_description")
+        row.pop("image_text")
     assert post(ai, "/api/backup/restore", doc).status_code == 200
     assert ai.get(f"/api/projects/{project['id']}").get_json()["object_description"] == ""
+    assert state(ai, project)["text"]["purpose"] is None

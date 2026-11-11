@@ -513,10 +513,25 @@ zie je in de app niets. De server beslist, niet de browser.
 2. **Omschrijving**: elke berekening heeft een veld *Omschrijving van het object* (bijvoorbeeld “plantenbak voor op een vensterbank”). Daarmee kiest het
    model een passende achtergrond. Dit veld staat altijd in de berekening, ook als de functie uit staat, en zit in de back-up.
 3. **Maken**: open een opgeslagen berekening, kaart *Productafbeeldingen*: upload een foto van het object (JPEG, PNG of WebP, maximaal 8 MB; hij wordt
-   opnieuw opgeslagen en tot 2048 px verkleind, zonder metadata) en kies *Afbeeldingen maken*. Er worden vier varianten gemaakt, een voor een: vierkant 1:1,
-   liggend 3:2, staand 2:3 en een studiofoto met neutrale achtergrond. Elke afbeelding kost API-tegoed bij OpenAI; de app vraagt eerst bevestiging,
-   begrenst het aantal per uur en bewaart er hooguit 12 per berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met
-   berekeningen) of verwijderen.
+   opnieuw opgeslagen en tot 2048 px verkleind, zonder metadata). Kies daarna **waar de afbeeldingen voor zijn**; zonder keuze wordt er niets gemaakt.
+   Per keuze worden vier afbeeldingen gemaakt, een voor een:
+
+   | Keuze | De vier afbeeldingen |
+   |---|---|
+   | *Marktplaatsverkoop* | liggend 3:2, studio, detail van dichtbij, vierkant; een eerlijke, heldere foto zoals een verkoper die thuis maakt |
+   | *Reclame op sociale media* | vier keer vierkant 1:1 (omgeving, in gebruik, detail, studio), zodat ze samen een carrousel vormen |
+   | *Productafbeeldingen voor een webshop* | studio, vierkant, detail van dichtbij, liggend 3:2; strak en gelijkmatig belicht |
+
+   **Teksten op de afbeelding**: *Productnaam*, *Korte specs* (een per regel, hooguit 5) en *Extra tekst*. Zijn alle drie ingevuld, dan wordt de **eerste**
+   van de vier een poster: de naam als grote kop, de specs puntsgewijs en de extra tekst op een schuin label, in een vast sjabloon met per keuze eigen kleuren.
+   De andere drie blijven foto's zonder tekst. De app zet de teksten er zelf op (het model krijgt alleen de opdracht ruimte vrij te houden), dus ze staan er
+   precies zoals getypt. Ontbreekt een van de drie velden, dan worden alle vier zonder tekst gemaakt. De schakelaar *Logo linksboven op de afbeelding* zet het
+   logo van de factuur op alle vier; hij werkt alleen als *Zakelijk* aan staat (Instellingen → Algemeen) en er een logo is geüpload. De keuze en de teksten
+   worden bij de berekening bewaard zodra je een veld verlaat, en zitten in de back-up.
+
+   Kies *Afbeeldingen maken*: de app toont eerst een **waarschuwing** met wat er gemaakt gaat worden (voor welke keuze, met of zonder teksten en logo) en dat
+   elke afbeelding API-tegoed bij OpenAI kost; met *Annuleren* breek je daar nog af. Verder begrenst de app het aantal per uur en bewaart er hooguit 12 per
+   berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met berekeningen) of verwijderen.
 4. **Op de achtergrond**: het maken gebeurt op de server, niet in je browser. Een draaiende cirkel en grijze plekhouders in de vorm van de komende afbeelding laten de
    voortgang zien (“1 van 4 klaar”); je kunt de pagina verlaten of de browser sluiten, het maken gaat door. In de lijst met berekeningen staat intussen een
    *Afbeeldingen worden gemaakt*-label, en terug in de berekening zie je de voortgang of het resultaat. Per berekening loopt er één reeks tegelijk. Zakt de server

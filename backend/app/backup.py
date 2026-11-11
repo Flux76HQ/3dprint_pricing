@@ -49,7 +49,7 @@ STALE_MINUTES = 15                           # a restore that has not moved for 
 # (key in the file, key in api.RESOURCES) -- the order is the order of insertion
 SECTIONS = (("printers", "printers"), ("tariffs", "tariffs"), ("packaging", "packaging"), ("parts", "parts"),
             ("accessories", "accessories"), ("filament_library", "filament-library"), ("spools", "spools"))
-PROJECT_COLUMNS = ("id", "number", "name", "notes", "object_description", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
+PROJECT_COLUMNS = ("id", "number", "name", "notes", "object_description", "image_text", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
                    "file_id", "stock_booked_at", "created_at", "updated_at")
 
 
@@ -115,9 +115,9 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
     except ApiError:                                             # the file went missing: the rest of the backup is still worth having
         template = None
     doc["project_images"] = [
-        {"project_id": str(r["project_id"]), "kind": r["kind"], "variant": r["variant"], "is_cover": r["is_cover"],
+        {"project_id": str(r["project_id"]), "kind": r["kind"], "variant": r["variant"], "purpose": r["purpose"], "is_cover": r["is_cover"],
          "created_at": r["created_at"].isoformat(), "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
-        for r in conn.execute("SELECT project_id, kind, variant, is_cover, created_at, content FROM project_images "
+        for r in conn.execute("SELECT project_id, kind, variant, purpose, is_cover, created_at, content FROM project_images "
                               "ORDER BY created_at, id").fetchall()]
     ai = conn.execute("SELECT model, quality FROM ai_image_settings").fetchone()      # never the API key
     if ai:
@@ -290,6 +290,7 @@ def _parse(doc, archive=None, progress=None) -> dict:
             fields = _project_fields(body)                         # validates and recalculates the totals
             fields["file_id"] = str(row["file_id"]) if row.get("file_id") else None
             projects.append({"id": _uuid(row.get("id") or uuid.uuid4(), "projects"), "fields": fields,
+                             "image_text": ai_images.image_text(row.get("image_text")),     # absent in an older file: empty
                              "stock_booked_at": _when(row.get("stock_booked_at")),
                              "created_at": _when(row.get("created_at")), "updated_at": _when(row.get("updated_at"))})
         except (ApiError, Localized) as exc:
@@ -434,6 +435,9 @@ def _parse_project_images(entries, project_ids: set) -> list:
             variant = entry.get("variant")
             if entry["kind"] == "generated" and variant not in ai_images.VARIANTS:
                 raise Localized("backup.bad_row_type")
+            purpose = entry.get("purpose") if entry["kind"] == "generated" else None     # a picture of before the purposes has none
+            if purpose is not None and (not isinstance(purpose, str) or purpose not in ai_images.PURPOSES):
+                raise Localized("backup.bad_row_type")
             try:
                 content = base64.b64decode(str(entry.get("content_b64", "")), validate=True)
             except (binascii.Error, ValueError):
@@ -446,7 +450,7 @@ def _parse_project_images(entries, project_ids: set) -> list:
                 sources.add(project_id)
             if is_cover:
                 covers.add(project_id)
-            items.append({"project_id": project_id, "kind": entry["kind"], "variant": variant if entry["kind"] == "generated" else None,
+            items.append({"project_id": project_id, "kind": entry["kind"], "variant": variant if entry["kind"] == "generated" else None, "purpose": purpose,
                           "is_cover": is_cover, "created_at": _when(entry.get("created_at")), "content": content, "width": width, "height": height})
         except (ApiError, Localized) as exc:
             raise _row_error("project_images", n, exc) from None
@@ -868,7 +872,7 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                 f = item["fields"]
                 file_id = f["file_id"] if f["file_id"] in existing_files else None     # a file that is not here is let go
                 values = {"id": item["id"], "number": item["number"], "name": f["name"], "notes": f["notes"], "object_description": f["object_description"],
-                          "margin_pct": f["margin_pct"],
+                          "image_text": json.dumps(item["image_text"]), "margin_pct": f["margin_pct"],
                           "vat_pct": f["vat_pct"], "price_rounding": f["price_rounding"], "data": json.dumps(f["data"]),
                           "totals": json.dumps(f["totals"]), "source_url": f["source_url"], "file_id": file_id,
                           "stock_booked_at": item["stock_booked_at"]}
@@ -877,10 +881,10 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                     values["updated_at"] = item["updated_at"] or item["created_at"]
                 _insert(conn, "projects", values)
             for img in plan["project_images"]:
-                conn.execute("INSERT INTO project_images (project_id, kind, variant, mime, content, width_px, height_px, is_cover"
-                             + (", created_at" if img["created_at"] else "") + ") VALUES (%s, %s, %s, 'image/jpeg', %s, %s, %s, %s"
+                conn.execute("INSERT INTO project_images (project_id, kind, variant, purpose, mime, content, width_px, height_px, is_cover"
+                             + (", created_at" if img["created_at"] else "") + ") VALUES (%s, %s, %s, %s, 'image/jpeg', %s, %s, %s, %s"
                              + (", %s" if img["created_at"] else "") + ")",
-                             (img["project_id"], img["kind"], img["variant"], img["content"], img["width"], img["height"], img["is_cover"],
+                             (img["project_id"], img["kind"], img["variant"], img["purpose"], img["content"], img["width"], img["height"], img["is_cover"],
                               *([img["created_at"]] if img["created_at"] else [])))
             if plan["ai_settings"]:                                 # model and quality only; the API key stays where it is
                 conn.execute("INSERT INTO ai_image_settings (id, model, quality) VALUES (true, %s, %s) "

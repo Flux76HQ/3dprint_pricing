@@ -7,7 +7,12 @@ database (`project_images`, like the invoice logo) and re-encoded on the way in,
 
 A picture takes a while, so asking for pictures only queues them (`ai_image_jobs`); a background thread of this web worker makes them one
 by one and writes what happens to `ai_image_log`. The browser polls the jobs, so leaving the page stops nothing. A job whose thread died
-(the container restarted) is marked failed once it has not moved for a few minutes."""
+(the container restarted) is marked failed once it has not moved for a few minutes.
+
+Pictures are made for a purpose (`PURPOSES`: a marketplace ad, social media, a web shop), four per purpose. The product name, the
+specifications and the extra text typed with the calculation (`projects.image_text`) are put on the first of the four by `image_overlay`,
+as a poster in a fixed template, never by the model, and only when all three are filled in; the logo of the invoice goes on when its switch is on and
+whoever asks has the business mode on."""
 import base64
 import json
 import logging
@@ -19,10 +24,10 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import requests
-from flask import Blueprint, Response, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, g, jsonify, request
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from . import passwords
+from . import image_overlay, invoice_logo, passwords, preferences
 from .api import text
 from .db import ForeignKeyViolation
 from .http import ApiError, RateLimiter, config, json_body, login_required, pool
@@ -57,13 +62,35 @@ VARIANTS = {
     "landscape": ("1536x1024", "a landscape 3:2 picture for a banner or a listing header",
                   "Place the object naturally in a fitting everyday setting with room around it."),
     "portrait": ("1024x1536", "a portrait picture for a marketplace listing or social media",
-                 "Place the object naturally in a fitting everyday setting, the object in the lower two thirds."),
+                 "Place the object naturally in a fitting everyday setting."),
     "studio": ("1024x1024", "a square 1:1 studio picture",
                "Place the object on a plain, light, softly lit surface with a clean neutral background and a soft shadow."),
+    "detail": ("1024x1024", "a square 1:1 close-up picture",
+               "Show the object from close by so that it fills most of the frame and its details and finish are clearly visible, "
+               "in front of a softly blurred fitting background."),
+    "context": ("1024x1024", "a square 1:1 picture that shows the object in use",
+                "Show the object in use in a fitting everyday setting, from a little further away, so that its size and its "
+                "surroundings are clear."),
 }
+# purpose -> (the four pictures made for it, what the model is told about it). A purpose is also a template of `image_overlay`.
+# The first of the four is the poster: the only one that gets the texts. The others stay photos (with the logo, when that is on).
+PURPOSES = {
+    "marktplaats": (("landscape", "studio", "detail", "square"),
+                    "The picture is for a classified ad on an online marketplace: an honest, clear photo such as a careful private seller "
+                    "takes at home in daylight, nothing glamourised. "),
+    # all four square: they are posted as one carousel, and a carousel shows every picture in the shape of its first
+    "social": (("square", "context", "detail", "studio"),
+               "The picture is for an advertisement on social media: a lively, eye-catching lifestyle photo with attractive light and colour, "
+               "taken from a slightly dynamic camera angle. "),
+    "webshop": (("studio", "square", "detail", "landscape"),
+                "The picture is a product image for a web shop: clean, professional and evenly lit, with the object as the clear subject. "),
+}
+assert set(PURPOSES) == set(image_overlay.TEMPLATES) and all(len(p[0]) == 4 and set(p[0]) <= set(VARIANTS) for p in PURPOSES.values())
+NAME_MAX, SPEC_MAX, SPECS_MAX, EXTRA_MAX = 60, 60, 5, 80          # what fits in the template
+ROOM_FOR_LOGO = "Keep the top left corner calm and uncluttered as well. "
 PROMPT = (
     "Edit this photo of a 3D-printed object into {shape}. Keep the object itself exactly as it is: same shape, proportions, colour "
-    "and visible print layers; do not redesign, restyle or add parts to it. {placement} {setting}"
+    "and visible print layers; do not redesign, restyle or add parts to it. {placement} {setting}{purpose}{room}"
     "It must look like a real photograph taken with a camera in natural light: no 3D render, illustration, cartoon or glossy CGI look. "
     "No text, no logos, no watermarks, no people."
 )
@@ -80,13 +107,73 @@ def _guard():
         raise ApiError(404, "err.not_found")
 
 
-def build_prompt(variant: str, description: str = "") -> str:
-    """The text sent with the photo. Without a description the model picks a neutral setting."""
+def build_prompt(variant: str, description: str = "", purpose: "str | None" = None, *, text: bool = False, logo: bool = False) -> str:
+    """The text sent with the photo. Without a description the model picks a neutral setting. The model never writes the texts
+    itself: it only leaves room where the template puts them (`text`) and where the logo goes (`logo`)."""
     _size, shape, placement = VARIANTS[variant]
     description = " ".join(str(description or "").split())[:500]
     setting = (f"The object is: {description}. Choose the surroundings or background that suit this object and how it is used. "
                if description and variant != "studio" else "")
-    return PROMPT.format(shape=shape, placement=placement, setting=setting)
+    return PROMPT.format(shape=shape, placement=placement, setting=setting, purpose=PURPOSES[purpose][1] if purpose else "",
+                         room=(image_overlay.room(variant) if text else "") + (ROOM_FOR_LOGO if logo else ""))
+
+
+# --- what the pictures are for, and the texts on them ---------------------------------------------------------------
+
+def _line(value) -> str:
+    return " ".join(str(value or "").split())
+
+
+def image_text(value) -> dict:
+    """The purpose and the texts of a calculation's pictures, checked: {purpose, product_name, specs, extra_text, logo}. The
+    specifications are a list of short lines (a text is split on its lines, and a typed bullet is dropped)."""
+    if value in (None, ""):
+        value = {}
+    if not isinstance(value, dict):
+        raise ApiError(400, "ai.err_text")
+    purpose = value.get("purpose") or None
+    if purpose is not None and (not isinstance(purpose, str) or purpose not in PURPOSES):
+        raise ApiError(400, "ai.err_purpose")
+    specs = value.get("specs") or []
+    if isinstance(specs, str):
+        specs = specs.splitlines()
+    if not isinstance(specs, list) or any(not isinstance(s, str) for s in specs):
+        raise ApiError(400, "ai.err_text")
+    specs = [text("ai.f_spec", required=False, max_len=SPEC_MAX)(_line(s).lstrip("-*•·").strip()) for s in specs]
+    specs = [s for s in specs if s]
+    if len(specs) > SPECS_MAX:
+        raise ApiError(400, "ai.err_specs_many", max=SPECS_MAX)
+    return {"purpose": purpose,
+            "product_name": text("ai.f_product_name", required=False, max_len=NAME_MAX)(_line(value.get("product_name"))),
+            "specs": specs,
+            "extra_text": text("ai.f_extra_text", required=False, max_len=EXTRA_MAX)(_line(value.get("extra_text"))),
+            "logo": value.get("logo") is True}
+
+
+def text_complete(settings: dict) -> bool:
+    """The texts go on the poster only when all of them are there; with one missing the pictures are made without any."""
+    return bool(settings["product_name"] and settings["specs"] and settings["extra_text"])
+
+
+def _stored_text(project) -> dict:
+    try:
+        return image_text(project["image_text"])
+    except ApiError:                                               # something an older release left: start empty rather than fail
+        return image_text({})
+
+
+def _save_text(conn, project_id, settings: dict) -> None:
+    conn.execute("UPDATE projects SET image_text = %s WHERE id = %s", (json.dumps(settings), project_id))
+
+
+@bp.put("/projects/<uuid:project_id>/images/settings")
+def put_image_text(project_id):
+    """Keep the purpose and the texts with the calculation (it is not part of the calculation's own save)."""
+    settings = image_text(json_body())
+    with pool().connection() as conn:
+        _project(conn, project_id)
+        _save_text(conn, project_id, settings)
+    return jsonify(settings)
 
 
 # --- settings ----------------------------------------------------------------------------------------------------
@@ -301,23 +388,24 @@ def _clean(content: bytes, *, jpeg_quality: int = 92) -> "tuple[bytes, int, int]
 
 
 def _serialise(row) -> dict:
-    return {"id": str(row["id"]), "kind": row["kind"], "variant": row["variant"], "width_px": row["width_px"],
+    return {"id": str(row["id"]), "kind": row["kind"], "variant": row["variant"], "purpose": row["purpose"], "width_px": row["width_px"],
             "height_px": row["height_px"], "is_cover": row["is_cover"], "created_at": row["created_at"].isoformat()}
 
 
 def _project(conn, project_id):
-    row = conn.execute("SELECT id, number, name, object_description FROM projects WHERE id = %s", (project_id,)).fetchone()
+    row = conn.execute("SELECT id, number, name, object_description, image_text FROM projects WHERE id = %s", (project_id,)).fetchone()
     if row is None:
         raise ApiError(404, "err.calc_not_found")
     return row
 
 
-COLUMNS = "id, kind, variant, width_px, height_px, is_cover, created_at"
+COLUMNS = "id, kind, variant, purpose, width_px, height_px, is_cover, created_at"
 
 
 def _job_json(row) -> dict:
     message = render(_message(row["error_key"], row["error_params"]), request_language()) if row["error_key"] else None
-    return {"id": str(row["id"]), "variant": row["variant"], "status": row["status"], "message": message, "detail": row["detail"]}
+    return {"id": str(row["id"]), "variant": row["variant"], "purpose": row["purpose"], "status": row["status"], "message": message,
+            "detail": row["detail"]}
 
 
 def _recover(conn) -> None:
@@ -334,13 +422,16 @@ def _recover(conn) -> None:
 @bp.get("/projects/<uuid:project_id>/images")
 def list_images(project_id):
     with pool().connection() as conn:
-        _project(conn, project_id)
+        project = _project(conn, project_id)
         _recover(conn)
+        has_logo = conn.execute("SELECT 1 FROM invoice_logo").fetchone() is not None
         rows = conn.execute(f"SELECT {COLUMNS} FROM project_images WHERE project_id = %s ORDER BY kind DESC, created_at, id",
                             (project_id,)).fetchall()
         jobs = conn.execute("SELECT * FROM ai_image_jobs WHERE project_id = %s ORDER BY created_at, position",
                             (project_id,)).fetchall()
-    return jsonify({"images": [_serialise(r) for r in rows], "jobs": [_job_json(j) for j in jobs]})
+    return jsonify({"images": [_serialise(r) for r in rows], "jobs": [_job_json(j) for j in jobs], "text": _stored_text(project),
+                    "logo_available": has_logo, "purposes": {name: list(made) for name, (made, _style) in PURPOSES.items()},
+                    "limits": {"product_name": NAME_MAX, "spec": SPEC_MAX, "specs": SPECS_MAX, "extra_text": EXTRA_MAX}})
 
 
 @bp.delete("/projects/<uuid:project_id>/images/jobs")
@@ -373,13 +464,24 @@ def upload_source(project_id):
 
 
 def _enqueue(project_id, body: dict) -> "tuple[uuid.UUID, list]":
-    variants = body.get("variants", list(VARIANTS))
-    if not isinstance(variants, list) or not variants or len(set(map(str, variants))) != len(variants) or any(v not in VARIANTS for v in variants):
-        raise ApiError(400, "ai.err_variant")
+    typed = image_text(body["text"]) if "text" in body else None   # what the form holds now; it is saved with the request
     _need_key()                                                    # no key: say so now, not after the queue has been made
     batch = uuid.uuid4()
     with pool().connection() as conn:
         project = _project(conn, project_id)            # two requests at once for one calculation: one waits for the other (the write lock)
+        settings = typed or _stored_text(project)
+        if "purpose" in body:
+            settings = image_text({**settings, "purpose": body["purpose"]})
+        purpose = settings["purpose"]
+        if purpose is None:
+            raise ApiError(400, "ai.err_purpose")
+        variants = body.get("variants", list(PURPOSES[purpose][0]))
+        if (not isinstance(variants, list) or not variants or len(set(map(str, variants))) != len(variants)
+                or any(v not in PURPOSES[purpose][0] for v in variants)):
+            raise ApiError(400, "ai.err_variant")
+        # the logo is the business's: it only goes on while the person asking has the business mode on, whatever the switch says
+        logo = settings["logo"] and bool(preferences.load(conn, g.user_id).get("business_mode"))
+        poster = {k: settings[k] for k in ("product_name", "specs", "extra_text")} if text_complete(settings) else None
         _recover(conn)
         if conn.execute("SELECT 1 FROM ai_image_jobs WHERE project_id = %s AND status IN ('queued', 'running')", (project_id,)).fetchone():
             raise ApiError(409, "ai.err_already_busy")
@@ -392,10 +494,13 @@ def _enqueue(project_id, body: dict) -> "tuple[uuid.UUID, list]":
         description = text("f.object_description", required=False, max_len=500)(description)
         for _ in variants:
             _limit.check("generate")
+        _save_text(conn, project_id, settings)
         conn.execute("DELETE FROM ai_image_jobs WHERE project_id = %s", (project_id,))                  # the finished ones of the last time
         for position, variant in enumerate(variants):
-            conn.execute("INSERT INTO ai_image_jobs (project_id, batch_id, position, variant, description) VALUES (%s, %s, %s, %s, %s)",
-                         (project_id, batch, position, variant, description))
+            conn.execute("INSERT INTO ai_image_jobs (project_id, batch_id, position, variant, description, purpose, overlay) "
+                         "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                         (project_id, batch, position, variant, description, purpose,
+                          json.dumps({"text": poster if variant == PURPOSES[purpose][0][0] else None, "logo": logo})))
         _log(conn, "info", "ai.log_queued", project=project, n=len(variants))
         jobs = conn.execute("SELECT * FROM ai_image_jobs WHERE batch_id = %s ORDER BY position", (batch,)).fetchall()
     return batch, jobs
@@ -436,9 +541,10 @@ def _run_batch(app, project_id, batch) -> None:
                 log.exception("could not mark AI image batch %s as failed", batch)
 
 
-def _generate(key: str, model: str, quality: str, variant: str, description: str, source: bytes):
+def _generate(key: str, model: str, quality: str, variant: str, description: str, source: bytes, purpose=None, *, text=False, logo=False):
+    prompt = build_prompt(variant, description, purpose, text=text, logo=logo)
     response = _call("POST", f"{OPENAI}/images/edits", key,
-                     data={"model": model, "prompt": build_prompt(variant, description), "size": VARIANTS[variant][0], "quality": quality, "n": "1"},
+                     data={"model": model, "prompt": prompt, "size": VARIANTS[variant][0], "quality": quality, "n": "1"},
                      files={"image": ("photo.jpg", source, "image/jpeg")})
     try:
         encoded = response.json()["data"][0]["b64_json"]
@@ -469,6 +575,8 @@ def _run_next(project_id, batch) -> bool:
         conn.execute("UPDATE ai_image_jobs SET updated_at = now() WHERE batch_id = %s AND status = 'queued'", (batch,))     # still alive
         project = conn.execute("SELECT id, number, name FROM projects WHERE id = %s", (project_id,)).fetchone()
         source = conn.execute("SELECT content FROM project_images WHERE project_id = %s AND kind = 'source'", (project_id,)).fetchone()
+        overlay = job["overlay"] or {}
+        logo = invoice_logo.load(conn) if overlay.get("logo") else None        # no logo uploaded: the picture is made without one
         if project is not None:
             _log(conn, "info", "ai.log_started", project=project, variant=job["variant"])
     if project is None:
@@ -478,7 +586,10 @@ def _run_next(project_id, batch) -> bool:
         key, model, quality = _need_key()
         if source is None:
             raise ApiError(400, "ai.err_no_photo")
-        content, width, height = _generate(key, model, quality, job["variant"], job["description"], bytes(source["content"]))
+        content, width, height = _generate(key, model, quality, job["variant"], job["description"], bytes(source["content"]), job["purpose"],
+                                           text=bool(overlay.get("text")), logo=logo is not None)
+        if job["purpose"] and (overlay.get("text") or logo):
+            content = image_overlay.compose(content, job["purpose"], job["variant"], text=overlay.get("text"), logo=logo["content"] if logo else None)
     except ApiError as exc:
         return _failed(project_id, batch, job, project, exc)
     except Exception:
@@ -488,8 +599,9 @@ def _run_next(project_id, batch) -> bool:
         with pool().connection() as conn:
             if conn.execute("SELECT 1 FROM projects WHERE id = %s", (project_id,)).fetchone() is None:
                 return False
-            conn.execute("INSERT INTO project_images (project_id, kind, variant, mime, content, width_px, height_px) "
-                         "VALUES (%s, 'generated', %s, 'image/jpeg', %s, %s, %s)", (project_id, job["variant"], content, width, height))
+            conn.execute("INSERT INTO project_images (project_id, kind, variant, purpose, mime, content, width_px, height_px) "
+                         "VALUES (%s, 'generated', %s, %s, 'image/jpeg', %s, %s, %s)",
+                         (project_id, job["variant"], job["purpose"], content, width, height))
             conn.execute("UPDATE ai_image_jobs SET status = 'done', finished_at = now(), updated_at = now() WHERE id = %s", (job["id"],))
             _log(conn, "info", "ai.log_done", project=project, variant=job["variant"], seconds=round(time.monotonic() - started))
     except ForeignKeyViolation:
@@ -541,11 +653,11 @@ def _image_row(conn, image_id, columns=COLUMNS):
 @bp.get("/project-images/<uuid:image_id>/file")
 def image_file(image_id):
     with pool().connection() as conn:
-        row = _image_row(conn, image_id, "id, kind, variant, mime, content, project_id")
+        row = _image_row(conn, image_id, "id, kind, variant, purpose, mime, content, project_id")
         number = conn.execute("SELECT number FROM projects WHERE id = %s", (row["project_id"],)).fetchone()["number"]
     headers = {"Cache-Control": "no-store"}
     if request.args.get("download") == "1":
-        name = f"berekening-{number}-{row['variant'] or 'foto'}.jpg"
+        name = f"berekening-{number}-{'-'.join(filter(None, (row['purpose'], row['variant']))) or 'foto'}.jpg"
         headers["Content-Disposition"] = f'attachment; filename="{name}"'
     return Response(bytes(row["content"]), mimetype=row["mime"], headers=headers)
 

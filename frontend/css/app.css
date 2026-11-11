@@ -358,6 +358,7 @@ input.toggle { -webkit-appearance: none; appearance: none; }
 input.toggle::after { content: ""; }
 .check input.toggle { width: 51px; height: 31px; accent-color: auto; }
 .switch:focus-visible, input.toggle:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.switch:disabled { opacity: .45; cursor: not-allowed; }
 .switch:disabled, input.toggle:disabled { opacity: .5; cursor: default; }
 @media (prefers-reduced-motion: reduce) { .switch, .switch .thumb, input.toggle, input.toggle::after { transition: none; } }
 .btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-subtle); }
@@ -544,7 +545,7 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .op-progress p { margin: 0; }
 .op-bar { width: 100%; height: 8px; accent-color: var(--accent); }
 .ai-skeleton { width: 100%; display: grid; place-items: center; border-radius: var(--radius-sm); border: 1px dashed var(--rand); background: var(--rand); animation: ai-pulse 1.6s ease-in-out infinite; }
-.ai-skeleton.v-square, .ai-skeleton.v-studio { aspect-ratio: 1 / 1; }
+.ai-skeleton.v-square, .ai-skeleton.v-studio, .ai-skeleton.v-detail, .ai-skeleton.v-context { aspect-ratio: 1 / 1; }
 .ai-skeleton.v-landscape { aspect-ratio: 3 / 2; }
 .ai-skeleton.v-portrait { aspect-ratio: 2 / 3; }
 .ai-tile.pending figcaption { flex-direction: column; align-items: flex-start; gap: 0; }
