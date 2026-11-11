@@ -545,6 +545,17 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   const bookable = state.id && !state.stock_booked_at && state.filament.some((r) => r.spool_id);
   const canBook = bookable && !spoolman;
 
+  // The colour of the 3D model where its file names none: what the first filament line says, the print file's own colour for it
+  // before that of the roll chosen for it.
+  const modelColour = () => {
+    for (const r of state.filament) {
+      const kind = kindOf(r.spool_id);
+      const colour = colourCode(r.colour) || (kind ? colourOf(kind) : '');
+      if (colour) return colour;
+    }
+    return '';
+  };
+
   redraw();
   recalc();
   return h('div', { class: 'editor' },
@@ -564,7 +575,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
           field(t('calc.object_description'), objectDescription, t('calc.object_description_hint'))),
         fileBox,
         ctx.aiImages && state.id ? productImagesCard(state.id, () => state.object_description, () => !!ctx.prefs.business_mode,
-          () => ({ fileId: state.file_id || null, colour: spools.find((sp) => state.filament.some((r) => r.spool_id === sp.id))?.colour_hex || '' })) : null,
+          () => ({ fileId: state.file_id || null, colour: modelColour() })) : null,
         sections),
       h('aside', { class: 'glass card summary', 'aria-label': t('calc.cost_price') },
         h('div', { class: 'row between' }, h('h2', {}, t('calc.cost_price')), blurToggle(ctx)), totals, calcError,

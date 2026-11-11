@@ -449,8 +449,11 @@ def _threemf_triangles(zf: zipfile.ZipFile) -> "tuple[array, bytearray]":
             emit(cpath or path, cid, [ctr] + chain, depth + 1, filament(by_part.get(cid)) or tint)
 
     unit, _, items = load(main)
+    # an object the slicer names no filament for is printed with the first one; a sliced file lists only the filaments it uses,
+    # so "the first" is the first one that has a colour
+    first = next((filament(n) for n in range(1, len(filaments) + 1) if filament(n)), None)
     for oid, tr in items:
-        emit(main, oid, [tr], 0, filament(by_object.get(oid)) or (filament(1) if filaments else None))
+        emit(main, oid, [tr], 0, filament(by_object.get(oid)) or first)
     if unit != 1.0:
         out = array("f", (v * unit for v in out))
     return out, shades

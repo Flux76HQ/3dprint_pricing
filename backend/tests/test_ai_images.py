@@ -325,7 +325,7 @@ def test_nothing_is_made_before_a_purpose_is_chosen(ai, project, monkeypatch):
 
 # --- the texts and the logo on the pictures -------------------------------------------------------------------------------
 
-TEXT = {"purpose": "webshop", "colour": "", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 x 10 cm", "Waterdicht PETG"],
+TEXT = {"purpose": "webshop", "colour": "", "scene": "", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 x 10 cm", "Waterdicht PETG"],
         "extra_text": "Op maat gemaakt", "logo": False}
 PLAIN = (10, 120, 10)                                                              # what FakeOpenAI paints
 
@@ -366,10 +366,10 @@ def set_logo(owner):
 
 
 def test_the_texts_are_kept_with_the_calculation(ai, project):
-    assert state(ai, project)["text"] == {"purpose": None, "colour": "", "product_name": "", "specs": [], "extra_text": "", "logo": False}
+    assert state(ai, project)["text"] == {"purpose": None, "colour": "", "scene": "", "product_name": "", "specs": [], "extra_text": "", "logo": False}
     res = put_text(ai, project, {"purpose": "social", "product_name": "  Plantenbak   Vensterbank ", "specs": "- 30 x 12 cm\n\n• Waterdicht ",
                                  "extra_text": " Op maat\ngemaakt ", "logo": True})
-    kept = {"purpose": "social", "colour": "", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 cm", "Waterdicht"], "extra_text": "Op maat gemaakt",
+    kept = {"purpose": "social", "colour": "", "scene": "", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 cm", "Waterdicht"], "extra_text": "Op maat gemaakt",
             "logo": True}
     assert res.status_code == 200 and res.get_json() == kept and state(ai, project)["text"] == kept
     # saving the calculation itself leaves them alone
@@ -378,7 +378,7 @@ def test_the_texts_are_kept_with_the_calculation(ai, project):
     assert ai.put("/api/projects/00000000-0000-0000-0000-000000000000/images/settings", json=TEXT, headers=H).status_code == 404
 
 
-@pytest.mark.parametrize("body", [{"purpose": "billboard"}, {"colour": "red"}, {"colour": "#12345"}, {"product_name": "x" * 61}, {"extra_text": "x" * 81}, {"specs": ["x" * 61]},
+@pytest.mark.parametrize("body", [{"purpose": "billboard"}, {"colour": "red"}, {"colour": "#12345"}, {"scene": "x" * 301}, {"product_name": "x" * 61}, {"extra_text": "x" * 81}, {"specs": ["x" * 61]},
                                   {"specs": ["a", "b", "c", "d", "e", "f"]}, {"specs": [1]}, {"specs": {"a": 1}}])
 def test_the_texts_are_validated(ai, project, body):
     assert put_text(ai, project, body).status_code == 400
@@ -476,6 +476,18 @@ def test_the_colour_of_the_item_can_be_chosen(ai, project, monkeypatch):
                        ("#1d4ed8", "blue"), ("#5b3a1e", "brown"), ("#f9a8d4", "light pink"), ("#0b3d1e", "dark green"), ("#7c3aed", "purple")):
         assert ai_images.colour_name(code) == word, code
     assert "filament (colour" not in ai_images.build_prompt("square", colour="javascript:")                   # only a real colour is ever said
+
+
+def test_the_setting_can_be_described_in_own_words(ai, project, monkeypatch):
+    fake = ready(ai, project, monkeypatch)
+    words = "op een houten bureau naast een laptop, in zacht ochtendlicht"
+    assert put_text(ai, project, {**TEXT, "scene": f"  op een houten bureau\nnaast een laptop,   in zacht ochtendlicht "}).get_json()["scene"] == words
+    assert queue(ai, project).status_code == 202
+    prompts = {job["variant"]: call["data"]["prompt"] for job, call in zip(state(ai, project)["jobs"], fake.calls)}
+    assert f"Show it in this setting: {words}. " in prompts["square"] and "plantenbak voor op een vensterbank" in prompts["square"]   # on top of the description
+    assert words not in prompts["studio"]                                          # a studio picture keeps its plain background
+    assert state(ai, project)["limits"]["scene"] == 300 and state(ai, project)["text"]["scene"] == words
+    assert "Show it in this setting" not in ai_images.build_prompt("square", "bak", scene="   ")
 
 
 def test_what_is_left_out_is_said_on_the_page(ai, project, monkeypatch):

@@ -538,6 +538,10 @@ zie je in de app niets. De server beslist, niet de browser.
    **Kleur van het item**: standaard blijft het item zoals op de foto of in het 3D-bestand. Kies *Eigen kleur kiezen* en een kleur, dan krijgt het item die kleur op de
    afbeeldingen (ook als de foto een andere kleur laat zien) en in de 3D-weergave. De kleur wordt bij de berekening bewaard.
 
+   **Setting (extra aanwijzing)**: optioneel beschrijf je in je eigen woorden de omgeving waarin het item te zien moet zijn (bijvoorbeeld “op een houten
+   bureau naast een laptop, in zacht ochtendlicht”). Dat komt boven op de *Omschrijving van het object* in de opdracht voor het model; de studiofoto houdt zijn
+   neutrale achtergrond. Het wordt bij de berekening bewaard.
+
    **Teksten op de afbeelding**: *Productnaam*, *Korte specs* (een per regel, hooguit 5) en *Extra tekst*. Zijn alle drie ingevuld, dan wordt de **eerste**
    van de vier een reclameposter: de teksten liggen als overlay over de foto (geen vlak of kader, de foto loopt er zacht in over), met de naam als grote kop
    in een posterlettertype, de specs puntsgewijs eronder en de extra tekst op een schuin label. Elke keuze heeft een eigen lettertype en accentkleur

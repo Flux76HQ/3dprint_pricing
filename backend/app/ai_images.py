@@ -89,6 +89,7 @@ PURPOSES = {
 assert set(PURPOSES) == set(image_overlay.TEMPLATES) and all(len(p[0]) == 4 and set(p[0]) <= set(VARIANTS) for p in PURPOSES.values())
 WARNINGS = ("ai.warn_text_incomplete", "ai.warn_logo_business", "ai.warn_logo_none")
 NAME_MAX, SPEC_MAX, SPECS_MAX, EXTRA_MAX = 60, 60, 5, 80          # what fits in the template
+SCENE_MAX = 300                                                   # the owner's own words about the setting, added to the prompt
 ROOM_FOR_LOGO = "Keep the top left corner calm and uncluttered as well. "
 ORIGINS = ("photo", "model")         # what a calculation's pictures are made from: a photo of the object, a picture of its 3D model
 # what the model is told it is looking at, per set of pictures it is given
@@ -139,13 +140,17 @@ def colour_name(colour: str) -> str:
 
 
 def build_prompt(variant: str, description: str = "", purpose: "str | None" = None, *, text: bool = False, logo: bool = False,
-                 sources: tuple = ("photo",), colour: str = "") -> str:
+                 sources: tuple = ("photo",), colour: str = "", scene: str = "") -> str:
     """The text sent with the photo. Without a description the model picks a neutral setting. The model never writes the texts
     itself: it only leaves room where the template puts them (`text`) and where the logo goes (`logo`)."""
     _size, shape, placement = VARIANTS[variant]
     description = " ".join(str(description or "").split())[:500]
     setting = (f"The object is: {description}. Choose the surroundings or background that suit this object and how it is used. "
                if description and variant != "studio" else "")
+    # the owner's own words about where the object is shown; they come on top of the description, and a studio picture has no setting
+    scene = " ".join(str(scene or "").split())[:SCENE_MAX]
+    if scene and variant != "studio":
+        setting += f"Show it in this setting: {scene}. "
     # a colour chosen for the item wins over the colour it has in the pictures given
     tint = (f"Show the object 3D printed in {colour_name(colour)} filament (colour {colour}), whatever colour it has in the picture given; "
             "its shape and everything else about it stay the same. " if COLOUR.match(colour or "") else "")
@@ -161,7 +166,8 @@ def _line(value) -> str:
 
 
 def image_text(value) -> dict:
-    """The purpose and the texts of a calculation's pictures, checked: {purpose, colour, product_name, specs, extra_text, logo}. The
+    """The purpose and the texts of a calculation's pictures, checked: {purpose, colour, scene, product_name, specs, extra_text, logo}.
+    `scene` is the owner's own description of the setting the object is shown in; it is added to the prompt. The
     colour is the item's own (`#rrggbb`), or empty to leave it as it is in the photo. The
     specifications are a list of short lines (a text is split on its lines, and a typed bullet is dropped)."""
     if value in (None, ""):
@@ -184,6 +190,7 @@ def image_text(value) -> dict:
     if colour and not COLOUR.match(colour):
         raise ApiError(400, "ai.err_colour")
     return {"purpose": purpose, "colour": colour,
+            "scene": text("ai.f_scene", required=False, max_len=SCENE_MAX)(_line(value.get("scene"))),
             "product_name": text("ai.f_product_name", required=False, max_len=NAME_MAX)(_line(value.get("product_name"))),
             "specs": specs,
             "extra_text": text("ai.f_extra_text", required=False, max_len=EXTRA_MAX)(_line(value.get("extra_text"))),
@@ -484,7 +491,7 @@ def list_images(project_id):
     return jsonify({"images": [_serialise(r) for r in rows], "jobs": [_job_json(j) for j in jobs], "warnings": _warnings(jobs),
                     "text": _stored_text(project),
                     "logo_available": has_logo, "purposes": {name: list(made) for name, (made, _style) in PURPOSES.items()},
-                    "limits": {"product_name": NAME_MAX, "spec": SPEC_MAX, "specs": SPECS_MAX, "extra_text": EXTRA_MAX}})
+                    "limits": {"product_name": NAME_MAX, "spec": SPEC_MAX, "specs": SPECS_MAX, "extra_text": EXTRA_MAX, "scene": SCENE_MAX}})
 
 
 @bp.delete("/projects/<uuid:project_id>/images/jobs")
@@ -568,7 +575,7 @@ def _enqueue(project_id, body: dict) -> "tuple[uuid.UUID, list]":
                          "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                          (project_id, batch, position, variant, description, purpose,
                           json.dumps({"text": poster if variant == PURPOSES[purpose][0][0] else None, "logo": logo, "warnings": warnings,
-                                      "colour": settings["colour"]})))
+                                      "colour": settings["colour"], "scene": settings["scene"]})))
         _log(conn, "info", "ai.log_queued", project=project, n=len(variants))
         for key in warnings:
             _log(conn, "info", key, project=project)
@@ -612,9 +619,10 @@ def _run_batch(app, project_id, batch) -> None:
 
 
 def _generate(key: str, model: str, quality: str, variant: str, description: str, sources: list, purpose=None, *, text=False, logo=False,
-              colour=""):
+              colour="", scene=""):
     """`sources` is [(origin, jpeg), ...], the photo first. One picture is sent as `image`, two as `image[]`."""
-    prompt = build_prompt(variant, description, purpose, text=text, logo=logo, sources=tuple(origin for origin, _ in sources), colour=colour)
+    prompt = build_prompt(variant, description, purpose, text=text, logo=logo, sources=tuple(origin for origin, _ in sources), colour=colour,
+                          scene=scene)
     if len(sources) == 1:
         files = {"image": (f"{sources[0][0]}.jpg", sources[0][1], "image/jpeg")}
     else:
@@ -664,7 +672,8 @@ def _run_next(project_id, batch) -> bool:
         if not sources:
             raise ApiError(400, "ai.err_no_photo")
         content, width, height = _generate(key, model, quality, job["variant"], job["description"], sources, job["purpose"],
-                                           text=bool(overlay.get("text")), logo=logo is not None, colour=overlay.get("colour") or "")
+                                           text=bool(overlay.get("text")), logo=logo is not None, colour=overlay.get("colour") or "",
+                                           scene=overlay.get("scene") or "")
         if job["purpose"] and (overlay.get("text") or logo):
             content = image_overlay.compose(content, job["purpose"], job["variant"], text=overlay.get("text"), logo=logo["content"] if logo else None)
     except ApiError as exc:

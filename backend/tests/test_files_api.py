@@ -155,6 +155,8 @@ def test_the_filament_colours_of_a_slicer_project_colour_its_objects(owner):
                        "Metadata/model_settings.config": settings.format(part=3)})) == {(0, 174, 66, 255)}         # a colour that is none: the object's
     assert made(**{"Metadata/model_settings.config": settings.format(part=1)}) is None                              # filaments without colours
     assert set(made(**{"Metadata/slice_info.config": pf.SLICE_INFO})) == {(0, 0, 0, 255)}                           # a sliced file: its first filament
+    only_second = pf.SLICE_INFO.replace('<filament id="1"', '<filament id="7"')     # a sliced file lists only the filaments it uses
+    assert set(made(**{"Metadata/slice_info.config": only_second})) == {(255, 255, 255, 255)}                       # the first that has a colour
     for broken in ("<config><object", "{not json"):                                 # settings that cannot be read never stop the model
         assert made(**{"Metadata/project_settings.config": broken, "Metadata/model_settings.config": broken}) is None
 
