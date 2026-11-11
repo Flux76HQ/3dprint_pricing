@@ -16,11 +16,14 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
   (met de prijs daarvan; ligt geen kleur dichtbij, dan blijft de regel *Handmatig*), printtijd naar boven op hele uren, en een printerregel
   met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik (*Filament overnemen*). In een filamentregel kies je
   een **soort uit de voorraad**, niet een losse rol: drie rollen van hetzelfde filament staan er één keer, met wat er samen van over is. Vraagt de berekening
-  meer van een soort dan er op voorraad is, dan staat er een waarschuwing onder de regels. *Verbruik afboeken van voorraad* haalt het gewicht van de soort af:
+  meer van een soort dan er op voorraad is, dan staat er een waarschuwing onder de regels. *Verbruik afboeken* (in de titelbalk van het model) haalt het gewicht van de soort af:
   eerst van de aangebroken rol, de rest van de andere rollen van die soort. Bevat het bestand meerdere platen, dan kies je in het menu *Plaat* één plaat of *Alle platen*: dan worden uren en gram van alle platen bij elkaar opgeteld (hetzelfde filament telt als één regel). Uit een **STL** (of een 3MF zonder
   slicer-data) leest de app het volume en **schat** het gewicht (volume × dichtheid × effectieve vulling);
-  de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast kun je een **link** naar het model
-  bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
+  de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast bewaar je onder *Links* **meerdere links** per model (hooguit 12):
+  de pagina van het model zelf (bijv. MakerWorld) en de plekken waar het te koop staat (*Marktplaats*, *Bol.com*, *Etsy*, *Vinted*, *Webshop*, of *Anders* met een eigen naam).
+  Een geplakt adres krijgt zijn soort vanzelf (aan de hand van de website); de pagina's worden niet uitgelezen. In het overzicht van *3D Modellen* staan de links als
+  knopjes die in een nieuw tabblad openen, en met *Filteren → Gepubliceerd op* zie je wat waar te koop staat. De soort wordt bij de link bewaard, zodat een latere
+  koppeling met zo'n verkoopkanaal daar zijn advertentie aan kan hangen; zo'n koppeling is er nu niet.
 - **Klanten en bestellingen** — klanten met klantnummer, en een bestelling van een klant met meerdere prints: besteldatum, leverdatum, de klant, een lijst met
   modellen (zoek een berekening op **nummer** of naam; elke berekening heeft een nummer, `#12`), aantallen en de totaalprijs. Per
   bestelling maak je een **factuur** en zet je de status op *nieuw*, *verwerkt*, *verstuurd* of *afgehandeld*. Zie *Bestellingen en
@@ -42,7 +45,7 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
   met *Camera gebruiken*. Bovenaan staat de
   **voorraad per soort**: de rollen die je nog hebt met hun gewicht, het totaal per soort en per materiaal (een soort is
   één barcode, of merk + materiaal + kleur). Merk (bijvoorbeeld *Bambu Lab*) en **type** (*Matte*, *Basic*, *Silk*) zijn aparte velden; een bestaande rol houdt wat in het merkveld stond en het type is leeg tot je het invult. Pas je bij een rol met barcode merk, type, materiaal, kleur, gewicht, diameter of temperaturen aan, dan vraagt de app bij het opslaan of de andere rollen met dezelfde barcode ook bijgewerkt moeten worden (alleen wat je veranderde; prijs, wat er nog over is en notities zijn per rol en blijven staan). Bovenaan *Voorraad* en *Rollen* staat een **zoekveld** dat filtert terwijl je typt: op naam (merk, type, kleur), barcode en materiaal, zonder op hoofdletters of accenten te letten; met meer woorden (*bambu zwart*) moet elk woord passen. Met de scanknop ernaast zoek je op een gescande barcode, en wat je typte blijft staan als je tussen *Voorraad* en *Rollen* wisselt. Daarnaast kun je de lijst en de voorraad filteren op **soort** (materiaal), **merk** en **type**; elke keuzelijst past zich aan de vorige keuzes aan. **Dupliceren** (op een rol onder *Rollen*) opent het rolformulier, ingevuld met die rol, met bovenaan *Aantal rollen*: zo voeg je een of meer rollen van hetzelfde filament toe. De nieuwe rollen beginnen vol en zijn niet gearchiveerd; pas aan wat anders is (de prijs, bijvoorbeeld) en ze komen er in één keer bij (alles of niets, hooguit 200). Een rol uit Spoolman dupliceer je in Spoolman. Verbruik van een berekening kun je met één klik van de voorraad afboeken.
-  Het menu *Filament* heeft twee onderdelen: **Voorraad** (de soorten als tegels met een spoel-icoon in de kleur van de rol: twee naast elkaar op een telefoon, meer op een breder scherm, hooguit drie rijen met een chevron voor de rest) en **Rollen** (de rolinfo met sorteerknoppen bovenaan: naam, materiaal, resterend, prijs per kg, nieuwste; tik nog eens om om te draaien). De kleur kies je per rol (*Kleur van de rol*); kies je niets, dan wordt hij uit de naam geraden (*zwart*, *Red*, …). Het icoon is in de stijl van de Material Design-iconen getekend, want die hebben geen filamentspoel.
+  Het menu *Filament* heeft twee onderdelen: **Voorraad** (de soorten, met een spoel-icoon in de kleur van de rol en bovenaan het totaal per materiaal) en **Rollen** (elke rol afzonderlijk). Beide werken als elk ander overzicht (zie *Overzichten*): tegels of lijst, zoeken, filteren op soort, merk en type, en sorteren. Bij *Rollen* zet de schakelaar *Groepeer per soort* de rollen van één soort bij elkaar (drie rollen Bambu Lab Basic Rood onder één kop, met de barcode erbij, zodat twee tinten rood uit elkaar blijven). Binnen een groep staan de rollen in de gekozen volgorde en de groepen staan op volgorde van hun eerste rol: gesorteerd op *Resterend* staat de soort met de leegste rol bovenaan, met die rol als eerste. Zet je de schakelaar uit, dan is het één lijst op die volgorde, en bij gelijk gewicht op naam. De kleur kies je per rol (*Kleur van de rol*); kies je niets, dan wordt hij uit de naam geraden (*zwart*, *Red*, …). Het icoon is in de stijl van de Material Design-iconen getekend, want die hebben geen filamentspoel.
 - **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. Verpakking hoort bij de **bestelling**, niet bij het model: met
   *Verpakking toevoegen* in de bestelling kies je er een uit de lijst (zie *Verpakking op een bestelling*). Een berekening die al verpakking bevatte, houdt die
   (en de kosten ervan) tot je de regel verwijdert; nieuwe verpakking kun je er niet meer aan toevoegen.
@@ -63,7 +66,7 @@ passen; 0 = geen btw). Inkoopprijzen voer je excl. btw in. De marge van een bere
 **afronding** van de prijs incl. btw (op 5/10/50 cent, hele euro's of eindigend op ,95/,99) en een afwijkende marge stel je **per bestelling**
 in (zie *Bestellingen en facturen*): de prijs incl. btw wordt dan naar boven afgerond, je marge geldt als *minimum* en de btw wordt uit de ronde prijs gehaald. Standaard btw en
 standaard afronding voor nieuwe bestellingen stel je in onder *Instellingen → Zakelijk → Btw en afronding* (het onderdeel *Zakelijk* zet je eerst aan onder *Instellingen → Algemeen*). Onder *Instellingen → Algemeen* kun je kostprijs, subtotalen en
-marge **blurren** op de berekeningenpagina (ook met de knop “Kosten verbergen” daar), handig als een klant meekijkt.
+marge **blurren** op de berekeningenpagina (ook met de knop “Kosten verbergen” daar), handig als een klant meekijkt. Dat geldt ook in de lijstweergave: de bedragen in de kolom *Kostprijs* zijn dan onleesbaar, de verkoopprijs niet.
 
 ## Starten (Docker)
 
@@ -463,10 +466,23 @@ Per persoon blijven: taal, thema en accentkleur, de balk onderaan, in- of uitkla
 - Database: `users.role` (`admin` of `user`), `users.is_owner` (hooguit één, altijd beheerder), `users.session_epoch`, de tabellen `invitations` en `shared_preferences` (migratie `0024`). Elke tabel met een `user_id` verwijst met `ON DELETE CASCADE` naar `users`; `test_users.py` controleert dat een nieuwe tabel dat ook doet.
 - **Nieuwe instellingen in `.env` of `docker-compose.yml`: geen.** Een bestaande installatie werkt zonder ingreep door; de bestaande gebruiker wordt eigenaar en beheerder en bestaande sessies blijven geldig.
 
+## Overzichten: tegels of lijst, zoeken, filteren, sorteren
+
+Elk overzicht (*3D Modellen*, *Bestellingen*, *Klanten*, *Filament*, *Verpakking*, *Onderdelen*, *Accessoires*, *Printers*, *Energie*) heeft dezelfde balk en werkt hetzelfde:
+
+- **Zoeken terwijl je typt**: elk woord moet voorkomen, hoofdletters en accenten tellen niet mee, *Esc* wist het veld. Bij *Filament* staat er een knop naast om een barcode te scannen.
+- **Filteren**: de knop *Filteren* opent de keuzelijsten (bij filament soort, merk en type; bij klanten de plaats; bij 3D-modellen waar ze gepubliceerd zijn). Elke keuze beperkt wat de volgende aanbiedt, en *Wis filters* zet alles terug. Bij *Bestellingen* staat de status als een rij knoppen met het aantal erbij.
+- **Sorteren**: kies waarop in de keuzelijst en draai de volgorde om met de pijl ernaast. In de lijstweergave sorteert een klik op een kolomkop, en een tweede klik draait om.
+- **Tegels of lijst**: de schakelaar rechts. In de lijst opent een klik op een regel het model, de bestelling of de klant; de status van een bestelling zet je er zonder haar te openen. Op een smal scherm vallen de minder belangrijke kolommen weg en veeg je de rest opzij.
+
+Weergave, volgorde en groepering onthoudt de **browser** per overzicht (dus per apparaat: een telefoon mag tegels tonen terwijl de computer een lijst toont); wat je zoekt en filtert geldt tot je de pagina verlaat. Blijft er niets over, dan zegt het overzicht dat en biedt het *Wis filters* aan.
+
+De code staat op één plek, `frontend/js/listview.js`; een pagina zegt alleen wat haar regels en kolommen zijn.
+
 ## Talen (Nederlands en Engels)
 
-De app spreekt Nederlands en Engels. De taal van de browser is de standaard (een onbekende taal wordt Engels); met de vlaggen
-in de zijbalk (op een telefoon: *Meer*) en onder *Instellingen → Weergave* kies je zelf. Die keuze wordt bij je account in de
+De app spreekt Nederlands en Engels. De taal van de browser is de standaard (een onbekende taal wordt Engels); met de vlag
+in het menu (op een telefoon: *Meer*) wissel je met één klik: de vlag toont de taal waar een klik naartoe gaat (met Nederlands op het scherm dus de Engelse). Onder *Instellingen → Weergave* staan beide vlaggen, met de gekozen taal gemarkeerd. Die keuze wordt bij je account in de
 database bewaard, dus ze geldt op al je apparaten; op de inlogschermen onthoudt de browser ze. Alle teksten staan in
 taalbestanden en niet in de code: `frontend/lang/nl.json` en `en.json` voor de schermen, `backend/app/lang/nl.json` en
 `en.json` voor wat de server meldt (foutmeldingen, de testmelding en "nieuwe versie"-melding). De server kiest de taal uit de
@@ -499,7 +515,7 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 | **Systeem** | alleen beheerders: de gezondheid van de database en de actieve koppeling ermee (zie *Instellingen → Beheer → Systeem*), en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
 | **Over** | alleen beheerders: een samenvatting (versie, database, laatste back-up, updates), de updatecontrole (zie *Meldingen en updates*) en wat er draait (zie *Instellingen → Beheer → Over*) |
 
-*Uitloggen* staat onderaan de zijbalk (op een telefoon onderaan *Meer*). *Zakelijk* verbergt alleen dat onderdeel van de instellingen; het menu
+Het menu links is gegroepeerd (*Verkoop*, *Voorraad*, *Productie*), met *Instellingen* onderaan. Daaronder staan de knop voor **licht of donker** (de maan of de zon: wat je krijgt als je klikt; *Systeem* kies je onder *Instellingen → Weergave*) en de taalvlag; *Uitloggen* staat daar los onder. Het menu klap je in en uit met de knop **bovenaan**, naast de naam (op een telefoon staan thema en taal bovenaan *Meer*, *Uitloggen* onderaan). *Zakelijk* verbergt alleen dat onderdeel van de instellingen; het menu
 *Bestellingen* blijft gewoon zichtbaar. Een onderdeel dat niet getoond wordt (bijvoorbeeld *Zakelijk* terwijl het uit staat) valt terug op
 *Algemeen*.
 
@@ -578,8 +594,8 @@ incl. btw (op 5/10/50 cent, hele euro's of eindigend op ,95/,99) kies je **per b
 bestelling, de marge is dan het *minimum* en de app toont onder de regel de marge die het echt wordt. De prijs per stuk volgt uit kostprijs, marge, btw en afronding en wordt
 door de server uitgerekend; een latere wijziging van de berekening verandert een bestelling niet, tenzij je op de **sync-knop** naast het model klikt: die haalt de kostprijs van de berekening zoals die nu is opnieuw op (marge, btw en aantal van de regel blijven; sla de bestelling daarna op). De accessoireregels van die berekening worden niet meegenomen. Bestellingen van vóór deze functie, en eigen regels, houden de prijs die erbij stond of die je typt. Met *Eigen regel toevoegen* komt er een regel bij die niet bij een berekening hoort
 (bijvoorbeeld verzending). De **totalen rekent de server uit** (`backend/app/orders.py`, nooit de browser): de btw wordt per tarief
-uit de som van de regels gehaald, zodat wat de klant betaalt precies de som van de regels is. In de lijst filter je op status
-en zoek je op naam, klantnummer, plaats, bestelnummer of factuurnummer; de status zet je daar met één keuzelijst, of in de bestelling zelf.
+uit de som van de regels gehaald, zodat wat de klant betaalt precies de som van de regels is. In het overzicht (tegels of lijst, zie *Overzichten*) filter je op status
+en zoek je op naam, klantnummer, plaats, bestelnummer of factuurnummer; de status zet je daar met één keuzelijst, of in de bestelling zelf. *Opslaan* en *Verwijderen* staan in de titelbalk van de bestelling, net als bij een 3D-model en een klant.
 
 **Losse accessoires op een bestelling**: met *Accessoire toevoegen* kies je een accessoire uit je lijst (*Onderdelen → Accessoires*, gearchiveerde staan er niet bij) en komt het als optionele regel tegen inkoopprijs (marge 0, aanpasbaar) op de bestelling, ook zonder berekening. Kies je hetzelfde nog eens, dan gaat het aantal omhoog. Een accessoire per meter of per kg krijgt dat achter de omschrijving.
 
@@ -711,7 +727,7 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
   ongeacht hoofdletters. Eén rol hoort bij één spoel: heb je twee rollen van een soort en staat er één spoel in Spoolman, dan wordt de rol gekoppeld waarvan het gewicht het dichtst bij dat van de spoel ligt en blijft de andere een eigen rol.
   De gekoppelde rol houdt zijn plek in je 3D Modellen en zijn melding *bijna op*; merk, kleur, prijs, opmerking en wat er nog op zit komen vanaf dan uit Spoolman. Een gearchiveerde rol en een rol zonder naam of barcode worden nooit gekoppeld,
   en een rol die geen spoel in Spoolman is, blijft wat hij was. Stonden er al rollen dubbel van vóór deze regel (één met de hand, één uit Spoolman), dan verwijder of archiveer je zelf de rol zonder het label *Spoolman*.
-- **Verbruik houdt Spoolman bij.** Zolang Spoolman gekoppeld is, kan je het filament van een 3D Model **niet afboeken**: de knop *Verbruik afboeken van voorraad* is weg en de server weigert het ook. Spoolman krijgt het verbruik
+- **Verbruik houdt Spoolman bij.** Zolang Spoolman gekoppeld is, kan je het filament van een 3D Model **niet afboeken**: de knop *Verbruik afboeken* is weg en de server weigert het ook. Spoolman krijgt het verbruik
   al van de printer, dus hier afboeken zou dezelfde grammen twee keer van de rol halen. Dat geldt voor alle rollen, ook voor een rol die je met de hand invoerde. Haal je het adres van Spoolman weg, dan boek je weer af als voorheen.
   Boekingen van vóór deze regel die Spoolman nog niet had gekregen, gaan nog mee bij de volgende synchronisatie (tot dan telt de app ze af van het gewicht dat Spoolman meldt); een melding die Spoolman voorgoed weigert
   (de spoel bestaat daar niet meer) wordt laten vallen.

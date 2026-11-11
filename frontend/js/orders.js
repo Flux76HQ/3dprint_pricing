@@ -1,8 +1,9 @@
 import { api, downloadFile } from './api.js';
 import { formatDate, t } from './i18n.js';
 import { customerFields, customerLines, emptyCustomer } from './customers.js';
+import { listView } from './listview.js';
 import { setDirty } from './updates.js';
-import { ROUNDINGS, confirmDialog, enhanceDialog, eur, field, fill, fmt, h, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
+import { ROUNDINGS, backLink, confirmDialog, enhanceDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
 
 // The stages of an order, in order. The words come from the language files.
 export const STATUSES = ['nieuw', 'verwerkt', 'verstuurd', 'afgehandeld'];
@@ -17,20 +18,8 @@ const stat = (label, value) => h('div', {}, h('dt', {}, label), h('dd', {}, valu
 // --- list -----------------------------------------------------------------------
 
 export function orderListView() {
-  let status = '';
-  let query = '';
-  let timer = null;
-  const list = h('div', { class: 'cards' }, h('p', { class: 'muted' }, t('common.loading')));
-  const chips = h('div', { class: 'chips', role: 'group', 'aria-label': t('orders.filter_status') });
-  const search = h('input', { type: 'text', 'aria-label': t('orders.search'), placeholder: t('orders.search_ph'), autocomplete: 'off',
-    oninput: (e) => { query = e.target.value.trim(); clearTimeout(timer); timer = setTimeout(load, 250); } });
-
-  function drawChips() {
-    chips.replaceChildren(...['', ...STATUSES].map((value) => h('button', { type: 'button', class: 'seg', 'aria-pressed': String(status === value),
-      onclick: () => { status = value; drawChips(); load(); } }, value ? statusLabel(value) : t('orders.all'))));
-  }
-
-  // One select on the card sets the stage at once, without opening the order.
+  const href = (o) => `#/bestellingen/${o.id}`;
+  // One select on the row sets the stage at once, without opening the order.
   function statusSelect(order) {
     return h('select', { class: 'status', 'data-status': order.status, 'aria-label': t('orders.status_of', { name: order.customer_name }),
       onchange: async (e) => {
@@ -41,39 +30,53 @@ export function orderListView() {
         } catch (err) { toast(err.message, 'error'); load(); }
       } }, STATUSES.map((s) => h('option', { value: s, selected: s === order.status }, statusLabel(s))));
   }
-
-  function draw(items) {
-    if (!items.length) {
-      list.replaceChildren(h('p', { class: 'empty glass card' }, status || query ? t('orders.no_match') : `${t('orders.none_yet')} ${t('common.add_first')}`));
-      return;
-    }
-    list.replaceChildren(...items.map((o) => h('article', { class: 'glass card item' },
+  const view = listView({
+    id: 'orders',
+    search: { label: t('orders.search'), placeholder: t('orders.search_ph'),
+      text: (o) => [o.customer_name, o.customer_number, o.city, o.invoice_number, String(o.number)] },
+    chips: { label: t('orders.filter_status'), all: t('orders.all'), options: STATUSES.map((s) => [s, statusLabel(s)]), value: (o) => o.status },
+    sorts: [
+      { key: 'date', label: t('orders.date'), value: (o) => `${o.order_date || ''} ${String(o.number).padStart(9, '0')}`, desc: true },
+      { key: 'number', label: t('sort.number'), value: (o) => Number(o.number), desc: true },
+      { key: 'customer', label: t('orders.customer'), value: (o) => o.customer_name },
+      { key: 'status', label: t('orders.status'), value: (o) => STATUSES.indexOf(o.status) },
+      { key: 'delivery', label: t('orders.delivery'), value: (o) => o.delivery_date || '9999' },
+      { key: 'total', label: t('orders.total'), value: (o) => Number(o.total), desc: true }],
+    tie: (o) => o.customer_name,
+    href,
+    columns: [
+      { label: t('orders.customer'), sort: 'customer', cls: 'main', cell: (o) => h('div', {}, h('a', { class: 'cell-title', href: href(o) }, o.customer_name),
+        h('div', { class: 'cell-sub muted' }, [t('orders.number', { n: o.number }), o.city].filter(Boolean).join(' · '))) },
+      { label: t('orders.date'), sort: 'date', cls: 'nowrap', cell: (o) => dateFmt(o.order_date) },
+      { label: t('orders.status'), sort: 'status', cell: (o) => statusSelect(o) },
+      { label: t('orders.lines'), cls: 'num', wide: true, cell: (o) => String(o.line_count) },
+      { label: t('orders.delivery'), sort: 'delivery', cls: 'nowrap', wide: true, cell: (o) => (o.delivery_date ? dateFmt(o.delivery_date) : '—') },
+      { label: t('orders.invoice'), wide: true, cell: (o) => o.invoice_number || '—' },
+      { label: t('orders.total'), sort: 'total', cls: 'num strong', cell: (o) => eur(o.total) }],
+    tile: (o) => h('article', { class: 'glass card item' },
       h('div', { class: 'item-head' },
-        h('div', {}, h('h3', {}, h('a', { href: `#/bestellingen/${o.id}` }, o.customer_name)),
+        h('div', {}, h('h3', {}, h('a', { href: href(o) }, o.customer_name)),
           h('p', { class: 'muted' }, `${t('orders.number', { n: o.number })} · ${dateFmt(o.order_date)}`)),
         statusSelect(o)),
       h('dl', { class: 'stats' },
         stat(t('orders.total'), eur(o.total)), stat(t('orders.lines'), String(o.line_count)),
         o.delivery_date ? stat(t('orders.delivery'), dateFmt(o.delivery_date)) : null,
-        o.invoice_number ? stat(t('orders.invoice'), o.invoice_number) : null))));
-  }
+        o.invoice_number ? stat(t('orders.invoice'), o.invoice_number) : null)),
+    empty: `${t('orders.none_yet')} ${t('common.add_first')}`, noMatch: t('orders.no_match'),
+  });
 
+  // Everything is fetched once; searching, filtering and sorting happen here while typing.
   async function load() {
-    const params = new URLSearchParams();
-    if (status) params.set('status', status);
-    if (query) params.set('q', query);
-    try { draw(await api('GET', `/api/orders${params.toString() ? `?${params}` : ''}`)); } catch (e) { toast(e.message, 'error'); }
+    try { view.setItems(await api('GET', '/api/orders')); } catch (e) { toast(e.message, 'error'); }
   }
 
-  drawChips();
   load();
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' },
       h('div', {}, h('h1', {}, t('nav.orders'))),
       h('a', { class: 'btn primary', href: '#/bestellingen/nieuw' }, icon('plus'), h('span', {}, t('orders.new')))),
     h('p', { class: 'muted page-intro' }, t('orders.intro')),
-    h('div', { class: 'filters' }, chips, search),
-    list);
+    view.el);
 }
 
 // --- editor ---------------------------------------------------------------------
@@ -449,14 +452,23 @@ function buildEditor(order, navigate, ctx) {
   }
 
   drawStatus();
+  const remove = async () => {
+    if (!(await confirmDialog(t('orders.delete_confirm', { name: state.customer_name || t('orders.number', { n: state.number }) })))) return;
+    try { await api('DELETE', `/api/orders/${state.id}`); dirty = false; setDirty(false); navigate('#/bestellingen'); } catch (e) { toast(e.message, 'error'); }
+  };
+
   drawLines();
   drawInvoice();
   drawCustomer();
   recalc();
   return h('div', { class: 'editor' },
     h('header', { class: 'page-head' },
-      h('div', {}, h('a', { class: 'back', href: '#/bestellingen' }, t('orders.back')),
-        h('h1', {}, state.id ? t('orders.title_n', { n: state.number }) : t('orders.new')))),
+      h('div', {}, backLink('#/bestellingen', t('nav.orders')),
+        h('h1', {}, state.id ? t('orders.title_n', { n: state.number }) : t('orders.new'))),
+      // As on every editor: what can be done with it in the title bar, always within reach.
+      h('div', { class: 'row actions' },
+        state.id ? h('div', { class: 'btn-group', role: 'group', 'aria-label': t('orders.actions') }, headAction('trash', t('common.delete'), remove, ' danger')) : null,
+        headAction('save', t('common.save'), save, ' primary', { id: 'save-order' }))),
     h('div', { class: 'editor-grid' },
       h('div', { class: 'stack' },
         h('div', { class: 'glass card stack' }, h('h2', {}, t('orders.order')),
@@ -483,11 +495,6 @@ function buildEditor(order, navigate, ctx) {
       h('aside', { class: 'glass card summary', 'aria-label': t('orders.total') },
         h('h2', {}, t('orders.total')), totals, calcError,
         h('div', { class: 'stack' },
-          h('button', { class: 'btn primary', type: 'button', id: 'save-order', onclick: save }, t('common.save')),
           h('h3', {}, t('orders.status')), statusBox,
-          h('h3', {}, t('orders.invoice')), invoiceBox,
-          state.id ? h('button', { class: 'btn danger', type: 'button', onclick: async () => {
-            if (!(await confirmDialog(t('orders.delete_confirm', { name: state.customer_name || t('orders.number', { n: state.number }) })))) return;
-            try { await api('DELETE', `/api/orders/${state.id}`); dirty = false; setDirty(false); navigate('#/bestellingen'); } catch (e) { toast(e.message, 'error'); }
-          } }, t('common.delete')) : null))));
+          h('h3', {}, t('orders.invoice')), invoiceBox))));
 }

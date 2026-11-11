@@ -1017,7 +1017,7 @@ export function settingsView(ctx, requested) {
       drawAppearance();
       drawNav();
       return [h('div', { class: 'glass card stack' }, h('h2', {}, t('appearance.title')),
-        h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.language')), h('p', { class: 'muted' }, t('appearance.language_hint'))), langSwitch(ctx.setLanguage)),
+        h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.language')), h('p', { class: 'muted' }, t('appearance.language_hint'))), langSwitch(ctx.setLanguage, { all: true })),
         h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.theme')), h('p', { class: 'muted' }, t('appearance.theme_hint'))), themeButtons),
         h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.accent')), h('p', { class: 'muted' }, t('appearance.accent_hint'))), accentButtons)),
       h('div', { class: 'glass card stack' }, h('h2', {}, t('appearance.nav')), navBox)];
