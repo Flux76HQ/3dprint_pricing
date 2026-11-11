@@ -418,6 +418,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
 
   // --- print file: upload, read, adopt -------------------------------------------------
   let fileMeta = null;
+  let imagesCard = null;                              // the product images card, once it is there: the 3D model is shown in it
   let plateIndex = 0;                                 // ALL_PLATES = every plate of the file together
   const ALL_PLATES = -1;
   let densities = {};
@@ -561,6 +562,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         h('div', {}, h('strong', {}, fileMeta.filename),
           h('p', { class: 'muted' }, `${fileMeta.size_bytes < 1048576 ? `${fmt(fileMeta.size_bytes / 1024, 0)} kB` : `${fmt(fileMeta.size_bytes / 1048576, 1)} MB`} · `, h('span', { class: `badge${a.exact ? '' : ' muted'}` }, a.exact ? t('file.exact') : t('file.estimated')))),
         h('div', { class: 'row' },
+          imagesCard && (a.volume_cm3 || a.bbox_mm) ? h('button', { class: 'btn small', type: 'button', onclick: () => imagesCard.showModel() }, t('file.view_3d')) : null,
           h('a', { class: 'btn small', href: `/api/print-files/${fileMeta.id}/download` }, t('file.download')),
           h('button', { class: 'btn small', type: 'button', onclick: () => { fileMeta = null; state.file_id = null; touch(); drawFile(); } }, t('file.unlink')))));
       if (a.plates.length) {
@@ -643,7 +645,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     headAction('save', t('common.save'), () => save(false), ' primary'));
   // The colour of the 3D model where its file names none: what the first filament line says, the print file's own colour for it
   // before that of the roll chosen for it.
-  const modelColour = () => {
+  const modelColour = () => {                         // (declared before the card that asks for it)
     for (const r of state.filament) {
       const kind = kindOf(r.spool_id);
       const colour = colourCode(r.colour) || (kind ? colourOf(kind) : '');
@@ -651,6 +653,11 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     }
     return '';
   };
+  if (ctx.aiImages && state.id) {
+    imagesCard = productImagesCard(state.id, () => state.object_description, () => !!ctx.prefs.business_mode,
+      () => ({ fileId: state.file_id || null, colour: modelColour() }));
+    drawFile();                                       // the file card has a button that leads to it
+  }
 
   redraw();
   recalc();
@@ -672,8 +679,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
             field(t('common.notes'), notes),
             field(t('calc.object_description'), objectDescription, t('calc.object_description_hint')))),
         fileBox,
-        ctx.aiImages && state.id ? productImagesCard(state.id, () => state.object_description, () => !!ctx.prefs.business_mode,
-          () => ({ fileId: state.file_id || null, colour: modelColour() })) : null,
+        imagesCard,
         sections),
       h('aside', { class: 'glass card summary', 'aria-label': t('calc.cost_price') },
         h('div', { class: 'row between' }, h('h2', {}, t('calc.cost_price')), blurToggle(ctx)), totals, calcError,

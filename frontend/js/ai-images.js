@@ -165,7 +165,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     viewer = null;
     const status = h('p', { class: 'hint', role: 'status' });
     if (!fileId) { fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_none'))); return; }
-    const open = h('button', { class: 'btn', type: 'button', onclick: async () => {
+    const open = h('button', { class: 'btn', type: 'button', 'data-load-model': '', onclick: async () => {
       open.disabled = true;
       status.textContent = t('ai.view3d_loading');
       let made = null;
@@ -363,7 +363,18 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
 
   setTimeout(refresh, 0);
   // Folded away until it is wanted: the pictures are not what a calculation is opened for. The choice is remembered in this browser.
-  return h('div', { class: 'glass card stack' }, foldHead('product-images', t('ai.card_title'), { open: false }), h('p', { class: 'muted' }, t('ai.card_intro')), options, modelBox, body);
+  const card = h('div', { class: 'glass card stack' }, foldHead('product-images', t('ai.card_title'), { open: false }), h('p', { class: 'muted' }, t('ai.card_intro')), options, modelBox, body);
+  // The way in from the print file: the card is folded away by default, and the model is what the file is looked at for. Unfolds
+  // the card, starts loading the model when that has not been done, and brings it into view.
+  card.showModel = () => {
+    const fold = card.querySelector('.fold-toggle');
+    if (fold && fold.getAttribute('aria-expanded') !== 'true') fold.click();
+    drawModel();
+    const load = modelBox.querySelector('[data-load-model]');
+    if (load && !load.disabled) load.click();
+    modelBox.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
+  return card;
 }
 
 /** The "busy" mark on a calculation in the list. */

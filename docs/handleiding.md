@@ -536,7 +536,8 @@ zie je in de app niets. De server beslist, niet de browser.
    van het 3D-model**, of van allebei (dan gaat de foto mee voor kleur en materiaal, het model voor de exacte vorm):
 
    - *Foto*: upload een foto (JPEG, PNG of WebP, maximaal 8 MB; hij wordt opnieuw opgeslagen en tot 2048 px verkleind, zonder metadata).
-   - *3D-model*: is er een STL of 3MF aan de berekening gekoppeld, dan toont *3D-model laden* het model in de browser. Sleep om het te draaien (of gebruik de
+   - *3D-model*: is er een STL of 3MF aan de berekening gekoppeld, dan toont *3D-model laden* het model in de browser. De kaart *Productafbeeldingen* staat
+     standaard dichtgeklapt; de knop *3D-model bekijken* bij het printbestand klapt haar open en laadt het model meteen. Sleep om het te draaien (of gebruik de
      pijltjestoetsen), zoom met twee vingers of de schuif en kies *Beeld opslaan bij deze berekening*. Het model krijgt de kleuren uit het 3D-bestand als die erin staan: de materialen van een 3MF, of bij een project uit Bambu Studio of OrcaSlicer de filamentkleur per object en onderdeel, en de kleuren die in de slicer op het model zijn geschilderd (per driehoek de kleur die het grootste deel bedekt; een STL kent geen kleur). Wat het bestand geen kleur geeft, krijgt die van de eerste filamentrol. Kies je bij *Kleur van het item* een eigen kleur, dan krijgt het hele model die kleur.
      Het beeld staat daarna naast de foto en is net als de foto te verwijderen of te vervangen door een nieuw beeld. De server leest het model uit het
      bestand; een model met meer dan 400.000 driehoeken is te gedetailleerd om te tonen, en een gesliced 3MF dat alleen de printopdracht bevat heeft geen
