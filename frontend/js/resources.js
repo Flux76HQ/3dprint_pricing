@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api, upload } from './api.js';
 import { getLanguage, t } from './i18n.js';
 import { colourOf, spoolIcon, stockTile } from './filament-ui.js';
 import { openBulkScan } from './bulk-scan.js';
@@ -40,9 +40,14 @@ function catalogue(id, path, text) {
 // What every list of things with a name shares: the order by name, and the first column (the name, with the notes under it).
 const unitName = (unit) => t((UNIT_OPTIONS.find(([value]) => value === unit) || UNIT_OPTIONS[0])[1]);
 const byName = () => ({ key: 'name', label: t('sort.name'), value: (item) => item.name });
-const nameColumn = (badge = () => null) => ({ label: t('common.name'), sort: 'name', cls: 'main', cell: (item) => h('div', {},
-  h('span', { class: 'cell-title' }, item.name, badge(item), item.archived ? h('span', { class: 'badge muted' }, t('common.archived')) : null),
-  item.notes ? h('div', { class: 'cell-sub muted' }, item.notes) : null) });
+const nameColumn = (badge = () => null, lead = () => null) => ({ label: t('common.name'), sort: 'name', cls: 'main', cell: (item) => h('div', { class: 'cell-main' }, lead(item),
+  h('div', {}, h('span', { class: 'cell-title' }, item.name, badge(item), item.archived ? h('span', { class: 'badge muted' }, t('common.archived')) : null),
+    item.notes ? h('div', { class: 'cell-sub muted' }, item.notes) : null)) });
+/** The picture of an item, small; an item without one gets a quiet placeholder, so a list of both stays aligned. The address carries the
+    version of the picture, so a new one is shown at once. */
+const imageUrl = (path, item) => `${path}/${item.id}?v=${item.image_version}`;
+const thumb = (path, item) => (item.image_version ? h('img', { class: 'item-thumb', src: imageUrl(path, item), alt: '', loading: 'lazy' })
+  : h('span', { class: 'item-thumb placeholder', 'aria-hidden': 'true' }, icon('box')));
 const perKg = (roll) => Number(roll.price) / Number(roll.roll_weight_g) * 1000;
 /** How full a roll is, as a bar. */
 function meter(roll) {
@@ -143,12 +148,14 @@ function resources() {
       { key: 'price', label: t('packaging.price'), type: 'number', required: true, hint: t('packaging.price_hint') },
       { key: 'notes', label: t('common.notes'), type: 'textarea' },
     ],
+    // An item can have a picture (a photo of the box or bag, or its logo): shown in the tile and the list, chosen in the form.
+    image: '/api/packaging-images',
     card(item) {
-      return { title: item.name, subtitle: item.notes || null, stats: [[t('packaging.per_piece'), eur(item.price)]] };
+      return { icon: thumb(this.image, item), title: item.name, subtitle: item.notes || null, stats: [[t('packaging.per_piece'), eur(item.price)]] };
     },
     search: (item) => [item.name, item.notes],
     sorts: [byName(), { key: 'price', label: t('sort.price'), value: (item) => Number(item.price) }],
-    columns: [nameColumn(), { label: t('packaging.per_piece'), sort: 'price', cls: 'num strong', cell: (item) => eur(item.price) }],
+    columns: [nameColumn(() => null, (item) => thumb('/api/packaging-images', item)), { label: t('packaging.per_piece'), sort: 'price', cls: 'num strong', cell: (item) => eur(item.price) }],
   },
   onderdelen: catalogue('parts', '/api/parts', {
     title: t('parts.title'), empty: t('parts.empty'), intro: t('parts.intro'), name_ph: t('parts.name_ph'), unit: t('parts.unit'),
@@ -493,6 +500,37 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
     return box;
   }
 
+  // The picture of an item (packaging): pick a file (on a phone: take a photo), see it, or take the present one away. It is sent after the item
+  // itself is saved, because a new item has no address yet.
+  const picture = { file: null, remove: false };
+  function pictureField() {
+    const preview = h('img', { class: 'image-preview', alt: t('packaging.image_alt'), hidden: true });
+    const mark = () => { values.image = picture.file ? `${picture.file.name}:${picture.file.size}` : (picture.remove ? 'removed' : ''); dirty.add('image'); };
+    const show = () => {
+      const kept = item && item.image_version && !picture.remove;
+      clear.hidden = !picture.file && !kept;
+      if (picture.file) {
+        const reader = new FileReader();                             // a data: address; the page may not show a blob: one
+        reader.onload = () => { preview.src = reader.result; preview.hidden = false; };
+        reader.readAsDataURL(picture.file);
+      } else if (kept) { preview.src = imageUrl(config.image, item); preview.hidden = false; } else { preview.removeAttribute('src'); preview.hidden = true; }
+    };
+    const input = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', onchange: (e) => {
+      picture.file = e.target.files[0] || null;
+      picture.remove = false;
+      mark(); show();
+    } });
+    const clear = h('button', { class: 'btn tool', type: 'button', hidden: true, onclick: () => {
+      picture.file = null;
+      picture.remove = true;
+      input.value = '';
+      mark(); show();
+    } }, icon('trash'), h('span', {}, t('packaging.image_remove')));
+    show();
+    return h('div', { class: 'stack' }, field(t('packaging.image'), input, t('packaging.image_hint')), h('div', { class: 'row' }, preview, clear));
+  }
+  let savedId = item ? item.id : null;       // once a new item is made, a second try (the picture was refused) changes it instead of making another
+
   const inputs = config.fields.map((f) => {
     if (f.type === 'barcode') return barcodeField(f);
     if (f.type === 'brand') return brandField(f);
@@ -559,7 +597,15 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
           passOn = await askToPassOn(config, item, payload);
           if (passOn === null) return;                                     // closed the question: back to the form
           await api('PATCH', `${config.path}/${item.id}`, payload);
-        } else await api('POST', config.path, copyOf ? { ...payload, count: values.count } : payload);
+        } else if (savedId) await api('PATCH', `${config.path}/${savedId}`, payload);
+        else savedId = (await api('POST', config.path, copyOf ? { ...payload, count: values.count } : payload))?.id || null;
+        if (config.image && savedId) {
+          if (picture.file) {
+            const form = new FormData();
+            form.append('file', picture.file);
+            await upload(`${config.image}/${savedId}`, form, 'PUT');
+          } else if (picture.remove && item?.image_version) await api('DELETE', `${config.image}/${savedId}`);
+        }
         let others = 0;
         if (passOn.length) others = (await api('POST', `${config.path}/${item.id}/propagate`, { fields: passOn })).updated;
         dialog.close();
@@ -572,7 +618,7 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
     copyOf ? h('p', { class: 'hint' }, t('filament.duplicate_intro', { name: spoolName(copyOf, ' · ') })) : null,
     countField,
     fresh ? libraryPicker() : null,
-    ...inputs, ...datalists, error,
+    ...inputs, config.image ? pictureField() : null, ...datalists, error,
     h('div', { class: 'row end' },
       h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
       submit))), { dirty: changed });
@@ -696,6 +742,10 @@ export function resourceView(key, sub) {
     if (stock) { stock.load(); return; }
     try {
       items = await api('GET', config.path);
+      if (config.image) {                                              // which items have a picture, in one question
+        const { images } = await api('GET', config.image).catch(() => ({ images: {} }));
+        for (const item of items) item.image_version = images[item.id] || '';
+      }
       show();
     } catch (e) { toast(e.message, 'error'); }
   }
