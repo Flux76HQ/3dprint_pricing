@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, Response, jsonify, request, send_file
 
 from . import printfile
 from .http import ApiError, config, login_required, pool
@@ -109,6 +109,21 @@ def download(file_id):
         raise ApiError(404, "files.gone")
     return send_file(path, as_attachment=True, download_name=row["filename"],
                      mimetype="application/octet-stream")
+
+
+@bp.get("/<uuid:file_id>/mesh")
+def mesh(file_id):
+    """The model as raw triangles (see `printfile.triangles`), for the viewer in the browser. Read from the file each time it is
+    asked for: it is only looked at now and then, and a copy next to every upload would double what is kept."""
+    row = _get(file_id)
+    path = _dir() / row["stored_name"]
+    if not path.is_file():
+        raise ApiError(404, "files.gone")
+    try:
+        data = printfile.triangles(path, row["kind"])
+    except printfile.PrintFileError as exc:
+        raise ApiError(422, exc) from None
+    return Response(data, mimetype="application/octet-stream")
 
 
 @bp.get("/<uuid:file_id>/estimate")

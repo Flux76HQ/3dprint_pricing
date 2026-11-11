@@ -11,6 +11,7 @@ malformed input becomes a PrintFileError with a message the user can act on.
 """
 import io
 import math
+import sys
 import re
 import struct
 import zipfile
@@ -24,6 +25,7 @@ from .i18n import Localized
 
 MAX_UNZIPPED_BYTES = 400 * 1024 * 1024
 MAX_TRIANGLES = 5_000_000
+MAX_VIEW_TRIANGLES = 400_000          # what the browser is given to draw: 36 bytes each, so at most about 14 MB
 
 DENSITIES = {"PLA": 1.24, "PETG": 1.27, "ABS": 1.04, "ASA": 1.07, "TPU": 1.21, "PA": 1.14, "PC": 1.20}
 UNIT_MM = {"micron": 0.001, "millimeter": 1.0, "centimeter": 10.0, "inch": 25.4, "foot": 304.8, "meter": 1000.0}
@@ -142,10 +144,12 @@ def _apply(m, p):
             p[0] * m[2] + p[1] * m[5] + p[2] * m[8] + m[11])
 
 
-def _parse_model_file(stream):
-    """Return (unit_scale, {object_id: object}, [build items]) for one .model XML file."""
+def _parse_model_file(stream, keep: bool = False):
+    """Return (unit_scale, {object_id: object}, [build items]) for one .model XML file. With `keep` every object also carries its
+    triangles (`tris`: nine numbers each, in the object's own coordinates), for drawing; at most MAX_VIEW_TRIANGLES per file."""
     unit, objects, items = 1.0, {}, []
     current = None
+    kept = 0
     verts = array("d")
     for event, el in ET.iterparse(stream, events=("start", "end")):
         name = _local(el.tag)
@@ -153,7 +157,7 @@ def _parse_model_file(stream):
             if name == "model":
                 unit = UNIT_MM.get(el.get("unit", "millimeter"), 1.0)
             elif name == "object":
-                current = {"id": el.get("id"), "type": el.get("type", "model"), "mesh": _Mesh(), "components": []}
+                current = {"id": el.get("id"), "type": el.get("type", "model"), "mesh": _Mesh(), "components": [], "tris": array("f")}
                 verts = array("d")
             continue
         if name == "vertex":
@@ -165,7 +169,17 @@ def _parse_model_file(stream):
         elif name == "triangle" and current is not None:
             try:
                 i, j, k = int(el.get("v1")), int(el.get("v2")), int(el.get("v3"))
-                current["mesh"].add(verts[3 * i:3 * i + 3], verts[3 * j:3 * j + 3], verts[3 * k:3 * k + 3])
+                a, b, c = verts[3 * i:3 * i + 3], verts[3 * j:3 * j + 3], verts[3 * k:3 * k + 3]
+                current["mesh"].add(a, b, c)
+                if keep:
+                    if len(a) != 3 or len(b) != 3 or len(c) != 3 or min(i, j, k) < 0:
+                        raise ValueError
+                    kept += 1
+                    if kept > MAX_VIEW_TRIANGLES:
+                        raise PrintFileError("pf.too_detailed", max=MAX_VIEW_TRIANGLES)
+                    current["tris"].extend((*a, *b, *c))
+            except PrintFileError:
+                raise
             except (TypeError, ValueError):
                 raise PrintFileError("pf.triangle_invalid") from None
             el.clear()
@@ -236,6 +250,105 @@ def threemf_geometry(zf: zipfile.ZipFile):
     if pts:
         bbox = [round((max(p[i] for p in pts) - min(p[i] for p in pts)) * unit, 1) for i in range(3)]
     return total / 1000, bbox
+
+
+# --- the model itself, for drawing -------------------------------------------------------
+
+def _stl_triangles(data: bytes) -> array:
+    out = array("f")
+    if len(data) >= 84 and len(data) == 84 + 50 * struct.unpack_from("<I", data, 80)[0]:
+        if (len(data) - 84) // 50 > MAX_VIEW_TRIANGLES:
+            raise PrintFileError("pf.too_detailed", max=MAX_VIEW_TRIANGLES)
+        for rec in struct.iter_unpack("<12fH", memoryview(data)[84:]):
+            if not _finite(rec[3:12]):
+                raise PrintFileError("pf.stl_bad_coords")
+            out.extend(rec[3:12])
+        return out
+    text = data.decode("utf-8", errors="ignore")
+    if not text.lstrip().lower().startswith("solid"):
+        raise PrintFileError("pf.stl_invalid")
+    try:
+        values = [float(v) for c in re.findall(r"vertex\s+(\S+)\s+(\S+)\s+(\S+)", text) for v in c]
+    except ValueError:
+        raise PrintFileError("pf.ascii_bad_coords") from None
+    if len(values) % 9:
+        raise PrintFileError("pf.ascii_incomplete")
+    if len(values) // 9 > MAX_VIEW_TRIANGLES:
+        raise PrintFileError("pf.too_detailed", max=MAX_VIEW_TRIANGLES)
+    if not _finite(values):
+        raise PrintFileError("pf.stl_bad_coords")
+    out.extend(values)
+    return out
+
+
+def _threemf_triangles(zf: zipfile.ZipFile) -> array:
+    """Everything on the build plate, every object where its transforms put it, in millimetres."""
+    main = "3D/3dmodel.model"
+    if main not in zf.namelist():
+        raise PrintFileError("pf.no_model")
+    parsed, out = {}, array("f")
+
+    def load(path):
+        path = path.lstrip("/")
+        if path not in parsed:
+            if path not in zf.namelist():
+                raise PrintFileError("pf.missing_file", path=path)
+            with zf.open(path) as fh:
+                parsed[path] = _parse_model_file(fh, keep=True)
+        return parsed[path]
+
+    def emit(path, oid, chain, depth=0):
+        if depth > 8:
+            raise PrintFileError("pf.too_deep")
+        _, objects, _ = load(path)
+        obj = objects.get(oid)
+        if obj is None or obj["type"] not in ("model", None):
+            return
+        tris = obj["tris"]
+        if len(out) + len(tris) > MAX_VIEW_TRIANGLES * 9:                 # an object placed many times counts every time
+            raise PrintFileError("pf.too_detailed", max=MAX_VIEW_TRIANGLES)
+        for n in range(0, len(tris), 3):
+            point = tuple(tris[n:n + 3])
+            for transform in chain:                                      # innermost first
+                point = _apply(transform, point)
+            out.extend(point)
+        for cpath, cid, ctr in obj["components"]:
+            emit(cpath or path, cid, [ctr] + chain, depth + 1)
+
+    unit, _, items = load(main)
+    for oid, tr in items:
+        emit(main, oid, [tr])
+    if unit != 1.0:
+        out = array("f", (v * unit for v in out))
+    return out
+
+
+def triangles(path: Path, extension: str) -> bytes:
+    """The model as triangles for the browser to draw: little-endian 32-bit floats, nine per triangle (x, y, z of its three
+    corners, in millimetres, Z up as on the printer). Raises PrintFileError when the file holds no model (a sliced 3MF may hold
+    only G-code) or one too detailed to send."""
+    ext = extension.lower().lstrip(".")
+    if ext == "stl":
+        out = _stl_triangles(Path(path).read_bytes())
+    elif ext == "3mf":
+        try:
+            zf = zipfile.ZipFile(path)
+        except zipfile.BadZipFile:
+            raise PrintFileError("pf.not_zip") from None
+        with zf:
+            if sum(i.file_size for i in zf.infolist()) > MAX_UNZIPPED_BYTES:
+                raise PrintFileError("pf.too_big_unpacked")
+            try:
+                out = _threemf_triangles(zf)
+            except (ET.ParseError, DefusedXmlException):
+                raise PrintFileError("pf.bad_xml") from None
+    else:
+        raise PrintFileError("pf.unsupported")
+    if not len(out) or not _finite(out):
+        raise PrintFileError("pf.no_model")
+    if sys.byteorder != "little":
+        out.byteswap()
+    return out.tobytes()
 
 
 # --- slicer data ----------------------------------------------------------------------

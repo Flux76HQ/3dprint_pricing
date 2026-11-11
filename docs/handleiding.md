@@ -512,8 +512,17 @@ zie je in de app niets. De server beslist, niet de browser.
    controleert sleutel en model. Het model (standaard `gpt-image-2`) en de kwaliteit (laag/gemiddeld/hoog; hoger kost meer) zijn instelbaar.
 2. **Omschrijving**: elke berekening heeft een veld *Omschrijving van het object* (bijvoorbeeld “plantenbak voor op een vensterbank”). Daarmee kiest het
    model een passende achtergrond. Dit veld staat altijd in de berekening, ook als de functie uit staat, en zit in de back-up.
-3. **Maken**: open een opgeslagen berekening, kaart *Productafbeeldingen*: upload een foto van het object (JPEG, PNG of WebP, maximaal 8 MB; hij wordt
-   opnieuw opgeslagen en tot 2048 px verkleind, zonder metadata). Kies daarna **waar de afbeeldingen voor zijn**; zonder keuze wordt er niets gemaakt.
+3. **Maken**: open een opgeslagen berekening, kaart *Productafbeeldingen*. De afbeeldingen worden gemaakt van een **foto van het object**, van een **beeld
+   van het 3D-model**, of van allebei (dan gaat de foto mee voor kleur en materiaal, het model voor de exacte vorm):
+
+   - *Foto*: upload een foto (JPEG, PNG of WebP, maximaal 8 MB; hij wordt opnieuw opgeslagen en tot 2048 px verkleind, zonder metadata).
+   - *3D-model*: is er een STL of 3MF aan de berekening gekoppeld, dan toont *3D-model laden* het model in de browser. Sleep om het te draaien (of gebruik de
+     pijltjestoetsen), zoom met twee vingers of de schuif, kies de kleur (standaard die van de eerste filamentrol) en kies *Beeld opslaan bij deze berekening*.
+     Het beeld staat daarna naast de foto en is net als de foto te verwijderen of te vervangen door een nieuw beeld. De server leest het model uit het
+     bestand; een model met meer dan 400.000 driehoeken is te gedetailleerd om te tonen, en een gesliced 3MF dat alleen de printopdracht bevat heeft geen
+     model. De weergave vraagt WebGL van de browser.
+
+   Kies daarna **waar de afbeeldingen voor zijn**; zonder keuze wordt er niets gemaakt.
    Per keuze worden vier afbeeldingen gemaakt, een voor een:
 
    | Keuze | De vier afbeeldingen |

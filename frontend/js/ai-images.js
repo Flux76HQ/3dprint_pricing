@@ -4,6 +4,7 @@
 // the page (or closing the browser) does not stop anything; the card picks the progress up again when it is shown.
 import { api, downloadFile, upload } from './api.js';
 import { formatDateTime, t } from './i18n.js';
+import { loadMesh, modelViewer } from './model-viewer.js';
 import { confirmDialog, field, fill, h, saveBlob, switchRow, toast } from './ui.js';
 
 const VARIANT_LABEL = { square: 'ai.variant_square', landscape: 'ai.variant_landscape', portrait: 'ai.variant_portrait', studio: 'ai.variant_studio', detail: 'ai.variant_detail', context: 'ai.variant_context' };
@@ -119,13 +120,18 @@ export function aiLogCard() {
 // --- In a calculation -------------------------------------------------------------
 
 /** The card with the photo of the object and the pictures made from it. `getDescription()` is what the form says now (saved or not);
- *  `businessOn()` says whether the business mode is on now (only then can the logo be put on a picture). */
-export function productImagesCard(projectId, getDescription, businessOn = () => false) {
+ *  `businessOn()` says whether the business mode is on now (only then can the logo be put on a picture); `getModel()` gives the print
+ *  file linked to the calculation now and the colour of its first roll ({ fileId, colour }), for the 3D view. */
+export function productImagesCard(projectId, getDescription, businessOn = () => false, getModel = () => ({ fileId: null, colour: '' })) {
   const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
   // The purpose and the texts. Built once, when the first answer is in: the part below is redrawn while pictures are made, and a
   // field that is redrawn loses what is being typed in it.
   const options = h('div', { class: 'stack', hidden: true });
   let form = null;
+  // The 3D model of the print file, to turn and take a picture of. It keeps its own box, for the same reason: redrawing it would
+  // throw the loaded model away.
+  const modelBox = h('div', { class: 'stack' });
+  let shownFile;                                                   // the file the box was last built for (undefined: not built yet)
   let images = [];
   let jobs = [];
   let warnings = [];
@@ -150,6 +156,44 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     draw();
   }
   const refresh = keepFresh(body, load, POLL_MS, busy);
+
+  function drawModel() {
+    const { fileId, colour } = getModel();
+    if (fileId === shownFile) return;                              // another file was linked (or none): start again
+    shownFile = fileId;
+    const status = h('p', { class: 'hint', role: 'status' });
+    if (!fileId) { fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_none'))); return; }
+    const open = h('button', { class: 'btn', type: 'button', onclick: async () => {
+      open.disabled = true;
+      status.textContent = t('ai.view3d_loading');
+      let viewer = null;
+      try {
+        viewer = modelViewer(await loadMesh(fileId), colour);
+      } catch (e) { status.textContent = e.message; open.disabled = false; return; }
+      if (shownFile !== fileId) return;                            // the file changed while this one was loading
+      if (!viewer) { status.textContent = t('ai.view3d_no_webgl'); return; }
+      status.textContent = '';
+      const tint = h('input', { type: 'color', value: /^#[0-9a-f]{6}$/i.test(colour) ? colour : '#8c96a3', oninput: () => viewer.setColour(tint.value) });
+      const save = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
+        save.disabled = true;
+        try {
+          const data = new FormData();
+          data.append('file', await viewer.snapshot(), '3d-model.png');
+          data.append('origin', 'model');
+          await upload(`/api/projects/${projectId}/images/source`, data);
+          lastError = '';
+          toast(t('ai.view3d_saved'));
+        } catch (e) { lastError = e.message; }
+        save.disabled = false;
+        await refresh();
+      } }, t('ai.view3d_save'));
+      fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_intro')),
+        viewer.element, h('p', { class: 'hint' }, t('ai.view3d_hint')),
+        h('div', { class: 'model-controls' }, field(t('ai.view3d_colour'), tint), field(t('ai.view3d_zoom'), viewer.controls[0]), viewer.controls[1]),
+        h('div', { class: 'row' }, save), status);
+    } }, t('ai.view3d_load'));
+    fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_intro')), h('div', { class: 'row' }, open), status);
+  }
 
   async function addPhoto(file) {
     const form = new FormData();
@@ -250,24 +294,35 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   }
 
   function draw() {
-    const source = images.find((i) => i.kind === 'source');
+    drawModel();
+    const source = images.find((i) => i.kind === 'source' && i.origin !== 'model');
+    const view = images.find((i) => i.kind === 'source' && i.origin === 'model');
     const made = images.filter((i) => i.kind === 'generated');
     const coming = jobs.filter((j) => j.status === 'queued' || j.status === 'running');
     const failed = jobs.filter((j) => j.status === 'failed');
     const finished = jobs.filter((j) => j.status === 'done').length;
     const working = coming.length > 0;
+    // What the pictures are made from: the photo, the saved view of the 3D model, or both.
+    const kept = (image, caption, alt) => h('figure', { class: 'ai-tile ai-kept' },
+      h('img', { class: 'ai-source', src: imageUrl(image.id), alt }),
+      h('figcaption', {}, h('strong', {}, caption)),
+      h('div', { class: 'row' }, h('button', { class: 'btn small danger', type: 'button', disabled: working, onclick: async () => {
+        if (await confirmDialog(t('ai.delete_confirm'), t('common.delete'))) act(() => api('DELETE', `/api/project-images/${image.id}`));
+      } }, t('common.delete'))));
     const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', disabled: uploading || working, 'aria-label': t('ai.photo_choose'),
       onchange: () => { const chosen = file.files[0]; if (chosen) addPhoto(chosen); } });
     const purposeChosen = !!(form && form.values().purpose);
     fill(body,
-      source ? h('img', { class: 'ai-source', src: imageUrl(source.id), alt: t('ai.photo_alt') }) : h('p', { class: 'muted' }, t('ai.photo_none')),
+      source || view ? h('div', { class: 'ai-sources' },
+        source ? kept(source, t('ai.photo_caption'), t('ai.photo_alt')) : null,
+        view ? kept(view, t('ai.view_caption'), t('ai.view_alt')) : null) : h('p', { class: 'muted' }, t('ai.photo_none')),
       field(source ? t('ai.photo_replace') : t('ai.photo_choose'), file, t('ai.photo_hint')),
       uploading ? h('div', { class: 'ai-progress', role: 'status' }, spinner(), h('strong', {}, t('ai.uploading'))) : null,
       working
         ? h('div', { class: 'ai-progress', role: 'status' }, spinner(),
           h('div', {}, h('strong', {}, t('ai.generating', { done: finished, n: finished + coming.length })), h('p', { class: 'hint' }, t('ai.generating_hint'))))
         : h('div', { class: 'stack' },
-          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !source || uploading || !purposeChosen, onclick: generate }, t('ai.generate'))),
+          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !(source || view) || uploading || !purposeChosen, onclick: generate }, t('ai.generate'))),
           form && !purposeChosen ? h('p', { class: 'hint' }, t('ai.purpose_needed')) : null),
       h('p', { class: 'error', role: 'alert', hidden: !lastError }, lastError),
       // Everything that went wrong or was left out, here on the page and as soon as it is known (also while the rest is still being made).
@@ -285,7 +340,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   }
 
   setTimeout(refresh, 0);
-  return h('div', { class: 'glass card stack' }, h('h2', {}, t('ai.card_title')), h('p', { class: 'muted' }, t('ai.card_intro')), options, body);
+  return h('div', { class: 'glass card stack' }, h('h2', {}, t('ai.card_title')), h('p', { class: 'muted' }, t('ai.card_intro')), options, modelBox, body);
 }
 
 /** The "busy" mark on a calculation in the list. */
