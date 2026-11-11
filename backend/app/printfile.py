@@ -29,6 +29,8 @@ MAX_TRIANGLES = 5_000_000
 MAX_VIEW_TRIANGLES = 400_000          # what the browser is given to draw: 36 bytes each (40 with a colour), so at most about 16 MB
 MAX_COLOURS = 256                     # colours read from one group of materials, or filaments of one project
 MAX_SETTINGS_BYTES = 8 * 1024 * 1024  # a slicer's settings file that is read for the filament colours
+MAX_PAINT_DIGITS = 20_000            # of one triangle's painted-on colours
+PAINT_ATTRIBUTES = ("paint_color", "mmu_segmentation")      # Bambu Studio / OrcaSlicer, PrusaSlicer
 MESH_MAGIC = b"PPM1"
 NO_COLOUR = b"\x00\x00\x00\x00"
 
@@ -166,7 +168,7 @@ def _parse_model_file(stream, keep: bool = False):
                 unit = UNIT_MM.get(el.get("unit", "millimeter"), 1.0)
             elif name == "object":
                 current = {"id": el.get("id"), "type": el.get("type", "model"), "mesh": _Mesh(), "components": [], "tris": array("f"),
-                           "cols": bytearray(), "pid": el.get("pid"), "pindex": el.get("pindex") or "0"}
+                           "cols": bytearray(), "paint": bytearray(), "pid": el.get("pid"), "pindex": el.get("pindex") or "0"}
                 verts = array("d")
             elif name in ("basematerials", "colorgroup"):
                 group = groups.setdefault(el.get("id"), [])
@@ -202,6 +204,7 @@ def _parse_model_file(stream, keep: bool = False):
                     at = el.get("p1") if el.get("pid") else current["pindex"]
                     at = int(at) if at is not None and str(at).isdigit() else -1
                     current["cols"].extend((*listed[at], 255) if 0 <= at < len(listed) and listed[at] else NO_COLOUR)
+                    current["paint"].append(_painted(next((v for k, v in el.attrib.items() if _local(k) in PAINT_ATTRIBUTES), "")))
             except PrintFileError:
                 raise
             except (TypeError, ValueError):
@@ -305,6 +308,46 @@ def _stl_triangles(data: bytes) -> array:
     return out
 
 
+def _painted(code: str) -> int:
+    """The filament a triangle is painted with in Bambu Studio, OrcaSlicer or PrusaSlicer (1 is the first), or 0 for "not painted".
+    The slicer stores a triangle that is painted in parts as a tree of ever smaller triangles (hex digits, read from the end: the
+    low two bits say into how many it is split, the high two the filament of one that is not, with 3 meaning "the next digit, plus
+    3"). A triangle is drawn in one colour here, so this gives the filament that covers most of it."""
+    if not code or len(code) > MAX_PAINT_DIGITS:
+        return 0
+    try:
+        digits = [int(char, 16) for char in reversed(code)]
+    except ValueError:
+        return 0
+    share, at, todo = {}, 0, [1.0]                                       # the pieces still to read, each with its share of the triangle
+    while todo:
+        weight = todo.pop()
+        if at >= len(digits):
+            return 0
+        digit, at = digits[at], at + 1
+        split = digit & 3
+        if split:
+            todo.extend([weight / (split + 1)] * (split + 1))
+            continue
+        state = digit >> 2
+        if state == 3:                                                   # filament 3 and up: the following digit(s) count on
+            more = 0
+            while at < len(digits) and digits[at] == 15:
+                more, at = more + 15, at + 1
+            if at >= len(digits):
+                return 0
+            state, at = digits[at] + more + 3, at + 1
+        share[state] = share.get(state, 0.0) + weight
+    best = max(share, key=share.get)
+    return best if 0 <= best <= 255 else 0
+
+
+def colour_code(text) -> str:
+    """A colour as `#rrggbb` in lower case; a slicer may write it with capitals or with a fourth pair for opacity. '' for no colour."""
+    rgb = _rgb(text)
+    return "#%02x%02x%02x" % rgb if rgb else ""
+
+
 def _rgb(text) -> "tuple | None":
     """(red, green, blue) of `#RRGGBB` or `#RRGGBBAA`; None for anything else."""
     text = str(text or "").strip()
@@ -317,7 +360,7 @@ def _slicer_colours(zf: zipfile.ZipFile) -> "tuple[dict, dict, list]":
     """What Bambu Studio and OrcaSlicer keep next to the model instead of in it: which filament an object and each of its parts
     is printed with (`Metadata/model_settings.config`), and the colours of the filaments (`Metadata/project_settings.config`,
     else those of a sliced file's `slice_info.config`). Returns ({object id: filament number}, {part id: number}, [colours]).
-    Painted-on colours (per triangle, in the slicer's own encoding) are not read. Nothing here is essential: whatever cannot be
+    A colour painted on a triangle is read with the triangle (`_painted`). Nothing here is essential: whatever cannot be
     read is left out, and the model is then drawn without a colour of its own."""
     names = set(zf.namelist())
     objects, parts, colours = {}, {}, []
@@ -393,12 +436,14 @@ def _threemf_triangles(zf: zipfile.ZipFile) -> "tuple[array, bytearray]":
             for transform in chain:                                      # innermost first
                 point = _apply(transform, point)
             out.extend(point)
-        cols = obj["cols"]
-        if tint is not None:                                              # the slicer's filament, where the model names no colour
-            cols = bytearray(cols)
+        cols, paint = obj["cols"], obj["paint"]
+        if tint is not None or any(paint):                                # the slicer's filament, where the model names no colour:
+            cols = bytearray(cols)                                        # the one painted on the triangle, else the object's
             for n in range(0, len(cols), 4):
                 if not cols[n + 3]:
-                    cols[n:n + 4] = tint
+                    shade = (filament(paint[n // 4]) if paint[n // 4] else None) or tint
+                    if shade is not None:
+                        cols[n:n + 4] = shade
         shades.extend(cols)
         for cpath, cid, ctr in obj["components"]:
             emit(cpath or path, cid, [ctr] + chain, depth + 1, filament(by_part.get(cid)) or tint)
@@ -477,7 +522,7 @@ def _plates_from_slice_info(zf):
         for f in plate.findall("filament"):
             grams = _number(f.get("used_g"))
             if grams:
-                filaments.append({"type": f.get("type") or "", "color": (f.get("color") or "").lower(),
+                filaments.append({"type": f.get("type") or "", "color": colour_code(f.get("color")) or (f.get("color") or "").lower(),
                                   "grams": round(grams, 1), "meters": round(_number(f.get("used_m")) or 0, 2)})
         seconds = _number(meta.get("prediction"))
         grams_total = round(sum(f["grams"] for f in filaments), 1) or _number(meta.get("weight"))

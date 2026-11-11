@@ -252,7 +252,7 @@ output.cost { font-weight: 650; font-variant-numeric: tabular-nums; min-height: 
 .line > :first-child, .line .cost-field { grid-column: auto; }
 .line > .btn.icon-only { justify-self: end; }
 @media (min-width: 720px) {
-  .line.filament { grid-template-columns: 1.4fr 1.4fr .8fr .8fr .8fr auto; }
+  .line.filament { grid-template-columns: 1.9fr 1.3fr .8fr .8fr .8fr auto; }
   .line.parts { grid-template-columns: 1.6fr .6fr 1fr 1fr .8fr auto; }
   .line.parts.pack { grid-template-columns: 1.4fr 1.3fr .5fr .9fr .9fr .7fr auto; }
   .line.print { grid-template-columns: 1.6fr .6fr .9fr .9fr auto; }
@@ -580,6 +580,9 @@ code { overflow-wrap: anywhere; white-space: normal; }
 /* Filament: the stock as tiles (two side by side on a phone, more when there is room), the roll icon and the sort buttons */
 .item-head .grow { flex: 1; min-width: 0; }
 .item-head { align-items: flex-start; }
+/* The colour of a filament line, in front of its choice. */
+.with-swatch { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.with-swatch select { flex: 1; min-width: 0; }
 .spool-icon { flex: none; --spool-colour: var(--lijn); }
 .spool-flange { fill: var(--surface-solid); stroke: var(--rand); stroke-width: 1.2; }
 .spool-wound { fill: var(--spool-colour); stroke: color-mix(in srgb, var(--spool-colour) 55%, #000); stroke-width: .6; }
