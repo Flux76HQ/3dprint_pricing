@@ -77,6 +77,10 @@ Same machine, same data, same day; the working tree of the pull request on top o
 | Opening the model editor: API bytes | 122 kB | 20 kB |
 | Serving all 28 script modules, in the app (no network) | 21.2 ms | 11.6 ms |
 
+`beta` took another change (the shared list view, pull request 121) while this was measured. On the merged tree (`ed88459`, same day and
+machine) opening the app again is 6 requests and 26 kB, a first visit 63 requests and 378 kB, and `GET /api/projects` takes a median of
+24.6 ms (its rows now carry the model's links). That run is the "before" of the sections below.
+
 What changed:
 
 - **A URL of the running release is `immutable`** (`backend/app/static_files.py`). Scripts, the style sheet, icons and now the
