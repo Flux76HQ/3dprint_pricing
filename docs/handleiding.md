@@ -847,6 +847,36 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
 - **De bibliotheek blijft.** Spoolman vervangt de bibliotheek niet: zonder `SPOOLMAN_URL` werkt alles als voorheen, en de bibliotheek (GitHub-sync, factuurimport, bijdragen) kan ernaast blijven bestaan.
 - **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft. De wachtrij met eerdere boekingen die nog naar Spoolman moeten zit er niet in (werk in uitvoering).
 
+## HaspelSync (optioneel)
+
+[HaspelSync](https://github.com/Rdiger-36/HaspelSync) koppelt Bambu Lab-printers aan Spoolman: het leest wat de AMS van een printer bevat en boekt na elke print het verbruik. Met deze koppeling laat de pagina *Printers*
+zien **wat een printer nu print en welk filament erin zit**. De app **leest alleen** uit HaspelSync; er wordt daar niets door gewijzigd. De koppeling staat los van de [Spoolman-koppeling](#spoolman-optioneel) van deze app: HaspelSync praat zelf met Spoolman,
+en de grammen die je bij een slot ziet zijn wat Spoolman via HaspelSync meldt.
+
+**Instellen** (alleen beheerders): *Instellingen → Koppelingen*, kaart *HaspelSync*. Zonder adres is er geen HaspelSync en blijft alles zoals het was.
+
+- **Adres.** Het adres waarop **de server van de app** HaspelSync bereikt, bijvoorbeeld `http://haspelsync:4000` in hetzelfde Docker-netwerk of `http://192.168.1.20:4000`; `http` mag, zonder inlog of vraagteken. HaspelSync controleert de naam
+  waaronder het wordt aangesproken: een **IP-adres, `localhost` en een naam die op `.local` eindigt** werken zonder meer, **elke andere naam (ook `haspelsync` in een Docker-netwerk) moet in HaspelSync onder *Network access → Allowed host names* staan**,
+  anders antwoordt het met 403 en zegt de app dat ook. Staat het adres in `.env` als `HASPELSYNC_URL`, dan **gaat dat voor** en toont de app het alleen-lezen.
+- **API-sleutel.** Maak in HaspelSync onder *Network access* een API-sleutel (hij begint met `ams_`) en vul hem in. **Een sleutel van HaspelSync kan daar alles** (ook instellingen wijzigen en de service herstarten; er zijn geen
+  alleen-lezen sleutels), dus maak er een alleen voor deze app en trek hem in als je hem niet meer gebruikt. De app bewaart hem **versleuteld**, laat hem **nooit meer zien**, zet hem **niet in een back-up** en gebruikt hem alleen voor `GET`-aanroepen
+  naar vier vaste routes van HaspelSync (de lijst met printers, de status, de lopende print en de slots); een doorverwijzing wordt niet gevolgd, omdat de sleutel dan mee zou gaan. Laat je het veld bij het opslaan leeg, dan blijft de sleutel;
+  *Sleutel verwijderen* haalt hem weg. **Wijzig je het adres, dan vervalt de opgeslagen sleutel**, tenzij je er meteen een nieuwe bij typt: anders kon een beheerder het adres op een eigen server zetten en de sleutel daar laten bezorgen.
+  Zet je de sleutel in `.env` (`HASPELSYNC_API_KEY`), dan hoort daar ook `HASPELSYNC_URL` bij (anders start de app niet) en gaat de sleutel alleen naar dat adres. Verander je `SESSION_SECRET`, dan is de opgeslagen sleutel niet meer te lezen: typ hem opnieuw.
+  Gaat het adres over `http`, dan reist de sleutel onversleuteld over je eigen netwerk; dat is jouw keuze, net als bij Spoolman.
+- **Verbinding testen** vraagt HaspelSync met het opgeslagen adres en de sleutel om de lijst met printers en meldt hoeveel het er kent.
+- **Een printer koppelen.** Open bij *Printers* een printer en kies bij *HaspelSync-printer* welke printer van HaspelSync het is (de lijst komt uit HaspelSync; het serienummer wordt bewaard). Eén printer van HaspelSync hoort bij **hoogstens één** printer
+  hier; een serienummer dat al bij een andere printer hoort (ook een gearchiveerde) wordt geweigerd, met de naam van die printer. Het serienummer staat **wel in een back-up** (het is een eigenschap van de printer), het adres en de sleutel niet.
+- **Wat je ziet.** Bovenaan de pagina *Printers* staat per gekoppelde printer (niet gearchiveerd) een kaart *Nu in de printer*: de toestand (stand-by, voorbereiden, bezig met printen, gepauzeerd, klaar, mislukt, geannuleerd) of *Niet verbonden*, de naam van de print, een
+  voortgangsbalk met de laag (*Laag 38 van 150*), de resterende tijd en wanneer hij klaar is, en per slot van de AMS en de externe spoelhouder: de kleur, het materiaal en de naam, **hoeveel gram er nog op zit** (met een balk), welk slot **in gebruik** is, en
+  hoeveel van een slot deze print nodig heeft en al heeft gebruikt. Een slot dat niet aan een spoel in Spoolman is gekoppeld, zegt dat (er is dan geen gewicht). Daaronder staan per AMS de luchtvochtigheid, de temperatuur en een lopende droogbeurt. De pagina vraagt het elke
+  **5 seconden** opnieuw zolang hij open staat en stopt daarmee zodra je de pagina verlaat of het tabblad op de achtergrond staat; de server onthoudt een antwoord **4 seconden**, zodat tien schermen HaspelSync niet vaker lastigvallen dan één. Een printer waar HaspelSync
+  geen antwoord voor heeft (onbekend serienummer, niet bereikbaar) krijgt een kaart met de reden; is het adres zelf het probleem, dan wordt voor de andere printers niet apart gevraagd. Iedereen die is ingelogd ziet de kaarten, alleen beheerders zien het adres en stellen het in.
+- **Wat er van HaspelSync binnenkomt.** Alleen de velden die op het scherm staan, elk gecontroleerd en begrensd (een onbegrijpelijk antwoord geeft een ontbrekend veld, geen fout). Tags en chip-ID's van spoelen, het adres van Spoolman en het IP-adres en de toegangscode
+  van de printers komen **nooit** in de app (de laatste twee worden niet eens opgevraagd). De lagen tellen zoals HaspelSync ze zelf toont: het totaal is de hoogste laag van het gesliced bestand plus één, en de teller loopt er niet overheen.
+- **Als het niet werkt.** *HaspelSync weigert het adres …* is de 403 hierboven (naam bij *Allowed host names* zetten of het IP-adres gebruiken). *HaspelSync weigert de API-sleutel* is een 401: maak er in HaspelSync een nieuwe aan. *HaspelSync is niet bereikbaar*: controleer
+  het adres en of de container draait (de app wacht hoogstens 3 seconden op de verbinding en 8 seconden op het antwoord). *HaspelSync kent geen printer met serienummer …*: het serienummer klopt niet met dat in HaspelSync (kies het opnieuw in de lijst).
+
 ## Back-up in de app
 
 *Instellingen → Beheer → Back-up → Maak back-up* maakt een back-up van al je gegevens als één JSON-bestand (`printpricing-manual-JJJJ-MM-DD-UUMMSSZ.json`, de tijd in UTC; met *Printbestanden (STL/3MF) meenemen* is het een ZIP-bestand, zie hieronder)

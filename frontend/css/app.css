@@ -524,6 +524,30 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .spoolman-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; font-size: .875rem; }
 .spoolman-bar[hidden] { display: none; }
 @media (max-width: 600px) { .spoolman-bar { flex: 1 1 100%; justify-content: space-between; } }
+
+/* HaspelSync on the Printers page (js/haspelsync.js): what each printer is doing now and what is loaded in it. */
+.live-panel { display: grid; gap: 12px; margin: 0 0 20px; }
+.live-panel[hidden] { display: none; }
+.live-panel .cards { align-items: start; }
+.live-panel > h2 { margin: 0; font-size: 1.05rem; }
+.live-card { display: grid; gap: 14px; align-content: start; }
+.live-card h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.live-card h4 { margin: 0; font-size: .95rem; }
+.live-card .job-name { font-weight: 650; overflow-wrap: anywhere; }
+.live-card .job-bar { display: flex; align-items: center; gap: 12px; }
+.live-card .job-bar .meter { flex: 1; }
+.live-card .job-bar strong { font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
+.slot-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.slot { display: grid; grid-template-columns: 2.25rem auto 1fr; align-items: center; gap: 10px; }
+.slot.slot-none { grid-template-columns: 2.25rem 1fr; opacity: .75; }        /* not "empty": that class is the dashed box of an empty list */
+.slot-label { font-weight: 650; font-variant-numeric: tabular-nums; }
+.slot-spool { display: inline-flex; }
+.slot-main { display: grid; gap: 4px; min-width: 0; font-size: .9rem; }
+.slot-main .meter { max-width: 240px; }
+.slot-what { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; overflow-wrap: anywhere; }
+.slot.active .slot-label { color: var(--accent); }
+.unit-chips li { font-size: .8rem; }
+.badge.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
 .subnav a { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 6px 16px; border: 1px solid var(--rand); border-radius: 99px;
   color: var(--text); text-decoration: none; background: var(--surface-field); white-space: nowrap; }
 .subnav a:hover { border-color: var(--accent); }

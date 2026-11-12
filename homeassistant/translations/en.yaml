@@ -24,6 +24,12 @@ configuration:
   spoolman_url:
     name: Spoolman address
     description: Address of a Spoolman, for example http://homeassistant.local:7912. Empty means it is typed in the app instead.
+  haspelsync_url:
+    name: HaspelSync address
+    description: Address of a HaspelSync, for example http://homeassistant.local:4000. Empty means it is typed in the app instead.
+  haspelsync_api_key:
+    name: HaspelSync API key
+    description: An API key made in HaspelSync under Network access (it starts with ams_). It needs the HaspelSync address here as well and is only sent to that address. Empty means it is typed in the app instead.
   update_check:
     name: Check for new releases
     description: Let the app ask GitHub whether a newer release exists and tell the owner. It never updates anything by itself.

@@ -467,6 +467,28 @@ The user-facing description, with the fields and the retry schedule, is `docs/ha
   can open. What the operator has to do (the proxy, TLS, copies of the backups, a monitor) is named as theirs, not left out.
 - Answer all rows again after a large change and before a public release, and set the version, commit and date in its head.
 
+## 6m. HaspelSync (the running print and the filament, on the Printers page)
+
+`backend/app/haspelsync.py`; migration `0012`; `frontend/js/haspelsync.js` (the card under Settings -> Integrations, the choice on a printer's form, the live panel on Printers); tests `tests/test_haspelsync.py`.
+The user-facing description is `docs/handleiding.md`, section *HaspelSync*. HaspelSync (https://github.com/Rdiger-36/HaspelSync) keeps a Bambu Lab AMS in step with Spoolman; this app only **reads** from it.
+
+- **One kind of call, and it is limited in code.** HaspelSync has no read-only key (an `ams_` key is a full session there: settings, restart), so `_get` is the only call and it is a GET on one of the four routes of `ROUTES` (printers, status, print, spools), with a serial number that
+  passed `api.SERIAL` and is quoted. No redirect is followed (the key would go with it), every answer is size-capped (`MAX_BYTES`) and a call waits `TIMEOUT` (3 s, 8 s). Never add a second kind of call (a POST, another route) without a decision from the owner.
+- **What leaves the module is a projection, never HaspelSync's own answer.** `build_view` names every field and validates and clamps it (`_num`, `_text`, `_label`, `_colour`, `_moment`); a malformed answer gives a missing field, never an error or raw text. RFID tags and chip ids, Spoolman's records,
+  the Spoolman address and whatever else HaspelSync reports stay out; `test_haspelsync.py` puts such values in the fake's answer and looks for them. A new field is a line in `build_view`, in the expected view of the test, in `haspelsync.js` and a text in both languages. The layers follow HaspelSync's own
+  `humanLayers` (`public/shared.js` there): the total is `totalLayers + 1` (an index) and the count never passes it.
+- **The key is sealed, never shown, and goes nowhere but to its address.** `passwords.seal` with its own label (`KEY_INFO`), never returned, never logged, not in a backup (the address neither: it describes one network). **A key follows its address only**: an address typed in the app that replaces another
+  drops the saved key unless a new one comes in the same request (`save_settings`; otherwise an administrator could point the address at a server of their own and read the key there), and a key in `.env` needs its address in `.env` (`config.load_config` refuses to start otherwise). What `.env` sets goes before
+  what is typed and is shown read-only (409 `haspelsync.locked_url` / `locked_key`). Never loosen either rule so that a typed address can receive a key it was not saved with.
+- **A printer here names a printer of HaspelSync by its serial number** (`printers.haspelsync_serial`: upper case, letters and digits, `api.serial_number`; one printer of HaspelSync is at most one printer here: `api._refuse_taken_serial` says which, the partial unique index `printers_haspelsync_serial` insists, and a restore gives a
+  repeated number to the first printer only). It is in the backup (it is a property of the printer); an archived printer keeps it and is not asked.
+- **A short memory, and no pile-up.** `_answer` keeps what one printer answered, failures too, for `CACHE_SECONDS` (4 s) under a lock (Gunicorn runs threads), `save_settings` clears it, and `clock` is a name of its own so that a test moves time. When the address itself fails (`host_wide`), the other printers are not asked in that round.
+  The panel asks every 5 s only while it is on the page and the tab is visible, one round at a time (`livePanel`).
+- **Errors are 502 with keys `haspelsync.*`**, never HaspelSync's own 401 or 403 (the screens read a 401 as signed out); a printer that cannot be answered carries `error` and its `message` worded for whoever asks. A text parameter of a message cannot be called `status` (that is an argument of `ApiError`): it is `code`.
+- **Who may**: `/api/haspelsync` is in `access.ADMIN_ONLY` (writes only; the lines are in `ADMIN_ONLY_CALLS`). The status and the live view are for any signed-in person; the address and what is set in `.env` only for administrators.
+- Tests never reach a HaspelSync: `tests/test_haspelsync.py` replaces `requests.request`. Its guards were checked by breaking each in turn (the key following an address, redirects, the serial number in a path, a 401 passed on, the raw answer passed on, the key in the status, a key kept in the clear or under another label,
+  the memory, the host-wide stop, a POST, the layer total and cap, the administrator-only line, the unique serial number in the code and in the database, the repair of a backup, upper case, and a key in `.env` without its address) and each made a test fail except `quote()`, which is redundant with the check before it.
+
 ## 7. Work done in one client leaves the other clients correct
 
 A change to a working convention goes in this file, never in a client's entry file. If a client

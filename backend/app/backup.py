@@ -308,6 +308,13 @@ def _parse(doc, archive=None, progress=None) -> dict:
             clash = filament_library.first_clash([item["values"] for item in parsed])       # a backup must not bring back what the library refuses
             if clash:
                 raise _row_error(key, clash[0], Localized("library.duplicate", name=filament_library.name_of(clash[1])))
+        if key == "printers":
+            named = set()
+            for item in parsed:                                     # one printer of HaspelSync is one printer here (the database insists): the first keeps it
+                serial = item["values"].get("haspelsync_serial", "")
+                if serial in named:
+                    item["values"]["haspelsync_serial"] = ""
+                named.add(serial)
         if key == "tariffs":
             seen = False
             for item in parsed:                                     # at most one default (the database insists)
