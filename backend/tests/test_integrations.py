@@ -159,6 +159,15 @@ def test_a_key_stays_when_the_person_who_made_it_leaves(owner, app):
 
 # --- the API: what is on an invoice, never what it cost ----------------------------------------------------------------
 
+def scalars(doc) -> list:
+    """Every value in a JSON answer that is not a list or an object: what a leaked amount would be one of."""
+    if isinstance(doc, dict):
+        return [value for item in doc.values() for value in scalars(item)]
+    if isinstance(doc, list):
+        return [value for item in doc for value in scalars(item)]
+    return [doc]
+
+
 def test_an_order_is_what_is_on_the_invoice_and_never_what_it_cost(owner, app):
     key = new_key(owner)["key"]
     order = invoiced_order(owner, lines=[line("Vaas", 2, "12.10", "21", cost_price="3.50", margin_pct="150"), line("Kabel", 1, "4.00", "9", optional=True)],
@@ -167,8 +176,12 @@ def test_an_order_is_what_is_on_the_invoice_and_never_what_it_cost(owner, app):
     got = reader.get(f"/api/v1/orders/{order['id']}", headers=bearer(key))
     assert got.status_code == 200
     seen, text = got.get_json(), got.get_data(as_text=True)
-    for hidden in ("cost_price", "margin", "notes", "Alleen voor onszelf", "3.50", "project_id", "price_rounding"):
+    for hidden in ("cost_price", "margin", "notes", "Alleen voor onszelf", "project_id", "price_rounding"):
         assert hidden not in text, hidden
+    # The cost price itself is looked for as a value, not as text: "3.50" is also in a moment such as 08:56:23.502000, which made
+    # this test fail about once in a few hundred runs.
+    assert "3.50" not in scalars(seen) and "17.50" in scalars(seen)                  # an amount that is there is found this way
+    assert "3.50" not in scalars({"created_at": "2026-11-12T08:56:23.502000+00:00", "lines": [{"net": "17.50"}]})
     assert seen["number"] == order["number"] and seen["customer"]["name"] == "Jan Jansen" and seen["customer"]["number"] == "K9999"
     assert seen["invoice"] == {"number": order["invoice_number"], "date": order["invoice_date"], "has_pdf": True}
     assert [(row["description"], row["quantity"], row["unit_price"], row["vat_pct"], row["optional"]) for row in seen["lines"]] == \
