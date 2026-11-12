@@ -396,7 +396,12 @@ measured on one machine on one day, and names its test. The plan-assertion test 
   (`test_static_build.py` compares it with the folder): add a new module there.
 - **Nothing under `/api/` is kept** (`no-store`, set in `create_app` after the handler, also over Flask's own header for a file), with one way past it: `http.keep_forever(response)`, for an
   answer whose bytes can never change under its URL. Today that is a stored product image and its thumbnail (`ai_images._kept`: `private`, the id is the ETag), which holds only while
-  `project_images.content` is written once; `test_ai_images.py` lists every `UPDATE` of that table. A kept answer can be shown without a session on the device that kept it: decide that on purpose.
+  `project_images.content` is written once (`test_ai_images.py` lists every `UPDATE` of that table), and the picture of a packaging item when it is asked for by its version
+  (`/api/packaging-images/<id>?v=<hash>`: the address changes with the picture; any other address is `no-store`). A kept answer can be shown without a session on the device that kept it: decide that on purpose.
+- **A list sends what a list shows, and a screen asks once.** `GET /api/projects` gives a calculation's four prices (`api.LIST_PRICES`, read out of the stored totals by SQLite), not its lines; a screen
+  that needs the lines asks for that calculation (`GET /api/projects/<id>`), as the order editor does when a model is picked. `GET /api/orders` reads only the columns a row shows. The screen of a calculation opens
+  with one request, `GET /api/model-editor`: every part of its answer is made by the function that answers that part's own address (`api.LISTS`, `_stock`, `_project`; `test_payloads.py` compares them), so add a
+  list the screen needs to that answer, not as another request. Paging the lists was measured and left out on purpose (`docs/performance.md`, section 3): the lists filter and sort in the browser.
 - **Compression is the app's own** (gzip: its files once, a JSON answer of 1 kB or more per request, `http.compressed`), because the app also runs without a proxy. A download is left alone.
 
 ## 6i. Other applications: API keys, `/api/v1` and webhooks

@@ -182,10 +182,11 @@ def _write_lines(conn, order_id, lines: list) -> None:
              line["optional"]))
 
 
-def _lines_of(conn, order_ids: list) -> dict:
+def _lines_of(conn, order_ids: list, columns: str = "*") -> dict:
+    """The lines of these orders, per order. `columns`: what of a line is needed; a list of orders needs three numbers of each, not its ids."""
     by_order: dict = {oid: [] for oid in order_ids}
     if order_ids:
-        rows = conn.execute("SELECT * FROM order_lines WHERE order_id IN (SELECT value FROM json_each(%s)) ORDER BY order_id, position", (id_list(order_ids),)).fetchall()
+        rows = conn.execute(f"SELECT {columns} FROM order_lines WHERE order_id IN (SELECT value FROM json_each(%s)) ORDER BY order_id, position", (id_list(order_ids),)).fetchall()
         for row in rows:
             by_order[row["order_id"]].append(row)
     return by_order
@@ -230,6 +231,9 @@ def _event(order: dict, lines: list) -> dict:
 
 # --- API --------------------------------------------------------------------------------------------------------
 
+LIST_COLUMNS = ("id", "number", "status", "order_date", "delivery_date", "customer_id", "customer_name", "customer_number", "city", "invoice_number",
+                "invoice_date", "updated_at")
+
 @bp.get("")
 def list_orders():
     status = request.args.get("status", "")
@@ -244,15 +248,17 @@ def list_orders():
         like = f"%{query.replace('%', '').replace('_', '')}%"
         where.append("(customer_name ILIKE %s OR customer_number ILIKE %s OR city ILIKE %s OR CAST(number AS TEXT) = %s OR invoice_number ILIKE %s)")
         params += [like, like, like, query.lstrip("#"), like]
-    sql = "SELECT * FROM orders" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY order_date DESC, number DESC"
+    # Only what a row of the list shows is read: an order has 30 columns and a line three ids, and turning those into Python values was
+    # most of the time of this list (docs/performance.md). The total is still worked out here, from the lines' own numbers.
+    sql = (f"SELECT {', '.join(LIST_COLUMNS)} FROM orders" + (" WHERE " + " AND ".join(where) if where else "")
+           + " ORDER BY order_date DESC, number DESC")
     with pool().read() as conn:
         orders = conn.execute(sql, params).fetchall()
-        lines = _lines_of(conn, [o["id"] for o in orders])
+        lines = _lines_of(conn, [o["id"] for o in orders], "order_id, quantity, unit_price, vat_pct")
     out = []
     for order in orders:
         totals = compute_totals(lines[order["id"]])
-        item = _serialise({k: order[k] for k in ("id", "number", "status", "order_date", "delivery_date", "customer_id", "customer_name", "customer_number", "city",
-                                                  "invoice_number", "invoice_date", "updated_at")})
+        item = _serialise(order)
         item.update(line_count=len(lines[order["id"]]), total=totals["total"])
         out.append(item)
     return jsonify(out)
