@@ -698,19 +698,41 @@ def project_models(body, *, known=None) -> list:
     return [m for m in models if known is None or m["file_id"] in known]
 
 
+MAX_CALC_FILES = 12
+
+
+def project_calc_files(body, *, known=None) -> list:
+    """The files the filament of a calculation is worked out from, in order: `calc_files`, a list of file ids (an object printed as
+    several jobs has a sliced file per job), or the single `file_id` of a client or backup from before there were several. Every
+    file has to exist (`known` as in `project_models`) and is named once. The first is also kept in `file_id`."""
+    given = body.get("calc_files")
+    if given is None:
+        given = [body["file_id"]] if body.get("file_id") else []
+    if not isinstance(given, list) or len(given) > MAX_CALC_FILES:
+        raise ApiError(400, "err.calc_files", max=MAX_CALC_FILES)
+    files = []
+    for item in given:
+        try:
+            file_id = str(uuid.UUID(str(item)))
+        except ValueError:
+            raise ApiError(400, "err.bad_file") from None
+        if file_id not in files:
+            files.append(file_id)
+    if known is None and files:
+        with pool().read() as conn:
+            known = {str(r["id"]) for r in conn.execute("SELECT id FROM print_files WHERE id IN (SELECT value FROM json_each(%s))",
+                                                        (json.dumps(files),)).fetchall()}
+        if any(file_id not in known for file_id in files):
+            raise ApiError(400, "err.file_gone")
+    return [file_id for file_id in files if file_id in known] if known is not None else files
+
+
 def _project_fields(body, *, known_files=None):
     name = text("f.name")(body.get("name"))
     links, source_url = _project_links(body)
     models = project_models(body, known=known_files)
-    file_id = body.get("file_id") or None
-    if file_id is not None:
-        try:
-            file_id = uuid.UUID(str(file_id))
-        except ValueError:
-            raise ApiError(400, "err.bad_file") from None
-        with pool().read() as conn:
-            if conn.execute("SELECT 1 FROM print_files WHERE id = %s", (file_id,)).fetchone() is None:
-                raise ApiError(400, "err.file_gone")
+    calc_files = project_calc_files(body, known=known_files)
+    file_id = calc_files[0] if calc_files else None
     notes = text("f.notes", required=False, max_len=2000)(body.get("notes"))
     object_description = text("f.object_description", required=False, max_len=500)(body.get("object_description"))
     margin = number("f.margin", maximum=1000)(body.get("margin_pct", 0))
@@ -720,7 +742,7 @@ def _project_fields(body, *, known_files=None):
         raise ApiError(400, "err.rounding")
     data, totals = _calc({"data": body.get("data"), "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding})
     return {"name": name, "notes": notes, "object_description": object_description, "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding, "data": data,
-            "totals": totals, "source_url": source_url, "links": links, "file_id": file_id, "models": models}
+            "totals": totals, "source_url": source_url, "links": links, "file_id": file_id, "calc_files": calc_files, "models": models}
 
 
 @bp.post("/projects")
@@ -729,10 +751,10 @@ def create_project():
     with pool().connection() as conn:
         row = conn.execute(
             "INSERT INTO projects (name, notes, object_description, margin_pct, vat_pct, price_rounding, data, totals, source_url, "
-            "links, file_id, models, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "links, file_id, calc_files, models, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
-             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], json.dumps(f["models"]),
-             next_number(conn, "project"))).fetchone()
+             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], json.dumps(f["calc_files"]),
+             json.dumps(f["models"]), next_number(conn, "project"))).fetchone()
     return jsonify(_project_row(row)), 201
 
 
@@ -742,9 +764,10 @@ def update_project(project_id):
     with pool().connection() as conn:
         row = conn.execute(
             "UPDATE projects SET name=%s, notes=%s, object_description=%s, margin_pct=%s, vat_pct=%s, price_rounding=%s, data=%s, "
-            "totals=%s, source_url=%s, links=%s, file_id=%s, models=%s, updated_at=now() WHERE id=%s RETURNING *",
+            "totals=%s, source_url=%s, links=%s, file_id=%s, calc_files=%s, models=%s, updated_at=now() WHERE id=%s RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
-             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], json.dumps(f["models"]), project_id)).fetchone()
+             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], json.dumps(f["calc_files"]),
+             json.dumps(f["models"]), project_id)).fetchone()
     if row is None:
         raise ApiError(404, "err.calc_not_found")
     return jsonify(_project_row(row))

@@ -56,7 +56,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
   fixes the policy (ES256 only, user presence required, user verification not, because password managers such as Enpass
   do not report it) and translates the library's errors. Do not write ceremony checks ourselves (baseline §19). Do not widen what is accepted
   without a test that fails first.
-- A calculation keeps two kinds of print files apart: `projects.file_id` is the one file the filament is worked out from (a sliced file gives exact grams and hours), `projects.models` (migration 0006, a list of `{file_id, label}`, validated by `api.project_models`, at most `MAX_MODELS`) are the 3D models of the object, one per part, for the viewer and the pictures only. A file is kept while either names it (`files._purge_orphans`). A saved view of a model is a `source` image with `origin = 'model'` and a `model_ref` (`<file id>` or `<file id>:<plate>`, a name and not a foreign key: the view stays when the file goes); one per model and plate, at most `MAX_MODEL_VIEWS`, all sent with the photo. One build plate of a slicer project is `?plate=N` on the mesh and preview routes (`printfile._slicer_plates`).
+- A calculation keeps two kinds of print files apart: `projects.calc_files` (migration 0009, a list of file ids, validated by `api.project_calc_files`; its first is also kept in `file_id` for older clients and backups) are the files the filament is worked out from (a sliced file gives exact grams and hours; an object printed as several jobs has one per job, and the editor adds them up), `projects.models` (migration 0008, a list of `{file_id, label}`, validated by `api.project_models`, at most `MAX_MODELS`) are the 3D models of the object, one per part, for the viewer and the pictures only. A file is kept while either names it (`files._purge_orphans`). A saved view of a model is a `source` image with `origin = 'model'` and a `model_ref` (`<file id>` or `<file id>:<plate>`, a name and not a foreign key: the view stays when the file goes); one per model and plate, at most `MAX_MODEL_VIEWS`, all sent with the photo. One build plate of a slicer project is `?plate=N` on the mesh and preview routes (`printfile._slicer_plates`).
 - Uploaded print files are untrusted. All parsing goes through `backend/app/printfile.py`
   (defusedxml, size caps, readable `PrintFileError`s); never open an upload with another parser. A
   sliced 3MF is exact, geometry is only an estimate, and print time is never derived from geometry.
@@ -150,7 +150,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
   | `docker-build` | the image builds (also for arm64), a Word invoice template is turned into a PDF inside it (LibreOffice, as the unprivileged user), and both compose files are valid for `.env.example` |
 
 - A control has to be findable on the pull request under the name a document cites it by.
-- Migrations are forward-only: never edit an applied `NNNN_*.sql`; add a new one. The runner
+- Migrations are forward-only: never edit an applied `NNNN_*.sql`; add a new one. A file may only be *renamed* (a number two pull requests both took) through `db.RENAMED`, which renames the record of it in an installation that already ran it; its content must stay byte for byte the same. The runner
   refuses to start on a changed checksum.
 
 ## 4. Secrets and configuration hygiene

@@ -50,7 +50,7 @@ STALE_MINUTES = 15                           # a restore that has not moved for 
 SECTIONS = (("printers", "printers"), ("tariffs", "tariffs"), ("packaging", "packaging"), ("parts", "parts"),
             ("accessories", "accessories"), ("filament_library", "filament-library"), ("spools", "spools"))
 PROJECT_COLUMNS = ("id", "number", "name", "notes", "object_description", "image_text", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
-                   "links", "file_id", "models", "stock_booked_at", "created_at", "updated_at")
+                   "links", "file_id", "calc_files", "models", "stock_booked_at", "created_at", "updated_at")
 
 
 class _AnyFile:
@@ -315,9 +315,8 @@ def _parse(doc, archive=None, progress=None) -> dict:
         try:
             if not isinstance(row, dict):
                 raise Localized("backup.bad_row_type")
-            body = {k: v for k, v in row.items() if k != "file_id"}
+            body = dict(row)
             fields = _project_fields(body, known_files=_ANY_FILE)  # validates and recalculates the totals; which files there are is seen on writing
-            fields["file_id"] = str(row["file_id"]) if row.get("file_id") else None
             projects.append({"id": _uuid(row.get("id") or uuid.uuid4(), "projects"), "fields": fields,
                              "image_text": ai_images.image_text(row.get("image_text")),     # absent in an older file: empty
                              "stock_booked_at": _when(row.get("stock_booked_at")),
@@ -930,11 +929,12 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
             existing_files = {str(r["id"]) for r in conn.execute("SELECT id FROM print_files").fetchall()}
             for item in plan["projects"]:
                 f = item["fields"]
-                file_id = f["file_id"] if f["file_id"] in existing_files else None     # a file that is not here is let go
+                calc_files = [c for c in f["calc_files"] if c in existing_files]       # a file that is not here is let go
+                file_id = calc_files[0] if calc_files else None
                 values = {"id": item["id"], "number": item["number"], "name": f["name"], "notes": f["notes"], "object_description": f["object_description"],
                           "image_text": json.dumps(item["image_text"]), "margin_pct": f["margin_pct"],
                           "vat_pct": f["vat_pct"], "price_rounding": f["price_rounding"], "data": json.dumps(f["data"]),
-                          "totals": json.dumps(f["totals"]), "source_url": f["source_url"], "links": json.dumps(f["links"]), "file_id": file_id,
+                          "totals": json.dumps(f["totals"]), "source_url": f["source_url"], "links": json.dumps(f["links"]), "file_id": file_id, "calc_files": json.dumps(calc_files),
                           "models": json.dumps([m for m in f["models"] if m["file_id"] in existing_files]),      # like file_id: a missing file is let go
                           "stock_booked_at": item["stock_booked_at"]}
                 if item["created_at"]:

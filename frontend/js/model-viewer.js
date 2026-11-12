@@ -27,6 +27,8 @@ const VIEWS = {
   angled: () => times(rotX(0.42), rotY(-0.6)), front: () => rotY(0), back: () => rotY(Math.PI), left: () => rotY(Math.PI / 2),
   right: () => rotY(-Math.PI / 2), top: () => rotX(Math.PI / 2), bottom: () => rotX(-Math.PI / 2),
 };
+const SIDE_LABEL = { angled: 'ai.view3d_side_angled', front: 'ai.view3d_side_front', back: 'ai.view3d_side_back', left: 'ai.view3d_side_left',
+  right: 'ai.view3d_side_right', top: 'ai.view3d_side_top', bottom: 'ai.view3d_side_bottom' };
 const ROLL_STEP = Math.PI / 12;                   // 15 degrees per press of a tilt button
 const MAX_PAN = 1.6;                              // how far the model can be moved from the middle (its own radius is 1)
 const FOV = 0.5;                                  // radians
@@ -267,7 +269,7 @@ export function modelViewer({ positions: mesh, colours }, colour, own = false) {
 
   // Straight onto a side, with the model back in the middle; from there it is turned on by hand.
   const side = h('select', { 'aria-label': t('ai.view3d_side'), onchange: () => { show(side.value); } },
-    Object.keys(VIEWS).map((name) => h('option', { value: name }, t(`ai.view3d_side_${name}`))));
+    Object.keys(VIEWS).map((name) => h('option', { value: name }, t(SIDE_LABEL[name]))));
   const show = (name) => {
     Object.assign(view, { turn: VIEWS[name](), x: 0, y: 0, zoom: 1 });
     zoom.value = '1';

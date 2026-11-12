@@ -9,8 +9,11 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
 - **3D Modellen** (menu; voorheen *Berekeningen*) — de berekening per model: filament, onderdelen, accessoires (kabels/laders), printerafschrijving en
   energie → totale kostprijs, optioneel met marge voor een adviesverkoopprijs. Opgeslagen berekeningen
   bewaren de prijzen van het moment van opslaan.
-- **Printbestand koppelen** — een berekening houdt twee soorten bestanden uit elkaar. Het **bestand voor de filamentberekening** is er één: koppel bij
-  voorkeur het geslicede bestand (`.gcode.3mf`), want daarin staan de echte grammen per filament en de printtijd van elke plaat. De **3D-modellen** zijn
+- **Printbestand koppelen** — een berekening houdt twee soorten bestanden uit elkaar. De **bestanden voor de filamentberekening**: koppel bij
+  voorkeur het geslicede bestand (`.gcode.3mf`), want daarin staan de echte grammen per filament en de printtijd van elke plaat. Print je het object in
+  meerdere opdrachten (de voor- en de achterkant apart), voeg dan elk gesliced bestand toe en kies per bestand de plaat of *Alle platen*; *Filament van
+  alle bestanden overnemen* telt ze bij elkaar op (hetzelfde filament als één regel, de uren opgeteld) en zet een bestand zonder slicer-gegevens er als
+  schatting bij. De **3D-modellen** zijn
   er zoveel als het object onderdelen heeft (bijvoorbeeld de voor- en de achterkant van een lightbox), elk met een eigen naam: STL-bestanden of het
   projectbestand (`.3mf`) uit de slicer. Die zijn om te bekijken en om afbeeldingen mee te maken en tellen niet mee in de berekening; een gesliced
   bestand bevat zelf geen model om te draaien. Alle bestanden blijven bewaard en zijn later te downloaden. Uit een **gesliced 3MF** (Bambu Studio / Orca, “Export plate sliced file”) leest de app de

@@ -42,3 +42,20 @@ def test_migration_numbers_are_unique_and_without_gaps():
     apply both in file-name order and nobody would notice. `python scripts/update_branch.py` renumbers the branch's migration."""
     numbers = [int(p.name[:4]) for p in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql"))]
     assert numbers == list(range(1, len(numbers) + 1)), f"migration numbers must be unique and consecutive, got {numbers}"
+
+
+def test_a_migration_that_was_renumbered_is_not_run_a_second_time(tmp_path):
+    """An installation that applied a migration under its old name keeps its record of it under the new one."""
+    import sqlite3
+    from app.db import RENAMED, run_migrations
+    path = str(tmp_path / "db.sqlite3")
+    run_migrations(path)
+    conn = sqlite3.connect(path)
+    for old, new in RENAMED.items():                                  # as it was before the files were renamed
+        assert conn.execute("UPDATE schema_migrations SET filename = ? WHERE filename = ?", (old, new)).rowcount == 1
+    conn.commit()
+    assert run_migrations(path) == []                                 # nothing is applied again (it would fail: the columns are there)
+    names = {row[0] for row in conn.execute("SELECT filename FROM schema_migrations")}
+    assert names == {p.name for p in MIGRATIONS_DIR.glob("[0-9]*.sql")} and not names & set(RENAMED)
+    assert all((MIGRATIONS_DIR / new).is_file() and not (MIGRATIONS_DIR / old).exists() for old, new in RENAMED.items())
+    conn.close()
