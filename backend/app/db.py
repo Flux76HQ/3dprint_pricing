@@ -422,6 +422,12 @@ def run_migrations(database_path: str, directory: Path = MIGRATIONS_DIR) -> list
     Refuses to continue when a previously applied file has changed: editing an
     applied migration would make fresh installs and upgraded installs diverge
     silently, which is the one failure nobody notices until it is too late.
+
+    A file is known by its name, and a renumbered one by the rest of its name with
+    its content: when two merges gave two files the same number, one of them gets
+    the next number afterwards, and a database that applied it under the old number
+    must not apply it again. The file under the old number has to be gone, or it
+    would be a second migration and not a renumbered one.
     """
     Database(database_path)                                  # creates the folder and switches to WAL
     conn = _open(database_path)
@@ -443,6 +449,9 @@ def run_migrations(database_path: str, directory: Path = MIGRATIONS_DIR) -> list
                             f"Migration {path.name} was changed after it was applied. "
                             "Never edit an applied migration; add a new NNNN_*.sql instead."
                         )
+                elif earlier := next((name for name, value in known.items() if name[4:] == path.name[4:] and value == checksum
+                                      and not (directory / name).exists()), None):
+                    conn.execute("UPDATE schema_migrations SET filename = ? WHERE filename = ?", (path.name, earlier))
                 else:
                     for statement in _statements(path.read_text(encoding="utf-8")):
                         conn.execute(statement)

@@ -56,7 +56,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
   fixes the policy (ES256 only, user presence required, user verification not, because password managers such as Enpass
   do not report it) and translates the library's errors. Do not write ceremony checks ourselves (baseline §19). Do not widen what is accepted
   without a test that fails first.
-- A calculation keeps two kinds of print files apart: `projects.file_id` is the one file the filament is worked out from (a sliced file gives exact grams and hours), `projects.models` (migration 0006, a list of `{file_id, label}`, validated by `api.project_models`, at most `MAX_MODELS`) are the 3D models of the object, one per part, for the viewer and the pictures only. A file is kept while either names it (`files._purge_orphans`). A saved view of a model is a `source` image with `origin = 'model'` and a `model_ref` (`<file id>` or `<file id>:<plate>`, a name and not a foreign key: the view stays when the file goes); one per model and plate, at most `MAX_MODEL_VIEWS`, all sent with the photo. One build plate of a slicer project is `?plate=N` on the mesh and preview routes (`printfile._slicer_plates`).
+- A calculation keeps two kinds of print files apart: `projects.file_id` is the one file the filament is worked out from (a sliced file gives exact grams and hours), `projects.models` (migration 0008, a list of `{file_id, label}`, validated by `api.project_models`, at most `MAX_MODELS`) are the 3D models of the object, one per part, for the viewer and the pictures only. A file is kept while either names it (`files._purge_orphans`). A saved view of a model is a `source` image with `origin = 'model'` and a `model_ref` (`<file id>` or `<file id>:<plate>`, a name and not a foreign key: the view stays when the file goes); one per model and plate, at most `MAX_MODEL_VIEWS`, all sent with the photo. One build plate of a slicer project is `?plate=N` on the mesh and preview routes (`printfile._slicer_plates`).
 - Uploaded print files are untrusted. All parsing goes through `backend/app/printfile.py`
   (defusedxml, size caps, readable `PrintFileError`s); never open an upload with another parser. A
   sliced 3MF is exact, geometry is only an estimate, and print time is never derived from geometry.
@@ -151,7 +151,11 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
 
 - A control has to be findable on the pull request under the name a document cites it by.
 - Migrations are forward-only: never edit an applied `NNNN_*.sql`; add a new one. The runner
-  refuses to start on a changed checksum.
+  refuses to start on a changed checksum. Its number is the one thing about a merged migration that may still change: pull
+  requests merged one after the other, each green on its own, can leave `beta` with one number twice
+  (`test_migration_numbers_are_unique_and_without_gaps` then fails for everyone). Give the later file the next number with
+  `git mv`, content untouched; the runner knows a renumbered file by the rest of its name with its checksum and does not apply
+  it again. `scripts/update_branch.py` prevents it when it is run right before the merge.
 
 ## 4. Secrets and configuration hygiene
 
@@ -401,7 +405,7 @@ measured on one machine on one day, and names its test. The plan-assertion test 
 
 ## 6i. Other applications: API keys, `/api/v1` and webhooks
 
-`backend/app/api_keys.py`, `public_api.py`, `webhooks.py`; migration `0006`; `frontend/js/integrations.js` (Settings → Beheer → Koppelingen); tests `tests/test_integrations.py`.
+`backend/app/api_keys.py`, `public_api.py`, `webhooks.py`; migration `0007`; `frontend/js/integrations.js` (Settings → Beheer → Koppelingen); tests `tests/test_integrations.py`.
 The user-facing description, with the fields and the retry schedule, is `docs/handleiding.md`, section *Koppelingen*.
 
 - **A key is not a person and not a session.** `ppk_` + 32 random bytes, shown once, only its SHA-256 kept (as an invitation). It is accepted on `/api/v1` and nowhere else,
