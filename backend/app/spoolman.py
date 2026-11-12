@@ -94,7 +94,7 @@ def _call(method: str, path: str, **kwargs):
         if 300 <= reply.status_code < 400:
             raise SpoolmanError("spoolman.redirect", retry=False)
         if reply.status_code >= 400:
-            raise SpoolmanError("spoolman.bad_status", retry=reply.status_code >= 500, status=reply.status_code)
+            raise SpoolmanError("spoolman.bad_status", retry=reply.status_code >= 500, code=reply.status_code)
         body = b""
         for chunk in reply.iter_content(65536):
             body += chunk

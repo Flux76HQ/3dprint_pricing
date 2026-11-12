@@ -187,6 +187,15 @@ def test_the_test_says_when_spoolman_is_not_there_and_only_the_verdict_is_passed
     assert owner.post("/api/spoolman/test", json={}, headers=H).get_json() == {"ok": True}
 
 
+@pytest.mark.parametrize("code", [404, 500])
+def test_an_error_status_from_spoolman_is_a_502_that_names_the_status(owner, server, code):
+    """`status` is `ApiError`'s own first argument, so the text parameter for it must not be called that: it used to end in the generic 500."""
+    server.answer = Reply(code)
+    res = owner.post("/api/spoolman/test", json={}, headers={**H, "X-Lang": "en"})
+    assert res.status_code == 502
+    assert f"status {code}" in res.get_json()["error"]
+
+
 def test_the_address_is_not_in_a_backup(owner, stand_in, app):
     save_address(owner, URL)
     assert sql(app, "SELECT url FROM spoolman_settings")[0]["url"] == URL
