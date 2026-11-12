@@ -526,6 +526,11 @@ code { overflow-wrap: anywhere; white-space: normal; }
 @media (max-width: 600px) { .spoolman-bar { flex: 1 1 100%; justify-content: space-between; } }
 
 /* HaspelSync on the Printers page (js/haspelsync.js): what each printer is doing now and what is loaded in it. */
+/* What the AI pictures cost (js/ai-images.js): the amount stands on the right of its set */
+.ai-usage-cost { display: grid; justify-items: end; gap: 2px; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+.ai-usage-cost .muted { font-size: .85rem; }
+.ai-usage .list-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+
 .live-panel { display: grid; gap: 12px; margin: 0 0 20px; }
 .live-panel[hidden] { display: none; }
 .live-panel .cards { align-items: start; }

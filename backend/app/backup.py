@@ -39,6 +39,7 @@ FORMAT = "printpricing-backup"
 FORMAT_VERSION = 5          # 5: the filament library; 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
                             # numbers. A file of an older version still restores
 MAX_ROWS = 20_000
+MAX_USAGE_ROWS = 200_000                      # what the pictures cost: a row per picture, and there is no limit on writing them, so there is none on reading them that a real file could meet
 ARCHIVE_JSON = "backup.json"                 # the data of a backup with print files: a ZIP with this file and the models next to it, under files/
 ZIP_MAGIC = b"PK\x03\x04"
 MAX_STAGE_BYTES = 2 * 1024 ** 3              # a backup with print files is many uploads in one; the usual upload cap (MAX_UPLOAD_MB) is for one file
@@ -137,9 +138,17 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
         for r in conn.execute("SELECT * FROM listings ORDER BY created_at, id").fetchall()]
     doc["packaging_images"] = [{"packaging_id": str(r["packaging_id"]), "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
                                for r in conn.execute("SELECT packaging_id, content FROM packaging_images ORDER BY packaging_id").fetchall()]
-    ai = conn.execute("SELECT model, quality FROM ai_image_settings").fetchone()      # never the API key
+    ai = conn.execute("SELECT model, quality, price_text_in, price_image_in, price_image_out, usd_eur FROM ai_image_settings").fetchone()      # never the API key
     if ai:
-        doc["ai_image_settings"] = {"model": ai["model"], "quality": ai["quality"]}
+        doc["ai_image_settings"] = {"model": ai["model"], "quality": ai["quality"],
+                                    "prices": {k: ai_images._plain(ai[f"price_{k}"]) for k in ai_images.PRICE_KEYS}, "usd_eur": ai_images._plain(ai["usd_eur"])}
+    doc["ai_image_usage"] = [                                                          # what the pictures cost: the tokens and the prices they were made at
+        {"created_at": r["created_at"].isoformat(), "batch_id": str(r["batch_id"]), "project_id": str(r["project_id"]) if r["project_id"] else None,
+         "project_number": r["project_number"], "project_name": r["project_name"], "purpose": r["purpose"], "variant": r["variant"], "model": r["model"],
+         "quality": r["quality"], "reported": bool(r["reported"]), "input_text_tokens": r["input_text_tokens"], "input_image_tokens": r["input_image_tokens"],
+         "output_tokens": r["output_tokens"], "price_text_in": ai_images._plain(r["price_text_in"]), "price_image_in": ai_images._plain(r["price_image_in"]),
+         "price_image_out": ai_images._plain(r["price_image_out"]), "usd_eur": ai_images._plain(r["usd_eur"])}
+        for r in conn.execute("SELECT * FROM ai_image_usage ORDER BY created_at, id").fetchall()]
     logo = invoice_logo.load(conn)
     if logo:
         doc["invoice_logo"] = {"filename": logo["filename"], "kind": logo["kind"], "content_b64": base64.b64encode(logo["content"]).decode("ascii")}
@@ -342,6 +351,7 @@ def _parse(doc, archive=None, progress=None) -> dict:
     plan["listings"] = _parse_listings(doc.get("listings"), {p["id"] for p in projects})
     plan["packaging_images"] = _parse_packaging_images(doc.get("packaging_images"), {item["id"] for item in plan["sections"]["packaging"][1]})
     plan["ai_settings"] = _parse_ai_settings(doc.get("ai_image_settings"))
+    plan["ai_usage"] = _parse_ai_usage(doc.get("ai_image_usage"), {p["id"] for p in projects})
     plan["orders"] = _parse_orders(doc)
     plan["customers"] = _parse_customers(doc, plan["orders"])
     plan["invoice_pdfs"] = _parse_invoice_pdfs(doc.get("invoice_pdfs"), plan["orders"])
@@ -505,12 +515,56 @@ def _parse_project_images(entries, project_ids: set) -> list:
     return items
 
 
+def _price(value, maximum, *, positive=False):
+    """A price or a rate from a file, checked as when it is typed (`ai_images._number`); None when it is empty."""
+    return ai_images._number(value, "price", maximum=maximum, positive=positive)
+
+
 def _parse_ai_settings(entry):
     if entry in (None, {}):
         return None
     if not isinstance(entry, dict) or entry.get("quality") not in ai_images.QUALITIES or not ai_images.MODEL.match(str(entry.get("model", ""))):
         raise _row_error("ai_image_settings", 1, Localized("backup.bad_row_type"))
-    return {"model": entry["model"], "quality": entry["quality"]}
+    parsed = {"model": entry["model"], "quality": entry["quality"]}
+    if "prices" in entry or "usd_eur" in entry:                       # absent in an older file: what is there stays
+        try:
+            prices = entry.get("prices") if isinstance(entry.get("prices"), dict) else {}
+            parsed["prices"] = {k: _price(prices.get(k), ai_images.MAX_PRICE) for k in ai_images.PRICE_KEYS}
+            parsed["usd_eur"] = _price(entry.get("usd_eur"), ai_images.MAX_RATE, positive=True)
+        except ApiError as exc:
+            raise _row_error("ai_image_settings", 1, exc) from None
+    return parsed
+
+
+def _parse_ai_usage(entries, project_ids: set) -> list:
+    """What the pictures cost, absent in an older file: every row is checked as it is written (whole counts, prices and a rate in range, a purpose and a variant the app knows).
+    A row keeps its calculation only if that is in the file; its number and name are kept either way."""
+    if entries in (None, []):
+        return []
+    if not isinstance(entries, list) or len(entries) > MAX_USAGE_ROWS:
+        raise _row_error("ai_image_usage", 1, Localized("backup.bad_row_type"))
+    rows = []
+    for n, entry in enumerate(entries, 1):
+        try:
+            if not isinstance(entry, dict):
+                raise Localized("backup.bad_row_type")
+            project = _uuid(entry["project_id"], "ai_image_usage") if entry.get("project_id") else None
+            counts = {k: ai_images._count(entry.get(k)) for k in ("input_text_tokens", "input_image_tokens", "output_tokens")}
+            number, name = entry.get("project_number"), entry.get("project_name")
+            if (None in counts.values() or entry.get("variant") not in ai_images.VARIANTS or not isinstance(entry.get("reported"), bool)
+                    or (entry.get("purpose") is not None and entry.get("purpose") not in ai_images.PURPOSES)
+                    or entry.get("quality") not in ai_images.QUALITIES or not ai_images.MODEL.match(str(entry.get("model", "")))
+                    or not (number is None or (isinstance(number, int) and not isinstance(number, bool) and 0 <= number <= 10**9))
+                    or not (name is None or (isinstance(name, str) and len(name) <= 200))):
+                raise Localized("backup.bad_row_type")
+            rows.append({"created_at": _when(entry.get("created_at"), datetime.now(timezone.utc)), "batch_id": _uuid(entry.get("batch_id"), "ai_image_usage"),
+                         "project_id": project if project in project_ids else None, "project_number": number, "project_name": name, "purpose": entry.get("purpose"),
+                         "variant": entry["variant"], "model": entry["model"], "quality": entry["quality"], "reported": entry["reported"], **counts,
+                         **{k: _price(entry.get(k), ai_images.MAX_PRICE) for k in ("price_text_in", "price_image_in", "price_image_out")},
+                         "usd_eur": _price(entry.get("usd_eur"), ai_images.MAX_RATE, positive=True)})
+        except (ApiError, Localized, KeyError) as exc:
+            raise _row_error("ai_image_usage", n, exc if not isinstance(exc, KeyError) else Localized("backup.bad_row_type")) from None
+    return rows
 
 
 def _parse_listings(entries, project_ids: set) -> list:
@@ -1004,10 +1058,17 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                     listings.add_photo(conn, item["project_id"], content, width, height)
             for img in plan["packaging_images"]:                    # the items they belong to were put back above
                 packaging_images.store(conn, img["packaging_id"], img["content"], img["width"], img["height"])
-            if plan["ai_settings"]:                                 # model and quality only; the API key stays where it is
+            if plan["ai_settings"]:                                 # model, quality, prices and rate; the API key stays where it is
                 conn.execute("INSERT INTO ai_image_settings (id, model, quality) VALUES (true, %s, %s) "
                              "ON CONFLICT (id) DO UPDATE SET model = EXCLUDED.model, quality = EXCLUDED.quality, updated_at = now()",
                              (plan["ai_settings"]["model"], plan["ai_settings"]["quality"]))
+                if "prices" in plan["ai_settings"]:
+                    price = plan["ai_settings"]["prices"]
+                    conn.execute("UPDATE ai_image_settings SET price_text_in = %s, price_image_in = %s, price_image_out = %s, usd_eur = %s",
+                                 (price["text_in"], price["image_in"], price["image_out"], plan["ai_settings"]["usd_eur"]))
+            conn.execute("DELETE FROM ai_image_usage")              # what is in the file replaces what is there, as everything else does
+            for usage in plan["ai_usage"]:
+                _insert(conn, "ai_image_usage", usage)
             _restart_numbers(conn, "project", max((p["number"] for p in plan["projects"]), default=0))
             for c in plan["customers"]:
                 _insert(conn, "customers", {"id": c["id"], **c["values"], **({"created_at": c["created_at"]} if c["created_at"] else {}),

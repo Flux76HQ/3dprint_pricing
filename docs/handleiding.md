@@ -545,7 +545,7 @@ De onderdelen van *Instellingen* staan in het **menu links, onder *Instellingen*
 | **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
 | **Koppelingen** | alleen beheerders: de koppelingen met [Spoolman](#spoolman-optioneel) en [HaspelSync](#haspelsync-optioneel), API-sleutels waarmee een andere applicatie bestellingen en facturen leest, en webhooks die een seintje geven als er iets gebeurt (zie *Koppelingen: API-sleutels en webhooks*); elke koppeling klapt dicht en toont dan of hij actief is |
 | **Gebruikers** | alleen beheerders: wie mag inloggen, uitnodigen, nieuwe inloglink, beheerder maken, verwijderen; zie *Gebruikers en rollen* |
-| **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel en het logboek |
+| **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel, de kosten (tokens en euro's per set) met de prijzen en de koers, en het logboek |
 | **Back-up** | alleen beheerders: back-up en herstel, de automatische back-ups en de lijst van back-ups op de server (zie *Back-up in de app*) |
 | **Systeem** | alleen beheerders: de gezondheid van de database en de actieve koppeling ermee (zie *Instellingen → Beheer → Systeem*), en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
 | **Over** | alleen beheerders: een samenvatting (versie, database, laatste back-up, updates), de updatecontrole (zie *Meldingen en updates*) en wat er draait (zie *Instellingen → Beheer → Over*) |
@@ -690,9 +690,22 @@ zie je in de app niets. De server beslist, niet de browser.
    klaar (met de duur), een gewijzigde sleutel of gewijzigde instellingen, en elke fout met de melding en wat OpenAI zelf zei (bijvoorbeeld `HTTP 429
    insufficient_quota`). Stukjes die op een sleutel lijken worden eruit gehaald. De nieuwste regel staat bovenaan, het logboek ververst zichzelf, de laatste 500 regels blijven
    bewaard en het is leeg te maken. Het logboek en de voortgang zitten niet in de back-up.
+6. **Kosten**: *Instellingen → AI-afbeeldingen* heeft boven het logboek de kaart *Kosten van de afbeeldingen*. OpenAI telt bij elke afbeelding de **tokens** (tekstinvoer, beeldinvoer en uitvoer); de app
+   bewaart ze bij die afbeelding, in dezelfde stap als de afbeelding zelf, samen met de prijzen en de koers van dat moment. Per **set** (wat één keer *Maak afbeeldingen* maakte) zie je het doel, het moment, het aantal
+   afbeeldingen, de tokens (invoer en uitvoer apart) en de kosten in euro's (en in dollars), en daarboven het totaal van **deze maand** en van **alles**. De kosten zijn de tokens maal de **prijs per miljoen tokens** (in dollar), omgerekend met
+   **jouw koers**; een set wordt op centen afgerond voordat de sets worden opgeteld, zodat de bedragen op het scherm kloppen met het totaal.
+   - **Prijzen** (*Prijzen en koers*, onder de lijst). Voor `gpt-image-2` kent de app de lijstprijs van OpenAI (Standard, gelezen op 12 november 2026 op openai.com/api/pricing): tekstinvoer $ 5, beeldinvoer $ 8 en
+     uitvoer $ 30 per miljoen tokens; die gelden zolang je niets invult en je kunt ze overschrijven. Controleer ze: OpenAI kan ze wijzigen. Voor een **ander model** is geen prijs bekend: dan krijgt een afbeelding
+     geen bedrag (alleen tokens) tot je prijzen invult, en wissel je van model, dan vervallen de prijzen die je voor het vorige invulde. Een nieuwe prijs geldt voor afbeeldingen die je daarna maakt; wat al gemaakt is, blijft tegen de prijs van toen.
+   - **Koers** (euro per dollar). Die vul **jij** in, bijvoorbeeld de koers waarmee je creditcard omrekent; de app verzint er geen en haalt er niet een op. Zolang er geen koers is, staan de kosten in dollars en zegt de kaart dat.
+     Een afbeelding gebruikt de koers van het moment dat hij gemaakt werd; een afbeelding van vóór je een koers invulde gebruikt de koers van nu.
+   - **Wat niet meetelt.** Afbeeldingen van vóór deze functie (daar zijn geen tokens van bekend), en een afbeelding die mislukte (OpenAI rekent die niet als gemaakt; er komt geen regel). Meldt OpenAI bij een gemaakte afbeelding niet
+     (volledig) hoeveel tokens het telde, dan staat er *OpenAI meldde geen tokens* en geen bedrag: de app rekent niet met een gok. De regel van een set blijft staan als je de berekening verwijdert (het geld is uitgegeven; nummer en naam blijven bewaard).
+   - **Een berekening, geen factuur.** De bedragen zijn de tokens die OpenAI meldt, maal de prijzen en de koers die jij kiest. Je factuur van OpenAI kan afwijken (belasting, tegoed, een andere koers, prijswijzigingen).
+   Alleen beheerders zien de kaart.
 
 De foto en de gemaakte afbeeldingen staan in de database (tabel `project_images`) en zitten in de back-up; de API-sleutel zit er bewust niet in. De wachtrij en het logboek
-(`ai_image_jobs`, `ai_image_log`) beschrijven lopend werk en geschiedenis en zitten er niet in. De foto en
+(`ai_image_jobs`, `ai_image_log`) beschrijven lopend werk en geschiedenis en zitten er niet in; **de kosten (`ai_image_usage`), de prijzen en de koers zitten er wel in**. De foto en
 je omschrijving gaan naar OpenAI; wat daar mee gebeurt volgt hun voorwaarden.
 
 ## Bestellingen en facturen
