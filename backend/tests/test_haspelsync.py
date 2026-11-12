@@ -611,3 +611,48 @@ def test_a_backup_that_names_one_serial_number_twice_gives_it_to_the_first_only(
     res = post(owner, "/api/backup/restore", doc)
     assert res.status_code == 200, res.get_json()
     assert sorted((p["name"], p["haspelsync_serial"]) for p in owner.get("/api/printers").get_json()) == [("P2S", SERIAL), ("Tweede", "")]
+
+
+# --- the state of the connection, for the badge on its card ----------------------------------------------------------
+
+def connection(client, lang="en"):
+    res = client.get("/api/haspelsync/connection", headers={"X-Lang": lang})
+    assert res.status_code == 200, res.get_json()
+    return res.get_json()
+
+
+def test_the_connection_is_off_until_there_is_an_address_and_a_key(owner, stand_in):
+    assert connection(owner) == {"state": "off", "message": None, "printers": None}
+    save(owner, url=URL)
+    state = connection(owner)
+    assert state["state"] == "off" and "No API key" in state["message"] and stand_in.calls == []        # nothing is asked without a key
+    save(owner, api_key=KEY)
+    assert connection(owner)["state"] == "active"
+
+
+def test_the_connection_is_active_and_counts_the_printers(owner, server):
+    server.printers = [{"id": SERIAL, "name": "A"}, {"id": SECOND, "name": "B"}]
+    assert connection(owner) == {"state": "active", "message": None, "printers": 2}
+
+
+@pytest.mark.parametrize("code,fragment", [(401, "refuses the API key"), (403, "Allowed host names"), (500, "status 500")])
+def test_the_connection_is_offline_and_says_why_in_the_language_of_the_person(owner, server, code, fragment):
+    server.codes["/api/printers"] = code
+    state = connection(owner)
+    assert state["state"] == "offline" and fragment in state["message"] and state["printers"] is None
+
+
+def test_the_connection_is_offline_when_haspelsync_is_down(owner, typed):
+    typed.down = True
+    assert "cannot be reached" in connection(owner)["message"] and "niet bereikbaar" in connection(owner, "nl")["message"]
+
+
+def test_the_connection_is_offline_when_the_key_cannot_be_read_and_nothing_is_sent_with_it(owner, typed, app):
+    sql(app, "UPDATE haspelsync_settings SET api_key_enc = %s", (passwords.seal("y" * 40, KEY.encode(), haspelsync.KEY_INFO).decode(),))
+    state = connection(owner)
+    assert state["state"] == "offline" and "Enter the key again" in state["message"] and typed.calls == []
+
+
+def test_everybody_signed_in_may_ask_for_the_state_and_nobody_else(app, owner, server):
+    assert connection(join_with_passkey(app, owner))["state"] == "active"
+    assert app.test_client().get("/api/haspelsync/connection").status_code == 401

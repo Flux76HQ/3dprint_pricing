@@ -543,7 +543,7 @@ De onderdelen van *Instellingen* staan in het **menu links, onder *Instellingen*
 | **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon; alleen zichtbaar voor beheerders, en als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
 | **Filamenten** | de filamentbibliotheek: specificaties van filamenten, een Bambu Lab-factuur inlezen, JSON-export en -import en synchroniseren met GitHub; zie *Filamentbibliotheek* |
 | **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
-| **Koppelingen** | alleen beheerders: API-sleutels waarmee een andere applicatie bestellingen en facturen leest, en webhooks die een seintje geven als er iets gebeurt (zie *Koppelingen: API-sleutels en webhooks*) |
+| **Koppelingen** | alleen beheerders: de koppelingen met [Spoolman](#spoolman-optioneel) en [HaspelSync](#haspelsync-optioneel), API-sleutels waarmee een andere applicatie bestellingen en facturen leest, en webhooks die een seintje geven als er iets gebeurt (zie *Koppelingen: API-sleutels en webhooks*); elke koppeling klapt dicht en toont dan of hij actief is |
 | **Gebruikers** | alleen beheerders: wie mag inloggen, uitnodigen, nieuwe inloglink, beheerder maken, verwijderen; zie *Gebruikers en rollen* |
 | **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel en het logboek |
 | **Back-up** | alleen beheerders: back-up en herstel, de automatische back-ups en de lijst van back-ups op de server (zie *Back-up in de app*) |
@@ -556,7 +556,15 @@ Het menu links is gegroepeerd (*Verkoop*, *Voorraad*, *Productie*), met *Instell
 
 ## Koppelingen: API-sleutels en webhooks
 
-*Instellingen → Beheer → Koppelingen* (alleen beheerders). Hiermee kan een andere applicatie (je boekhouding of finance-app, een eigen script) bestellingen en
+*Instellingen → Beheer → Koppelingen* (alleen beheerders). Op deze pagina staan alle koppelingen met andere applicaties, elk als kaart: [Spoolman](#spoolman-optioneel) en [HaspelSync](#haspelsync-optioneel)
+(die leveren gegevens aan deze app), en daaronder de API-sleutels en de webhooks.
+
+**Elke kaart klapt dicht, en dicht zie je nog hoe het ervoor staat.** Naast de titel staat de toestand van de koppeling: **Actief** (groen), **Niet verbonden** (rood: er is een koppeling ingesteld, maar de andere kant antwoordt niet of weigert)
+of **Niet geconfigureerd** (grijs), met kort erachter wat erbij hoort (een adres, het aantal printers, sleutels of webhooks). Bij Spoolman en HaspelSync vraagt de pagina dat telkens opnieuw aan de andere kant (zolang dat duurt, staat er *Controleren…*);
+bij *Niet verbonden* staat de reden in de opengeklapte kaart. Bij de API-sleutels is het *Niet geconfigureerd* zolang er geen sleutel is; bij de webhooks is het *Niet verbonden* zodra een adres is uitgezet omdat het bleef mislukken (of weg is),
+of zijn sleutel niet meer te lezen is, en *Niet geconfigureerd* zolang er geen werkend adres is. Wat je open- of dichtklapt wordt in deze browser onthouden; een eerste bezoek toont alles dicht.
+
+Hiermee kan een andere applicatie (je boekhouding of finance-app, een eigen script) bestellingen en
 facturen uit deze app lezen, en geeft deze app een seintje als er iets gebeurt. Er is nog geen kant-en-klare koppeling met een verkoopkanaal of boekhoudpakket:
 dit is de basis waar zo'n koppeling op aansluit.
 
@@ -815,12 +823,12 @@ De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg b
 ## Spoolman (optioneel)
 
 Gebruik je [Spoolman](https://github.com/Donkie/Spoolman) voor je spoelen, dan kan dat de **bron van de rollen en van wat er nog op zit** zijn, zodat je dat op één plek bijhoudt. Je vult het adres in als beheerder
-onder *Instellingen → Filamenten* (veld *Adres van Spoolman*, met *Opslaan* en *Verbinding testen*), of je zet het in `.env` als `SPOOLMAN_URL=http://spoolman:8000`. Het moet het adres zijn waarop **de server van de app** Spoolman bereikt
+onder *Instellingen → Koppelingen* (kaart *Spoolman*, veld *Adres van Spoolman*, met *Opslaan* en *Verbinding testen*), of je zet het in `.env` als `SPOOLMAN_URL=http://spoolman:8000`. Het moet het adres zijn waarop **de server van de app** Spoolman bereikt
 (dat kan een ander zijn dan in je browser, bijvoorbeeld `http://spoolman:8000` in hetzelfde Docker-netwerk of `http://192.168.1.20:7912` met de poort die je naar buiten zette); `http` mag, zonder inlog of vraagteken, en een pad mag
 als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles blijft zoals het was. Staat het in `.env`, dan **gaat dat voor**: de app toont het dan alleen-lezen. Het adres staat **niet in een back-up** (het hoort bij
 één netwerk) en alleen een beheerder kan het zien of wijzigen; de server doet met dit adres uitsluitend de vaste aanroepen onder `/api/v1/` van Spoolman en geeft van de test alleen het oordeel door. Spoolman heeft zelf geen inlog: zet het niet open op internet.
 
-- **Synchroniseren** (*Instellingen → Filamenten* en bovenaan *Filament*, alleen voor beheerders; iedereen ziet wanneer het voor het laatst gebeurde). De app leest alle spoelen uit Spoolman en maakt er elk een rol van,
+- **Synchroniseren** (*Instellingen → Koppelingen* en bovenaan *Filament*, alleen voor beheerders; iedereen ziet wanneer het voor het laatst gebeurde). De app leest alle spoelen uit Spoolman en maakt er elk een rol van,
   gekoppeld aan het spoolnummer van Spoolman: de volgende keer wordt die rol bijgewerkt, niet nog een keer toegevoegd. Merk, materiaal, kleur (naam en kleurcode), gewicht, prijs, diameter, temperaturen,
   opmerking en wat er nog op zit komen uit Spoolman; de *artikelnummer* van het filament wordt de barcode (rollen met dezelfde barcode tellen in de voorraad samen). Een spoel met een eigen prijs telt voor die prijs, anders geldt de prijs van het filament.
   **Prijzen worden overgenomen zoals ze in Spoolman staan en gelden hier als prijs excl. btw**, net als overal in de app.

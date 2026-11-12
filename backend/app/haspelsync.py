@@ -411,6 +411,21 @@ def save_settings():
     return status()
 
 
+@bp.get("/connection")
+def connection():
+    """The state of the connection, for the badge on the card of Settings -> Integrations: `off` (no address, or no key yet), `active` (HaspelSync answers its list of printers,
+    and says how many there are) or `offline` (set up, and HaspelSync does not answer as it should, with why in the words of whoever asks). The answer is the one `/printers` keeps."""
+    found = settings()
+    if not found["url"]:
+        return jsonify({"state": "off", "message": None, "printers": None})
+    if not found["key_set"]:
+        return jsonify({"state": "off", "message": HaspelSyncError("haspelsync.no_key").words(), "printers": None})
+    result = _answer((found["url"], "*"), fetch_printers)
+    if "error" in result:
+        return jsonify({"state": "offline", "message": result["error"].words(), "printers": None})
+    return jsonify({"state": "active", "message": None, "printers": len(result["value"])})
+
+
 @bp.post("/test")
 def test_connection():
     """Ask HaspelSync, with the saved address and key, for its printers. Passes on a verdict and how many there are, nothing else of what it answered."""

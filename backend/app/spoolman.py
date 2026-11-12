@@ -35,6 +35,7 @@ from .api import _serialise, _share_notify, stock_changed
 from .config import ConfigError, check_spoolman_url
 from .db import id_list, named_lock
 from .http import ApiError, config, json_body, login_required, pool
+from .i18n import L, render, request_language
 
 log = logging.getLogger(__name__)
 bp = Blueprint("spoolman", __name__, url_prefix="/api/spoolman")
@@ -58,6 +59,9 @@ class SpoolmanError(Exception):
 
     def api(self) -> ApiError:
         return ApiError(502, self.key, **self.params)
+
+    def words(self) -> str:
+        return render(L(self.key, **self.params), request_language())
 
 
 @bp.before_request
@@ -513,6 +517,19 @@ def save_settings():
         conn.execute("INSERT INTO spoolman_settings (singleton, url) VALUES (true, %s) ON CONFLICT (singleton) DO UPDATE SET url = EXCLUDED.url", (url,))
     g.spoolman_address = url
     return status()
+
+
+@bp.get("/connection")
+def connection():
+    """The state of the connection, for the badge on the card of Settings -> Integrations: `off` (no address), `active` (Spoolman answers its own health check) or `offline`
+    (there is an address and Spoolman does not answer as it should, with why in the words of whoever asks). Nothing of what Spoolman answered is passed on."""
+    if not enabled():
+        return jsonify({"state": "off", "message": None})
+    try:
+        _json("GET", "/health")
+    except SpoolmanError as exc:
+        return jsonify({"state": "offline", "message": exc.words()})
+    return jsonify({"state": "active", "message": None})
 
 
 @bp.post("/test")
