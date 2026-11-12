@@ -125,9 +125,9 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
     except ApiError:                                             # the file went missing: the rest of the backup is still worth having
         template = None
     doc["project_images"] = [
-        {"project_id": str(r["project_id"]), "kind": r["kind"], "origin": r["origin"], "model_ref": r["model_ref"], "variant": r["variant"], "purpose": r["purpose"], "is_cover": r["is_cover"],
+        {"project_id": str(r["project_id"]), "kind": r["kind"], "origin": r["origin"], "model_ref": r["model_ref"], "selected": bool(r["selected"]), "variant": r["variant"], "purpose": r["purpose"], "is_cover": r["is_cover"],
          "created_at": r["created_at"].isoformat(), "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
-        for r in conn.execute("SELECT project_id, kind, origin, model_ref, variant, purpose, is_cover, created_at, content FROM project_images "
+        for r in conn.execute("SELECT project_id, kind, origin, model_ref, selected, variant, purpose, is_cover, created_at, content FROM project_images "
                               "ORDER BY created_at, id").fetchall()]
     doc["listings"] = [
         {"project_id": str(r["project_id"]), "title": r["title"], "description": r["description"], "price": None if r["price"] is None else str(r["price"]),
@@ -460,7 +460,7 @@ def _parse_project_images(entries, project_ids: set) -> list:
         return []
     if not isinstance(entries, list) or len(entries) > MAX_ROWS:
         raise _row_error("project_images", 1, Localized("backup.bad_section", section=L("backup.s.project_images")))
-    items, covers, sources = [], set(), set()
+    items, covers, chosen = [], set(), {}
     for n, entry in enumerate(entries, 1):
         try:
             if not isinstance(entry, dict) or entry.get("kind") not in ("source", "generated"):
@@ -480,17 +480,18 @@ def _parse_project_images(entries, project_ids: set) -> list:
                 raise Localized("backup.bad_file") from None
             content, width, height = ai_images._clean(content)                      # read again, never taken on trust from the file
             is_cover = entry.get("is_cover") is True and project_id not in covers
+            # which pictures go to the image model: as kept, at most the number there is room for; a file of before the choice
+            # existed has none marked, and the first picture is then the one that is sent (`ai_images._sent`)
+            selected = entry["kind"] == "source" and entry.get("selected") is True and chosen.get(project_id, 0) < ai_images.MAX_SELECTED
+            if selected:
+                chosen[project_id] = chosen.get(project_id, 0) + 1
             origin = entry.get("origin", "photo") if entry["kind"] == "source" else "photo"      # a file of before the 3D view has photos only
             model_ref = str(entry.get("model_ref") or "") if entry["kind"] == "source" and origin == "model" else ""
             if origin not in ai_images.ORIGINS or (model_ref and not ai_images.MODEL_REF.match(model_ref)):
                 raise Localized("backup.bad_row_type")
-            if entry["kind"] == "source":
-                if (project_id, origin, model_ref) in sources:
-                    raise Localized("backup.bad_row_type")
-                sources.add((project_id, origin, model_ref))
             if is_cover:
                 covers.add(project_id)
-            items.append({"project_id": project_id, "kind": entry["kind"], "variant": variant if entry["kind"] == "generated" else None, "purpose": purpose, "origin": origin, "model_ref": model_ref,
+            items.append({"project_id": project_id, "kind": entry["kind"], "variant": variant if entry["kind"] == "generated" else None, "purpose": purpose, "origin": origin, "model_ref": model_ref, "selected": selected,
                           "is_cover": is_cover, "created_at": _when(entry.get("created_at")), "content": content, "width": width, "height": height})
         except (ApiError, Localized) as exc:
             raise _row_error("project_images", n, exc) from None
@@ -980,10 +981,10 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                     values["updated_at"] = item["updated_at"] or item["created_at"]
                 _insert(conn, "projects", values)
             for img in plan["project_images"]:
-                conn.execute("INSERT INTO project_images (project_id, kind, origin, model_ref, variant, purpose, mime, content, width_px, height_px, is_cover"
-                             + (", created_at" if img["created_at"] else "") + ") VALUES (%s, %s, %s, %s, %s, %s, 'image/jpeg', %s, %s, %s, %s"
+                conn.execute("INSERT INTO project_images (project_id, kind, origin, model_ref, selected, variant, purpose, mime, content, width_px, height_px, is_cover"
+                             + (", created_at" if img["created_at"] else "") + ") VALUES (%s, %s, %s, %s, %s, %s, %s, 'image/jpeg', %s, %s, %s, %s"
                              + (", %s" if img["created_at"] else "") + ")",
-                             (img["project_id"], img["kind"], img["origin"], img["model_ref"], img["variant"], img["purpose"], img["content"], img["width"], img["height"], img["is_cover"],
+                             (img["project_id"], img["kind"], img["origin"], img["model_ref"], img["selected"], img["variant"], img["purpose"], img["content"], img["width"], img["height"], img["is_cover"],
                               *([img["created_at"]] if img["created_at"] else [])))
             for item in plan["listings"]:                           # the models they belong to were put back above
                 f = item["fields"]
