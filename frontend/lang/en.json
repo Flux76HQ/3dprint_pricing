@@ -1463,7 +1463,7 @@
  "ai.view3d_drag_turn": "Turn",
  "ai.view3d_file_colours": "The model has the colours from the 3D file. Choose a colour of your own above to give the whole item that colour.",
  "ai.view3d_hint": "Drag to turn the model all the way round, in every direction. Choose Move (or hold Shift, or use the right mouse button) to shift it in the picture. With two fingers you zoom, tilt and shift at once. Choose the colour above, under Colour of the item.",
- "ai.view3d_intro": "Turn a 3D model to the position you want and save that view with this calculation; one view can be kept per model and per plate. The images are made from them, next to or instead of a photo.",
+ "ai.view3d_intro": "Turn a 3D model to the position you want and save that view with this calculation; every view you save is added, up to ten. The images are made from them, next to or instead of a photo.",
  "ai.view3d_load": "Load 3D model",
  "ai.view3d_loading": "Loading the model…",
  "ai.view3d_no_colours": "The 3D file names no colours. The model has the colour of the first filament line; choose a colour of your own above to change it.",

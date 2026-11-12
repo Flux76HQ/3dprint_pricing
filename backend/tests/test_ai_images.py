@@ -206,33 +206,53 @@ def view(owner, project, data=None, model=""):
 FRONT_ID, BACK_ID = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
 
 
-def test_every_model_and_plate_keeps_its_own_view_and_all_of_them_are_sent(ai, project, monkeypatch):
+def test_every_view_that_is_saved_is_kept_and_all_of_them_are_sent(ai, project, monkeypatch):
     fake = ready(ai, project, monkeypatch)                                         # a photo is there
     assert view(ai, project["id"], model=FRONT_ID).get_json()["model_ref"] == FRONT_ID
     view(ai, project["id"], png((410, 410)), model=f"{BACK_ID}:2")
-    again = view(ai, project["id"], png((420, 420)), model=FRONT_ID).get_json()        # a new view of the front replaces the old one
-    kept = [(i["origin"], i["model_ref"]) for i in state(ai, project)["images"]]
-    assert kept == [("photo", ""), ("model", f"{BACK_ID}:2"), ("model", FRONT_ID)] and again["width_px"] == 420
+    again = view(ai, project["id"], png((420, 420)), model=FRONT_ID).get_json()        # the front once more, turned: a picture more
+    kept = [(i["origin"], i["model_ref"], i["width_px"]) for i in state(ai, project)["images"]]
+    assert kept == [("photo", "", 300), ("model", FRONT_ID, 400), ("model", f"{BACK_ID}:2", 410), ("model", FRONT_ID, 420)]
+    assert again["width_px"] == 420
     for bad in ("voorkant", f"{FRONT_ID}:0", f"{FRONT_ID}:1234", FRONT_ID.upper() + "x"):
         assert view(ai, project["id"], model=bad).status_code == 400, bad
     assert queue(ai, project, "square").status_code == 202
     files = fake.calls[0]["files"]
-    assert [(field, part[0]) for field, part in files] == [("image[]", "photo.jpg"), ("image[]", "model.jpg"), ("image[]", "model-2.jpg")]
+    assert [(field, part[0]) for field, part in files] == [("image[]", "photo.jpg"), ("image[]", "model.jpg"), ("image[]", "model-2.jpg"),
+                                                           ("image[]", "model-3.jpg")]
     assert "the others are plain renderings of its 3D model" in fake.calls[0]["data"]["prompt"]
     ai.delete(f"/api/project-images/{state(ai, project)['images'][0]['id']}", headers=H)        # without the photo: the models alone
     wipe(ai, project)
     assert queue(ai, project, "square").status_code == 202
-    assert len(fake.calls[1]["files"]) == 2 and "its separate parts" in fake.calls[1]["data"]["prompt"]
-    for n in range(3, 7):                                                          # there is room for six views, not for a seventh
-        assert view(ai, project["id"], model=f"{BACK_ID}:{n}").status_code == 201
-    assert view(ai, project["id"], model=f"{BACK_ID}:9").status_code == 409 and view(ai, project["id"], model=FRONT_ID).status_code == 201
+    assert len(fake.calls[1]["files"]) == 3 and "its separate parts" in fake.calls[1]["data"]["prompt"]
+    for n in range(ai_images.MAX_MODEL_VIEWS - 3):                                 # there is room for ten views, not for an eleventh
+        assert view(ai, project["id"], model=FRONT_ID).status_code == 201
+    assert view(ai, project["id"], model=FRONT_ID).status_code == 409
+    assert photo(ai, project["id"]).status_code == 201                             # the photo is not a view: it still fits
+    assert photo(ai, project["id"], png((50, 50))).status_code == 201              # and a new photo still replaces the photo
+    assert [i["origin"] for i in state(ai, project)["images"]].count("photo") == 1
     doc = backup(ai).get_json()
-    assert sorted(i["model_ref"] for i in doc["project_images"] if i["kind"] == "source")[-1] == f"{BACK_ID}:6"
+    assert len([i for i in doc["project_images"] if i["origin"] == "model"]) == ai_images.MAX_MODEL_VIEWS
     assert post(ai, "/api/backup/restore", doc).status_code == 200
-    assert len([i for i in state(ai, project)["images"] if i["origin"] == "model"]) == 6
+    assert len([i for i in state(ai, project)["images"] if i["origin"] == "model"]) == ai_images.MAX_MODEL_VIEWS
     doc["project_images"][0]["model_ref"] = "voorkant"
     assert post(ai, "/api/backup/restore", doc).status_code == 400
 
+
+def test_any_picture_can_be_the_cover_the_photo_and_a_view_too(ai, project, monkeypatch):
+    ready(ai, project, monkeypatch)
+    seen = view(ai, project["id"]).get_json()
+    shot = [i for i in state(ai, project)["images"] if i["origin"] == "photo"][0]
+    listed = lambda: ai.get("/api/projects").get_json()[0]["cover_image_id"]
+    for image in (shot, seen):
+        assert ai.put(f"/api/project-images/{image['id']}/cover", headers=H).status_code == 200
+        assert listed() == image["id"] and [i["is_cover"] for i in state(ai, project)["images"] if i["id"] == image["id"]] == [True]
+        assert ai.get(f"/api/project-images/{image['id']}/thumb").status_code == 200
+    download = ai.get(f"/api/project-images/{seen['id']}/file?download=1")
+    assert download.status_code == 200 and "attachment" in download.headers["Content-Disposition"]
+    from pathlib import Path
+    icons = (Path(ai_images.__file__).parents[2] / "frontend" / "js" / "mdi.js").read_text()
+    assert all(f"{name}: '" in icons or f"'{name}': '" in icons for name in ("download", "star", "star-outline"))        # the icons the pictures use
 
 
 def test_a_view_of_the_3d_model_is_kept_next_to_the_photo(ai, project):
@@ -240,16 +260,16 @@ def test_a_view_of_the_3d_model_is_kept_next_to_the_photo(ai, project):
     assert first.status_code == 201 and first.get_json()["origin"] == "model" and first.get_json()["kind"] == "source"
     shot = photo(ai, project["id"]).get_json()
     assert shot["origin"] == "photo"
-    second = view(ai, project["id"]).get_json()                                    # a new view replaces the view, not the photo
+    second = view(ai, project["id"]).get_json()                                    # a second view is added: both are kept
     kept = [(i["origin"], i["id"]) for i in state(ai, project)["images"]]
-    assert kept == [("photo", shot["id"]), ("model", second["id"])]
+    assert kept == [("photo", shot["id"]), ("model", first.get_json()["id"]), ("model", second["id"])]
     assert Image.open(BytesIO(ai.get(f"/api/project-images/{second['id']}/file").data)).format == "JPEG"       # re-encoded like a photo
     assert view(ai, project["id"], b"not an image").status_code == 400
     res = ai.post(f"/api/projects/{project['id']}/images/source", headers=H, content_type="multipart/form-data",
                   data={"file": (BytesIO(png()), "x.png"), "origin": "drawing"})
-    assert res.status_code == 400 and len(state(ai, project)["images"]) == 2
+    assert res.status_code == 400 and len(state(ai, project)["images"]) == 3
     assert ai.delete(f"/api/project-images/{second['id']}", headers=H).status_code == 200
-    assert [i["origin"] for i in state(ai, project)["images"]] == ["photo"]
+    assert [i["origin"] for i in state(ai, project)["images"]] == ["photo", "model"]
     assert "Beeld van het 3D-model opgeslagen." in [e["message"] for e in log(ai)]
 
 

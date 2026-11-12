@@ -5,7 +5,7 @@
 import { api, downloadFile, upload } from './api.js';
 import { formatDateTime, t } from './i18n.js';
 import { loadMesh, modelViewer } from './model-viewer.js';
-import { confirmDialog, field, fill, foldHead, h, saveBlob, switchRow, toast } from './ui.js';
+import { confirmDialog, field, fill, foldHead, h, icon, saveBlob, switchRow, toast } from './ui.js';
 
 const VARIANT_LABEL = { square: 'ai.variant_square', landscape: 'ai.variant_landscape', portrait: 'ai.variant_portrait', studio: 'ai.variant_studio', detail: 'ai.variant_detail', context: 'ai.variant_context' };
 // What the pictures are for; the server makes four per purpose and has a template with its own colours for each.
@@ -358,16 +358,24 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   const label = (variant) => t(VARIANT_LABEL[variant]);
   const purposeBadge = (item) => (item.purpose ? h('span', { class: 'badge' }, t(`${PURPOSE_LABEL[item.purpose]}_short`)) : null);
 
+  // What can be done with a picture, as icons: download it, make it the cover of the calculation (the star is filled on the one
+  // that is), remove it. Every picture has all three, the uploaded photo and the saved views of the model too.
+  const tool = (name, text, onclick, more = {}) => h('button', { class: `btn small icon-only${more.danger ? ' danger' : ''}`, type: 'button',
+    'aria-label': text, title: text, disabled: !!more.disabled, 'aria-pressed': more.pressed === undefined ? null : String(more.pressed), onclick }, icon(name));
+  const tools = (image, locked = false) => h('div', { class: 'row ai-tools' },
+    tool('download', t('ai.download'), () => download(image)),
+    tool(image.is_cover ? 'star' : 'star-outline', t(image.is_cover ? 'ai.cover' : 'ai.make_cover'),
+      () => { if (!image.is_cover) act(() => api('PUT', `/api/project-images/${image.id}/cover`)); }, { pressed: image.is_cover }),
+    tool('trash', t('common.delete'), async () => {
+      if (await confirmDialog(t('ai.delete_confirm'), t('common.delete'))) act(() => api('DELETE', `/api/project-images/${image.id}`));
+    }, { danger: true, disabled: locked }));
+  const coverBadge = (image) => (image.is_cover ? h('span', { class: 'badge' }, t('ai.cover')) : null);
+
   function tile(image) {
     return h('figure', { class: 'ai-tile' },
       h('img', { src: imageUrl(image.id), alt: label(image.variant), loading: 'lazy', width: image.width_px, height: image.height_px }),
-      h('figcaption', {}, h('strong', {}, label(image.variant)), purposeBadge(image), image.is_cover ? h('span', { class: 'badge' }, t('ai.cover')) : null),
-      h('div', { class: 'row wrap' },
-        h('button', { class: 'btn small', type: 'button', onclick: () => download(image) }, t('ai.download')),
-        image.is_cover ? null : h('button', { class: 'btn small', type: 'button', onclick: () => act(() => api('PUT', `/api/project-images/${image.id}/cover`)) }, t('ai.make_cover')),
-        h('button', { class: 'btn small danger', type: 'button', onclick: async () => {
-          if (await confirmDialog(t('ai.delete_confirm'), t('common.delete'))) act(() => api('DELETE', `/api/project-images/${image.id}`));
-        } }, t('common.delete'))));
+      h('figcaption', {}, h('strong', {}, label(image.variant)), purposeBadge(image), coverBadge(image)),
+      tools(image));
   }
 
   // A picture that is still to come: a pulsing frame of its own shape with a spinner.
@@ -395,10 +403,8 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     // What the pictures are made from: the photo, the saved view of the 3D model, or both.
     const kept = (image, caption, alt) => h('figure', { class: 'ai-tile ai-kept' },
       h('img', { class: 'ai-source', src: imageUrl(image.id), alt }),
-      h('figcaption', {}, h('strong', {}, caption)),
-      h('div', { class: 'row' }, h('button', { class: 'btn small danger', type: 'button', disabled: working, onclick: async () => {
-        if (await confirmDialog(t('ai.delete_confirm'), t('common.delete'))) act(() => api('DELETE', `/api/project-images/${image.id}`));
-      } }, t('common.delete'))));
+      h('figcaption', {}, h('strong', {}, caption), coverBadge(image)),
+      tools(image, working));                                        // not removed while pictures are being made from it
     const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', disabled: uploading || working, 'aria-label': t('ai.photo_choose'),
       onchange: () => { const chosen = file.files[0]; if (chosen) addPhoto(chosen); } });
     const purposeChosen = !!(form && form.values().purpose);

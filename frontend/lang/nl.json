@@ -1463,7 +1463,7 @@
  "ai.view3d_drag_turn": "Draaien",
  "ai.view3d_file_colours": "Het model heeft de kleuren uit het 3D-bestand. Kies hierboven een eigen kleur om het hele item die kleur te geven.",
  "ai.view3d_hint": "Sleep om het model helemaal rond te draaien, in elke richting. Kies Verplaatsen (of houd Shift ingedrukt, of gebruik de rechtermuisknop) om het in beeld te verschuiven. Met twee vingers zoom, kantel en verschuif je tegelijk. De kleur kies je hierboven bij Kleur van het item.",
- "ai.view3d_intro": "Draai een 3D-model in de gewenste stand en sla dat beeld op bij deze berekening; per model en per plaat kun je één beeld bewaren. De afbeeldingen worden ermee gemaakt, naast of in plaats van een foto.",
+ "ai.view3d_intro": "Draai een 3D-model in de gewenste stand en sla dat beeld op bij deze berekening; elk beeld dat je opslaat komt erbij, tot tien. De afbeeldingen worden ermee gemaakt, naast of in plaats van een foto.",
  "ai.view3d_load": "3D-model laden",
  "ai.view3d_loading": "Het model wordt geladen…",
  "ai.view3d_no_colours": "Het 3D-bestand noemt geen kleuren. Het model heeft de kleur van de eerste filamentregel; kies hierboven een eigen kleur om die te veranderen.",

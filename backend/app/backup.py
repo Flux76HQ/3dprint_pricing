@@ -485,9 +485,10 @@ def _parse_project_images(entries, project_ids: set) -> list:
             if origin not in ai_images.ORIGINS or (model_ref and not ai_images.MODEL_REF.match(model_ref)):
                 raise Localized("backup.bad_row_type")
             if entry["kind"] == "source":
-                if (project_id, origin, model_ref) in sources:
+                if origin == "photo" and project_id in sources:           # one photo; views of the model as many as were saved
                     raise Localized("backup.bad_row_type")
-                sources.add((project_id, origin, model_ref))
+                if origin == "photo":
+                    sources.add(project_id)
             if is_cover:
                 covers.add(project_id)
             items.append({"project_id": project_id, "kind": entry["kind"], "variant": variant if entry["kind"] == "generated" else None, "purpose": purpose, "origin": origin, "model_ref": model_ref,

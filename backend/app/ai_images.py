@@ -115,7 +115,7 @@ LEAD[("photo", "model", "model")] = (
     "The first picture is a photo of a 3D-printed object; the others are plain renderings of its 3D model, which show the exact shape of "
     "its parts, or of the object from several sides. Make {shape} of the object. Keep the object itself exactly as it is: the shape and "
     "proportions of the model, the colour, material and visible print layers of the photo; do not redesign, restyle or add parts to it.")
-MAX_MODEL_VIEWS = 6                  # saved views of the 3D models of one calculation; all of them go to the model with the photo
+MAX_MODEL_VIEWS = 10                 # saved views of the 3D models of one calculation; all of them go to the model with the photo
 MODEL_REF = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(:[1-9][0-9]{0,2})?$")
 
 
@@ -528,8 +528,8 @@ def dismiss_jobs(project_id):
 @bp.post("/projects/<uuid:project_id>/images/source")
 def upload_source(project_id):
     """Keep the picture the images are made from: a photo of the object, or (`origin=model`) a picture of its 3D model as the viewer
-    in the browser drew it. There is one photo, and one view per model and build plate (`model`: "<file id>" or "<file id>:<plate>",
-    empty for a calculation with a single model); a new one replaces the one it is of."""
+    in the browser drew it. There is one photo: a new one replaces it. Views are added, every one that is saved is kept (`model`
+    says which model and build plate it shows: "<file id>" or "<file id>:<plate>"), up to MAX_MODEL_VIEWS."""
     upload = request.files.get("file")
     origin = request.form.get("origin", "photo")
     model_ref = request.form.get("model", "").strip().lower() if origin == "model" else ""
@@ -544,8 +544,8 @@ def upload_source(project_id):
         raise
     with pool().connection() as conn:
         project = _project(conn, project_id)
-        conn.execute("DELETE FROM project_images WHERE project_id = %s AND kind = 'source' AND origin = %s AND model_ref = %s",
-                     (project_id, origin, model_ref))
+        if origin == "photo":
+            conn.execute("DELETE FROM project_images WHERE project_id = %s AND kind = 'source' AND origin = 'photo'", (project_id,))
         views = conn.execute("SELECT count(*) AS n FROM project_images WHERE project_id = %s AND kind = 'source' AND origin = 'model'",
                              (project_id,)).fetchone()["n"]
         if origin == "model" and views >= MAX_MODEL_VIEWS:

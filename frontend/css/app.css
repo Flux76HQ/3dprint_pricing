@@ -532,6 +532,11 @@ code { overflow-wrap: anywhere; white-space: normal; }
 /* AI product images: the cover in the list, the photo and the made pictures in a calculation */
 .cover-thumb { flex: none; width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: #fff; }
 .ai-source { max-width: 220px; max-height: 220px; object-fit: contain; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: #fff; }
+/* The actions of a picture, as icons: one size, room for a finger; the star of the cover is filled and in the accent colour. */
+.ai-tools { gap: 6px; }
+.ai-tools .btn.icon-only { min-width: 40px; min-height: 40px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.ai-tools .btn.icon-only .icon { width: 20px; height: 20px; }
+.ai-tools .btn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 .ai-sources { display: flex; flex-wrap: wrap; gap: 12px; }
 .ai-kept { width: min(220px, 100%); }
 .ai-kept .ai-source { width: 100%; height: auto; max-height: none; }
