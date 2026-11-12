@@ -121,9 +121,9 @@ export function aiLogCard() {
 // --- In a calculation -------------------------------------------------------------
 
 /** The card with the photo of the object and the pictures made from it. `getDescription()` is what the form says now (saved or not);
- *  `businessOn()` says whether the business mode is on now (only then can the logo be put on a picture); `getModel()` gives the print
- *  file linked to the calculation now and the colour of its first roll ({ fileId, colour }), for the 3D view. */
-export function productImagesCard(projectId, getDescription, businessOn = () => false, getModel = () => ({ fileId: null, colour: '' })) {
+ *  `businessOn()` says whether the business mode is on now (only then can the logo be put on a picture); `getModel()` gives the 3D
+ *  models of the calculation now and the colour of its first filament line ({ models: [{ fileId, label }], colour }), for the 3D view. */
+export function productImagesCard(projectId, getDescription, businessOn = () => false, getModel = () => ({ models: [], colour: '' })) {
   const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
   // The purpose and the texts. Built once, when the first answer is in: the part below is redrawn while pictures are made, and a
   // field that is redrawn loses what is being typed in it.
@@ -133,7 +133,9 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   // throw the loaded model away.
   const modelBox = h('div', { class: 'stack' });
   let viewer = null;                                               // the model on screen, once it is loaded
-  let shownFile;                                                   // the file the box was last built for (undefined: not built yet)
+  let shownKey;                                                    // the models the box was last built for (undefined: not built yet)
+  let wantedModel = '';                                            // the model to show first, when one was asked for
+  let modelNames = new Map();                                      // file id -> the name of that model, for the saved views
   let images = [];
   let jobs = [];
   let warnings = [];
@@ -159,73 +161,105 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   }
   const refresh = keepFresh(body, load, POLL_MS, busy);
 
-  // A file without a model to turn (a sliced 3MF holds only the print job) often has the slicer's own picture of the build plate,
-  // in colour. It is offered instead: not to turn, but it can be kept as the view of the model all the same.
-  function offerPlate(fileId, status) {
-    const url = `/api/print-files/${fileId}/preview`;
-    const picture = h('img', { class: 'ai-source model-plate', alt: t('ai.plate_alt') });
-    picture.addEventListener('load', () => {
-      if (shownFile !== fileId) return;
-      const save = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-        save.disabled = true;
-        try {
-          const { blob } = await downloadFile(url);
-          const data = new FormData();
-          data.append('file', blob, 'printplaat.jpg');
-          data.append('origin', 'model');
-          await upload(`/api/projects/${projectId}/images/source`, data);
-          lastError = '';
-          toast(t('ai.view3d_saved'));
-        } catch (e) { lastError = e.message; }
-        save.disabled = false;
-        await refresh();
-      } }, t('ai.plate_save'));
-      modelBox.querySelector('.plate-offer')?.remove();           // asked again: one offer, not two
-      status.after(h('div', { class: 'stack plate-offer' }, h('p', { class: 'muted' }, t('ai.plate_intro')), picture, h('div', { class: 'row' }, save)));
-    });
-    picture.src = url;                                             // no picture in the file: nothing is added
+  // Keeps a picture as the view of a model. `ref` says which model (and which build plate) it is of.
+  async function keepView(blob, name, ref, button) {
+    button.disabled = true;
+    try {
+      const data = new FormData();
+      data.append('file', blob, name);
+      data.append('origin', 'model');
+      data.append('model', ref);
+      await upload(`/api/projects/${projectId}/images/source`, data);
+      lastError = '';
+      toast(t('ai.view3d_saved'));
+    } catch (e) { lastError = e.message; }
+    button.disabled = false;
+    await refresh();
   }
 
   function drawModel() {
-    const { fileId, colour } = getModel();
-    if (fileId === shownFile) return;                              // another file was linked (or none): start again
-    shownFile = fileId;
+    const { models, colour } = getModel();
+    const key = models.map((m) => `${m.fileId}|${m.label}`).join(',');
+    if (key === shownKey) return;                                  // other models were linked (or none): start again
+    shownKey = key;
     viewer = null;
+    modelNames = new Map(models.map((m) => [m.fileId, m.label]));
+    if (!models.length) { fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_none'))); return; }
+    let current = models.find((m) => m.fileId === wantedModel) || models[0];
+    let plate = '';                                                // '' is the whole file; a number is one build plate of it
+    let token = 0;                                                 // what is being loaded now; an answer for something older is dropped
     const status = h('p', { class: 'hint', role: 'status' });
-    if (!fileId) { fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_none'))); return; }
-    const open = h('button', { class: 'btn', type: 'button', 'data-load-model': '', onclick: async () => {
-      open.disabled = true;
+    const stage = h('div', { class: 'stack' });
+    const ref = () => `${current.fileId}${plate ? `:${plate}` : ''}`;
+    const plateField = h('div', { hidden: true });
+    const plates = h('select', { onchange: () => { plate = plates.value; load(); } });
+    plateField.append(field(t('file.plate'), plates));
+    const picker = h('select', { onchange: () => { current = models.find((m) => m.fileId === picker.value) || models[0]; plate = ''; choosePlates(); load(); } },
+      models.map((m) => h('option', { value: m.fileId, selected: m === current }, m.label)));
+
+    // A slicer project can have several build plates; each can be looked at on its own.
+    async function choosePlates() {
+      plateField.hidden = true;
+      const asked = current.fileId;
+      let found = { plates: [] };
+      try { found = await api('GET', `/api/print-files/${asked}/parts`); } catch { /* no list: the whole file */ }
+      if (shownKey !== key || current.fileId !== asked || found.plates.length < 2) return;
+      fill(plates, h('option', { value: '' }, t('file.all_plates')), found.plates.map((n) => h('option', { value: String(n) }, `${t('file.plate')} ${n}`)));
+      plateField.hidden = false;
+    }
+
+    // A file without a model to turn (a sliced 3MF holds only the print job) often has the slicer's own picture of the build
+    // plate, in colour. It is offered instead: not to turn, but it can be kept as the view of the model all the same.
+    function offerPlate(mine) {
+      const url = `/api/print-files/${current.fileId}/preview${plate ? `?plate=${plate}` : ''}`;
+      const name = ref();
+      const picture = h('img', { class: 'ai-source model-plate', alt: t('ai.plate_alt') });
+      picture.addEventListener('load', () => {
+        if (shownKey !== key || mine !== token) return;
+        const save = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
+          try { keepView((await downloadFile(url)).blob, 'printplaat.jpg', name, save); } catch (e) { lastError = e.message; draw(); }
+        } }, t('ai.plate_save'));
+        fill(stage, h('p', { class: 'muted' }, t('ai.plate_intro')), picture, h('div', { class: 'row' }, save));
+      });
+      picture.src = url;                                           // no picture in the file: nothing is added
+    }
+
+    async function load() {
+      const mine = ++token;
+      viewer = null;
+      fill(stage);
+      open.hidden = true;
       status.textContent = t('ai.view3d_loading');
       let made = null;
       let mesh = null;
       try {
         const chosen = form ? form.values().colour : '';
-        mesh = await loadMesh(fileId);
+        mesh = await loadMesh(current.fileId, plate);
+        if (shownKey !== key || mine !== token) return;            // something else was asked for while this was loading
         made = modelViewer(mesh, chosen || colour, !!chosen);      // the file's colours; a chosen colour is the whole item's, the roll's fills in
-      } catch (e) { status.textContent = e.message; open.disabled = false; offerPlate(fileId, status); return; }
-      if (shownFile !== fileId) return;                            // the file changed while this one was loading
+      } catch (e) {
+        if (shownKey !== key || mine !== token) return;
+        status.textContent = e.message;
+        open.hidden = false;
+        offerPlate(mine);
+        return;
+      }
       if (!made) { status.textContent = t('ai.view3d_no_webgl'); return; }
       viewer = made;
       status.textContent = t(mesh.colours ? 'ai.view3d_file_colours' : 'ai.view3d_no_colours');
+      const name = ref();
       const save = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-        save.disabled = true;
-        try {
-          const data = new FormData();
-          data.append('file', await viewer.snapshot(), '3d-model.png');
-          data.append('origin', 'model');
-          await upload(`/api/projects/${projectId}/images/source`, data);
-          lastError = '';
-          toast(t('ai.view3d_saved'));
-        } catch (e) { lastError = e.message; }
-        save.disabled = false;
-        await refresh();
+        try { keepView(await made.snapshot(), '3d-model.png', name, save); } catch (e) { lastError = e.message; draw(); }
       } }, t('ai.view3d_save'));
-      fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_intro')),
-        viewer.element, h('p', { class: 'hint' }, t('ai.view3d_hint')),
-        h('div', { class: 'model-controls' }, field(t('ai.view3d_zoom'), viewer.controls[0]), viewer.controls[1]),
-        h('div', { class: 'row' }, save), status);
-    } }, t('ai.view3d_load'));
-    fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_intro')), h('div', { class: 'row' }, open), status);
+      fill(stage, made.element, h('p', { class: 'hint' }, t('ai.view3d_hint')),
+        h('div', { class: 'model-controls' }, field(t('ai.view3d_zoom'), made.controls[0]), made.controls[1]),
+        h('div', { class: 'row' }, save));
+    }
+
+    const open = h('button', { class: 'btn', type: 'button', 'data-load-model': '', onclick: load }, t('ai.view3d_load'));
+    fill(modelBox, h('h3', {}, t('ai.view3d_title')), h('p', { class: 'muted' }, t('ai.view3d_intro')),
+      h('div', { class: 'model-controls' }, models.length > 1 ? field(t('ai.view3d_which'), picker) : null, plateField, open), status, stage);
+    choosePlates();
   }
 
   async function addPhoto(file) {
@@ -346,7 +380,12 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   function draw() {
     drawModel();
     const source = images.find((i) => i.kind === 'source' && i.origin !== 'model');
-    const view = images.find((i) => i.kind === 'source' && i.origin === 'model');
+    const views = images.filter((i) => i.kind === 'source' && i.origin === 'model');
+    // "Beeld van het 3D-model · voorkant · plaat 2": which model a saved view is of, when the calculation knows
+    const viewName = (image) => {
+      const [file, plate] = String(image.model_ref || '').split(':');
+      return [t('ai.view_caption'), modelNames.get(file), plate ? `${t('file.plate').toLowerCase()} ${plate}` : ''].filter(Boolean).join(' · ');
+    };
     const made = images.filter((i) => i.kind === 'generated');
     const coming = jobs.filter((j) => j.status === 'queued' || j.status === 'running');
     const failed = jobs.filter((j) => j.status === 'failed');
@@ -363,16 +402,16 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       onchange: () => { const chosen = file.files[0]; if (chosen) addPhoto(chosen); } });
     const purposeChosen = !!(form && form.values().purpose);
     fill(body,
-      source || view ? h('div', { class: 'ai-sources' },
+      source || views.length ? h('div', { class: 'ai-sources' },
         source ? kept(source, t('ai.photo_caption'), t('ai.photo_alt')) : null,
-        view ? kept(view, t('ai.view_caption'), t('ai.view_alt')) : null) : h('p', { class: 'muted' }, t('ai.photo_none')),
+        views.map((view) => kept(view, viewName(view), t('ai.view_alt')))) : h('p', { class: 'muted' }, t('ai.photo_none')),
       field(source ? t('ai.photo_replace') : t('ai.photo_choose'), file, t('ai.photo_hint')),
       uploading ? h('div', { class: 'ai-progress', role: 'status' }, spinner(), h('strong', {}, t('ai.uploading'))) : null,
       working
         ? h('div', { class: 'ai-progress', role: 'status' }, spinner(),
           h('div', {}, h('strong', {}, t('ai.generating', { done: finished, n: finished + coming.length })), h('p', { class: 'hint' }, t('ai.generating_hint'))))
         : h('div', { class: 'stack' },
-          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !(source || view) || uploading || !purposeChosen, onclick: generate }, t('ai.generate'))),
+          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !(source || views.length) || uploading || !purposeChosen, onclick: generate }, t('ai.generate'))),
           form && !purposeChosen ? h('p', { class: 'hint' }, t('ai.purpose_needed')) : null),
       h('p', { class: 'error', role: 'alert', hidden: !lastError }, lastError),
       // Everything that went wrong or was left out, here on the page and as soon as it is known (also while the rest is still being made).
@@ -394,9 +433,11 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   const card = h('div', { class: 'glass card stack' }, foldHead('product-images', t('ai.card_title'), { open: false }), h('p', { class: 'muted' }, t('ai.card_intro')), options, modelBox, body);
   // The way in from the print file: the card is folded away by default, and the model is what the file is looked at for. Unfolds
   // the card, starts loading the model when that has not been done, and brings it into view.
-  card.showModel = () => {
+  card.showModel = (fileId = '') => {
     const fold = card.querySelector('.fold-toggle');
     if (fold && fold.getAttribute('aria-expanded') !== 'true') fold.click();
+    wantedModel = fileId;
+    shownKey = undefined;                                          // built again, with the model that was asked for in front
     drawModel();
     const load = modelBox.querySelector('[data-load-model]');
     if (load && !load.disabled) load.click();

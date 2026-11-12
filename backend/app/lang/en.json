@@ -28,6 +28,7 @@
  "ai.err_unreachable": "OpenAI cannot be reached from the server.",
  "ai.err_upstream": "OpenAI has an outage. Try again later.",
  "ai.err_variant": "Unknown variant.",
+ "ai.err_views_many": "This calculation already has {max} views of 3D models. Remove one first.",
  "ai.f_extra_text": "Extra text",
  "ai.f_product_name": "Product name",
  "ai.f_scene": "Setting",
@@ -252,6 +253,7 @@
  "files.not_found": "File not found.",
  "files.numbers": "Density and infill must be numbers.",
  "files.pick": "Choose an .stl or .3mf file.",
+ "files.plate": "Invalid plate number.",
  "files.range": "Density must be between 0.5 and 3 g/cm³ and infill between 1 and 100%.",
  "invite.invalid": "This invitation does not work (any more). Ask for a new link.",
  "invoice.bic_label": "BIC:",
@@ -313,6 +315,7 @@
  "pf.missing_file": "The 3MF refers to a missing file: {path}",
  "pf.no_data": "This 3MF contains no slicer data and no readable model.",
  "pf.no_model": "This file holds no 3D model to turn. A sliced 3MF (.gcode.3mf) holds only the print job; link the project file (.3mf) from the slicer to see the model.",
+ "pf.no_plate": "This file has no plate {plate} with a model.",
  "pf.not_zip": "This is not a valid 3MF file (not a zip archive).",
  "pf.stl_bad_coords": "The STL contains invalid coordinates.",
  "pf.stl_invalid": "This is not a valid STL (neither binary nor ASCII).",
@@ -416,7 +419,9 @@
  "f.invoice_qr_link": "Payment link in the QR code",
  "err.invoice_qr_link": "Payment link: use an https address without spaces (500 characters at most), with only the fields {{bedrag}}, {{bedrag_cent}}, {{factuurnummer}}, {{klantnummer}}, {{betreft}}, {{iban}} and {{bestelnummer}}.",
  "f.colour_hex": "Colour code",
+ "f.model_label": "Name of the 3D model",
  "err.colour_hex": "{label}: use a colour like #rrggbb, or leave it empty.",
+ "err.models": "Invalid list of 3D models (at most {max}).",
  "err.navbar_style": "Navigation bar: choose iOS-like or Android-like.",
  "err.navbar_glass": "Glass effect: a whole number from 0 to 100."
 }

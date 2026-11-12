@@ -32,6 +32,7 @@ MAX_SETTINGS_BYTES = 8 * 1024 * 1024  # a slicer's settings file that is read fo
 MAX_PAINT_DIGITS = 20_000            # of one triangle's painted-on colours
 PAINT_ATTRIBUTES = ("paint_color", "mmu_segmentation")      # Bambu Studio / OrcaSlicer, PrusaSlicer
 MAX_PICTURE_BYTES = 16 * 1024 * 1024  # the slicer's picture of a plate
+MAX_PLATES = 64                       # build plates of one project that are listed
 MESH_MAGIC = b"PPM1"
 NO_COLOUR = b"\x00\x00\x00\x00"
 
@@ -398,9 +399,49 @@ def _slicer_colours(zf: zipfile.ZipFile) -> "tuple[dict, dict, list]":
     return objects, parts, colours
 
 
-def _threemf_triangles(zf: zipfile.ZipFile) -> "tuple[array, bytearray]":
-    """Everything on the build plate, every object where its transforms put it, in millimetres, with a colour per triangle
-    (four bytes: red, green, blue, 255; or four zeros where the file does not say)."""
+def _slicer_plates(zf: zipfile.ZipFile) -> dict:
+    """The build plates of a Bambu Studio / OrcaSlicer project and what stands on each: {plate number: {(object id, instance)}},
+    from `Metadata/model_settings.config`. Empty for any other file, or when it cannot be read."""
+    name = "Metadata/model_settings.config"
+    plates = {}
+    try:
+        if name not in zf.namelist() or zf.getinfo(name).file_size > MAX_SETTINGS_BYTES:
+            return {}
+        with zf.open(name) as fh:
+            for plate in ET.parse(fh).getroot().iter("plate"):
+                meta = {m.get("key"): m.get("value") for m in plate.findall("metadata")}
+                if not str(meta.get("plater_id", "")).isdigit():
+                    continue
+                on_it = set()
+                for instance in plate.findall("model_instance"):
+                    values = {m.get("key"): m.get("value") for m in instance.findall("metadata")}
+                    if values.get("object_id") is not None:
+                        on_it.add((str(values["object_id"]), int(values["instance_id"]) if str(values.get("instance_id", "")).isdigit() else 0))
+                if on_it and len(plates) < MAX_PLATES:
+                    plates[int(meta["plater_id"])] = on_it
+    except (ET.ParseError, DefusedXmlException, ValueError, AttributeError, KeyError):
+        return {}
+    return plates
+
+
+def parts(path: Path, extension: str) -> dict:
+    """What a file can show: `plates`, the build plates that hold a model (numbers, for a slicer project with more than one), and
+    `pictures`, the plates the slicer left a picture of. An STL has neither."""
+    if extension.lower().lstrip(".") != "3mf":
+        return {"plates": [], "pictures": []}
+    try:
+        zf = zipfile.ZipFile(path)
+    except zipfile.BadZipFile:
+        return {"plates": [], "pictures": []}
+    with zf:
+        pictures = sorted({int(m.group(1)) for info in zf.infolist()
+                           if (m := re.fullmatch(r"Metadata/plate_(\d{1,3})\.png", info.filename)) and 0 < info.file_size <= MAX_PICTURE_BYTES})
+        return {"plates": sorted(_slicer_plates(zf)), "pictures": pictures[:MAX_PLATES]}
+
+
+def _threemf_triangles(zf: zipfile.ZipFile, plate: "int | None" = None) -> "tuple[array, bytearray]":
+    """Everything on the build plate (or, with `plate`, on that plate of a slicer project), every object where its transforms put
+    it, in millimetres, with a colour per triangle (four bytes: red, green, blue, 255; or four zeros where the file does not say)."""
     main = "3D/3dmodel.model"
     if main not in zf.namelist():
         raise PrintFileError("pf.no_model")
@@ -453,22 +494,32 @@ def _threemf_triangles(zf: zipfile.ZipFile) -> "tuple[array, bytearray]":
     # an object the slicer names no filament for is printed with the first one; a sliced file lists only the filaments it uses,
     # so "the first" is the first one that has a colour
     first = next((filament(n) for n in range(1, len(filaments) + 1) if filament(n)), None)
+    wanted = _slicer_plates(zf).get(plate) if plate is not None else None
+    if plate is not None and wanted is None:
+        raise PrintFileError("pf.no_plate", plate=plate)
+    seen = {}                                                             # how often an object was placed so far: its instance number
     for oid, tr in items:
+        instance = seen.get(oid, 0)
+        seen[oid] = instance + 1
+        if wanted is not None and (str(oid), instance) not in wanted:
+            continue
         emit(main, oid, [tr], 0, filament(by_object.get(oid)) or first)
     if unit != 1.0:
         out = array("f", (v * unit for v in out))
     return out, shades
 
 
-def triangles(path: Path, extension: str) -> bytes:
+def triangles(path: Path, extension: str, plate: "int | None" = None) -> bytes:
     """The model for the browser to draw, little-endian: the four bytes `PPM1`, the number of triangles and a flag (two unsigned
     32-bit numbers; the flag is 1 when colours follow), then nine 32-bit floats per triangle (x, y, z of its three corners, in
     millimetres, Z up as on the printer), then, with the flag, four bytes per triangle: red, green, blue and 255, or four zeros
     for a triangle the file names no colour for. An STL has no colours. Raises PrintFileError when the file holds no model (a
-    sliced 3MF may hold only G-code) or one too detailed to send."""
+    sliced 3MF may hold only G-code) or one too detailed to send. `plate` asks for one build plate of a slicer project."""
     ext = extension.lower().lstrip(".")
     shades = bytearray()
     if ext == "stl":
+        if plate is not None:
+            raise PrintFileError("pf.no_plate", plate=plate)
         out = _stl_triangles(Path(path).read_bytes())
     elif ext == "3mf":
         try:
@@ -479,7 +530,7 @@ def triangles(path: Path, extension: str) -> bytes:
             if sum(i.file_size for i in zf.infolist()) > MAX_UNZIPPED_BYTES:
                 raise PrintFileError("pf.too_big_unpacked")
             try:
-                out, shades = _threemf_triangles(zf)
+                out, shades = _threemf_triangles(zf, plate)
             except (ET.ParseError, DefusedXmlException):
                 raise PrintFileError("pf.bad_xml") from None
     else:
@@ -493,9 +544,9 @@ def triangles(path: Path, extension: str) -> bytes:
     return MESH_MAGIC + struct.pack("<II", count, 1 if coloured else 0) + out.tobytes() + (bytes(shades) if coloured else b"")
 
 
-def plate_picture(path: Path, extension: str) -> "bytes | None":
+def plate_picture(path: Path, extension: str, plate: "int | None" = None) -> "bytes | None":
     """The picture of the build plate a slicer puts in a 3MF (Bambu Studio, OrcaSlicer: `Metadata/plate_1.png`, the first plate
-    there is one of), as it is in the file; None when there is none. A sliced file often holds no model to draw, but it does hold
+    there is one of, or the plate asked for), as it is in the file; None when there is none. A sliced file often holds no model to draw, but it does hold
     this. The bytes are untrusted: whoever shows them decodes and re-encodes them first."""
     if extension.lower().lstrip(".") != "3mf":
         return None
@@ -505,8 +556,8 @@ def plate_picture(path: Path, extension: str) -> "bytes | None":
         return None
     with zf:
         plates = sorted((int(m.group(1)), info) for info in zf.infolist() if (m := re.fullmatch(r"Metadata/plate_(\d{1,3})\.png", info.filename)))
-        for _number, info in plates:
-            if 0 < info.file_size <= MAX_PICTURE_BYTES:
+        for number, info in plates:
+            if 0 < info.file_size <= MAX_PICTURE_BYTES and plate in (None, number):
                 return zf.read(info)
     return None
 

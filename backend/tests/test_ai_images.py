@@ -196,10 +196,43 @@ def test_a_photo_for_a_missing_calculation(ai):
     assert photo(ai, "00000000-0000-0000-0000-000000000000").status_code == 404
 
 
-def view(owner, project, data=None):
-    """Save a view of the 3D model, as the viewer in the browser does."""
+def view(owner, project, data=None, model=""):
+    """Save a view of the 3D model, as the viewer in the browser does. `model` says which model (and plate) it is of."""
     return owner.post(f"/api/projects/{project}/images/source", headers=H, content_type="multipart/form-data",
-                      data={"file": (BytesIO(png((400, 400), (30, 60, 200)) if data is None else data), "3d-model.png"), "origin": "model"})
+                      data={"file": (BytesIO(png((400, 400), (30, 60, 200)) if data is None else data), "3d-model.png"), "origin": "model",
+                            "model": model})
+
+
+FRONT_ID, BACK_ID = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+
+
+def test_every_model_and_plate_keeps_its_own_view_and_all_of_them_are_sent(ai, project, monkeypatch):
+    fake = ready(ai, project, monkeypatch)                                         # a photo is there
+    assert view(ai, project["id"], model=FRONT_ID).get_json()["model_ref"] == FRONT_ID
+    view(ai, project["id"], png((410, 410)), model=f"{BACK_ID}:2")
+    again = view(ai, project["id"], png((420, 420)), model=FRONT_ID).get_json()        # a new view of the front replaces the old one
+    kept = [(i["origin"], i["model_ref"]) for i in state(ai, project)["images"]]
+    assert kept == [("photo", ""), ("model", f"{BACK_ID}:2"), ("model", FRONT_ID)] and again["width_px"] == 420
+    for bad in ("voorkant", f"{FRONT_ID}:0", f"{FRONT_ID}:1234", FRONT_ID.upper() + "x"):
+        assert view(ai, project["id"], model=bad).status_code == 400, bad
+    assert queue(ai, project, "square").status_code == 202
+    files = fake.calls[0]["files"]
+    assert [(field, part[0]) for field, part in files] == [("image[]", "photo.jpg"), ("image[]", "model.jpg"), ("image[]", "model-2.jpg")]
+    assert "the others are plain renderings of its 3D model" in fake.calls[0]["data"]["prompt"]
+    ai.delete(f"/api/project-images/{state(ai, project)['images'][0]['id']}", headers=H)        # without the photo: the models alone
+    wipe(ai, project)
+    assert queue(ai, project, "square").status_code == 202
+    assert len(fake.calls[1]["files"]) == 2 and "its separate parts" in fake.calls[1]["data"]["prompt"]
+    for n in range(3, 7):                                                          # there is room for six views, not for a seventh
+        assert view(ai, project["id"], model=f"{BACK_ID}:{n}").status_code == 201
+    assert view(ai, project["id"], model=f"{BACK_ID}:9").status_code == 409 and view(ai, project["id"], model=FRONT_ID).status_code == 201
+    doc = backup(ai).get_json()
+    assert sorted(i["model_ref"] for i in doc["project_images"] if i["kind"] == "source")[-1] == f"{BACK_ID}:6"
+    assert post(ai, "/api/backup/restore", doc).status_code == 200
+    assert len([i for i in state(ai, project)["images"] if i["origin"] == "model"]) == 6
+    doc["project_images"][0]["model_ref"] = "voorkant"
+    assert post(ai, "/api/backup/restore", doc).status_code == 400
+
 
 
 def test_a_view_of_the_3d_model_is_kept_next_to_the_photo(ai, project):

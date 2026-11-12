@@ -105,6 +105,26 @@ LEAD = {
                         "the shape and proportions of the model, the colour, material and visible print layers of the photo; do not "
                         "redesign, restyle or add parts to it.",
 }
+# with more than one picture of the model: the parts of the object, or the object from several sides
+LEAD[("model", "model")] = (
+    "These pictures are plain renderings of the 3D model of one object that is 3D printed: its separate parts, or the object seen from "
+    "several sides. Turn them into {shape} of the real, printed object, put together as it is meant to be used: keep the shape and "
+    "proportions of every part exactly as shown, in the colours shown, made of matte plastic with fine horizontal print layers; do not "
+    "redesign, restyle or add parts to it.")
+LEAD[("photo", "model", "model")] = (
+    "The first picture is a photo of a 3D-printed object; the others are plain renderings of its 3D model, which show the exact shape of "
+    "its parts, or of the object from several sides. Make {shape} of the object. Keep the object itself exactly as it is: the shape and "
+    "proportions of the model, the colour, material and visible print layers of the photo; do not redesign, restyle or add parts to it.")
+MAX_MODEL_VIEWS = 6                  # saved views of the 3D models of one calculation; all of them go to the model with the photo
+MODEL_REF = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(:[1-9][0-9]{0,2})?$")
+
+
+def lead(sources: tuple, shape: str) -> str:
+    """The opening of the prompt for these pictures (their origins, the photo first): what the model is looking at."""
+    models = min(sum(1 for origin in sources if origin == "model"), 2)       # two and more read the same
+    return LEAD[tuple(o for o in sources if o == "photo")[:1] + ("model",) * models].format(shape=shape)
+
+
 PROMPT = (
     "{lead} {placement} {setting}{purpose}{room}"
     "It must look like a real photograph taken with a camera in natural light: no 3D render, illustration, cartoon or glossy CGI look. "
@@ -155,7 +175,7 @@ def build_prompt(variant: str, description: str = "", purpose: "str | None" = No
     # a colour chosen for the item wins over the colour it has in the pictures given
     tint = (f"Show the object 3D printed in {colour_name(colour)} filament (colour {colour}), whatever colour it has in the picture given; "
             "its shape and everything else about it stay the same. " if COLOUR.match(colour or "") else "")
-    return PROMPT.format(lead=LEAD[tuple(sources)].format(shape=shape), placement=placement, setting=setting + tint,
+    return PROMPT.format(lead=lead(tuple(sources), shape), placement=placement, setting=setting + tint,
                          purpose=PURPOSES[purpose][1] if purpose else "",
                          room=(image_overlay.room(variant) if text else "") + (ROOM_FOR_LOGO if logo else ""))
 
@@ -437,6 +457,7 @@ def _clean(content: bytes, *, jpeg_quality: int = 92, max_edge: int = MAX_EDGE) 
 
 def _serialise(row) -> dict:
     return {"id": str(row["id"]), "kind": row["kind"], "origin": row["origin"] if row["kind"] == "source" else None,
+            "model_ref": row["model_ref"] if row["kind"] == "source" else None,
             "variant": row["variant"], "purpose": row["purpose"], "width_px": row["width_px"],
             "height_px": row["height_px"], "is_cover": row["is_cover"], "created_at": row["created_at"].isoformat()}
 
@@ -448,7 +469,7 @@ def _project(conn, project_id):
     return row
 
 
-COLUMNS = "id, kind, origin, variant, purpose, width_px, height_px, is_cover, created_at"
+COLUMNS = "id, kind, origin, model_ref, variant, purpose, width_px, height_px, is_cover, created_at"
 
 
 def _job_json(row) -> dict:
@@ -507,11 +528,13 @@ def dismiss_jobs(project_id):
 @bp.post("/projects/<uuid:project_id>/images/source")
 def upload_source(project_id):
     """Keep the picture the images are made from: a photo of the object, or (`origin=model`) a picture of its 3D model as the viewer
-    in the browser drew it. One of each; a new one replaces the one of its kind."""
+    in the browser drew it. There is one photo, and one view per model and build plate (`model`: "<file id>" or "<file id>:<plate>",
+    empty for a calculation with a single model); a new one replaces the one it is of."""
     upload = request.files.get("file")
     origin = request.form.get("origin", "photo")
+    model_ref = request.form.get("model", "").strip().lower() if origin == "model" else ""
     try:
-        if origin not in ORIGINS:
+        if origin not in ORIGINS or (model_ref and not MODEL_REF.match(model_ref)):
             raise ApiError(400, "ai.err_origin")
         if upload is None or not upload.filename:
             raise ApiError(400, "ai.err_photo_pick")
@@ -521,10 +544,16 @@ def upload_source(project_id):
         raise
     with pool().connection() as conn:
         project = _project(conn, project_id)
-        conn.execute("DELETE FROM project_images WHERE project_id = %s AND kind = 'source' AND origin = %s", (project_id, origin))
+        conn.execute("DELETE FROM project_images WHERE project_id = %s AND kind = 'source' AND origin = %s AND model_ref = %s",
+                     (project_id, origin, model_ref))
+        views = conn.execute("SELECT count(*) AS n FROM project_images WHERE project_id = %s AND kind = 'source' AND origin = 'model'",
+                             (project_id,)).fetchone()["n"]
+        if origin == "model" and views >= MAX_MODEL_VIEWS:
+            raise ApiError(409, "ai.err_views_many", max=MAX_MODEL_VIEWS)
         row = conn.execute(
-            f"INSERT INTO project_images (project_id, kind, origin, mime, content, width_px, height_px) "
-            f"VALUES (%s, 'source', %s, 'image/jpeg', %s, %s, %s) RETURNING {COLUMNS}", (project_id, origin, content, width, height)).fetchone()
+            f"INSERT INTO project_images (project_id, kind, origin, model_ref, mime, content, width_px, height_px) "
+            f"VALUES (%s, 'source', %s, %s, 'image/jpeg', %s, %s, %s) RETURNING {COLUMNS}",
+            (project_id, origin, model_ref, content, width, height)).fetchone()
         _log(conn, "info", "ai.log_photo" if origin == "photo" else "ai.log_model_view", project=project)
     return jsonify(_serialise(row)), 201
 
@@ -621,13 +650,14 @@ def _run_batch(app, project_id, batch) -> None:
 
 def _generate(key: str, model: str, quality: str, variant: str, description: str, sources: list, purpose=None, *, text=False, logo=False,
               colour="", scene=""):
-    """`sources` is [(origin, jpeg), ...], the photo first. One picture is sent as `image`, two as `image[]`."""
+    """`sources` is [(origin, jpeg), ...], the photo first, then the views of the models. One picture is sent as `image`, more as
+    `image[]`."""
     prompt = build_prompt(variant, description, purpose, text=text, logo=logo, sources=tuple(origin for origin, _ in sources), colour=colour,
                           scene=scene)
     if len(sources) == 1:
         files = {"image": (f"{sources[0][0]}.jpg", sources[0][1], "image/jpeg")}
     else:
-        files = [("image[]", (f"{origin}.jpg", content, "image/jpeg")) for origin, content in sources]
+        files = [("image[]", (f"{origin}.jpg" if n < 2 else f"{origin}-{n}.jpg", content, "image/jpeg")) for n, (origin, content) in enumerate(sources)]
     response = _call("POST", f"{OPENAI}/images/edits", key,
                      data={"model": model, "prompt": prompt, "size": VARIANTS[variant][0], "quality": quality, "n": "1"},
                      files=files)
@@ -660,7 +690,8 @@ def _run_next(project_id, batch) -> bool:
         conn.execute("UPDATE ai_image_jobs SET updated_at = now() WHERE batch_id = %s AND status = 'queued'", (batch,))     # still alive
         project = conn.execute("SELECT id, number, name FROM projects WHERE id = %s", (project_id,)).fetchone()
         sources = [(r["origin"], bytes(r["content"])) for r in conn.execute(
-            "SELECT origin, content FROM project_images WHERE project_id = %s AND kind = 'source' ORDER BY origin DESC", (project_id,)).fetchall()]
+            "SELECT origin, content FROM project_images WHERE project_id = %s AND kind = 'source' ORDER BY origin DESC, created_at, id",
+            (project_id,)).fetchall()]
         overlay = job["overlay"] or {}
         logo = invoice_logo.load(conn) if overlay.get("logo") else None        # no logo uploaded: the picture is made without one
         if project is not None:

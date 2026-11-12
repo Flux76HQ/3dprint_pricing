@@ -40,9 +40,12 @@ def serialise(row) -> dict:
 
 
 def _purge_orphans(conn) -> None:
+    """A file is kept while a calculation uses it: as the file its filament is worked out from, or as one of its 3D models."""
     rows = conn.execute(
         "DELETE FROM print_files WHERE created_at < %s "
-        "AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.file_id = print_files.id) RETURNING stored_name",
+        "AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.file_id = print_files.id) "
+        "AND NOT EXISTS (SELECT 1 FROM projects p, json_each(p.models) m WHERE json_extract(m.value, '$.file_id') = print_files.id) "
+        "RETURNING stored_name",
         (datetime.now(timezone.utc) - timedelta(days=1),)
     ).fetchall()
     for row in rows:
@@ -111,6 +114,26 @@ def download(file_id):
                      mimetype="application/octet-stream")
 
 
+def _plate() -> "int | None":
+    """`?plate=2`: one build plate of the file; nothing for all of it."""
+    given = request.args.get("plate", "")
+    if not given:
+        return None
+    if not given.isdigit() or not 1 <= int(given) <= 999:
+        raise ApiError(400, "files.plate")
+    return int(given)
+
+
+@bp.get("/<uuid:file_id>/parts")
+def file_parts(file_id):
+    """Which build plates of the file hold a model, and which the slicer left a picture of (see `printfile.parts`)."""
+    row = _get(file_id)
+    path = _dir() / row["stored_name"]
+    if not path.is_file():
+        raise ApiError(404, "files.gone")
+    return jsonify(printfile.parts(path, row["kind"]))
+
+
 @bp.get("/<uuid:file_id>/mesh")
 def mesh(file_id):
     """The model as raw triangles (see `printfile.triangles`), for the viewer in the browser. Read from the file each time it is
@@ -120,7 +143,7 @@ def mesh(file_id):
     if not path.is_file():
         raise ApiError(404, "files.gone")
     try:
-        data = printfile.triangles(path, row["kind"])
+        data = printfile.triangles(path, row["kind"], _plate())
     except printfile.PrintFileError as exc:
         raise ApiError(422, exc) from None
     return Response(data, mimetype="application/octet-stream")
@@ -135,7 +158,7 @@ def preview(file_id):
     path = _dir() / row["stored_name"]
     if not path.is_file():
         raise ApiError(404, "files.gone")
-    picture = printfile.plate_picture(path, row["kind"])
+    picture = printfile.plate_picture(path, row["kind"], _plate())
     if picture is None:
         raise ApiError(404, "files.no_preview")
     try:

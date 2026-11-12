@@ -213,6 +213,62 @@ def test_a_sliced_file_without_a_model_still_has_the_picture_of_its_plate(owner)
     assert owner.get("/api/print-files/00000000-0000-0000-0000-000000000000/preview").status_code == 404
 
 
+TWO_PLATES = (f'<?xml version="1.0"?><model unit="millimeter" {pf.NS}><resources>'
+              f'<object id="1" type="model">{pf.mesh_xml()}</object><object id="2" type="model">{pf.mesh_xml(3.0)}</object></resources>'
+              '<build><item objectid="1"/><item objectid="2"/><item objectid="1" transform="1 0 0 0 1 0 0 0 1 100 0 0"/></build></model>')
+PLATE_SETTINGS = ('<?xml version="1.0"?><config>'
+                  '<plate><metadata key="plater_id" value="1"/><model_instance><metadata key="object_id" value="1"/>'
+                  '<metadata key="instance_id" value="0"/></model_instance></plate>'
+                  '<plate><metadata key="plater_id" value="2"/><model_instance><metadata key="object_id" value="2"/>'
+                  '<metadata key="instance_id" value="0"/></model_instance><model_instance><metadata key="object_id" value="1"/>'
+                  '<metadata key="instance_id" value="1"/></model_instance></plate>'
+                  '<plate><metadata key="plater_id" value="3"/></plate></config>')
+
+
+def test_a_project_with_several_plates_can_be_shown_per_plate(owner):
+    from PIL import Image
+    picture = io.BytesIO()
+    Image.new("RGB", (64, 64), (0, 0, 255)).save(picture, "PNG")
+    fid = upload(owner, pf.zip_bytes({"3D/3dmodel.model": TWO_PLATES, "Metadata/model_settings.config": PLATE_SETTINGS,
+                                      "Metadata/plate_2.png": picture.getvalue()}), "lightbox.3mf").get_json()["id"]
+    assert owner.get(f"/api/print-files/{fid}/parts").get_json() == {"plates": [1, 2], "pictures": [2]}      # an empty plate is no plate
+    whole = corners(owner.get(f"/api/print-files/{fid}/mesh"))
+    first = corners(owner.get(f"/api/print-files/{fid}/mesh?plate=1"))
+    second = corners(owner.get(f"/api/print-files/{fid}/mesh?plate=2"))
+    assert (len(whole), len(first), len(second)) == (36 * 9, 12 * 9, 24 * 9)
+    assert max(first) == 10.0 and max(second) == 110.0                             # plate 2: the big part, and the second copy of the small one
+    assert owner.get(f"/api/print-files/{fid}/mesh?plate=3").status_code == 422     # nothing stands on it
+    assert owner.get(f"/api/print-files/{fid}/mesh?plate=x").status_code == 400
+    assert owner.get(f"/api/print-files/{fid}/preview?plate=2").status_code == 200
+    assert owner.get(f"/api/print-files/{fid}/preview?plate=1").status_code == 404
+    stl = upload(owner, pf.stl_binary()).get_json()["id"]
+    assert owner.get(f"/api/print-files/{stl}/parts").get_json() == {"plates": [], "pictures": []}
+    assert owner.get(f"/api/print-files/{stl}/mesh?plate=1").status_code == 422
+
+
+def test_a_calculation_keeps_its_3d_models_apart_from_its_filament_file(owner, app):
+    sliced = upload(owner, pf.sliced_3mf(), "lightbox.gcode.3mf").get_json()["id"]
+    front = upload(owner, pf.stl_binary(), "voor.stl").get_json()["id"]
+    back = upload(owner, pf.stl_ascii(), "achter.stl").get_json()["id"]
+    body = {**sheet_payload(), "file_id": sliced, "models": [{"file_id": front, "label": "  Voorkant "}, {"file_id": back, "label": ""},
+                                                             {"file_id": front, "label": "dubbel"}]}
+    made = make(owner, "/api/projects", body)
+    assert made["file_id"] == sliced and made["models"] == [{"file_id": front, "label": "Voorkant"}, {"file_id": back, "label": ""}]
+    assert owner.get(f"/api/projects/{made['id']}").get_json()["models"] == made["models"]
+    for bad in ([{"file_id": "nope"}], [{"file_id": "00000000-0000-0000-0000-000000000000"}], "voor.stl", [front],
+                [{"file_id": front, "label": "x" * 61}], [{"file_id": front}] * 13):
+        assert owner.put(f"/api/projects/{made['id']}", json={**body, "models": bad}, headers=H).status_code == 400, bad
+    # a model is kept as long as a calculation names it, like the filament file; dropped from the list it goes after a day
+    with app.extensions["pool"].connection() as conn:
+        conn.execute("UPDATE print_files SET created_at = strftime('%Y-%m-%d %H:%M:%f', 'now', '-2 days')")
+    upload(owner, pf.stl_binary(), "nieuw.stl")
+    assert all(owner.get(f"/api/print-files/{fid}").status_code == 200 for fid in (sliced, front, back))
+    assert owner.put(f"/api/projects/{made['id']}", json={**body, "models": [{"file_id": front, "label": "Voorkant"}]}, headers=H).status_code == 200
+    upload(owner, pf.stl_binary(), "nog een.stl")
+    assert owner.get(f"/api/print-files/{back}").status_code == 404 and owner.get(f"/api/print-files/{front}").status_code == 200
+    assert make(owner, "/api/projects", sheet_payload())["models"] == []            # nothing asked: none
+
+
 def test_the_model_needs_a_session(client, owner):
     fid = upload(owner, pf.stl_binary()).get_json()["id"]
     client.delete_cookie("pp_session")
