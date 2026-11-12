@@ -144,6 +144,24 @@ def test_the_download_is_a_json_attachment_with_every_section(owner):
     assert doc["preferences"]["theme"] == "dark" and doc["includes_files"] is False and "files" not in doc
 
 
+def test_the_backup_is_written_row_by_row_and_reads_the_same(owner, monkeypatch):
+    """One `json.dumps` of the whole document holds Python's interpreter lock until it is done, and with pictures in it that is most of a
+    second in which the worker answers nobody (docs/performance.md). The text is the one `json.dumps` writes, so a backup reads as before."""
+    from app import backup as module
+    fill(owner)
+    owner.post("/api/customers", json={"number": "", "name": "Zoë 't Hoekje \u00e9\u20ac \"quoted\" \\ back", "notes": "regel 1\nregel 2\ttab"}, headers=H)
+    doc = backup(owner).get_json()
+    assert module.dumps(doc) == json.dumps(doc, ensure_ascii=False).encode("utf-8")
+    for odd in ({}, {"a": []}, {"a": [], "b": {}, "c": None, "d": [1, "twee", None, {"x": [1, 2]}], "e": "één"}):
+        assert module.dumps(odd) == json.dumps(odd, ensure_ascii=False).encode("utf-8")
+    encoded, real = [], json.dumps
+    monkeypatch.setattr(module.json, "dumps", lambda value, **options: encoded.append(value) or real(value, **options))
+    module.dumps(doc)
+    lists = [value for value in doc.values() if isinstance(value, list) and value]
+    assert lists and not any(value is doc or any(value is whole for whole in lists) for value in encoded)        # never the document or a whole list in one call
+    assert sum(1 for value in encoded if isinstance(value, dict) and "purchase_price" in value) == len(doc["printers"])
+
+
 def test_nothing_that_unlocks_the_app_is_in_a_backup(owner, app):
     fill(owner)
     owner.post("/api/push/subscribe", json={"endpoint": "https://push.example.test/x", "keys": {"p256dh": "a", "auth": "b"}}, headers=H)

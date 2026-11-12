@@ -207,7 +207,7 @@ def _confirm(body: dict, action: str, target: str | None = None) -> None:
 @bp.get("/status")
 @login_required
 def status():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT enabled, totp_secret IS NOT NULL AS totp FROM password_credentials WHERE user_id = %s", (g.user_id,)).fetchone()
         remaining = conn.execute("SELECT count(*) AS n FROM mfa_backup_codes WHERE user_id = %s AND used_at IS NULL",
                                  (g.user_id,)).fetchone()["n"]

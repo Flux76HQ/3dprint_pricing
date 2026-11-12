@@ -85,7 +85,7 @@ def check(pool, cfg, now: "datetime | None" = None) -> int:
 
 
 def _check(pool, cfg, now) -> int:
-    with pool.connection() as conn:
+    with pool.read() as conn:
         users = conn.execute("SELECT id FROM users").fetchall()
         limits = settings(preferences.shared(conn))                 # the thresholds are the business's: the same for everybody
         groups = stock.groups(stock.fetch(conn))

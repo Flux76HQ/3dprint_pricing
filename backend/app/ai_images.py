@@ -48,7 +48,7 @@ MAX_EDGE = 2048                      # the photo is scaled down to this before i
 MAX_GENERATED = 12                   # per calculation; delete some to make more
 THUMB_EDGE = 192                     # the cover in the list of calculations is 56 CSS pixels, so this is sharp up to a 3x screen
 PHOTO_FORMATS = {"PNG", "JPEG", "MPO", "WEBP"}      # MPO is what some phones write as a JPEG
-CONNECT_TIMEOUT, READ_TIMEOUT = 10, 100             # the whole request has to fit in gunicorn's 120 seconds
+CONNECT_TIMEOUT, READ_TIMEOUT = 10, 100             # the whole request has to fit in the 120 seconds a proxy in front is asked to allow
 MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,59}$")
 KEY = re.compile(r"^[\x21-\x7e]{20,300}$")           # printable ASCII, no spaces
 SECRET_LIKE = re.compile(r"sk-[A-Za-z0-9_\-*.]{4,}")  # what an OpenAI message may quote of a key: never kept
@@ -247,7 +247,7 @@ def _public(row) -> dict:
 
 @bp.get("/ai-images/settings")
 def get_settings():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         return jsonify(_public(_settings(conn)))
 
 
@@ -292,7 +292,7 @@ def delete_key():
 
 def _need_key() -> "tuple[str, str, str]":
     """(key, model, quality) for a call; the connection is released before the slow request starts."""
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = _settings(conn)
     if not row["api_key_enc"]:
         raise ApiError(400, "ai.err_no_key")
@@ -344,7 +344,7 @@ def _log_error(exc: ApiError, *, project=None, variant=None) -> None:
 
 
 def _project_of(project_id):
-    with pool().connection() as conn:
+    with pool().read() as conn:
         return conn.execute("SELECT id, number, name FROM projects WHERE id = %s", (project_id,)).fetchone()
 
 
@@ -713,7 +713,7 @@ def _failed(project_id, batch, job, project, exc: ApiError) -> bool:
 
 @bp.get("/ai-images/log")
 def get_log():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = conn.execute("SELECT * FROM ai_image_log ORDER BY created_at DESC, id DESC LIMIT 200").fetchall()
     lang = request_language()
     return jsonify([{"id": r["id"], "created_at": r["created_at"].isoformat(), "level": r["level"],
@@ -747,7 +747,7 @@ def _kept(response, image_id):
 
 @bp.get("/project-images/<uuid:image_id>/file")
 def image_file(image_id):
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = _image_row(conn, image_id, "id, kind, variant, purpose, mime, content, project_id")
         number = conn.execute("SELECT number FROM projects WHERE id = %s", (row["project_id"],)).fetchone()["number"]
     if request.args.get("download") == "1":            # a download is named after the calculation, whose number is not part of the picture
@@ -761,7 +761,7 @@ def image_thumb(image_id):
     """The picture as the list shows it: at most THUMB_EDGE pixels a side instead of the stored one of up to 2048. It is made when asked
     for and not stored (a JPEG is decoded at a fraction of its size, which takes milliseconds), and kept by the browser like the picture
     itself, so each browser asks once per picture."""
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = _image_row(conn, image_id, "id, content")
     with Image.open(BytesIO(bytes(row["content"]))) as image:
         image.draft("RGB", (THUMB_EDGE, THUMB_EDGE))

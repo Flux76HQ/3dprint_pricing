@@ -58,8 +58,9 @@ def _content(conn, row) -> "bytes | None":
     if path is None or not path.is_file():
         return None
     content = path.read_bytes()
-    conn.execute("UPDATE invoice_template SET content = %s, stored_name = NULL WHERE id = true", (content,))
-    path.unlink(missing_ok=True)
+    if not conn.read_only:                           # a block that only reads (a backup) leaves the move to the next one that may write
+        conn.execute("UPDATE invoice_template SET content = %s, stored_name = NULL WHERE id = true", (content,))
+        path.unlink(missing_ok=True)
     return content
 
 
@@ -102,7 +103,7 @@ def _margin(label: str, value, default: int) -> int:
 
 @bp.get("")
 def get_template():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT * FROM invoice_template").fetchone()
     return jsonify({"template": serialise(row) if row else None, "placeholders": list(invoice_docs.PLACEHOLDERS),
                     "defaults": {"margin_top_mm": DEFAULT_TOP_MM, "margin_bottom_mm": DEFAULT_BOTTOM_MM}})
@@ -157,7 +158,7 @@ def delete_template():
 
 @bp.get("/download")
 def download():
-    with pool().connection() as conn:
+    with pool().connection() as conn:                # (not `read()`: a file an earlier release left is moved into the database here)
         row = conn.execute("SELECT * FROM invoice_template").fetchone()
         content = _content(conn, row) if row else None
     if row is None:

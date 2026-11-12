@@ -156,7 +156,7 @@ def next_at(now: datetime, newest: datetime | None, error: dict | None, interval
 
 
 def _due(now: datetime) -> bool:
-    with pool().connection() as conn:
+    with pool().read() as conn:
         if _owner(conn) is None:
             return False                     # not set up: there is nothing of the owner's to keep yet
         if conn.execute("SELECT 1 FROM backup_jobs WHERE status = 'running'").fetchone():
@@ -173,7 +173,7 @@ def run_once(app, now: datetime | None = None) -> Path | None:
     failure is kept for the screen)."""
     with app.app_context():
         now = now or datetime.now(timezone.utc)
-        with pool().connection() as conn:
+        with pool().read() as conn:
             keep = settings(conn)["keep"]
         if keep == 0:
             _prune(_folder(), 0)             # keeping none: the ones there are go too (also when the switch is off)
@@ -193,7 +193,7 @@ def make(now: datetime) -> Path | None:
     try:
         folder.mkdir(parents=True, exist_ok=True)
         _clear_leftovers(folder)
-        with pool().connection() as conn:
+        with pool().read() as conn:
             owner, keep = _owner(conn), settings(conn)["keep"]
             if owner is None:
                 return None
@@ -229,7 +229,7 @@ def keep_manual(user_id, include_files: bool, now: datetime | None = None) -> tu
     if include_files:
         _write(folder, target, lambda handle: backup.write_zip(doc, attachments, handle))
     else:
-        _write(folder, target, lambda handle: handle.write(json.dumps(doc, ensure_ascii=False).encode("utf-8")))
+        _write(folder, target, lambda handle: handle.write(backup.dumps(doc)))
     return target, len(attachments)
 
 
@@ -343,7 +343,7 @@ def _entry(name: str, size: int) -> dict:
 def listing():
     now = datetime.now(timezone.utc)
     names = _names()
-    with pool().connection() as conn:
+    with pool().read() as conn:
         error, chosen = _last_error(conn), settings(conn)
     backups = []
     for name in _all_names():

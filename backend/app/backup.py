@@ -70,14 +70,14 @@ def _app_version() -> str:
 def export():
     include_files = request.args.get("files") == "1"
     began = time.monotonic()
-    with pool().connection() as conn:
+    with pool().read() as conn:
         doc, attachments = document(conn, g.user_id, include_files)
     queried = time.monotonic() - began
     stamp = datetime.now().strftime("%Y-%m-%d")
     if not include_files:
         log.info("backup: read in %.1fs", queried)
         _remember(include_files)
-        return Response(json.dumps(doc, ensure_ascii=False), mimetype="application/json",
+        return Response(dumps(doc), mimetype="application/json",
                         headers={"Content-Disposition": f'attachment; filename="printpricing-backup-{stamp}.json"'})
     out = tempfile.TemporaryFile(dir=_upload_dir())                  # on the data disk, not in memory: the models can be large
     write_zip(doc, attachments, out)
@@ -145,10 +145,27 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
     return doc, attachments
 
 
+def dumps(doc: dict) -> bytes:
+    """The backup as JSON: the same text as `json.dumps(doc, ensure_ascii=False)`, but every row of a list is encoded by a call of its
+    own. One call for the whole document does not let go of Python's interpreter lock until it is done (0.8 s for 240 pictures,
+    measured: docs/performance.md), and for that long no other request of the worker gets an answer."""
+    pieces = [b"{"]
+    for n, (key, value) in enumerate(doc.items()):
+        pieces.append((", " if n else "").encode() + json.dumps(key, ensure_ascii=False).encode("utf-8") + b": ")
+        if isinstance(value, list):
+            pieces.append(b"[")
+            pieces.extend((b", " if i else b"") + json.dumps(row, ensure_ascii=False).encode("utf-8") for i, row in enumerate(value))
+            pieces.append(b"]")
+        else:
+            pieces.append(json.dumps(value, ensure_ascii=False).encode("utf-8"))
+    pieces.append(b"}")
+    return b"".join(pieces)
+
+
 def write_zip(doc: dict, attachments: list, handle) -> None:
     """A backup with print files: backup.json and every model loose under files/, written to `handle` (a file opened for writing)."""
     with zipfile.ZipFile(handle, "w", strict_timestamps=False) as archive:
-        archive.writestr(ARCHIVE_JSON, json.dumps(doc, ensure_ascii=False), compress_type=zipfile.ZIP_DEFLATED)
+        archive.writestr(ARCHIVE_JSON, dumps(doc), compress_type=zipfile.ZIP_DEFLATED)
         for member, path in attachments:                             # stored, not deflated: a 3MF is a ZIP already, and deflating an STL costs far more time on a small server than the space it saves
             archive.write(path, member, compress_type=zipfile.ZIP_STORED)
 

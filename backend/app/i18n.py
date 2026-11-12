@@ -76,7 +76,7 @@ def _accept_language(header: str):
 def user_language(user_id, pool=None):
     """The language saved with the account, if any (also used where there is no request: notifications)."""
     try:
-        with (pool or current_app.extensions["pool"]).connection() as conn:
+        with (pool or current_app.extensions["pool"]).read() as conn:
             row = conn.execute("SELECT preferences->>'language' AS lang FROM users WHERE id = %s", (user_id,)).fetchone()
     except Exception:
         return None
