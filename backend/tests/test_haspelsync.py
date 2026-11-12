@@ -394,10 +394,10 @@ def test_the_running_print_and_the_filament_of_a_printer_that_names_one(owner, s
     assert view["job"] == {"state": "RUNNING", "busy": True, "name": "Draak", "layer": 37, "total_layers": 150, "progress_pct": 25, "preparing": False,
                            "started_at": "2026-11-12T10:00:00+00:00", "elapsed_s": 1800, "remaining_min": 95, "ends_at": "2026-11-12T11:35:00+00:00"}
     red, green, empty = view["slots"]
-    assert red == {"label": "A1", "loaded": True, "active": False, "material": "PLA", "vendor": "Bambu Lab", "name": "Rood", "colours": ["#ff0000"], "linked": True,
+    assert red == {"label": "A1", "loaded": True, "active": False, "material": "PLA", "vendor": "Bambu Lab", "name": "Rood", "colours": ["#ff0000"], "linked": True, "spoolman_id": 7,
                    "remaining_g": 612.5, "initial_g": 1000.0, "remaining_pct": 61}
-    assert (green["label"], green["active"], green["material"], green["colours"], green["linked"], green["remaining_g"], green["remaining_pct"]) == \
-        ("A2", True, "PETG", ["#00ff00"], False, None, None)
+    assert (green["label"], green["active"], green["material"], green["colours"], green["linked"], green["spoolman_id"], green["remaining_g"], green["remaining_pct"]) == \
+        ("A2", True, "PETG", ["#00ff00"], False, None, None, None)
     assert empty == {"label": "A3", "loaded": False, "active": False}
     assert view["uses"] == [{"slot": "A2", "needed_g": 42.3, "used_g": 10.4}]
     assert view["ams"] == [{"id": "A", "model": "AMS 2 Pro", "humidity": 2, "humidity_pct": 31, "temperature": 25, "drying": True, "drying_min": 95}]
@@ -656,3 +656,28 @@ def test_the_connection_is_offline_when_the_key_cannot_be_read_and_nothing_is_se
 def test_everybody_signed_in_may_ask_for_the_state_and_nobody_else(app, owner, server):
     assert connection(join_with_passkey(app, owner))["state"] == "active"
     assert app.test_client().get("/api/haspelsync/connection").status_code == 401
+
+
+# --- the filaments in the printers, for the filament choice of a calculation --------------------------------------------------
+
+@pytest.mark.parametrize("number,expected", [(7, 7), (1, 1), (0, None), (-3, None), (7.5, None), (7.0, None), ("7", None), (True, None), (None, None), (10**9 + 1, None), ([7], None)])
+def test_a_slot_says_which_spool_of_spoolman_it_is_by_its_number_alone(owner, server, number, expected):
+    """The app finds the roll it mirrored from that spool by this number; nothing else of Spoolman's record is passed on."""
+    server.add()
+    server.print[SERIAL]["loadedSpools"][0]["existingSpool"]["id"] = number
+    printer(owner)
+    slot_ = live(owner)["printers"][0]["live"]["slots"][0]
+    assert slot_["spoolman_id"] == expected and set(slot_) >= {"label", "linked", "spoolman_id"}
+    assert "archived" not in json.dumps(slot_) and "filament" not in slot_                    # the rest of the record stays where it is
+
+
+def test_a_slot_that_no_spool_is_has_no_number(owner, server):
+    server.add()
+    printer(owner)
+    assert live(owner)["printers"][0]["live"]["slots"][1]["spoolman_id"] is None
+
+
+def test_the_answer_of_the_calculation_screen_says_whether_there_is_a_haspelsync_and_never_asks_it(owner, typed):
+    printer(owner)
+    assert owner.get("/api/model-editor").get_json()["haspelsync"] == {"enabled": True}
+    assert typed.calls == []                                  # the screen asks for what is in the printers itself, after it is open: another service is never waited for

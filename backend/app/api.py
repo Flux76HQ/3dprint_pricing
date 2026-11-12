@@ -702,19 +702,21 @@ def model_editor():
     """What the screen of one calculation reads when it opens, in one answer: the calculation itself (`?project=<id>`; none for a new
     one), and the lists it chooses from. The screen used to send nine requests for this. Every part is what its own address answers,
     made by the same function and read in one snapshot, so nothing is decided twice and the parts belong together."""
-    from . import listings, spoolman                        # imported here: those modules import this one
+    from . import haspelsync, listings, spoolman            # imported here: those modules import this one
     wanted = request.args.get("project")
     try:
         project_id = uuid.UUID(wanted) if wanted else None
     except ValueError:
         raise ApiError(404, "err.calc_not_found") from None
     spoolman_on = spoolman.enabled()                        # asked before this request holds a connection (see `spoolman.address`)
+    haspelsync_on = haspelsync.enabled()                    # the same; whether there is one, never what it answers: that is another service, asked after the screen is open
     with pool().read() as conn:
         answer = {name: LISTS[name](conn) for name in ("spools", "printers", "tariffs", "packaging", "parts", "accessories")}
         answer["stock"] = _stock(conn)
         answer["project"] = _project(conn, project_id) if project_id else None
         answer["listing"] = listings.present(conn, project_id) if project_id else None       # what it is offered for sale as (listings.py)
     answer["spoolman"] = {"enabled": spoolman_on}           # only decides what is offered; the server refuses a booking itself
+    answer["haspelsync"] = {"enabled": haspelsync_on}       # decides whether the filament choice also offers what is in the printers (the screen asks for that itself, later)
     return jsonify(answer)
 
 

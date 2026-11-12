@@ -100,6 +100,20 @@ export function serialField({ label, hint, value, onchange }) {
   return box;
 }
 
+// --- the filament choice of a calculation: what is in the printers right now -------------------------------------------------
+
+/** The filaments that are loaded in the printers right now, for the filament choice of a calculation: one group per linked printer that HaspelSync answers for (`{ printer_id, name,
+ *  connected, slots }`, the loaded slots only, with their label, material, name, vendor, colours, grams left, the Spoolman spool they are and whether they are the one in use). It is asked
+ *  after the calculation is open and never waited for, because HaspelSync is another service and may be slow or away: when it does not answer the list is empty and the choice is what it was. */
+export async function printerFilaments() {
+  try {
+    const answer = await api('GET', '/api/haspelsync/live');
+    return (answer.printers || []).filter((p) => p.live)
+      .map((p) => ({ printer_id: p.printer_id, name: p.name, connected: p.live.connected, slots: (p.live.slots || []).filter((s) => s.loaded) }))
+      .filter((group) => group.slots.length);
+  } catch { return []; }
+}
+
 // --- the Printers page: what each printer is doing now and what is in it ----------------------------------------------------
 
 const duration = (minutes) => (minutes >= 60 ? t('haspelsync.duration_hm', { h: Math.floor(minutes / 60), m: minutes % 60 }) : t('haspelsync.duration_m', { m: minutes }));

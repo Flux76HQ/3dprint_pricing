@@ -1,6 +1,7 @@
 import { busyBadge, coverUrl, productImagesCard } from './ai-images.js';
 import { api, upload } from './api.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
+import { printerFilaments } from './haspelsync.js';
 import { formatDate, t } from './i18n.js';
 import { listingCard } from './listing.js';
 import { listView } from './listview.js';
@@ -137,17 +138,17 @@ function fromSaved(project) {
 export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: async () => {} }) {
   const root = h('section', { class: 'page' }, h('p', { class: 'muted' }, t('common.loading')));
   // One request for the calculation and the lists it chooses from (it used to be nine): the server reads them in one go.
-  api('GET', `/api/model-editor${id ? `?project=${id}` : ''}`).then(({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listing, spoolman }) => {
+  api('GET', `/api/model-editor${id ? `?project=${id}` : ''}`).then(({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listing, spoolman, haspelsync }) => {
     root.replaceChildren(buildEditor({
       spools: spools.filter((s) => !s.archived), stock: stock.groups, printers: printers.filter((p) => !p.archived), tariffs,
       packaging: packaging.filter((p) => !p.archived), parts: parts.filter((p) => !p.archived),
-      accessories: accessories.filter((p) => !p.archived), project, listed: listing, navigate, ctx, spoolman: !!spoolman.enabled,
+      accessories: accessories.filter((p) => !p.archived), project, listed: listing, navigate, ctx, spoolman: !!spoolman.enabled, haspelsync: !!haspelsync.enabled,
     }));
   }).catch((e) => root.replaceChildren(h('p', { class: 'error', role: 'alert' }, e.message)));
   return root;
 }
 
-function buildEditor({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listed, navigate, ctx, spoolman }) {
+function buildEditor({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listed, navigate, ctx, spoolman, haspelsync }) {
   const state = project ? fromSaved(project) : {
     id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, files: [], models: [], links: [],
     vat_pct: ctx.prefs.vat_pct ?? '21',
@@ -283,6 +284,53 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   }
   const addButton = (label, onclick) => h('button', { class: 'btn tool', type: 'button', onclick }, icon('plus'), h('span', {}, label));
 
+  // What is in the printers (the filament choice offers it next to the kinds in stock). Asked when the screen is up and never waited for: see `printerFilaments`.
+  let inPrinter = [];
+  const PRINTER = 'printer|';                                       // the value of an option that is a slot of a printer: printer|<printer id>|<slot>
+  const slotText = (s) => [s.label, [s.material, s.name].filter(Boolean).join(' '), s.active ? t('haspelsync.slot_active') : null,
+    s.linked && s.remaining_g != null ? `${fmt(s.remaining_g, 0)} g` : null].filter(Boolean).join(' · ');
+
+  /** The filament choice of a line: manual, the kinds in stock, and (with a HaspelSync) a group per printer with what is loaded in it, those of the printers this calculation
+   *  names first. A slot is no state of the line: choosing one fills the line, which then shows the kind it came to. */
+  function filamentPicker(r) {
+    const mine = new Set(state.depreciation.map((d) => d.printer_id).filter(Boolean));
+    const groups = [...inPrinter].sort((a, b) => Number(mine.has(b.printer_id)) - Number(mine.has(a.printer_id)));
+    const kind = kindOf(r.spool_id)?.key || '';
+    return h('select', { onchange: (e) => pick(r, e.target.value) },
+      h('option', { value: '', selected: kind === '' }, t('calc.manual')),
+      stock.map((g) => h('option', { value: g.key, selected: g.key === kind }, stockLabel(g))),
+      groups.map((g) => h('optgroup', { label: t(g.connected ? 'calc.in_printer' : 'calc.in_printer_offline', { name: g.name }) },
+        g.slots.map((s) => h('option', { value: `${PRINTER}${g.printer_id}|${s.label}` }, slotText(s))))));
+  }
+
+  /** A filament that is in a printer becomes the line: the roll it is when it is a spool of Spoolman that this app mirrored (then it is that roll, with its price), else the kind in stock that
+   *  has its material and the nearest colour (`stockFor`, as for a sliced file). With neither the line stays manual, with the name and the colour the printer reports and no price: never a guess. */
+  function fromPrinter(r, slot) {
+    const colour = colourCode(slot.colours?.[0]);
+    const named = slot.spoolman_id ? spools.find((s) => s.spoolman_id === slot.spoolman_id) : null;
+    const kindInStock = named ? null : stockFor(slot.material, colour);
+    const roll = named || (kindInStock ? rollOf(kindInStock) : null);
+    if (roll) { r.spool_id = roll.id; r.label = spoolName(roll); r.price_per_kg = perKg(roll); return; }
+    r.spool_id = '';
+    r.label = [slot.vendor, slot.name || slot.material].filter(Boolean).join(' ');
+    r.price_per_kg = '';
+    r.colour = colour;
+    toast(t('calc.printer_unmatched'));
+  }
+
+  function pick(r, value) {
+    if (value.startsWith(PRINTER)) {
+      const [, printerId, label] = value.split('|');
+      const slot = inPrinter.find((g) => g.printer_id === printerId)?.slots.find((s) => s.label === label);
+      if (slot) fromPrinter(r, slot);
+    } else {
+      const s = value ? rollOf(stock.find((g) => g.key === value)) : null;
+      r.spool_id = s ? s.id : '';
+      if (s) { r.label = spoolName(s); r.price_per_kg = perKg(s); }
+    }
+    touch(); redraw();
+  }
+
   function filamentSection() {
     costEls.filament = [];
     // Every line shows its colour: that of the filament chosen from stock, else the one the print file gave the line.
@@ -295,12 +343,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       return cell;
     };
     const rows = state.filament.map((r, i) => h('div', { class: 'line filament' },
-      withColour(r, select([['', t('calc.manual')], ...stock.map((g) => [g.key, stockLabel(g)])], kindOf(r.spool_id)?.key || '', (v) => {
-        const s = v ? rollOf(stock.find((g) => g.key === v)) : null;
-        r.spool_id = s ? s.id : '';
-        if (s) { r.label = spoolName(s); r.price_per_kg = perKg(s); }
-        touch(); redraw();
-      })),
+      withColour(r, filamentPicker(r)),
       field(t('calc.description'), textInput(r, 'label')),
       field(t('calc.print_weight'), numberInput(r.grams, bind(r, 'grams'))),
       field(t('calc.price_per_kg'), numberInput(r.price_per_kg, bind(r, 'price_per_kg'))),
@@ -729,6 +772,9 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
 
   redraw();
   recalc();
+  // What is in the printers: asked now that the screen is up, and only when there is a HaspelSync and a printer here names one. When it arrives and nothing has been touched yet, the lines are
+  // drawn again to offer it; otherwise (someone is typing) it is there from the next redraw.
+  if (haspelsync && printers.some((p) => p.haspelsync_serial)) printerFilaments().then((groups) => { inPrinter = groups; if (!dirty) redraw(); });
   return h('div', { class: 'editor' },
     h('header', { class: 'page-head' },
       h('div', {}, backLink('#/berekeningen', t('nav.calculations')),
