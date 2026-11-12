@@ -19,9 +19,9 @@ from tests.test_backup import backup
 from tests.test_orders import business, line, new_order
 from tests.test_users import _reset_limits, join_with_passkey, owner, proof, sql      # noqa: F401  (fixtures)
 
-# "Now" for the sender, always later than the real clock: a message is written with the real time as the moment it is due, so a fixed
-# date here works until that date has passed and fails for everyone from then on (it did, on 2026-11-12 at 09:00 UTC).
-T0 = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=1)
+# "Now" for the worker in these tests: a whole minute a little after the real clock. What the app queues gets the real time, and
+# the worker only takes what is due, so a fixed date here made every one of these tests fail from the moment that date had passed.
+T0 = datetime.now(timezone.utc).replace(second=0, microsecond=0) + timedelta(hours=1)
 URL = "https://finance.example.test/hooks/printpricing"
 
 
@@ -218,7 +218,7 @@ def test_lists_are_paged_oldest_change_first_and_can_start_from_a_moment(owner, 
     assert [o["id"] for o in first["data"]] == [made[0]["id"], made[1]["id"]] and first["next_cursor"]
     second = reader.get(f"/api/v1/orders?limit=2&cursor={first['next_cursor']}", headers=bearer(key)).get_json()
     assert [o["id"] for o in second["data"]] == [made[2]["id"]] and second["next_cursor"] is None
-    since = reader.get(f"/api/v1/orders?updated_since={T0 + timedelta(minutes=1):%Y-%m-%dT%H:%M:%SZ}", headers=bearer(key)).get_json()
+    since = reader.get(f"/api/v1/orders?updated_since={(T0 + timedelta(minutes=1)).strftime('%Y-%m-%dT%H:%M:%SZ')}", headers=bearer(key)).get_json()
     assert [o["id"] for o in since["data"]] == [made[1]["id"], made[2]["id"]]
     assert post(owner, f"/api/orders/{made[1]['id']}/invoice").status_code == 200
     assert [o["id"] for o in reader.get("/api/v1/orders?invoiced=true", headers=bearer(key)).get_json()["data"]] == [made[1]["id"]]
