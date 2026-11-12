@@ -453,6 +453,18 @@ The user-facing description, with the fields and the retry schedule, is `docs/ha
 - **Listings and their photos are in the backup** (`backup.py`: `listings`, photos inline in their order), read again with `listings.fields` and `listings.clean`;
   `test_listings.py` has the round trip.
 
+## 6l. The conformance declaration
+
+[`docs/app-engineering-conformance.md`](docs/app-engineering-conformance.md) answers App-Guidance's 111 engineering topics for this app (baseline section 18): per topic
+`applies`, `partial` (with `Gap:`), `not-now` or `n/a`, the evidence, and the test or job that keeps it true, plus the measured gates. `scripts/test_conformance.py`
+(job `backend-tests`) fails on an unanswered topic and on a named file that no longer exists; it cannot tell whether an answer is true.
+
+- **A change that makes a row untrue changes the row in the same pull request**: a new limit or timeout, a renamed test that a row names as its control, a gap that
+  was closed, a new outside service. A number in the gates comes from `docs/performance.md` or from the code, with its date; do not round it up to look better.
+- **A gap is written as a gap.** `partial` with what is missing, or `not-now` with when it is looked at again, is the honest answer; `applies` needs something a reader
+  can open. What the operator has to do (the proxy, TLS, copies of the backups, a monitor) is named as theirs, not left out.
+- Answer all rows again after a large change and before a public release, and set the version, commit and date in its head.
+
 ## 7. Work done in one client leaves the other clients correct
 
 A change to a working convention goes in this file, never in a client's entry file. If a client
@@ -467,3 +479,4 @@ same commit. `agent-instructions-lint` checks this.
 - [ ] The operational guide (`docs/handleiding.md`) is updated when run/deploy/backup behaviour changed.
 - [ ] `README.md` and `README.nl.md` stay in sync (same sections, same order, same screenshots from `docs/assets/`).
 - [ ] Tests added or updated; `pytest` passes.
+- [ ] `docs/app-engineering-conformance.md` still tells the truth: a limit, control or gap this change touched has its row updated (section 6l).

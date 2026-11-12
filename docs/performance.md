@@ -289,6 +289,7 @@ Estimated or decided without a measurement that could settle it:
 - **Draw a long list in parts** (`frontend/js/listview.js`): the first limit when lists grow, see section 3.
 - **The search box redraws the whole list on every keystroke**: not measured, same place.
 - **Paging on the server**, after that.
-- **App-Guidance** still lists this app as PostgreSQL and "not assessable" in `shared/plans/2026-11-11-performance-boost-overview.md`,
-  and its baseline (section 18) asks for an `app-engineering-conformance.md` with measured gates, which this repository does not
-  have. The numbers for the performance rows of that declaration are in this file.
+- **App-Guidance** still lists this app as PostgreSQL and "not assessable" in `shared/plans/2026-11-11-performance-boost-overview.md`.
+  The declaration its baseline (section 18) asks for is [`app-engineering-conformance.md`](app-engineering-conformance.md); its
+  performance rows and gates take their numbers from this file, and its gaps for performance are that nothing is measured in CI or
+  on a running installation.
