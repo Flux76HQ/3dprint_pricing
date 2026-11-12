@@ -120,4 +120,11 @@ class RateLimiter:
 
 
 def error_response(error: ApiError):
+    if request.path.startswith("/api/v1"):
+        # For another application (public_api.py): the reason as a key that does not change with the language, next to the sentence for a person,
+        # and when to come back after too many requests.
+        response = jsonify({"error": error.message, "code": error.msg.key})
+        if error.status == 429:
+            response.headers["Retry-After"] = "60"
+        return response, error.status
     return jsonify({"error": error.message}), error.status

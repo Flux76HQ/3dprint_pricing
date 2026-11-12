@@ -5,7 +5,7 @@ from pathlib import Path
 from flask import Flask, g, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, access, ai_images, api, auth, auto_backup, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invites, invoice_template, orders, packaging_images, password_api, push, push_api, relying_party, spoolman, system, updates, users
+from . import about, access, ai_images, api, api_keys, auth, auto_backup, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invites, invoice_template, orders, packaging_images, password_api, public_api, push, push_api, relying_party, spoolman, system, updates, users, webhooks
 from .config import Config, build_channel, load_config
 from .db import make_pool
 from .http import KEEP_FOREVER, ApiError, compressed, error_response
@@ -88,11 +88,16 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     app.register_blueprint(about.bp)
     app.register_blueprint(users.bp)
     app.register_blueprint(invites.bp)
+    app.register_blueprint(api_keys.bp)
+    app.register_blueprint(webhooks.bp)
+    app.register_blueprint(public_api.bp)
     app.extensions["update_checker"] = updates.Checker(VERSION, enabled=cfg.update_check)
     app.register_error_handler(ApiError, error_response)
 
     if cfg.push_configured and not app.testing and os.environ.get("PUSH_WORKER", "on") != "off":
         push.start_outbox_worker(app)          # delivers notifications held back by quiet hours
+    if webhooks.worker_wanted(app):
+        webhooks.start_worker(app)             # tells other applications what happened (webhooks.py)
     if not app.testing and os.environ.get("AUTO_BACKUP_WORKER", "on") != "off":
         auto_backup.start_worker(app)          # a backup of everything every 12 hours, the newest 14 kept (auto_backup.py)
 

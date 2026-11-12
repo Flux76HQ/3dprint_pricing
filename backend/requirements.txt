@@ -22,5 +22,7 @@ lxml==6.1.3
 typing_extensions==4.16.0
 pillow==13.0.0
 charset-normalizer==3.5.2
-# used for the OpenAI image calls (ai_images.py); also pulled in by pywebpush
+# used for the OpenAI image calls (ai_images.py) and to deliver webhooks (webhooks.py); also pulled in by pywebpush
 requests==2.34.2
+# signs outgoing webhooks as Standard Webhooks describes (webhooks.py); no dependencies of its own
+standardwebhooks==1.1.0

@@ -517,6 +517,7 @@ De onderdelen van *Instellingen* staan in het **menu links, onder *Instellingen*
 | **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon; alleen zichtbaar voor beheerders, en als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
 | **Filamenten** | de filamentbibliotheek: specificaties van filamenten, een Bambu Lab-factuur inlezen, JSON-export en -import en synchroniseren met GitHub; zie *Filamentbibliotheek* |
 | **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
+| **Koppelingen** | alleen beheerders: API-sleutels waarmee een andere applicatie bestellingen en facturen leest, en webhooks die een seintje geven als er iets gebeurt (zie *Koppelingen: API-sleutels en webhooks*) |
 | **Gebruikers** | alleen beheerders: wie mag inloggen, uitnodigen, nieuwe inloglink, beheerder maken, verwijderen; zie *Gebruikers en rollen* |
 | **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel en het logboek |
 | **Back-up** | alleen beheerders: back-up en herstel, de automatische back-ups en de lijst van back-ups op de server (zie *Back-up in de app*) |
@@ -526,6 +527,61 @@ De onderdelen van *Instellingen* staan in het **menu links, onder *Instellingen*
 Het menu links is gegroepeerd (*Verkoop*, *Voorraad*, *Productie*), met *Instellingen* onderaan. Daaronder staan de knop voor **licht of donker** (de maan of de zon: wat je krijgt als je klikt; *Systeem* kies je onder *Instellingen → Weergave*) en de taalvlag; *Uitloggen* staat daar los onder. Het menu klap je in en uit met de knop **bovenaan**, naast de naam (op een telefoon staan thema en taal bovenaan *Meer*, *Uitloggen* onderaan). *Zakelijk* verbergt alleen dat onderdeel van de instellingen; het menu
 *Bestellingen* blijft gewoon zichtbaar. Een onderdeel dat niet getoond wordt (bijvoorbeeld *Zakelijk* terwijl het uit staat) valt terug op
 *Algemeen*.
+
+## Koppelingen: API-sleutels en webhooks
+
+*Instellingen → Beheer → Koppelingen* (alleen beheerders). Hiermee kan een andere applicatie (je boekhouding of finance-app, een eigen script) bestellingen en
+facturen uit deze app lezen, en geeft deze app een seintje als er iets gebeurt. Er is nog geen kant-en-klare koppeling met een verkoopkanaal of boekhoudpakket:
+dit is de basis waar zo'n koppeling op aansluit.
+
+### API-sleutels en de API (`/api/v1`)
+
+- **Een sleutel maken** vraagt een verse bevestiging (passkey, of wachtwoord plus code). De sleutel (`ppk_…`) zie je **één keer**; de server bewaart alleen de SHA-256
+  ervan. *Intrekken* werkt direct. Er kunnen hooguit 20 sleutels zijn. De lijst toont de eerste tekens, wanneer hij gemaakt is en wanneer hij voor het laatst gebruikt is.
+- **Meesturen**: `Authorization: Bearer ppk_…`. Een sleutel werkt **alleen** onder `/api/v1` en kan alleen lezen; op de rest van de app (ook alles voor beheerders)
+  wordt hij geweigerd. Andersom werkt een ingelogde browser niet op `/api/v1`. Een sleutel is van niemand persoonlijk: hij blijft werken als degene die hem maakte vertrekt.
+- **Wat erin zit**: wat op een factuur staat. **Kostprijzen, marges en interne notities zitten er niet in.**
+
+| Adres | Geeft |
+|---|---|
+| `GET /api/v1` | of de sleutel werkt: naam, API-versie (`1`), versie van de app, naam van de sleutel |
+| `GET /api/v1/orders` | bestellingen, oudste wijziging eerst. Filters: `status` (`nieuw`, `verwerkt`, `verstuurd`, `afgehandeld`), `invoiced=true|false`, `updated_since=2026-11-11T08:00:00Z`. Pagina's: `limit` (1 t/m 200, standaard 100) en `cursor` (de `next_cursor` van de vorige pagina; `null` = er is niet meer) |
+| `GET /api/v1/orders/<id>` | één bestelling: `number`, `status`, `order_date`, `delivery_date`, `subject`, `customer` (id, klantnummer, naam, adres, e-mail, telefoon), `invoice` (`number`, `date`, `has_pdf`; `null` zolang er geen factuur is), `lines` (omschrijving, aantal, `unit_price` incl. btw, `vat_pct`, `optional`, `total`, `net`, `vat`) en `totals` (`excl`, `vat`, `incl`, en per btw-tarief `by_vat_rate`) |
+| `GET /api/v1/orders/<id>/invoice` | de factuur als PDF, zoals hij gemaakt is (404 als er geen is). Een factuur *maken* doe je in de app |
+| `GET /api/v1/customers`, `GET /api/v1/customers/<id>` | klanten (zonder notities), met dezelfde `updated_since`, `limit` en `cursor` |
+
+Bedragen zijn tekst met twee decimalen (`"180.90"`), tijden zijn UTC. Een fout is `{"error": "<zin in de taal van het verzoek>", "code": "<vaste sleutel>"}`; reken in code op
+`code`, niet op de zin. **Limieten**: 300 verzoeken per minuut per sleutel (per web-worker; `429` met `Retry-After: 60`), en een adres dat steeds onbekende sleutels aanbiedt
+wordt na 20 pogingen in een kwartier afgeremd. De versie staat in het pad: een veld erbij is geen nieuwe versie, een veld weg of anders wel, en dan blijft `/api/v1` bestaan
+zolang iets het nog gebruikt. De API van de schermen zelf (`/api/orders` en dergelijke) is hier geen onderdeel van en verandert met de schermen mee.
+
+### Webhooks
+
+- **Toevoegen** (met verse bevestiging): het adres van de ontvanger, een naam en waarover je een bericht wilt. Het adres begint met `https://`, of `http://` binnen je eigen
+  netwerk; adressen in het eigen netwerk mogen (je andere applicaties staan daar vaak), alleen link-local-, multicast- en lege adressen worden geweigerd, ook als een naam
+  daar op het moment van versturen naar wijst. Het adres ligt daarna vast; een ander adres is een nieuwe webhook. Hooguit 10 webhooks.
+- **Gebeurtenissen**: `invoice.created` (factuur gemaakt), `invoice.updated` (dezelfde factuur opnieuw gemaakt), `order.created`, `order.updated`, `order.status_changed`
+  (met `previous_status`) en `order.deleted`. Een herstel uit een back-up en de fabrieksinstellingen geven geen berichten per bestelling.
+- **Het bericht** is klein: `{"type": "invoice.created", "timestamp": "2026-11-12T09:00:00Z", "data": {"order_id": "…", "order_number": 12, "status": "nieuw",
+  "invoice_number": "2026-0007", "invoice_date": "2026-11-12", "total": "180.90", "url": "/api/v1/orders/<id>"}}`. Er staan geen klantgegevens en geen regels in;
+  de ontvanger haalt die op met een API-sleutel via `url`.
+- **Ondertekend** volgens [Standard Webhooks](https://www.standardwebhooks.com/): de headers `webhook-id`, `webhook-timestamp` en `webhook-signature`. De **ondertekensleutel**
+  (`whsec_…`) zie je één keer, bij het toevoegen of bij *Nieuwe sleutel*. De ontvanger controleert elk bericht ermee, bijvoorbeeld in Python met het pakket `standardwebhooks`:
+  `Webhook(sleutel).verify(ruwe_body, headers)` (dat weigert ook een bericht dat ouder is dan vijf minuten). Controleer op de **ruwe** bytes, niet op opnieuw opgemaakte JSON.
+- **Afleveren**: binnen ongeveer 15 seconden na de gebeurtenis (zo vaak wordt er gekeken). Elk antwoord `2xx` binnen 10 seconden telt als aangekomen;
+  antwoord dus snel en doe het werk daarna. Lukt het niet, dan volgt een nieuwe poging na ongeveer 1, 5 en 15 minuten, 1, 3, 6, 12 en 24 uur (samen ruim twee dagen), steeds met
+  **hetzelfde bericht en hetzelfde `webhook-id`**. Een bericht kan dus vaker aankomen (*minstens één keer*): laat de ontvanger een `webhook-id` dat hij al zag overslaan.
+  Volgorde is niet gegarandeerd; lees bij twijfel de bestelling opnieuw via de API. Doorverwijzingen worden niet gevolgd.
+- **Afleverlog** per webhook: de laatste 50 berichten met hun toestand (*Wacht*, *Aangekomen*, *Mislukt*), het aantal pogingen en de reden. Een mislukt bericht stuur je
+  met *Opnieuw sturen* nog eens. Berichten die aankwamen of opgegeven zijn, verdwijnen na 30 dagen uit het log. *Testbericht sturen* stuurt direct een `ping` en zegt of
+  die aankwam; van het antwoord van de ontvanger wordt alleen de status bewaard, nooit de inhoud.
+- **Uitgezet**: een webhook die drie dagen lang niets aanneemt, of `410 Gone` antwoordt, wordt uitgezet (dat staat erbij). Zet je hem weer aan, dan gaat wat nog wachtte alsnog weg.
+  Voor een webhook die uit staat wordt niets klaargezet.
+- **`SESSION_SECRET` veranderd?** Dan is de ondertekensleutel niet meer te lezen: de webhook meldt dat en verstuurt niets tot je met *Nieuwe sleutel* een nieuwe maakt (en die
+  bij de ontvanger zet). API-sleutels blijven gewoon werken.
+
+Sleutels, webhook-adressen en het afleverlog zitten **niet in een back-up** (het zijn inloggegevens en ze beschrijven één netwerk) en een herstel laat ze staan; de
+fabrieksinstellingen halen ze weg.
 
 ## AI-afbeeldingen (optioneel)
 
