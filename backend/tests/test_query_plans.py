@@ -3,7 +3,7 @@
 An index that no test looks at is a hope: a rewritten query stops using it and nobody notices, because every query is fast on the
 small database of a test. Here the statements are recorded while the app handles a request, and SQLite is asked for the plan of each
 (`EXPLAIN QUERY PLAN`), so a changed query, a dropped index or one that the query cannot use fails here. The scans were found by
-explaining every statement the suite sends on a grown database: docs/performance.md, migration 0005."""
+explaining every statement the suite sends on a grown database: docs/performance.md, migration 0006."""
 import re
 
 import pytest
