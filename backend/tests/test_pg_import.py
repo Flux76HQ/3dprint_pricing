@@ -100,7 +100,8 @@ def test_everything_comes_across_and_the_app_goes_on_where_it_stopped(owner, app
     assert marker["rows"]["orders"] == 1 and state == {r["key"]: r["value"] for r in rows_of(fresh_db, "app_state")}
     assert rows_of(str(target), "counters") == rows_of(fresh_db, "counters")
     assert rows_of(str(target), "webauthn_challenges") == [] and rows_of(str(target), "backup_jobs") == []
-    assert [r["filename"] for r in rows_of(str(target), "schema_migrations")] == ["0001_init.sql"]
+    # By name: `rows_of` orders rows by their whole content, and migrations applied in the same millisecond then fall in the order of their checksums.
+    assert sorted(r["filename"] for r in rows_of(str(target), "schema_migrations")) == sorted(p.name for p in db.MIGRATIONS_DIR.glob("[0-9]*.sql"))
     assert db.run_migrations(str(target)) == []                                                    # the file is a normal one from here on
 
     imported = app_on(target, tmp_path).test_client()

@@ -27,7 +27,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, current_app, g, jsonify, request, send_file
 
-from . import ai_images, customers, filament_library, invoice_docs, invoice_logo, invoice_template, orders, preferences, printfile
+from . import ai_images, customers, filament_library, invoice_docs, invoice_logo, invoice_template, listings, orders, packaging_images, preferences, printfile
 from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized, render, request_language
@@ -49,8 +49,18 @@ STALE_MINUTES = 15                           # a restore that has not moved for 
 # (key in the file, key in api.RESOURCES) -- the order is the order of insertion
 SECTIONS = (("printers", "printers"), ("tariffs", "tariffs"), ("packaging", "packaging"), ("parts", "parts"),
             ("accessories", "accessories"), ("filament_library", "filament-library"), ("spools", "spools"))
-PROJECT_COLUMNS = ("id", "number", "name", "notes", "object_description", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
-                   "file_id", "stock_booked_at", "created_at", "updated_at")
+PROJECT_COLUMNS = ("id", "number", "name", "notes", "object_description", "image_text", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
+                   "links", "file_id", "calc_files", "models", "stock_booked_at", "created_at", "updated_at")
+
+
+class _AnyFile:
+    """Stands in for "the files there are" while a backup is only being checked: every id counts, the real ones are known on writing."""
+
+    def __contains__(self, _item) -> bool:
+        return True
+
+
+_ANY_FILE = _AnyFile()
 
 
 @bp.before_request
@@ -70,14 +80,14 @@ def _app_version() -> str:
 def export():
     include_files = request.args.get("files") == "1"
     began = time.monotonic()
-    with pool().connection() as conn:
+    with pool().read() as conn:
         doc, attachments = document(conn, g.user_id, include_files)
     queried = time.monotonic() - began
     stamp = datetime.now().strftime("%Y-%m-%d")
     if not include_files:
         log.info("backup: read in %.1fs", queried)
         _remember(include_files)
-        return Response(json.dumps(doc, ensure_ascii=False), mimetype="application/json",
+        return Response(dumps(doc), mimetype="application/json",
                         headers={"Content-Disposition": f'attachment; filename="printpricing-backup-{stamp}.json"'})
     out = tempfile.TemporaryFile(dir=_upload_dir())                  # on the data disk, not in memory: the models can be large
     write_zip(doc, attachments, out)
@@ -115,10 +125,18 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
     except ApiError:                                             # the file went missing: the rest of the backup is still worth having
         template = None
     doc["project_images"] = [
-        {"project_id": str(r["project_id"]), "kind": r["kind"], "variant": r["variant"], "is_cover": r["is_cover"],
+        {"project_id": str(r["project_id"]), "kind": r["kind"], "origin": r["origin"], "model_ref": r["model_ref"], "selected": bool(r["selected"]), "variant": r["variant"], "purpose": r["purpose"], "is_cover": r["is_cover"],
          "created_at": r["created_at"].isoformat(), "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
-        for r in conn.execute("SELECT project_id, kind, variant, is_cover, created_at, content FROM project_images "
+        for r in conn.execute("SELECT project_id, kind, origin, model_ref, selected, variant, purpose, is_cover, created_at, content FROM project_images "
                               "ORDER BY created_at, id").fetchall()]
+    doc["listings"] = [
+        {"project_id": str(r["project_id"]), "title": r["title"], "description": r["description"], "price": None if r["price"] is None else str(r["price"]),
+         "ean": r["ean"], "created_at": r["created_at"].isoformat(), "updated_at": r["updated_at"].isoformat(),
+         "photos": [base64.b64encode(bytes(p["content"])).decode("ascii") for p in conn.execute(
+             "SELECT content FROM listing_photos WHERE project_id = %s ORDER BY position, created_at, id", (r["project_id"],)).fetchall()]}
+        for r in conn.execute("SELECT * FROM listings ORDER BY created_at, id").fetchall()]
+    doc["packaging_images"] = [{"packaging_id": str(r["packaging_id"]), "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
+                               for r in conn.execute("SELECT packaging_id, content FROM packaging_images ORDER BY packaging_id").fetchall()]
     ai = conn.execute("SELECT model, quality FROM ai_image_settings").fetchone()      # never the API key
     if ai:
         doc["ai_image_settings"] = {"model": ai["model"], "quality": ai["quality"]}
@@ -145,10 +163,27 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
     return doc, attachments
 
 
+def dumps(doc: dict) -> bytes:
+    """The backup as JSON: the same text as `json.dumps(doc, ensure_ascii=False)`, but every row of a list is encoded by a call of its
+    own. One call for the whole document does not let go of Python's interpreter lock until it is done (0.8 s for 240 pictures,
+    measured: docs/performance.md), and for that long no other request of the worker gets an answer."""
+    pieces = [b"{"]
+    for n, (key, value) in enumerate(doc.items()):
+        pieces.append((", " if n else "").encode() + json.dumps(key, ensure_ascii=False).encode("utf-8") + b": ")
+        if isinstance(value, list):
+            pieces.append(b"[")
+            pieces.extend((b", " if i else b"") + json.dumps(row, ensure_ascii=False).encode("utf-8") for i, row in enumerate(value))
+            pieces.append(b"]")
+        else:
+            pieces.append(json.dumps(value, ensure_ascii=False).encode("utf-8"))
+    pieces.append(b"}")
+    return b"".join(pieces)
+
+
 def write_zip(doc: dict, attachments: list, handle) -> None:
     """A backup with print files: backup.json and every model loose under files/, written to `handle` (a file opened for writing)."""
     with zipfile.ZipFile(handle, "w", strict_timestamps=False) as archive:
-        archive.writestr(ARCHIVE_JSON, json.dumps(doc, ensure_ascii=False), compress_type=zipfile.ZIP_DEFLATED)
+        archive.writestr(ARCHIVE_JSON, dumps(doc), compress_type=zipfile.ZIP_DEFLATED)
         for member, path in attachments:                             # stored, not deflated: a 3MF is a ZIP already, and deflating an STL costs far more time on a small server than the space it saves
             archive.write(path, member, compress_type=zipfile.ZIP_STORED)
 
@@ -286,10 +321,10 @@ def _parse(doc, archive=None, progress=None) -> dict:
         try:
             if not isinstance(row, dict):
                 raise Localized("backup.bad_row_type")
-            body = {k: v for k, v in row.items() if k != "file_id"}
-            fields = _project_fields(body)                         # validates and recalculates the totals
-            fields["file_id"] = str(row["file_id"]) if row.get("file_id") else None
+            body = dict(row)
+            fields = _project_fields(body, known_files=_ANY_FILE)  # validates and recalculates the totals; which files there are is seen on writing
             projects.append({"id": _uuid(row.get("id") or uuid.uuid4(), "projects"), "fields": fields,
+                             "image_text": ai_images.image_text(row.get("image_text")),     # absent in an older file: empty
                              "stock_booked_at": _when(row.get("stock_booked_at")),
                              "created_at": _when(row.get("created_at")), "updated_at": _when(row.get("updated_at"))})
         except (ApiError, Localized) as exc:
@@ -297,6 +332,8 @@ def _parse(doc, archive=None, progress=None) -> dict:
     _number_projects(projects, doc)
     plan["projects"] = projects
     plan["project_images"] = _parse_project_images(doc.get("project_images"), {p["id"] for p in projects})
+    plan["listings"] = _parse_listings(doc.get("listings"), {p["id"] for p in projects})
+    plan["packaging_images"] = _parse_packaging_images(doc.get("packaging_images"), {item["id"] for item in plan["sections"]["packaging"][1]})
     plan["ai_settings"] = _parse_ai_settings(doc.get("ai_image_settings"))
     plan["orders"] = _parse_orders(doc)
     plan["customers"] = _parse_customers(doc, plan["orders"])
@@ -423,7 +460,7 @@ def _parse_project_images(entries, project_ids: set) -> list:
         return []
     if not isinstance(entries, list) or len(entries) > MAX_ROWS:
         raise _row_error("project_images", 1, Localized("backup.bad_section", section=L("backup.s.project_images")))
-    items, covers, sources = [], set(), set()
+    items, covers, chosen = [], set(), {}
     for n, entry in enumerate(entries, 1):
         try:
             if not isinstance(entry, dict) or entry.get("kind") not in ("source", "generated"):
@@ -434,19 +471,27 @@ def _parse_project_images(entries, project_ids: set) -> list:
             variant = entry.get("variant")
             if entry["kind"] == "generated" and variant not in ai_images.VARIANTS:
                 raise Localized("backup.bad_row_type")
+            purpose = entry.get("purpose") if entry["kind"] == "generated" else None     # a picture of before the purposes has none
+            if purpose is not None and (not isinstance(purpose, str) or purpose not in ai_images.PURPOSES):
+                raise Localized("backup.bad_row_type")
             try:
                 content = base64.b64decode(str(entry.get("content_b64", "")), validate=True)
             except (binascii.Error, ValueError):
                 raise Localized("backup.bad_file") from None
             content, width, height = ai_images._clean(content)                      # read again, never taken on trust from the file
             is_cover = entry.get("is_cover") is True and project_id not in covers
-            if entry["kind"] == "source":
-                if project_id in sources:
-                    raise Localized("backup.bad_row_type")
-                sources.add(project_id)
+            # which pictures go to the image model: as kept, at most the number there is room for; a file of before the choice
+            # existed has none marked, and the first picture is then the one that is sent (`ai_images._sent`)
+            selected = entry["kind"] == "source" and entry.get("selected") is True and chosen.get(project_id, 0) < ai_images.MAX_SELECTED
+            if selected:
+                chosen[project_id] = chosen.get(project_id, 0) + 1
+            origin = entry.get("origin", "photo") if entry["kind"] == "source" else "photo"      # a file of before the 3D view has photos only
+            model_ref = str(entry.get("model_ref") or "") if entry["kind"] == "source" and origin == "model" else ""
+            if origin not in ai_images.ORIGINS or (model_ref and not ai_images.MODEL_REF.match(model_ref)):
+                raise Localized("backup.bad_row_type")
             if is_cover:
                 covers.add(project_id)
-            items.append({"project_id": project_id, "kind": entry["kind"], "variant": variant if entry["kind"] == "generated" else None,
+            items.append({"project_id": project_id, "kind": entry["kind"], "variant": variant if entry["kind"] == "generated" else None, "purpose": purpose, "origin": origin, "model_ref": model_ref, "selected": selected,
                           "is_cover": is_cover, "created_at": _when(entry.get("created_at")), "content": content, "width": width, "height": height})
         except (ApiError, Localized) as exc:
             raise _row_error("project_images", n, exc) from None
@@ -459,6 +504,63 @@ def _parse_ai_settings(entry):
     if not isinstance(entry, dict) or entry.get("quality") not in ai_images.QUALITIES or not ai_images.MODEL.match(str(entry.get("model", ""))):
         raise _row_error("ai_image_settings", 1, Localized("backup.bad_row_type"))
     return {"model": entry["model"], "quality": entry["quality"]}
+
+
+def _parse_listings(entries, project_ids: set) -> list:
+    """What the models are offered for sale as, with their photos: absent in an older file. One per model, of a model that is in the file;
+    the fields are checked as when they are typed and every photo is read again like an upload."""
+    if entries in (None, []):
+        return []
+    if not isinstance(entries, list) or len(entries) > MAX_ROWS:
+        raise _row_error("listings", 1, Localized("backup.bad_section", section=L("backup.s.listings")))
+    items, seen = [], set()
+    for n, entry in enumerate(entries, 1):
+        try:
+            if not isinstance(entry, dict):
+                raise Localized("backup.bad_row_type")
+            project_id = _uuid(entry.get("project_id"), "listings")
+            photos = entry.get("photos") or []
+            if project_id not in project_ids or project_id in seen or not isinstance(photos, list) or len(photos) > listings.MAX_PHOTOS:
+                raise Localized("backup.bad_row_type")
+            seen.add(project_id)
+            cleaned = []
+            for encoded in photos:
+                try:
+                    content = base64.b64decode(str(encoded), validate=True)
+                except (binascii.Error, ValueError):
+                    raise Localized("backup.bad_file") from None
+                cleaned.append(listings.clean(content))                              # read again, never taken on trust from the file
+            items.append({"project_id": project_id, "fields": listings.fields(entry), "photos": cleaned,
+                          "created_at": _when(entry.get("created_at")), "updated_at": _when(entry.get("updated_at"))})
+        except (ApiError, Localized) as exc:
+            raise _row_error("listings", n, exc) from None
+    return items
+
+
+def _parse_packaging_images(entries, packaging_ids: set) -> list:
+    """The pictures of packaging items: absent in an older file. One per item, of an item that is in the file, read again like an upload."""
+    if entries in (None, []):
+        return []
+    if not isinstance(entries, list) or len(entries) > MAX_ROWS:
+        raise _row_error("packaging_images", 1, Localized("backup.bad_section", section=L("backup.s.packaging_images")))
+    items, seen = [], set()
+    for n, entry in enumerate(entries, 1):
+        try:
+            if not isinstance(entry, dict):
+                raise Localized("backup.bad_row_type")
+            packaging_id = _uuid(entry.get("packaging_id"), "packaging_images")
+            if packaging_id not in packaging_ids or packaging_id in seen:
+                raise Localized("backup.bad_row_type")
+            seen.add(packaging_id)
+            try:
+                content = base64.b64decode(str(entry.get("content_b64", "")), validate=True)
+            except (binascii.Error, ValueError):
+                raise Localized("backup.bad_file") from None
+            content, width, height = packaging_images.clean(content)                # read again, never taken on trust from the file
+            items.append({"packaging_id": packaging_id, "content": content, "width": width, "height": height})
+        except (ApiError, Localized) as exc:
+            raise _row_error("packaging_images", n, exc) from None
+    return items
 
 
 def _parse_logo(entry):
@@ -866,22 +968,35 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
             existing_files = {str(r["id"]) for r in conn.execute("SELECT id FROM print_files").fetchall()}
             for item in plan["projects"]:
                 f = item["fields"]
-                file_id = f["file_id"] if f["file_id"] in existing_files else None     # a file that is not here is let go
+                calc_files = [c for c in f["calc_files"] if c in existing_files]       # a file that is not here is let go
+                file_id = calc_files[0] if calc_files else None
                 values = {"id": item["id"], "number": item["number"], "name": f["name"], "notes": f["notes"], "object_description": f["object_description"],
-                          "margin_pct": f["margin_pct"],
+                          "image_text": json.dumps(item["image_text"]), "margin_pct": f["margin_pct"],
                           "vat_pct": f["vat_pct"], "price_rounding": f["price_rounding"], "data": json.dumps(f["data"]),
-                          "totals": json.dumps(f["totals"]), "source_url": f["source_url"], "file_id": file_id,
+                          "totals": json.dumps(f["totals"]), "source_url": f["source_url"], "links": json.dumps(f["links"]), "file_id": file_id, "calc_files": json.dumps(calc_files),
+                          "models": json.dumps([m for m in f["models"] if m["file_id"] in existing_files]),      # like file_id: a missing file is let go
                           "stock_booked_at": item["stock_booked_at"]}
                 if item["created_at"]:
                     values["created_at"] = item["created_at"]
                     values["updated_at"] = item["updated_at"] or item["created_at"]
                 _insert(conn, "projects", values)
             for img in plan["project_images"]:
-                conn.execute("INSERT INTO project_images (project_id, kind, variant, mime, content, width_px, height_px, is_cover"
-                             + (", created_at" if img["created_at"] else "") + ") VALUES (%s, %s, %s, 'image/jpeg', %s, %s, %s, %s"
+                conn.execute("INSERT INTO project_images (project_id, kind, origin, model_ref, selected, variant, purpose, mime, content, width_px, height_px, is_cover"
+                             + (", created_at" if img["created_at"] else "") + ") VALUES (%s, %s, %s, %s, %s, %s, %s, 'image/jpeg', %s, %s, %s, %s"
                              + (", %s" if img["created_at"] else "") + ")",
-                             (img["project_id"], img["kind"], img["variant"], img["content"], img["width"], img["height"], img["is_cover"],
+                             (img["project_id"], img["kind"], img["origin"], img["model_ref"], img["selected"], img["variant"], img["purpose"], img["content"], img["width"], img["height"], img["is_cover"],
                               *([img["created_at"]] if img["created_at"] else [])))
+            for item in plan["listings"]:                           # the models they belong to were put back above
+                f = item["fields"]
+                values = {"project_id": item["project_id"], "title": f["title"], "description": f["description"], "price": f["price"], "ean": f["ean"]}
+                if item["created_at"]:
+                    values["created_at"] = item["created_at"]
+                    values["updated_at"] = item["updated_at"] or item["created_at"]
+                _insert(conn, "listings", values)
+                for content, width, height in item["photos"]:
+                    listings.add_photo(conn, item["project_id"], content, width, height)
+            for img in plan["packaging_images"]:                    # the items they belong to were put back above
+                packaging_images.store(conn, img["packaging_id"], img["content"], img["width"], img["height"])
             if plan["ai_settings"]:                                 # model and quality only; the API key stays where it is
                 conn.execute("INSERT INTO ai_image_settings (id, model, quality) VALUES (true, %s, %s) "
                              "ON CONFLICT (id) DO UPDATE SET model = EXCLUDED.model, quality = EXCLUDED.quality, updated_at = now()",

@@ -21,8 +21,8 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://postgres:test@localhost:5432/postgres
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -42,8 +42,8 @@ jobs:
   frontend-syntax:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Syntax-check every frontend module
@@ -54,11 +54,13 @@ jobs:
             node --check "$RUNNER_TEMP/check.mjs" || { echo "Syntax error in $f"; exit 1; }
           done
           node -e "JSON.parse(require('fs').readFileSync('frontend/manifest.webmanifest','utf8'))"
+      - name: The service worker answers from its cache only what it may
+        run: node scripts/test_service_worker.mjs
 
   docker-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build the image
         run: docker build --build-arg GIT_COMMIT=${{ github.sha }} -t printpricing:ci .
       - name: A Word invoice template can be turned into a PDF inside the image (as the unprivileged user)
@@ -87,10 +89,10 @@ jobs:
           docker compose config -q
           docker compose -f docker-compose.yml -f docker-compose.build.yml config -q
       # Last, on purpose: setting up buildx makes `docker build` stop loading images into the local daemon, which the steps above rely on.
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
       - name: The image also builds for arm64 (Raspberry Pi, Apple silicon, Ampere); publishing builds both
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/arm64

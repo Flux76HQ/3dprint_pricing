@@ -49,6 +49,20 @@ const ICONS = {
   clipboard: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
+  filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
+  'sort-up': '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  'sort-down': '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  'view-tiles': '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  'view-list': '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/>',
+  archive: '<rect x="3.5" y="4.5" width="17" height="4" rx="1"/><path d="M5.5 8.5v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-10M10 12.5h4"/>',
+  external: '<path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>',
+  moon: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5z"/>',
+  sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/>',
+  star: '<path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/>',
+  save: '<path d="M5 4h11l4 4v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
 };
 
 export function icon(name) {
@@ -222,6 +236,28 @@ export function switchRow(title, description, checked, onChange) {
   return h('div', { class: 'toggle-row' },
     h('div', {}, h('strong', { id: titleId }, title), h('p', { class: 'muted' }, description)), button);
 }
+
+/** Is the screen dark right now: what the account chose, else what the device asks for. */
+export const isDark = (prefs) => (prefs.theme === 'dark' || prefs.theme === 'light' ? prefs.theme === 'dark'
+  : window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+/** Light or dark in one click, from the menu: the button shows what a click gives (a moon while it is light). The choice between light, dark
+    and "as the device" stays under Settings > Appearance. */
+export function themeToggle(ctx, onChange = () => {}) {
+  const dark = isDark(ctx.prefs);
+  const label = t(dark ? 'theme.to_light' : 'theme.to_dark');
+  return h('button', { type: 'button', class: 'tool-btn theme-toggle', title: label, 'aria-label': label,
+    onclick: async () => { await ctx.setPrefs({ theme: dark ? 'light' : 'dark' }); onChange(); } }, icon(dark ? 'sun' : 'moon'));
+}
+
+/** The way back from an editor to its overview, in the title bar: an arrow and the name of the overview (just the arrow on a phone). */
+export const backLink = (href, name) => h('a', { class: 'back', href, title: t('common.back_to', { name }), 'aria-label': t('common.back_to', { name }) },
+  icon('collapse'), h('span', {}, name));
+
+/** A button in the title bar of an editor: an icon and a word. Where there is little room the ones in a group show just the icon, and say what
+    they are when pointed at. */
+export const headAction = (name, label, onclick, cls = '', attrs = {}) => h('button', { class: `btn${cls}`, type: 'button', title: label, onclick, ...attrs },
+  icon(name), h('span', {}, label));
 
 // Small eye button that flips the "hide costs" display preference from the page itself.
 export function blurToggle(ctx) {

@@ -626,6 +626,28 @@ def test_a_template_and_a_logo_from_an_earlier_release_are_moved_into_the_databa
         assert conn.execute("SELECT content IS NOT NULL AS ok FROM invoice_logo").fetchone()["ok"]
 
 
+def test_a_backup_reads_a_template_and_a_logo_from_an_earlier_release_without_moving_them(owner, app):
+    """A backup only reads (`Database.read()`, which cannot write): it takes the files as they are and leaves the move to a block that may write."""
+    import base64
+    from pathlib import Path
+    paper, png = letter_paper("OUD"), picture()
+    upload(owner, "p.pdf", paper)
+    upload_logo(owner, "logo.png", png)
+    folder = Path(app.config["APP_CONFIG"].upload_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "invoice-template-old.pdf").write_bytes(paper)
+    (folder / "invoice-logo-old.png").write_bytes(png)
+    with app.extensions["pool"].connection() as conn:
+        conn.execute("UPDATE invoice_template SET content = NULL, stored_name = 'invoice-template-old.pdf'")
+        conn.execute("UPDATE invoice_logo SET content = NULL, stored_name = 'invoice-logo-old.png'")
+    saved = owner.get("/api/backup")
+    assert saved.status_code == 200
+    assert base64.b64decode(saved.get_json()["invoice_template"]["content_b64"]) == paper
+    assert base64.b64decode(saved.get_json()["invoice_logo"]["content_b64"]) == png
+    assert sorted(path.name for path in folder.iterdir()) == ["invoice-logo-old.png", "invoice-template-old.pdf"]
+    assert owner.get("/api/invoice-template/download").data == paper and list(folder.iterdir()) != []       # and the next block that may write moves them
+
+
 def test_the_template_can_be_downloaded_and_removed_to_return_to_the_built_in_layout(owner, app):
     from pathlib import Path
     paper = letter_paper("BLIJFT")

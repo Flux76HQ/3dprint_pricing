@@ -14,12 +14,15 @@ def groups(rows) -> list[dict]:
     """Per kind of filament: the rolls that still have filament on them (with their weights) and the total.
 
     Archived rolls are not stock. A roll that is empty is not a roll you still have, but its kind stays in
-    the list with 0 g so a sold-out colour does not just vanish. `notify_low` is on when any roll of the kind has it on."""
+    the list with 0 g so a sold-out colour does not just vanish. `notify_low` is on when any roll of the kind has it on.
+    `spool_ids` names every roll of the kind (a calculation line points at one of them and means the kind)."""
     found: dict[str, dict] = {}
     for row in rows:
         group = found.setdefault(key_of(row), {
             "key": key_of(row), "brand": row["brand"], "product_type": row["product_type"] or "", "material": row["material"] or "", "colour": row["colour"] or "",
-            "colour_hex": row["colour_hex"] or "", "barcode": (row["barcode"] or "").strip(), "rolls": [], "remaining_g": Decimal(0), "notify_low": False})
+            "colour_hex": row["colour_hex"] or "", "barcode": (row["barcode"] or "").strip(), "rolls": [], "spool_ids": [], "remaining_g": Decimal(0),
+            "notify_low": False})
+        group["spool_ids"].append(str(row["id"]))                                     # every roll of the kind, the empty ones too
         group["notify_low"] = group["notify_low"] or bool(row["notify_low"])
         group["colour_hex"] = group["colour_hex"] or row["colour_hex"] or ""          # the first roll that has a colour gives the kind its colour
         if row["remaining_g"] > 0:

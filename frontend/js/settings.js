@@ -4,6 +4,7 @@ import { filamentLibraryCards } from './filament-library.js';
 import { iosSteps, installState, onInstallChange, promptInstall } from './install.js';
 import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
+import { integrationsCards } from './integrations.js';
 import { confirmIdentity, passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, forgetPush, pushSupport, thisDeviceFingerprint } from './push.js';
 import { applyNavGlass, confirmDialog, fmt, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast } from './ui.js';
@@ -874,20 +875,32 @@ function aboutCards(part) {
 // A regular user does not see the parts that are for administrators (the server refuses them whatever the screen shows).
 const SECTIONS = [['algemeen', 'settings.tab_general'], ['weergave', 'settings.tab_appearance'], ['beveiliging', 'settings.tab_security'],
   ['zakelijk', 'settings.tab_business'], ['filamenten', 'settings.tab_filaments'], ['notificaties', 'settings.tab_notifications'],
-  ['gebruikers', 'settings.tab_users'], ['ai', 'settings.tab_ai'], ['backup', 'settings.tab_backup'], ['systeem', 'settings.tab_system'], ['over', 'settings.tab_about']];
-const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'ai', 'backup', 'systeem', 'over'];
-// How the menu is grouped and which icon each part has. A part is only shown when `shown()` lets it through, a group without parts not at all.
+  ['gebruikers', 'settings.tab_users'], ['koppelingen', 'settings.tab_integrations'], ['ai', 'settings.tab_ai'], ['backup', 'settings.tab_backup'], ['systeem', 'settings.tab_system'], ['over', 'settings.tab_about']];
+const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'koppelingen', 'ai', 'backup', 'systeem', 'over'];
+// How the menu is grouped and which icon each part has. A part is only shown when `settingsMenu()` lets it through, a group without parts not at all.
 const GROUPS = [['settings.group_personal', ['algemeen', 'weergave', 'beveiliging', 'notificaties']],
-  ['settings.group_data', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'ai', 'backup', 'systeem', 'over']]];
+  ['settings.group_data', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'koppelingen', 'ai', 'backup', 'systeem', 'over']]];
 const SECTION_ICONS = { algemeen: 'tune', weergave: 'theme-light-dark', beveiliging: 'shield-lock', notificaties: 'bell', zakelijk: 'domain',
-  filamenten: 'palette-swatch', gebruikers: 'account-group', ai: 'creation', backup: 'backup-restore', systeem: 'server', over: 'information-outline' };
+  filamenten: 'palette-swatch', gebruikers: 'account-group', koppelingen: 'link', ai: 'creation', backup: 'backup-restore', systeem: 'server', over: 'information-outline' };
+
+/** The parts of the settings this person sees, grouped as the menu shows them: [[group label key, [[route, label key, icon], ...]], ...]. There is one
+    list, for the menu on the left (where the parts stand under Settings) and for the menu of the page itself (a phone, or the menu folded away). */
+export function settingsMenu({ prefs, user, aiImages }) {
+  const admin = user.role === 'admin';
+  const labels = new Map(SECTIONS.filter(([key]) => (admin || !ADMIN_SECTIONS.includes(key)) && (key !== 'zakelijk' || !!prefs.business_mode)
+    && (key !== 'ai' || aiImages)));                                 // "AI-afbeeldingen" only when .env switches it on
+  return GROUPS.map(([title, keys]) => [title, keys.filter((key) => labels.has(key)).map((key) => [key, labels.get(key), SECTION_ICONS[key]])])
+    .filter(([, items]) => items.length);
+}
+
+/** The part of the settings an address opens: the one it names when this person has it, else the first. */
+export const settingsSection = (ctx, requested) => (settingsMenu(ctx).some(([, items]) => items.some(([key]) => key === requested)) ? requested : 'algemeen');
 
 export function settingsView(ctx, requested) {
   const { setPrefs, user, highlightPasskey } = ctx;
   const businessOn = () => !!ctx.prefs.business_mode;
   const admin = user.role === 'admin';
-  const shown = () => SECTIONS.filter(([key]) => (admin || !ADMIN_SECTIONS.includes(key)) && (key !== 'zakelijk' || businessOn()) && (key !== 'ai' || ctx.aiImages));   // "AI-afbeeldingen" only when .env switches it on
-  const section = shown().some(([key]) => key === requested) ? requested : 'algemeen';
+  const section = settingsSection(ctx, requested);
   // The address says what is shown: a part that is not there (Business while it is off) must not stay in the URL, or clicking its tab later would change nothing.
   if (requested && requested !== section) history.replaceState(null, '', `#/instellingen/${section}`);
   let vatTimer = null;
@@ -991,17 +1004,15 @@ export function settingsView(ctx, requested) {
     } catch (e) { toast(e.message, 'error'); }
   }
 
-  // A column of grouped parts beside the page on a wide screen, a row you can swipe on a phone (the css decides, the markup is the same).
+  // The parts of the settings stand under Settings in the menu on the left. Where that menu is not there (a phone) or is folded away, the page shows them itself:
+  // a row you can swipe on a phone, a column beside the page next to the folded menu (the css decides, the markup is the same).
   const subnav = h('nav', { class: 'settings-nav', 'aria-label': t('settings.sections') });
   const drawSubnav = () => {
-    const labels = new Map(shown());
-    subnav.replaceChildren(...GROUPS.map(([title, keys]) => {
-      const items = keys.filter((key) => labels.has(key));
-      return items.length ? h('div', { class: 'settings-group', role: 'group', 'aria-label': t(title) },
-        h('p', { class: 'settings-group-title', 'aria-hidden': 'true' }, t(title)),
-        ...items.map((key) => h('a', { href: `#/instellingen/${key}`, 'aria-current': key === section ? 'page' : null },
-          icon(SECTION_ICONS[key]), h('span', {}, t(labels.get(key)))))) : null;
-    }));
+    subnav.replaceChildren(...settingsMenu(ctx).map(([title, items]) => h('div', { class: 'settings-group', role: 'group', 'aria-label': t(title) },
+      h('p', { class: 'settings-group-title', 'aria-hidden': 'true' }, t(title)),
+      ...items.map(([key, label, name]) => h('a', { href: `#/instellingen/${key}`, 'aria-current': key === section ? 'page' : null },
+        icon(name), h('span', {}, t(label)))))));
+    ctx.redrawMenu?.();                                              // the same parts stand under Settings in the menu on the left
   };
   drawSubnav();
   requestAnimationFrame(() => subnav.querySelector('[aria-current]')?.scrollIntoView({ block: 'nearest', inline: 'center' }));   // on a phone the open part may be off screen
@@ -1017,7 +1028,7 @@ export function settingsView(ctx, requested) {
       drawAppearance();
       drawNav();
       return [h('div', { class: 'glass card stack' }, h('h2', {}, t('appearance.title')),
-        h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.language')), h('p', { class: 'muted' }, t('appearance.language_hint'))), langSwitch(ctx.setLanguage)),
+        h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.language')), h('p', { class: 'muted' }, t('appearance.language_hint'))), langSwitch(ctx.setLanguage, { all: true })),
         h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.theme')), h('p', { class: 'muted' }, t('appearance.theme_hint'))), themeButtons),
         h('div', { class: 'toggle-row' }, h('div', {}, h('strong', {}, t('appearance.accent')), h('p', { class: 'muted' }, t('appearance.accent_hint'))), accentButtons)),
       h('div', { class: 'glass card stack' }, h('h2', {}, t('appearance.nav')), navBox)];
@@ -1041,6 +1052,7 @@ export function settingsView(ctx, requested) {
     filamenten: () => [spoolmanCard(undefined, { configure: true }), ...filamentLibraryCards()],
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
+    koppelingen: () => integrationsCards(),
     ai: () => [aiSettingsCard(), aiLogCard()],
     backup: () => [backupCard()],
     systeem: () => [...aboutCards('systeem'), resetCard()],

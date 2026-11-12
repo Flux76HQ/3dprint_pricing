@@ -9,14 +9,27 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
 - **3D Modellen** (menu; voorheen *Berekeningen*) — de berekening per model: filament, onderdelen, accessoires (kabels/laders), printerafschrijving en
   energie → totale kostprijs, optioneel met marge voor een adviesverkoopprijs. Opgeslagen berekeningen
   bewaren de prijzen van het moment van opslaan.
-- **Printbestand koppelen** — upload een `.3mf` of `.stl` bij een berekening; het bestand blijft bewaard en is later
-  te downloaden. Uit een **gesliced 3MF** (Bambu Studio / Orca, “Export plate sliced file”) leest de app de
+- **Printbestand koppelen** — een berekening houdt twee soorten bestanden uit elkaar. De **bestanden voor de filamentberekening**: koppel bij
+  voorkeur het geslicede bestand (`.gcode.3mf`), want daarin staan de echte grammen per filament en de printtijd van elke plaat. Print je het object in
+  meerdere opdrachten (de voor- en de achterkant apart), voeg dan elk gesliced bestand toe en kies per bestand de plaat of *Alle platen*; *Filament van
+  alle bestanden overnemen* telt ze bij elkaar op (hetzelfde filament als één regel, de uren opgeteld) en zet een bestand zonder slicer-gegevens er als
+  schatting bij. De **3D-modellen** zijn
+  er zoveel als het object onderdelen heeft (bijvoorbeeld de voor- en de achterkant van een lightbox), elk met een eigen naam: STL-bestanden of het
+  projectbestand (`.3mf`) uit de slicer. Die zijn om te bekijken en om afbeeldingen mee te maken en tellen niet mee in de berekening; een gesliced
+  bestand bevat zelf geen model om te draaien. Alle bestanden blijven bewaard en zijn later te downloaden. Uit een **gesliced 3MF** (Bambu Studio / Orca, “Export plate sliced file”) leest de app de
   echte **gram per filament** en **printtijd**. Die worden standaard **automatisch** verwerkt in de berekening (uit te
-  zetten): filamentregels met de prijs van de passende rol, printtijd naar boven op hele uren, en een printerregel
-  met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik. Bevat het bestand meerdere platen, dan kies je in het menu *Plaat* één plaat of *Alle platen*: dan worden uren en gram van alle platen bij elkaar opgeteld (hetzelfde filament telt als één regel). Uit een **STL** (of een 3MF zonder
+  zetten): een filamentregel per filament uit het bestand, gekoppeld aan het filament uit je voorraad met hetzelfde materiaal en de kleur die er het dichtst bij ligt
+  (met de prijs daarvan; ligt geen kleur dichtbij, dan blijft de regel *Handmatig*), printtijd naar boven op hele uren, en een printerregel
+  met afschrijving en stroom (eerste printer, standaardtarief); handmatig overnemen kan ook met één klik (*Filament overnemen*). Elke filamentregel toont zijn kleur als icoon: die van het gekozen filament, of anders de kleur die het printbestand voor die regel noemt. In een filamentregel kies je
+  een **soort uit de voorraad**, niet een losse rol: drie rollen van hetzelfde filament staan er één keer, met wat er samen van over is. Vraagt de berekening
+  meer van een soort dan er op voorraad is, dan staat er een waarschuwing onder de regels. *Verbruik afboeken* (in de titelbalk van het model) haalt het gewicht van de soort af:
+  eerst van de aangebroken rol, de rest van de andere rollen van die soort. Bevat het bestand meerdere platen, dan kies je in het menu *Plaat* één plaat of *Alle platen*: dan worden uren en gram van alle platen bij elkaar opgeteld (hetzelfde filament telt als één regel). Uit een **STL** (of een 3MF zonder
   slicer-data) leest de app het volume en **schat** het gewicht (volume × dichtheid × effectieve vulling);
-  de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast kun je een **link** naar het model
-  bewaren (bijv. MakerWorld); die pagina wordt niet uitgelezen.
+  de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast bewaar je onder *Links* **meerdere links** per model (hooguit 12):
+  de pagina van het model zelf (bijv. MakerWorld) en de plekken waar het te koop staat (*Marktplaats*, *Bol.com*, *Etsy*, *Vinted*, *Webshop*, of *Anders* met een eigen naam).
+  Een geplakt adres krijgt zijn soort vanzelf (aan de hand van de website); de pagina's worden niet uitgelezen. In het overzicht van *3D Modellen* staan de links als
+  knopjes die in een nieuw tabblad openen, en met *Filteren → Gepubliceerd op* zie je wat waar te koop staat. De soort wordt bij de link bewaard, zodat een latere
+  koppeling met zo'n verkoopkanaal daar zijn advertentie aan kan hangen; zo'n koppeling is er nu niet.
 - **Klanten en bestellingen** — klanten met klantnummer, en een bestelling van een klant met meerdere prints: besteldatum, leverdatum, de klant, een lijst met
   modellen (zoek een berekening op **nummer** of naam; elke berekening heeft een nummer, `#12`), aantallen en de totaalprijs. Per
   bestelling maak je een **factuur** en zet je de status op *nieuw*, *verwerkt*, *verstuurd* of *afgehandeld*. Zie *Bestellingen en
@@ -38,8 +51,8 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
   met *Camera gebruiken*. Bovenaan staat de
   **voorraad per soort**: de rollen die je nog hebt met hun gewicht, het totaal per soort en per materiaal (een soort is
   één barcode, of merk + materiaal + kleur). Merk (bijvoorbeeld *Bambu Lab*) en **type** (*Matte*, *Basic*, *Silk*) zijn aparte velden; een bestaande rol houdt wat in het merkveld stond en het type is leeg tot je het invult. Pas je bij een rol met barcode merk, type, materiaal, kleur, gewicht, diameter of temperaturen aan, dan vraagt de app bij het opslaan of de andere rollen met dezelfde barcode ook bijgewerkt moeten worden (alleen wat je veranderde; prijs, wat er nog over is en notities zijn per rol en blijven staan). Bovenaan *Voorraad* en *Rollen* staat een **zoekveld** dat filtert terwijl je typt: op naam (merk, type, kleur), barcode en materiaal, zonder op hoofdletters of accenten te letten; met meer woorden (*bambu zwart*) moet elk woord passen. Met de scanknop ernaast zoek je op een gescande barcode, en wat je typte blijft staan als je tussen *Voorraad* en *Rollen* wisselt. Daarnaast kun je de lijst en de voorraad filteren op **soort** (materiaal), **merk** en **type**; elke keuzelijst past zich aan de vorige keuzes aan. **Dupliceren** (op een rol onder *Rollen*) opent het rolformulier, ingevuld met die rol, met bovenaan *Aantal rollen*: zo voeg je een of meer rollen van hetzelfde filament toe. De nieuwe rollen beginnen vol en zijn niet gearchiveerd; pas aan wat anders is (de prijs, bijvoorbeeld) en ze komen er in één keer bij (alles of niets, hooguit 200). Een rol uit Spoolman dupliceer je in Spoolman. Verbruik van een berekening kun je met één klik van de voorraad afboeken.
-  Het menu *Filament* heeft twee onderdelen: **Voorraad** (de soorten als tegels met een spoel-icoon in de kleur van de rol: twee naast elkaar op een telefoon, meer op een breder scherm, hooguit drie rijen met een chevron voor de rest) en **Rollen** (de rolinfo met sorteerknoppen bovenaan: naam, materiaal, resterend, prijs per kg, nieuwste; tik nog eens om om te draaien). De kleur kies je per rol (*Kleur van de rol*); kies je niets, dan wordt hij uit de naam geraden (*zwart*, *Red*, …). Het icoon is in de stijl van de Material Design-iconen getekend, want die hebben geen filamentspoel.
-- **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. Verpakking hoort bij de **bestelling**, niet bij het model: met
+  Het menu *Filament* heeft twee onderdelen: **Voorraad** (de soorten, met een spoel-icoon in de kleur van de rol en bovenaan het totaal per materiaal) en **Rollen** (elke rol afzonderlijk). Beide werken als elk ander overzicht (zie *Overzichten*): tegels of lijst, zoeken, filteren op soort, merk en type, en sorteren. Bij *Rollen* zet de schakelaar *Groepeer per soort* de rollen van één soort bij elkaar (drie rollen Bambu Lab Basic Rood onder één kop, met de barcode erbij, zodat twee tinten rood uit elkaar blijven). Binnen een groep staan de rollen in de gekozen volgorde en de groepen staan op volgorde van hun eerste rol: gesorteerd op *Resterend* staat de soort met de leegste rol bovenaan, met die rol als eerste. Zet je de schakelaar uit, dan is het één lijst op die volgorde, en bij gelijk gewicht op naam. De kleur kies je per rol (*Kleur van de rol*); kies je niets, dan wordt hij uit de naam geraden (*zwart*, *Red*, …). Het icoon is in de stijl van de Material Design-iconen getekend, want die hebben geen filamentspoel.
+- **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk, elk met optioneel een **afbeelding** (een foto van de doos of zak, of het logo): kies in het formulier een JPEG, PNG of WebP (op een telefoon kun je meteen een foto maken); hij staat daarna klein in de tegel en in de lijst, en met *Afbeelding weghalen* haal je hem er weer af. De app bewaart een verkleinde kopie (hooguit 800 pixels breed of hoog) zonder de gegevens die een telefoon in een foto zet, in de database; hij zit in de back-up en verdwijnt met de verpakking. Verpakking hoort bij de **bestelling**, niet bij het model: met
   *Verpakking toevoegen* in de bestelling kies je er een uit de lijst (zie *Verpakking op een bestelling*). Een berekening die al verpakking bevatte, houdt die
   (en de kosten ervan) tot je de regel verwijdert; nieuwe verpakking kun je er niet meer aan toevoegen.
 - **Onderdelen** — twee lijsten onder één menu. **Onderdelen** zijn extra onderdelen zoals kabeltjes, connectoren en chips;
@@ -59,7 +72,7 @@ passen; 0 = geen btw). Inkoopprijzen voer je excl. btw in. De marge van een bere
 **afronding** van de prijs incl. btw (op 5/10/50 cent, hele euro's of eindigend op ,95/,99) en een afwijkende marge stel je **per bestelling**
 in (zie *Bestellingen en facturen*): de prijs incl. btw wordt dan naar boven afgerond, je marge geldt als *minimum* en de btw wordt uit de ronde prijs gehaald. Standaard btw en
 standaard afronding voor nieuwe bestellingen stel je in onder *Instellingen → Zakelijk → Btw en afronding* (het onderdeel *Zakelijk* zet je eerst aan onder *Instellingen → Algemeen*). Onder *Instellingen → Algemeen* kun je kostprijs, subtotalen en
-marge **blurren** op de berekeningenpagina (ook met de knop “Kosten verbergen” daar), handig als een klant meekijkt.
+marge **blurren** op de berekeningenpagina (ook met de knop “Kosten verbergen” daar), handig als een klant meekijkt. Dat geldt ook in de lijstweergave: de bedragen in de kolom *Kostprijs* zijn dan onleesbaar, de verkoopprijs niet.
 
 ## Starten (Docker)
 
@@ -80,7 +93,8 @@ Bouwen uit een checkout (met de `Dockerfile`) kan ook:
 GIT_COMMIT=$(git rev-parse --short HEAD) docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
-(`GIT_COMMIT` verschijnt naast het versienummer; zonder staat er `dev`. CI zet hem automatisch.)
+(`GIT_COMMIT` verschijnt naast het versienummer; zonder staat er `dev`. CI zet hem automatisch. Geef hem altijd mee als je zelf bouwt: een browser bewaart de bestanden van een release
+onder versie plus commit, dus twee verschillende builds met dezelfde commit zou hij door elkaar halen. Een `dev`-build wordt nooit bewaard.)
 
 Zonder `--domain` blijven `RP_ID` en `RP_ORIGINS` leeg: de app volgt dan het adres waarop je hem opent, ook een IP-adres, genoeg om het uit te proberen. Een passkey vraagt wel een domein met https (zie hieronder).
 Handmatig kan ook: `cp .env.example .env` en de waarden invullen.
@@ -117,6 +131,7 @@ verwijderen of nieuwe herstelcodes vraagt een verse bevestiging (een passkey, of
 | `AI_IMAGES_ENABLED` | `TRUE` toont de optionele functie *AI-afbeeldingen* (zie [AI-afbeeldingen](#ai-afbeeldingen-optioneel)); alles anders, of leeg, laat haar uit. Standaard `FALSE` |
 | `PROXY_HOPS` | Aantal reverse proxies ervoor (vertrouwt `X-Forwarded-*`) |
 | `WEB_CONCURRENCY` | Aantal Gunicorn-workers (standaard 2) |
+| `WEB_THREADS` | Threads per worker (standaard 4); workers x threads verzoeken worden tegelijk afgehandeld |
 | `PRINTPRICING_UPDATE_CHECK` | De updatecontrole (zie *Meldingen en updates*). Standaard aan; `false` (ook `0`, `no`, `off`) zet hem uit, voor een installatie die niet naar buiten mag bellen |
 | `PRINTPRICING_TAG` | Welke build draait: `latest` (stabiel, standaard), `beta` of een versienummer als `0.26.15`; vervangt `APP_IMAGE`. Dezelfde waarde gaat naar de app, die op `beta` een beta-label toont |
 
@@ -186,6 +201,8 @@ met een eigen icoon en opstartscherm en reageert als een native app:
 ### Meldingen en updates
 
 **Nieuwe versie.** De versie in de zijbalk is die van de code die de pagina echt geladen heeft (de server vult hem in `js/build.js` in), niet het antwoord van de server van dit moment; elke script- en stijl-URL draagt de release (`?v=0.7.3-abc1234`), zodat een oude cache of proxy geen oude scripts met een nieuwe server kan mengen. De app vraagt de server bij het openen, na terugkeren naar de voorgrond en elk kwartier welke versie draait.
+Omdat de release in de URL staat, bewaart de browser die bestanden zolang de release draait (`Cache-Control: immutable`) en vraagt hij bij het openen alleen nog de pagina zelf en `sw.js` op; die twee
+worden altijd bij de server nagevraagd, en daaraan merkt de browser een nieuwe release. De productafbeeldingen bewaart hij op dezelfde manier (`private`, dus alleen in de browser van wie ingelogd is). De app comprimeert zelf (gzip): een proxy ervoor hoeft dat niet te doen, maar moet `Cache-Control`, `ETag`, `Vary` en `Content-Encoding` ongewijzigd doorgeven. Gemeten cijfers: [`performance.md`](performance.md).
 Is die nieuwer dan wat de app geladen heeft, dan verschijnt bovenaan “Nieuwe versie beschikbaar: vX.Y.Z (commit)” met
 *Nu bijwerken* en *Later* (een uur rust). Heb je een berekening met niet-opgeslagen wijzigingen open, dan vraagt de app
 eerst of je die wilt kwijtraken. *Instellingen → Beheer → Over → Updatecontrole* toont de geïnstalleerde versie en controleert op verzoek.
@@ -343,8 +360,8 @@ Hosten op de gedeelde Flux76-server: zie `shared/infrastructure/adding-an-app.md
 - `docker compose up -d` pullt een image die al lokaal bestaat **niet** opnieuw; gebruik `docker compose pull && docker compose up -d`.
   Een eerder lokaal gebouwde `…:latest` heeft voorrang tot je pullt.
 - Controleer of `PRINTPRICING_TAG` in `.env` niet op een oude versie staat; zet hem desnoods op `latest`. Een oude `APP_IMAGE` in `.env` wordt niet meer gelezen.
-- Draait alles goed maar toont je browser oude schermen, ververs dan één keer hard (de service worker haalt bestanden
-  vanaf versie 0.3.1 eerst van het netwerk).
+- Draait alles goed maar toont je browser oude schermen, ververs dan één keer hard (de service worker haalt de pagina altijd
+  eerst van het netwerk; alleen bestanden met de draaiende release in hun URL komen uit zijn cache, en die van een vorige release ruimt hij op).
 
 ### Back-up en herstel
 ```bash
@@ -376,6 +393,7 @@ De container start als root om de rechten van de gemounte map te zetten en draai
 | `backend/app/files.py`, `printfile.py` | upload/download van STL/3MF en het uitlezen ervan (slicer-gegevens of volume) |
 | `backend/app/db.py`, `migrations/` | migratierunner (vooruit-only, checksum-bewaakt) |
 | `frontend/` | statische PWA zonder buildstap, plus service worker voor offline schil |
+| `backend/app/static_files.py` | de bestanden van `frontend/`: release in elke URL, één keer gecomprimeerd, en wat de browser mag bewaren |
 
 ### Limieten buiten de repository
 Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de app nodig heeft:
@@ -383,7 +401,7 @@ Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de ap
 | Limiet | Waarde die de app nodig heeft | Beperkt |
 |---|---|---|
 | Maximale request-body (proxy/CDN) | ≥ `MAX_UPLOAD_MB` + 1 MB (standaard 51 MB); voor het herstellen van een back-up met printbestanden zo groot als die back-up | uploadlimiet van de app; Cloudflare Free stopt bij 100 MB, nginx staat standaard op 1 MB (`client_max_body_size`) |
-| Request-timeout (proxy/CDN) | ≥ 120 s | Gunicorn `--timeout 120` in `deploy/entrypoint.sh` (een groot 3MF uitlezen duurt even) |
+| Request-timeout (proxy/CDN) | ≥ 120 s | een groot 3MF uitlezen of een factuur maken duurt even. Gunicorn zelf breekt een lang verzoek niet meer af: met threads (`--worker-class gthread` in `deploy/entrypoint.sh`) is `--timeout 120` de tijd dat een worker mag zwijgen voor hij vervangen wordt, niet de duur van één verzoek |
 | `Origin`-header op schrijvende verzoeken doorgeven | verplicht ongewijzigd | origin-check tegen `RP_ORIGINS` |
 | `X-Forwarded-For/-Proto/-Host` doorgeven | aantal proxies = `PROXY_HOPS` | rate-limit op de setupcode per client-IP |
 | TLS | verplicht (behalve `localhost`) | WebAuthn, installeren, camera en push werken alleen in een secure context |
@@ -459,10 +477,46 @@ Per persoon blijven: taal, thema en accentkleur, de balk onderaan, in- of uitkla
 - Database: `users.role` (`admin` of `user`), `users.is_owner` (hooguit één, altijd beheerder), `users.session_epoch`, de tabellen `invitations` en `shared_preferences` (migratie `0024`). Elke tabel met een `user_id` verwijst met `ON DELETE CASCADE` naar `users`; `test_users.py` controleert dat een nieuwe tabel dat ook doet.
 - **Nieuwe instellingen in `.env` of `docker-compose.yml`: geen.** Een bestaande installatie werkt zonder ingreep door; de bestaande gebruiker wordt eigenaar en beheerder en bestaande sessies blijven geldig.
 
+## Overzichten: tegels of lijst, zoeken, filteren, sorteren
+
+Elk overzicht (*3D Modellen*, *Bestellingen*, *Klanten*, *Filament*, *Verpakking*, *Onderdelen*, *Accessoires*, *Printers*, *Energie*) heeft dezelfde balk en werkt hetzelfde:
+
+- **Zoeken terwijl je typt**: elk woord moet voorkomen, hoofdletters en accenten tellen niet mee, *Esc* wist het veld. Bij *Filament* staat er een knop naast om een barcode te scannen.
+- **Filteren**: de knop *Filteren* opent de keuzelijsten (bij filament soort, merk en type; bij klanten de plaats; bij 3D-modellen waar ze gepubliceerd zijn en of ze een verkoopitem hebben). Elke keuze beperkt wat de volgende aanbiedt, en *Wis filters* zet alles terug. Bij *Bestellingen* staat de status als een rij knoppen met het aantal erbij.
+- **Sorteren**: kies waarop in de keuzelijst en draai de volgorde om met de pijl ernaast. In de lijstweergave sorteert een klik op een kolomkop, en een tweede klik draait om.
+- **Tegels of lijst**: de schakelaar rechts. In de lijst opent een klik op een regel het model, de bestelling of de klant; de status van een bestelling zet je er zonder haar te openen. Op een smal scherm vallen de minder belangrijke kolommen weg en veeg je de rest opzij.
+
+Weergave, volgorde en groepering onthoudt de **browser** per overzicht (dus per apparaat: een telefoon mag tegels tonen terwijl de computer een lijst toont); wat je zoekt en filtert geldt tot je de pagina verlaat. Blijft er niets over, dan zegt het overzicht dat en biedt het *Wis filters* aan.
+
+De code staat op één plek, `frontend/js/listview.js`; een pagina zegt alleen wat haar regels en kolommen zijn.
+
+## Verkoopitem: een 3D-model te koop zetten
+
+Onderaan een opgeslagen 3D-model staat het blok *Verkoopitem*. Daarin leg je vast waarmee je het model te koop zet; per model is er één. Je slaat het op met
+dezelfde knop *Opslaan* als het model. Laat je het blok leeg, dan is het model niet te koop.
+
+- **Titel en tekst** van de advertentie (titel hooguit 80 tekens, tekst hooguit 4000). *Vul in vanuit de productteksten* neemt de naam van het model en de
+  teksten van de productafbeeldingen over als begin; daarna zijn ze van jou.
+- **Vraagprijs** (incl. btw): die typ je zelf. De berekening geeft er een **advies** naast (de verkoopprijs incl. btw) en waarschuwt als je onder de kostprijs zit,
+  maar verandert je vraagprijs nooit: een advertentie zegt wat je met de buitenwereld hebt afgesproken, ook als het filament morgen duurder is.
+- **EAN** (optioneel): de streepjescode van het product, 8, 12, 13 of 14 cijfers. Het laatste cijfer is het controlecijfer; een typefout wordt geweigerd.
+  Marktplaats vraagt er geen, Bol.com wel.
+- **Foto's**, hooguit 12, in de volgorde waarin ze getoond worden; de eerste is de hoofdfoto. Voeg eigen foto's toe (JPEG, PNG of WebP, hooguit 8 MB per foto) of neem er een over
+  *uit de productafbeeldingen* van het model. Een overgenomen foto is een **kopie**: maak je de productafbeelding opnieuw, dan blijft de foto in je verkoopitem
+  zoals hij was. Elke foto wordt opnieuw opgeslagen als JPEG zonder de gegevens van de camera (ook geen locatie).
+- **Advertentie plaatsen**: *Kopieer de titel*, *Kopieer de tekst* en *Download foto's* (één ZIP-bestand, `foto-01.jpg`, `foto-02.jpg`… in jouw volgorde) zetten
+  alles klaar; *Marktplaats openen* opent het scherm waar je een advertentie plaatst. Plakken en uploaden doe je daar zelf: Marktplaats heeft voor particulieren
+  geen koppeling. Zet daarna het adres van je advertentie bij *Links* (onder *Printbestand en bron*), dan zie je in het overzicht waar het model staat.
+- **Niet meer te koop** verwijdert het verkoopitem en zijn foto's. Het model, de berekening en de productafbeeldingen blijven.
+
+In het overzicht *3D Modellen* staat bij een model met een verkoopitem *te koop voor € …*, de lijst heeft de kolom *Te koop* (waarop je sorteert), en onder
+*Filteren* kies je *Met verkoopitem* of *Zonder verkoopitem*. Verkoopitems en hun foto's zitten in de back-up. Een andere applicatie leest ze met een
+API-sleutel onder `/api/v1/items` (zie *Koppelingen*); een kant-en-klare koppeling met Bol.com is er nog niet.
+
 ## Talen (Nederlands en Engels)
 
-De app spreekt Nederlands en Engels. De taal van de browser is de standaard (een onbekende taal wordt Engels); met de vlaggen
-in de zijbalk (op een telefoon: *Meer*) en onder *Instellingen → Weergave* kies je zelf. Die keuze wordt bij je account in de
+De app spreekt Nederlands en Engels. De taal van de browser is de standaard (een onbekende taal wordt Engels); met de vlag
+in het menu (op een telefoon: *Meer*) wissel je met één klik: de vlag toont de taal waar een klik naartoe gaat (met Nederlands op het scherm dus de Engelse). Onder *Instellingen → Weergave* staan beide vlaggen, met de gekozen taal gemarkeerd. Die keuze wordt bij je account in de
 database bewaard, dus ze geldt op al je apparaten; op de inlogschermen onthoudt de browser ze. Alle teksten staan in
 taalbestanden en niet in de code: `frontend/lang/nl.json` en `en.json` voor de schermen, `backend/app/lang/nl.json` en
 `en.json` voor wat de server meldt (foutmeldingen, de testmelding en "nieuwe versie"-melding). De server kiest de taal uit de
@@ -479,7 +533,7 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 
 ## Instellingen
 
-*Instellingen* heeft een submenu bovenaan; elk onderdeel heeft een eigen adres (`#/instellingen/<onderdeel>`):
+De onderdelen van *Instellingen* staan in het **menu links, onder *Instellingen***, gegroepeerd (*Persoonlijk*, *Gegevens*, *Beheer*): ze klappen uit zodra je in de instellingen bent, zodat er één menu is. Is dat menu er niet (een telefoon) of is het ingeklapt, dan toont de pagina de onderdelen zelf: op een telefoon als een rij om te vegen, naast het ingeklapte menu als een kolom. Elk onderdeel heeft een eigen adres (`#/instellingen/<onderdeel>`):
 
 | Onderdeel | Bevat |
 |---|---|
@@ -489,15 +543,73 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 | **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon; alleen zichtbaar voor beheerders, en als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
 | **Filamenten** | de filamentbibliotheek: specificaties van filamenten, een Bambu Lab-factuur inlezen, JSON-export en -import en synchroniseren met GitHub; zie *Filamentbibliotheek* |
 | **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
+| **Koppelingen** | alleen beheerders: API-sleutels waarmee een andere applicatie bestellingen en facturen leest, en webhooks die een seintje geven als er iets gebeurt (zie *Koppelingen: API-sleutels en webhooks*) |
 | **Gebruikers** | alleen beheerders: wie mag inloggen, uitnodigen, nieuwe inloglink, beheerder maken, verwijderen; zie *Gebruikers en rollen* |
 | **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel en het logboek |
 | **Back-up** | alleen beheerders: back-up en herstel, de automatische back-ups en de lijst van back-ups op de server (zie *Back-up in de app*) |
 | **Systeem** | alleen beheerders: de gezondheid van de database en de actieve koppeling ermee (zie *Instellingen → Beheer → Systeem*), en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
 | **Over** | alleen beheerders: een samenvatting (versie, database, laatste back-up, updates), de updatecontrole (zie *Meldingen en updates*) en wat er draait (zie *Instellingen → Beheer → Over*) |
 
-*Uitloggen* staat onderaan de zijbalk (op een telefoon onderaan *Meer*). *Zakelijk* verbergt alleen dat onderdeel van de instellingen; het menu
+Het menu links is gegroepeerd (*Verkoop*, *Voorraad*, *Productie*), met *Instellingen* onderaan. Daaronder staan de knop voor **licht of donker** (de maan of de zon: wat je krijgt als je klikt; *Systeem* kies je onder *Instellingen → Weergave*) en de taalvlag; *Uitloggen* staat daar los onder. Het menu klap je in en uit met de knop **bovenaan**, naast de naam (op een telefoon staan thema en taal bovenaan *Meer*, *Uitloggen* onderaan). *Zakelijk* verbergt alleen dat onderdeel van de instellingen; het menu
 *Bestellingen* blijft gewoon zichtbaar. Een onderdeel dat niet getoond wordt (bijvoorbeeld *Zakelijk* terwijl het uit staat) valt terug op
 *Algemeen*.
+
+## Koppelingen: API-sleutels en webhooks
+
+*Instellingen → Beheer → Koppelingen* (alleen beheerders). Hiermee kan een andere applicatie (je boekhouding of finance-app, een eigen script) bestellingen en
+facturen uit deze app lezen, en geeft deze app een seintje als er iets gebeurt. Er is nog geen kant-en-klare koppeling met een verkoopkanaal of boekhoudpakket:
+dit is de basis waar zo'n koppeling op aansluit.
+
+### API-sleutels en de API (`/api/v1`)
+
+- **Een sleutel maken** vraagt een verse bevestiging (passkey, of wachtwoord plus code). De sleutel (`ppk_…`) zie je **één keer**; de server bewaart alleen de SHA-256
+  ervan. *Intrekken* werkt direct. Er kunnen hooguit 20 sleutels zijn. De lijst toont de eerste tekens, wanneer hij gemaakt is en wanneer hij voor het laatst gebruikt is.
+- **Meesturen**: `Authorization: Bearer ppk_…`. Een sleutel werkt **alleen** onder `/api/v1` en kan alleen lezen; op de rest van de app (ook alles voor beheerders)
+  wordt hij geweigerd. Andersom werkt een ingelogde browser niet op `/api/v1`. Een sleutel is van niemand persoonlijk: hij blijft werken als degene die hem maakte vertrekt.
+- **Wat erin zit**: wat op een factuur staat, en wat je te koop zet (je verkoopitems met hun foto's). **Kostprijzen, marges en interne notities zitten er niet in.**
+
+| Adres | Geeft |
+|---|---|
+| `GET /api/v1` | of de sleutel werkt: naam, API-versie (`1`), versie van de app, naam van de sleutel |
+| `GET /api/v1/orders` | bestellingen, oudste wijziging eerst. Filters: `status` (`nieuw`, `verwerkt`, `verstuurd`, `afgehandeld`), `invoiced=true|false`, `updated_since=2026-11-11T08:00:00Z`. Pagina's: `limit` (1 t/m 200, standaard 100) en `cursor` (de `next_cursor` van de vorige pagina; `null` = er is niet meer) |
+| `GET /api/v1/orders/<id>` | één bestelling: `number`, `status`, `order_date`, `delivery_date`, `subject`, `customer` (id, klantnummer, naam, adres, e-mail, telefoon), `invoice` (`number`, `date`, `has_pdf`; `null` zolang er geen factuur is), `lines` (omschrijving, aantal, `unit_price` incl. btw, `vat_pct`, `optional`, `total`, `net`, `vat`) en `totals` (`excl`, `vat`, `incl`, en per btw-tarief `by_vat_rate`) |
+| `GET /api/v1/orders/<id>/invoice` | de factuur als PDF, zoals hij gemaakt is (404 als er geen is). Een factuur *maken* doe je in de app |
+| `GET /api/v1/customers`, `GET /api/v1/customers/<id>` | klanten (zonder notities), met dezelfde `updated_since`, `limit` en `cursor` |
+| `GET /api/v1/items`, `GET /api/v1/items/<id>` | wat er te koop is (de verkoopitems), oudste wijziging eerst, met dezelfde `updated_since`, `limit` en `cursor`. Per item: `id` (dat van het 3D-model), `number`, `title`, `description`, `price` (de vraagprijs incl. btw; `null` zolang die niet is ingevuld), `vat_pct`, `ean` (`null` als er geen is), `photos` (`id`, `width`, `height`, `url`), `links` (waar het al te koop staat: `kind`, `label`, `url`) en `updated_at`. Een model zonder verkoopitem bestaat hier niet (404) |
+| `GET /api/v1/items/<id>/photos/<foto-id>` | één foto als JPEG, het adres uit `photos[].url` |
+
+Bedragen zijn tekst met twee decimalen (`"180.90"`), tijden zijn UTC. Een fout is `{"error": "<zin in de taal van het verzoek>", "code": "<vaste sleutel>"}`; reken in code op
+`code`, niet op de zin. **Limieten**: 300 verzoeken per minuut per sleutel (per web-worker; `429` met `Retry-After: 60`), en een adres dat steeds onbekende sleutels aanbiedt
+wordt na 20 pogingen in een kwartier afgeremd. De versie staat in het pad: een veld erbij is geen nieuwe versie, een veld weg of anders wel, en dan blijft `/api/v1` bestaan
+zolang iets het nog gebruikt. De API van de schermen zelf (`/api/orders` en dergelijke) is hier geen onderdeel van en verandert met de schermen mee.
+
+### Webhooks
+
+- **Toevoegen** (met verse bevestiging): het adres van de ontvanger, een naam en waarover je een bericht wilt. Het adres begint met `https://`, of `http://` binnen je eigen
+  netwerk; adressen in het eigen netwerk mogen (je andere applicaties staan daar vaak), alleen link-local-, multicast- en lege adressen worden geweigerd, ook als een naam
+  daar op het moment van versturen naar wijst. Het adres ligt daarna vast; een ander adres is een nieuwe webhook. Hooguit 10 webhooks.
+- **Gebeurtenissen**: `invoice.created` (factuur gemaakt), `invoice.updated` (dezelfde factuur opnieuw gemaakt), `order.created`, `order.updated`, `order.status_changed`
+  (met `previous_status`) en `order.deleted`. Een herstel uit een back-up en de fabrieksinstellingen geven geen berichten per bestelling.
+- **Het bericht** is klein: `{"type": "invoice.created", "timestamp": "2026-11-12T09:00:00Z", "data": {"order_id": "…", "order_number": 12, "status": "nieuw",
+  "invoice_number": "2026-0007", "invoice_date": "2026-11-12", "total": "180.90", "url": "/api/v1/orders/<id>"}}`. Er staan geen klantgegevens en geen regels in;
+  de ontvanger haalt die op met een API-sleutel via `url`.
+- **Ondertekend** volgens [Standard Webhooks](https://www.standardwebhooks.com/): de headers `webhook-id`, `webhook-timestamp` en `webhook-signature`. De **ondertekensleutel**
+  (`whsec_…`) zie je één keer, bij het toevoegen of bij *Nieuwe sleutel*. De ontvanger controleert elk bericht ermee, bijvoorbeeld in Python met het pakket `standardwebhooks`:
+  `Webhook(sleutel).verify(ruwe_body, headers)` (dat weigert ook een bericht dat ouder is dan vijf minuten). Controleer op de **ruwe** bytes, niet op opnieuw opgemaakte JSON.
+- **Afleveren**: binnen ongeveer 15 seconden na de gebeurtenis (zo vaak wordt er gekeken). Elk antwoord `2xx` binnen 10 seconden telt als aangekomen;
+  antwoord dus snel en doe het werk daarna. Lukt het niet, dan volgt een nieuwe poging na ongeveer 1, 5 en 15 minuten, 1, 3, 6, 12 en 24 uur (samen ruim twee dagen), steeds met
+  **hetzelfde bericht en hetzelfde `webhook-id`**. Een bericht kan dus vaker aankomen (*minstens één keer*): laat de ontvanger een `webhook-id` dat hij al zag overslaan.
+  Volgorde is niet gegarandeerd; lees bij twijfel de bestelling opnieuw via de API. Doorverwijzingen worden niet gevolgd.
+- **Afleverlog** per webhook: de laatste 50 berichten met hun toestand (*Wacht*, *Aangekomen*, *Mislukt*), het aantal pogingen en de reden. Een mislukt bericht stuur je
+  met *Opnieuw sturen* nog eens. Berichten die aankwamen of opgegeven zijn, verdwijnen na 30 dagen uit het log. *Testbericht sturen* stuurt direct een `ping` en zegt of
+  die aankwam; van het antwoord van de ontvanger wordt alleen de status bewaard, nooit de inhoud.
+- **Uitgezet**: een webhook die drie dagen lang niets aanneemt, of `410 Gone` antwoordt, wordt uitgezet (dat staat erbij). Zet je hem weer aan, dan gaat wat nog wachtte alsnog weg.
+  Voor een webhook die uit staat wordt niets klaargezet.
+- **`SESSION_SECRET` veranderd?** Dan is de ondertekensleutel niet meer te lezen: de webhook meldt dat en verstuurt niets tot je met *Nieuwe sleutel* een nieuwe maakt (en die
+  bij de ontvanger zet). API-sleutels blijven gewoon werken.
+
+Sleutels, webhook-adressen en het afleverlog zitten **niet in een back-up** (het zijn inloggegevens en ze beschrijven één netwerk) en een herstel laat ze staan; de
+fabrieksinstellingen halen ze weg.
 
 ## AI-afbeeldingen (optioneel)
 
@@ -512,16 +624,59 @@ zie je in de app niets. De server beslist, niet de browser.
    controleert sleutel en model. Het model (standaard `gpt-image-2`) en de kwaliteit (laag/gemiddeld/hoog; hoger kost meer) zijn instelbaar.
 2. **Omschrijving**: elke berekening heeft een veld *Omschrijving van het object* (bijvoorbeeld “plantenbak voor op een vensterbank”). Daarmee kiest het
    model een passende achtergrond. Dit veld staat altijd in de berekening, ook als de functie uit staat, en zit in de back-up.
-3. **Maken**: open een opgeslagen berekening, kaart *Productafbeeldingen*: upload een foto van het object (JPEG, PNG of WebP, maximaal 8 MB; hij wordt
-   opnieuw opgeslagen en tot 2048 px verkleind, zonder metadata) en kies *Afbeeldingen maken*. Er worden vier varianten gemaakt, een voor een: vierkant 1:1,
-   liggend 3:2, staand 2:3 en een studiofoto met neutrale achtergrond. Elke afbeelding kost API-tegoed bij OpenAI; de app vraagt eerst bevestiging,
-   begrenst het aantal per uur en bewaart er hooguit 12 per berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met
-   berekeningen) of verwijderen.
+3. **Maken**: open een opgeslagen berekening, kaart *Productafbeeldingen*. De afbeeldingen worden gemaakt van een **foto van het object**, van een **beeld
+   van het 3D-model**, of van allebei (dan gaat de foto mee voor kleur en materiaal, het model voor de exacte vorm):
+
+   - *Foto's*: upload een of meer foto's (JPEG, PNG of WebP, maximaal 8 MB per foto; ze worden opnieuw opgeslagen en tot 2048 px verkleind, zonder
+     metadata). Elke foto komt erbij, hooguit tien; een nieuwe foto vervangt de vorige niet.
+   - *Meesturen*: onder elke foto en elk beeld van het model staat een vinkje *Meesturen*. Wat aangevinkt is gaat naar het AI-model: standaard alleen de
+     eerste afbeelding, hooguit zes. Meer afbeeldingen geven het model meer houvast over de vorm, en maken elke aanvraag groter.
+   - *3D-model*: heeft de berekening 3D-modellen (of, als die er niet zijn, een STL of 3MF als bestand voor de filamentberekening), dan toont *3D-model laden*
+     het model in de browser. Met meerdere modellen kies je welk onderdeel je ziet; heeft een projectbestand meerdere platen, dan kies je *Alle platen* of
+     één plaat. Elk beeld dat je opslaat komt erbij (hooguit tien): draai het model en sla opnieuw op voor een ander aanzicht. De beelden die je aanvinkt gaan samen met de aangevinkte foto's naar het
+     model, dat ze als de onderdelen of de kanten van één object behandelt. Onder elke afbeelding, ook de foto en de beelden van het model, staan drie
+     iconen: downloaden, als omslag van het 3D Model kiezen (de ster) en verwijderen (de rode prullenbak). De kaart *Productafbeeldingen* staat
+     standaard dichtgeklapt; de knop *3D-model bekijken* bij het printbestand klapt haar open en laadt het model meteen. Sleep om het model helemaal rond te draaien, in elke richting (ook over de kop); met *Verplaatsen*, Shift of de rechtermuisknop verschuif je het in beeld, met *Kantelen* draai je het om de kijkas, *Aanzicht* zet het recht op een kant (voor, achter, links, rechts, boven, onder) en *Beginstand* zet alles terug. Met twee vingers zoom, kantel en verschuif je tegelijk; de pijltjestoetsen draaien, met Shift verschuiven ze, Q en E kantelen. Zoom verder met de schuif en kies *Beeld opslaan bij deze berekening*. Het model krijgt de kleuren uit het 3D-bestand als die erin staan: de materialen van een 3MF, of bij een project uit Bambu Studio of OrcaSlicer de filamentkleur per object en onderdeel, en de kleuren die in de slicer op het model zijn geschilderd (per driehoek de kleur die het grootste deel bedekt; een STL kent geen kleur). Wat het bestand geen kleur geeft, krijgt die van de eerste filamentrol. Kies je bij *Kleur van het item* een eigen kleur, dan krijgt het hele model die kleur.
+     Het beeld staat daarna naast de foto en is net als de foto te verwijderen of te vervangen door een nieuw beeld. De server leest het model uit het
+     bestand; een model met meer dan 400.000 driehoeken is te gedetailleerd om te tonen, en een gesliced 3MF (`.gcode.3mf`) bevat alleen de printopdracht en dus geen
+     model om te draaien: koppel daarvoor het projectbestand (`.3mf`) uit de slicer. Zo'n gesliced bestand bevat meestal wel de afbeelding die de slicer van
+     de printplaat maakte, in de kleuren van het filament; de app toont die dan en je kunt haar met één klik als beeld van het model opslaan. De weergave vraagt WebGL van de browser.
+
+   Kies daarna **waar de afbeeldingen voor zijn**; zonder keuze wordt er niets gemaakt.
+   Per keuze worden vier afbeeldingen gemaakt, een voor een:
+
+   | Keuze | De vier afbeeldingen |
+   |---|---|
+   | *Marktplaatsverkoop* | liggend 3:2, studio, detail van dichtbij, vierkant; een eerlijke, heldere foto zoals een verkoper die thuis maakt |
+   | *Reclame op sociale media* | vier keer vierkant 1:1 (omgeving, in gebruik, detail, studio), zodat ze samen een carrousel vormen |
+   | *Productafbeeldingen voor een webshop* | studio, vierkant, detail van dichtbij, liggend 3:2; strak en gelijkmatig belicht |
+
+   **Kleur van het item**: standaard blijft het item zoals op de foto of in het 3D-bestand. Kies *Eigen kleur kiezen* en een kleur, dan krijgt het item die kleur op de
+   afbeeldingen (ook als de foto een andere kleur laat zien) en in de 3D-weergave. De kleur wordt bij de berekening bewaard.
+
+   **Setting (extra aanwijzing)**: optioneel beschrijf je in je eigen woorden de omgeving waarin het item te zien moet zijn (bijvoorbeeld “op een houten
+   bureau naast een laptop, in zacht ochtendlicht”). Dat komt boven op de *Omschrijving van het object* in de opdracht voor het model; de studiofoto houdt zijn
+   neutrale achtergrond. Het wordt bij de berekening bewaard.
+
+   **Teksten op de afbeelding**: *Productnaam*, *Korte specs* (een per regel, hooguit 5) en *Extra tekst*. Zijn alle drie ingevuld, dan wordt de **eerste**
+   van de vier een reclameposter: de teksten liggen als overlay over de foto (geen vlak of kader, de foto loopt er zacht in over), met de naam als grote kop
+   in een posterlettertype, de specs puntsgewijs eronder en de extra tekst op een schuin label. Elke keuze heeft een eigen lettertype en accentkleur
+   (Marktplaats: Bebas Neue met oranje, sociale media: Anton met geel, webshop: DM Serif Display met blauw). De tekstkleur volgt de foto: wit op een donkere of
+   drukke foto, donker op een lichte (studio)foto, zodat de tekst leesbaar blijft. De andere drie blijven foto's zonder tekst. De app zet de teksten er zelf op
+   (het model krijgt alleen de opdracht ruimte vrij te houden), dus ze staan er precies zoals getypt. Ontbreekt een van de drie velden, dan worden alle vier
+   zonder tekst gemaakt. De schakelaar *Logo linksboven op de afbeelding* zet het logo van de factuur op alle vier; hij werkt alleen als *Zakelijk* aan staat
+   (Instellingen → Algemeen) en er een logo is geüpload. De keuze en de teksten worden bij de berekening bewaard zodra je een veld verlaat, en zitten in de back-up.
+
+   Kies *Afbeeldingen maken*: de app toont eerst een **waarschuwing** met wat er gemaakt gaat worden (voor welke keuze, met of zonder teksten en logo) en dat
+   elke afbeelding API-tegoed bij OpenAI kost; met *Annuleren* breek je daar nog af. Verder begrenst de app het aantal per uur en bewaart er hooguit 12 per
+   berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met berekeningen) of verwijderen.
 4. **Op de achtergrond**: het maken gebeurt op de server, niet in je browser. Een draaiende cirkel en grijze plekhouders in de vorm van de komende afbeelding laten de
    voortgang zien (“1 van 4 klaar”); je kunt de pagina verlaten of de browser sluiten, het maken gaat door. In de lijst met berekeningen staat intussen een
    *Afbeeldingen worden gemaakt*-label, en terug in de berekening zie je de voortgang of het resultaat. Per berekening loopt er één reeks tegelijk. Zakt de server
-   er tussendoor uit (herstart), dan geeft de app een afbeelding die ruim vijf minuten niet verder kwam op als *onderbroken* en kun je het opnieuw proberen. Wat niet
-   lukte staat onder de kaart, met een knop naar het logboek. Een probleem met sleutel, tegoed of model stopt de rest van de reeks meteen; een time-out of
+   er tussendoor uit (herstart), dan geeft de app een afbeelding die ruim vijf minuten niet verder kwam op als *onderbroken* en kun je het opnieuw proberen. Meldingen
+   staan in de kaart zelf, bij de knop *Afbeeldingen maken*, zodra ze er zijn (ook terwijl de rest nog gemaakt wordt): elke mislukte afbeelding met de reden en wat
+   OpenAI erover zei, en waarschuwingen over wat is weggelaten (geen teksten omdat een veld leeg is, geen logo omdat Zakelijk uit staat of er geen logo is), met een
+   knop naar het logboek. Een probleem met sleutel, tegoed of model stopt de rest van de reeks meteen; een time-out of
    inhoudsfilter niet.
 5. **Logboek**: *Instellingen → AI-afbeeldingen* heeft onder de sleutel een *Logboek* met wat er gebeurde: foto geüpload, reeks in de wachtrij, afbeelding gestart en
    klaar (met de duur), een gewijzigde sleutel of gewijzigde instellingen, en elke fout met de melding en wat OpenAI zelf zei (bijvoorbeeld `HTTP 429
@@ -543,8 +698,8 @@ incl. btw (op 5/10/50 cent, hele euro's of eindigend op ,95/,99) kies je **per b
 bestelling, de marge is dan het *minimum* en de app toont onder de regel de marge die het echt wordt. De prijs per stuk volgt uit kostprijs, marge, btw en afronding en wordt
 door de server uitgerekend; een latere wijziging van de berekening verandert een bestelling niet, tenzij je op de **sync-knop** naast het model klikt: die haalt de kostprijs van de berekening zoals die nu is opnieuw op (marge, btw en aantal van de regel blijven; sla de bestelling daarna op). De accessoireregels van die berekening worden niet meegenomen. Bestellingen van vóór deze functie, en eigen regels, houden de prijs die erbij stond of die je typt. Met *Eigen regel toevoegen* komt er een regel bij die niet bij een berekening hoort
 (bijvoorbeeld verzending). De **totalen rekent de server uit** (`backend/app/orders.py`, nooit de browser): de btw wordt per tarief
-uit de som van de regels gehaald, zodat wat de klant betaalt precies de som van de regels is. In de lijst filter je op status
-en zoek je op naam, klantnummer, plaats, bestelnummer of factuurnummer; de status zet je daar met één keuzelijst, of in de bestelling zelf.
+uit de som van de regels gehaald, zodat wat de klant betaalt precies de som van de regels is. In het overzicht (tegels of lijst, zie *Overzichten*) filter je op status
+en zoek je op naam, klantnummer, plaats, bestelnummer of factuurnummer; de status zet je daar met één keuzelijst, of in de bestelling zelf. *Opslaan* en *Verwijderen* staan in de titelbalk van de bestelling, net als bij een 3D-model en een klant.
 
 **Losse accessoires op een bestelling**: met *Accessoire toevoegen* kies je een accessoire uit je lijst (*Onderdelen → Accessoires*, gearchiveerde staan er niet bij) en komt het als optionele regel tegen inkoopprijs (marge 0, aanpasbaar) op de bestelling, ook zonder berekening. Kies je hetzelfde nog eens, dan gaat het aantal omhoog. Een accessoire per meter of per kg krijgt dat achter de omschrijving.
 
@@ -671,19 +826,26 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
   **Prijzen worden overgenomen zoals ze in Spoolman staan en gelden hier als prijs excl. btw**, net als overal in de app.
 - **Een rol uit Spoolman is van Spoolman.** Je past hem daar aan; hier kan je hem niet bewerken, archiveren of verwijderen (de volgende synchronisatie zou het terugzetten). Alleen de melding *bijna op* is van de app
   en blijft staan. Een spoel die in Spoolman is gearchiveerd, wordt hier gearchiveerd; een spoel die uit Spoolman is verdwenen wordt hier **gearchiveerd, nooit verwijderd**, omdat opgeslagen berekeningen ernaar kunnen verwijzen.
-  Rollen die je met de hand invoerde, blijven wat ze waren en worden niet gekoppeld of aangeraakt.
-- **Verbruik gaat terug naar Spoolman.** Boek je het filament van een berekening, dan meldt de app de grammen aan Spoolman (`use`), zodat het niet twee keer wordt afgeboekt. Is Spoolman op dat moment niet bereikbaar,
-  dan lukt het boeken gewoon; de grammen staan in de wachtrij en gaan mee bij de volgende synchronisatie, en tot dan telt de app ze af van het gewicht dat Spoolman meldt. Een melding die Spoolman voorgoed weigert (de spoel bestaat daar niet meer) wordt laten vallen.
+- **Een rol staat hier één keer.** Stond een rol hier al omdat je hem met de hand invoerde, en leest de app daarna de spoel uit Spoolman die dezelfde rol is, dan wordt die rol **aan de spoel gekoppeld** en komt er geen tweede bij
+  (de melding na het synchroniseren telt ze als *gekoppeld*). Dezelfde rol is: hetzelfde merk en dezelfde barcode (in Spoolman het artikelnummer), of zonder barcode hetzelfde merk, dezelfde naam (type en kleur) en hetzelfde materiaal,
+  ongeacht hoofdletters. Eén rol hoort bij één spoel: heb je twee rollen van een soort en staat er één spoel in Spoolman, dan wordt de rol gekoppeld waarvan het gewicht het dichtst bij dat van de spoel ligt en blijft de andere een eigen rol.
+  De gekoppelde rol houdt zijn plek in je 3D Modellen en zijn melding *bijna op*; merk, kleur, prijs, opmerking en wat er nog op zit komen vanaf dan uit Spoolman. Een gearchiveerde rol en een rol zonder naam of barcode worden nooit gekoppeld,
+  en een rol die geen spoel in Spoolman is, blijft wat hij was. Stonden er al rollen dubbel van vóór deze regel (één met de hand, één uit Spoolman), dan verwijder of archiveer je zelf de rol zonder het label *Spoolman*.
+- **Verbruik houdt Spoolman bij.** Zolang Spoolman gekoppeld is, kan je het filament van een 3D Model **niet afboeken**: de knop *Verbruik afboeken* is weg en de server weigert het ook. Spoolman krijgt het verbruik
+  al van de printer, dus hier afboeken zou dezelfde grammen twee keer van de rol halen. Dat geldt voor alle rollen, ook voor een rol die je met de hand invoerde. Haal je het adres van Spoolman weg, dan boek je weer af als voorheen.
+  Boekingen van vóór deze regel die Spoolman nog niet had gekregen, gaan nog mee bij de volgende synchronisatie (tot dan telt de app ze af van het gewicht dat Spoolman meldt); een melding die Spoolman voorgoed weigert
+  (de spoel bestaat daar niet meer) wordt laten vallen.
 - **Bibliotheek naar Spoolman.** De knop zet de filamenten van de [filamentbibliotheek](#filamentbibliotheek) in Spoolman, zodat je daar alleen nog een spoel hoeft toe te voegen (en die komt met de volgende synchronisatie hier). Eerst zie je
   hoeveel er worden aangemaakt. Merken die Spoolman nog niet kent worden aangemaakt; een filament dat Spoolman al heeft (zelfde merk en artikelnummer, of zelfde merk, naam en materiaal) blijft **ongemoeid**, en er wordt in Spoolman
   **nooit iets verwijderd of overschreven**. De kleur (met het type ervoor) wordt de naam, barcode (anders SKU) het artikelnummer en de richtprijs de prijs. Spoolman eist een dichtheid: de app neemt een gangbare waarde per materiaal
   (PLA 1,24, PETG 1,27, ABS 1,04, ASA 1,07, TPU 1,21, PC 1,20, PA 1,14), die alleen gebruikt wordt om gram in meters om te rekenen. Per keer worden hoogstens 300 filamenten aangemaakt; de melding zegt of je het nog een keer moet doen.
   Let op: dit zijn **filamenten** (in Spoolman onder *Filaments*), geen **spoelen**; de pagina *Spools* blijft leeg tot je daar een spoel toevoegt of *Rollen naar Spoolman* gebruikt.
 - **Rollen naar Spoolman.** De knop maakt in Spoolman een **spoel** van elke rol die je hier met de hand invoerde (niet gearchiveerd, met naam of barcode): het filament wordt gezocht of aangemaakt zoals hierboven, de spoel krijgt het gewicht dat er nog op zit
-  en de prijs, en de rol wordt meteen aan die spoel gekoppeld, zodat de volgende synchronisatie hem bijwerkt in plaats van er een tweede van te maken. Elke rol wordt apart vastgelegd: gaat het halverwege mis, dan blijven de al gekoppelde
+  en de prijs, en de rol wordt meteen aan die spoel gekoppeld, zodat de volgende synchronisatie hem bijwerkt in plaats van er een tweede van te maken. Heeft Spoolman de rol al als spoel (een spoel waar hier nog geen rol aan hangt, zie *Een rol staat hier één keer*),
+  dan wordt de rol daaraan gekoppeld en wordt er **geen tweede spoel** gemaakt; de bevestiging noemt dat aantal apart. Elke rol wordt apart vastgelegd: gaat het halverwege mis, dan blijven de al gekoppelde
   rollen gekoppeld en maakt een tweede run ze niet opnieuw aan. Daarna komen merk, type en kleur van de rol uit Spoolman (het type komt daar vóór de kleur in de naam te staan). Hoogstens 300 spoelen per keer.
 - **De bibliotheek blijft.** Spoolman vervangt de bibliotheek niet: zonder `SPOOLMAN_URL` werkt alles als voorheen, en de bibliotheek (GitHub-sync, factuurimport, bijdragen) kan ernaast blijven bestaan.
-- **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft. De wachtrij met nog te melden verbruik zit er niet in (werk in uitvoering).
+- **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft. De wachtrij met eerdere boekingen die nog naar Spoolman moeten zit er niet in (werk in uitvoering).
 
 ## Back-up in de app
 
@@ -691,7 +853,7 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
 en **bewaart hem op de server**, naast de automatische, in `DATA_PATH/backups/auto` (de map `DATA_PATH` uit `.env`, en daarin `backups/auto`; in Home Assistant de datamap van de app). Er wordt niets gedownload:
 dat doe je daarna met het downloadicoon in *Back-ups op de server* (hieronder), waar hij bovenaan staat. Kan de server hem niet bewaren (bijvoorbeeld een volle schijf), dan zegt de kaart waarom. In het bestand:
 je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, de filamentbibliotheek, filamentrollen,
-berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: gebruikers en uitnodigingen, passkeys, herstelcodes, het wachtwoord
+berekeningen (met hun nummers), verkoopitems met hun foto's, klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: gebruikers en uitnodigingen, passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
 mailen of bewaren mag de app niet kunnen openen. Na herstellen op een lege installatie log je dus gewoon in met je passkey.
 

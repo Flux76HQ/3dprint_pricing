@@ -88,12 +88,15 @@ export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
     // The rolls typed in here become spools in Spoolman and are linked to them: asked first, with the numbers.
     const pushRolls = async () => {
       try {
+        // What a run comes to: the spools it makes (`made`), the rolls Spoolman already has as a spool (only linked), and what is left for another run.
+        const says = (run, made) => [run.created ? made : null, run.linked ? t('spoolman.rolls_linked', run) : null,
+          run.left ? t('spoolman.push_left', run) : null].filter(Boolean).join(' ');
         const plan = await api('POST', '/api/spoolman/push-rolls?dry_run=1');
-        const left = plan.left ? ` ${t('spoolman.push_left', plan)}` : '';
-        if (!plan.created) { toast(t('spoolman.rolls_nothing') + left); return; }
-        if (!(await confirmDialog(t('spoolman.rolls_confirm', plan) + left, t('spoolman.rolls_do')))) return;
+        if (!plan.created && !plan.linked) { toast([t('spoolman.rolls_nothing'), says(plan, null)].filter(Boolean).join(' ')); return; }
+        const go = plan.created ? t('spoolman.rolls_do') : t('spoolman.rolls_link_do');
+        if (!(await confirmDialog(says(plan, t('spoolman.rolls_confirm', plan)), go))) return;
         const done = await api('POST', '/api/spoolman/push-rolls');
-        toast(t('spoolman.rolls_done', done) + (done.left ? ` ${t('spoolman.push_left', done)}` : ''));
+        toast(says(done, t('spoolman.rolls_done', done)));
         onSynced();
       } catch (err) { toast(err.message, 'error'); }
       draw();

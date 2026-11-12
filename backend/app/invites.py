@@ -71,7 +71,7 @@ def _finish(conn, inv, name: str, user_id) -> uuid.UUID:
 
 @bp.get("/info")
 def info():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         inv = _invitation(conn)
     return jsonify({"kind": inv["kind"], "name": inv["display_name"], "invited_by": inv["invited_by"],
                     "expires_at": inv["expires_at"].isoformat()})

@@ -79,7 +79,7 @@ def _iso(value):
 
 @bp.get("")
 def list_users():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         users = conn.execute(
             "SELECT u.id, u.display_name, u.role, u.is_owner, u.created_at, "
             "(SELECT count(*) FROM webauthn_credentials c WHERE c.user_id = u.id) AS passkeys, "

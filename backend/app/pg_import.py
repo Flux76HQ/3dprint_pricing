@@ -191,6 +191,8 @@ def import_from_postgres(url: str, sqlite_path: str) -> dict:
                 log.info("  %s: %d rows", table, counts[table])
             _numbers(pg, lite)
             _check(pg, lite, tables, counts)
+            # The old database knows one link per model (`source_url`); here a model has a list of them (migration 0004, which ran on the empty file).
+            lite.execute("UPDATE projects SET links = json_array(json_object('kind', 'model', 'label', '', 'url', source_url)) WHERE source_url <> '' AND links = '[]'")
             lite.execute("INSERT INTO app_state (key, value) VALUES ('imported_from_postgres', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
                          (json.dumps({"at": db._now(), "rows": counts}),))
             lite.execute("COMMIT")

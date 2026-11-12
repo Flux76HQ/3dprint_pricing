@@ -47,10 +47,15 @@ python migrate.py
 # Tell opted-in devices about a new release. Best effort: a failed push never blocks the start.
 python announce_release.py || true
 
-# Reading a large 3MF can take a while, hence the longer timeout.
+# Threads (gthread): a long request (reading a large 3MF, a Word invoice through LibreOffice, a backup, a slow upload) keeps one
+# thread busy and the others go on answering; with one request per worker two of those held up everybody (docs/performance.md).
+# Every transaction has its own connection per thread (backend/app/db.py). With threads --timeout is how long a worker may be
+# silent before it is replaced, no longer the most a request may take.
 exec gunicorn \
   --bind "0.0.0.0:${WEB_PORT}" \
   --workers "${WEB_CONCURRENCY:-2}" \
+  --worker-class gthread \
+  --threads "${WEB_THREADS:-4}" \
   --timeout 120 \
   --access-logfile - \
   wsgi:app

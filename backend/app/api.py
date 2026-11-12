@@ -215,12 +215,20 @@ def _refuse_mirrored(conn, spool_id, *, allowed: bool) -> None:
         raise ApiError(409, "spoolman.managed")
 
 
+LISTS: dict = {}                     # path -> rows(conn): what `GET /api/<path>` answers, for whoever needs the same list (model_editor)
+
+
 def _register(path, table, fields, order):
+    def rows(conn) -> list:
+        found = conn.execute(f"SELECT * FROM {table} ORDER BY archived, {order}"
+                             if "archived" in fields else f"SELECT * FROM {table} ORDER BY {order}").fetchall()
+        return [_serialise(r) for r in found]
+
+    LISTS[path] = rows
+
     def list_all():
-        with pool().connection() as conn:
-            rows = conn.execute(f"SELECT * FROM {table} ORDER BY archived, {order}"
-                                if "archived" in fields else f"SELECT * FROM {table} ORDER BY {order}").fetchall()
-        return jsonify([_serialise(r) for r in rows])
+        with pool().read() as conn:
+            return jsonify(rows(conn))
 
     def create():
         body = json_body()
@@ -303,13 +311,11 @@ for _path, (_table, _fields, _order) in RESOURCES.items():
     _register(_path, _table, _fields, _order)
 
 
-@bp.get("/spools/stock")
-def spool_stock():
+def _stock(conn) -> dict:
     """What is left, per kind of filament and per material. A kind with the notification on says at what weight it is
     announced and whether it is under that now."""
-    with pool().connection() as conn:
-        groups = stock.groups(stock.fetch(conn))
-        limits = lowstock.settings(preferences.shared(conn))
+    groups = stock.groups(stock.fetch(conn))
+    limits = lowstock.settings(preferences.shared(conn))
     materials: dict[str, dict] = {}
     for g_ in groups:
         limit = lowstock.threshold_for(limits, lowstock.material_key(g_["material"])) if g_["notify_low"] else None
@@ -320,8 +326,14 @@ def spool_stock():
         m = materials.setdefault(key or name.lower(), {"material": name, "key": key, "roll_count": 0, "remaining_g": Decimal(0)})   # "PLA" = "pla"
         m["roll_count"] += g_["roll_count"]
         m["remaining_g"] += Decimal(g_["remaining_g"])
-    return jsonify({"groups": groups, "materials": [{**m, "remaining_g": str(m["remaining_g"])}
-                                                    for m in sorted(materials.values(), key=lambda m: m["material"].lower())]})
+    return {"groups": groups, "materials": [{**m, "remaining_g": str(m["remaining_g"])}
+                                            for m in sorted(materials.values(), key=lambda m: m["material"].lower())]}
+
+
+@bp.get("/spools/stock")
+def spool_stock():
+    with pool().read() as conn:
+        return jsonify(_stock(conn))
 
 
 @bp.get("/spools/lookup")
@@ -330,7 +342,7 @@ def lookup_spool():
     barcode = (request.args.get("barcode") or "").strip()
     if not barcode:
         return jsonify({"spool": None, "stock": None})
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT * FROM filament_spools WHERE barcode = %s ORDER BY created_at DESC LIMIT 1",
                            (barcode,)).fetchone()
         found = stock.groups(stock.fetch(conn, barcode)) if row else []
@@ -352,7 +364,7 @@ def _barcode_of(conn, spool_id) -> str:
 @bp.get("/spools/<uuid:spool_id>/siblings")
 def spool_siblings(spool_id):
     """How many other rolls have the same barcode (none when this roll has no barcode)."""
-    with pool().connection() as conn:
+    with pool().read() as conn:
         barcode = _barcode_of(conn, spool_id)
         count = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL",
                              (barcode, spool_id)).fetchone()["n"] if barcode else 0
@@ -409,7 +421,7 @@ def spool_from_barcode():
     barcode = (request.args.get("barcode") or "").strip()
     found, stock_now = None, []
     if barcode:
-        with pool().connection() as conn:
+        with pool().read() as conn:
             found = _from_barcode(conn, barcode)
             stock_now = stock.groups(stock.fetch(conn, barcode)) if found else []
     return jsonify({"barcode": barcode, "source": found[0] if found else None, "roll": _serialise(found[1]) if found else None,
@@ -469,7 +481,7 @@ HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 @bp.get("/preferences")
 def get_preferences():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         return jsonify(preferences.load(conn, g.user_id))
 
 
@@ -616,46 +628,160 @@ def calculate_endpoint():
 
 def _project_row(row):
     if "ai_busy" in row:
-        row = {**row, "ai_busy": bool(row["ai_busy"])}                  # an EXISTS comes back as 0 or 1
+        # An EXISTS comes back as 0 or 1, and a sub-select as SQLite computed it (the price of the listing: text, as every amount leaves here).
+        row = {**row, "ai_busy": bool(row["ai_busy"]), "for_sale": bool(row["for_sale"]),
+               "listing_price": None if row["listing_price"] is None else f"{Decimal(str(row['listing_price'])):.2f}"}
     return _serialise(row)
+
+
+# The prices a list shows of a calculation. The whole of `totals` (every line of the calculation, about 1.3 kB) is in `GET /api/projects/<id>`.
+LIST_PRICES = ("cost_price", "sell_price", "vat_amount", "sell_price_incl_vat")
 
 
 @bp.get("/projects")
 def list_projects():
-    with pool().connection() as conn:
-        rows = conn.execute("SELECT id, number, name, margin_pct, vat_pct, price_rounding, totals, stock_booked_at, updated_at, "
+    """Every calculation as a list shows it: its name, its links and its four prices, not its lines. The prices are read out of the stored
+    totals by SQLite (`json_extract`), so the 1.3 kB of every row is neither parsed nor sent: with 300 calculations that was most of the
+    answer and of the time it took (docs/performance.md). Whoever needs the lines (the order editor, when a model is picked) asks for that one."""
+    prices = ", ".join(f"json_extract(totals, '$.{key}') AS {key}" for key in LIST_PRICES)
+    with pool().read() as conn:
+        rows = conn.execute(f"SELECT id, number, name, margin_pct, vat_pct, price_rounding, {prices}, links, stock_booked_at, created_at, updated_at, "
                             "(SELECT i.id FROM project_images i WHERE i.project_id = projects.id AND i.is_cover) AS cover_image_id , "
-                            "EXISTS (SELECT 1 FROM ai_image_jobs j WHERE j.project_id = projects.id AND j.status IN ('queued', 'running')) AS ai_busy "
+                            "EXISTS (SELECT 1 FROM ai_image_jobs j WHERE j.project_id = projects.id AND j.status IN ('queued', 'running')) AS ai_busy, "
+                            "EXISTS (SELECT 1 FROM listings l WHERE l.project_id = projects.id) AS for_sale, "
+                            "(SELECT l.price FROM listings l WHERE l.project_id = projects.id) AS listing_price "
                             "FROM projects ORDER BY updated_at DESC").fetchall()
-    return jsonify([_project_row(r) for r in rows])
+    return jsonify([_project_row({**{k: v for k, v in r.items() if k not in LIST_PRICES}, "totals": {key: r[key] for key in LIST_PRICES}}) for r in rows])
+
+
+def _project(conn, project_id) -> dict:
+    row = conn.execute("SELECT * FROM projects WHERE id = %s", (project_id,)).fetchone()
+    if row is None:
+        raise ApiError(404, "err.calc_not_found")
+    return _project_row(row)
 
 
 @bp.get("/projects/<uuid:project_id>")
 def get_project(project_id):
-    with pool().connection() as conn:
-        row = conn.execute("SELECT * FROM projects WHERE id = %s", (project_id,)).fetchone()
-    if row is None:
-        raise ApiError(404, "err.calc_not_found")
-    return jsonify(_project_row(row))
+    with pool().read() as conn:
+        return jsonify(_project(conn, project_id))
+
+
+@bp.get("/model-editor")
+def model_editor():
+    """What the screen of one calculation reads when it opens, in one answer: the calculation itself (`?project=<id>`; none for a new
+    one), and the lists it chooses from. The screen used to send nine requests for this. Every part is what its own address answers,
+    made by the same function and read in one snapshot, so nothing is decided twice and the parts belong together."""
+    from . import listings, spoolman                        # imported here: those modules import this one
+    wanted = request.args.get("project")
+    try:
+        project_id = uuid.UUID(wanted) if wanted else None
+    except ValueError:
+        raise ApiError(404, "err.calc_not_found") from None
+    spoolman_on = spoolman.enabled()                        # asked before this request holds a connection (see `spoolman.address`)
+    with pool().read() as conn:
+        answer = {name: LISTS[name](conn) for name in ("spools", "printers", "tariffs", "packaging", "parts", "accessories")}
+        answer["stock"] = _stock(conn)
+        answer["project"] = _project(conn, project_id) if project_id else None
+        answer["listing"] = listings.present(conn, project_id) if project_id else None       # what it is offered for sale as (listings.py)
+    answer["spoolman"] = {"enabled": spoolman_on}           # only decides what is offered; the server refuses a booking itself
+    return jsonify(answer)
 
 
 URL = re.compile(r"^https?://[^\s]+$", re.I)
+# What a link of a 3D model points at: the model itself (MakerWorld, Printables...) or a place where it is offered for sale. The kind is
+# kept with the link so that a connection to such a channel can find, and later make, its own listing.
+LINK_KINDS = ("model", "marktplaats", "bol", "etsy", "vinted", "webshop", "other")
+MAX_LINKS = 12
 
 
-def _project_fields(body):
-    name = text("f.name")(body.get("name"))
+def _project_links(body):
+    """The links of a 3D model: `links` (a list of kind, label and address), or the single `source_url` of a client or backup from before
+    there were several. Returns the list and the address of the model itself (still kept in `source_url`)."""
     source_url = text("f.source_url", required=False, max_len=500)(body.get("source_url"))
     if source_url and not URL.match(source_url):
         raise ApiError(400, "err.source_url")
-    file_id = body.get("file_id") or None
-    if file_id is not None:
+    given = body.get("links")
+    if given is None:
+        return ([{"kind": "model", "label": "", "url": source_url}] if source_url else []), source_url
+    if not isinstance(given, list) or len(given) > MAX_LINKS or not all(isinstance(item, dict) for item in given):
+        raise ApiError(400, "err.links", max=MAX_LINKS)
+    links = []
+    for item in given:
+        url = text("f.link", max_len=500)(item.get("url"))
+        if not URL.match(url):
+            raise ApiError(400, "err.source_url")
+        links.append({"kind": choice("f.link_kind", LINK_KINDS)(item.get("kind") or "other"),
+                      "label": text("f.link_label", required=False, max_len=60)(item.get("label")), "url": url})
+    return links, next((link["url"] for link in links if link["kind"] == "model"), "")
+
+
+MAX_MODELS = 12
+
+
+def project_models(body, *, known=None) -> list:
+    """The 3D models of a calculation: `models`, a list of {file_id, label}, one per part of the object. They are apart from
+    `file_id`, the file the filament is worked out from. Every file has to exist (`known`: the ids that do, for a restore that
+    brings its own; else the database is asked) and is named once."""
+    given = body.get("models")
+    if given is None:
+        return []
+    if not isinstance(given, list) or len(given) > MAX_MODELS or not all(isinstance(item, dict) for item in given):
+        raise ApiError(400, "err.models", max=MAX_MODELS)
+    models, seen = [], set()
+    for item in given:
         try:
-            file_id = uuid.UUID(str(file_id))
+            file_id = str(uuid.UUID(str(item.get("file_id"))))
         except ValueError:
             raise ApiError(400, "err.bad_file") from None
+        if file_id in seen:
+            continue
+        seen.add(file_id)
+        models.append({"file_id": file_id, "label": text("f.model_label", required=False, max_len=60)(item.get("label"))})
+    if known is None and models:
         with pool().connection() as conn:
-            if conn.execute("SELECT 1 FROM print_files WHERE id = %s", (file_id,)).fetchone() is None:
-                raise ApiError(400, "err.file_gone")
+            known = {str(r["id"]) for r in conn.execute("SELECT id FROM print_files WHERE id IN (SELECT value FROM json_each(%s))",
+                                                        (json.dumps([m["file_id"] for m in models]),)).fetchall()}
+        if any(m["file_id"] not in known for m in models):
+            raise ApiError(400, "err.file_gone")
+    return [m for m in models if known is None or m["file_id"] in known]
+
+
+MAX_CALC_FILES = 12
+
+
+def project_calc_files(body, *, known=None) -> list:
+    """The files the filament of a calculation is worked out from, in order: `calc_files`, a list of file ids (an object printed as
+    several jobs has a sliced file per job), or the single `file_id` of a client or backup from before there were several. Every
+    file has to exist (`known` as in `project_models`) and is named once. The first is also kept in `file_id`."""
+    given = body.get("calc_files")
+    if given is None:
+        given = [body["file_id"]] if body.get("file_id") else []
+    if not isinstance(given, list) or len(given) > MAX_CALC_FILES:
+        raise ApiError(400, "err.calc_files", max=MAX_CALC_FILES)
+    files = []
+    for item in given:
+        try:
+            file_id = str(uuid.UUID(str(item)))
+        except ValueError:
+            raise ApiError(400, "err.bad_file") from None
+        if file_id not in files:
+            files.append(file_id)
+    if known is None and files:
+        with pool().read() as conn:
+            known = {str(r["id"]) for r in conn.execute("SELECT id FROM print_files WHERE id IN (SELECT value FROM json_each(%s))",
+                                                        (json.dumps(files),)).fetchall()}
+        if any(file_id not in known for file_id in files):
+            raise ApiError(400, "err.file_gone")
+    return [file_id for file_id in files if file_id in known] if known is not None else files
+
+
+def _project_fields(body, *, known_files=None):
+    name = text("f.name")(body.get("name"))
+    links, source_url = _project_links(body)
+    models = project_models(body, known=known_files)
+    calc_files = project_calc_files(body, known=known_files)
+    file_id = calc_files[0] if calc_files else None
     notes = text("f.notes", required=False, max_len=2000)(body.get("notes"))
     object_description = text("f.object_description", required=False, max_len=500)(body.get("object_description"))
     margin = number("f.margin", maximum=1000)(body.get("margin_pct", 0))
@@ -665,7 +791,7 @@ def _project_fields(body):
         raise ApiError(400, "err.rounding")
     data, totals = _calc({"data": body.get("data"), "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding})
     return {"name": name, "notes": notes, "object_description": object_description, "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding, "data": data,
-            "totals": totals, "source_url": source_url, "file_id": file_id}
+            "totals": totals, "source_url": source_url, "links": links, "file_id": file_id, "calc_files": calc_files, "models": models}
 
 
 @bp.post("/projects")
@@ -674,9 +800,10 @@ def create_project():
     with pool().connection() as conn:
         row = conn.execute(
             "INSERT INTO projects (name, notes, object_description, margin_pct, vat_pct, price_rounding, data, totals, source_url, "
-            "file_id, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "links, file_id, calc_files, models, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
-             json.dumps(f["totals"]), f["source_url"], f["file_id"], next_number(conn, "project"))).fetchone()
+             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], json.dumps(f["calc_files"]),
+             json.dumps(f["models"]), next_number(conn, "project"))).fetchone()
     return jsonify(_project_row(row)), 201
 
 
@@ -686,9 +813,10 @@ def update_project(project_id):
     with pool().connection() as conn:
         row = conn.execute(
             "UPDATE projects SET name=%s, notes=%s, object_description=%s, margin_pct=%s, vat_pct=%s, price_rounding=%s, data=%s, "
-            "totals=%s, source_url=%s, file_id=%s, updated_at=now() WHERE id=%s RETURNING *",
+            "totals=%s, source_url=%s, links=%s, file_id=%s, calc_files=%s, models=%s, updated_at=now() WHERE id=%s RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
-             json.dumps(f["totals"]), f["source_url"], f["file_id"], project_id)).fetchone()
+             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], json.dumps(f["calc_files"]),
+             json.dumps(f["models"]), project_id)).fetchone()
     if row is None:
         raise ApiError(404, "err.calc_not_found")
     return jsonify(_project_row(row))
@@ -705,8 +833,11 @@ def delete_project(project_id):
 
 @bp.post("/projects/<uuid:project_id>/book-stock")
 def book_stock(project_id):
-    """Subtract the project's filament grams from the spools it used, once."""
-    from . import spoolman                                  # imported here: that module imports this one
+    """Subtract the project's filament grams from the spools it used, once. Not with a Spoolman: what is used is kept there (the printer
+    reports it), so a booking here would take the same grams off a second time. That goes for every roll, also one typed in by hand."""
+    from . import listings, spoolman                        # imported here: those modules import this one
+    if spoolman.enabled():                                  # asked before this request holds a connection (see `spoolman.address`)
+        raise ApiError(409, "spoolman.no_booking")
     with pool().connection() as conn:
         project = conn.execute("SELECT data, stock_booked_at FROM projects WHERE id = %s",
                                (project_id,)).fetchone()
@@ -719,19 +850,29 @@ def book_stock(project_id):
             spool_id = line.get("spool_id")
             if spool_id:
                 used[spool_id] = used.get(spool_id, Decimal(0)) + Decimal(str(line.get("grams") or 0))
+        # A line names one roll but means the kind of filament: what its roll does not hold is taken from the other rolls of
+        # that kind (the ones nearest to empty first), and it is only short when all of them together are.
+        shelf = {str(r["id"]): r for r in stock.fetch(conn)}
+        left = {roll_id: r["remaining_g"] for roll_id, r in shelf.items()}
         short = []
         for spool_id, grams in used.items():
-            row = conn.execute("SELECT brand, product_type, remaining_g, spoolman_id FROM filament_spools WHERE id = %s",
-                               (spool_id,)).fetchone()
+            row = shelf.get(str(spool_id)) or conn.execute(
+                "SELECT id, brand, product_type, material, colour, barcode, remaining_g FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
             if row is None:
                 continue  # spool was deleted since; nothing to subtract from
-            if row["remaining_g"] < grams:
-                short.append(tr("book.short_item", name=" ".join(x for x in (row["brand"], row["product_type"]) if x), left=row["remaining_g"], need=grams))
-            conn.execute("UPDATE filament_spools SET remaining_g = round(max(remaining_g - %s, 0), 1) WHERE id = %s",
-                         (grams, spool_id))
-            if row["spoolman_id"] is not None:
-                spoolman.queue_use(conn, row["spoolman_id"], grams)       # owed to Spoolman, sent below once the booking is safe
+            left.setdefault(str(row["id"]), row["remaining_g"])
+            kind = stock.key_of(row)
+            others = sorted((roll_id for roll_id, r in shelf.items() if roll_id != str(row["id"]) and stock.key_of(r) == kind and left[roll_id] > 0),
+                            key=lambda roll_id: left[roll_id])
+            have, need = left[str(row["id"])] + sum(left[o] for o in others), grams
+            for roll_id in [str(row["id"]), *others]:
+                take = min(left[roll_id], need)
+                if take > 0:
+                    left[roll_id] -= take
+                    need -= take
+                    conn.execute("UPDATE filament_spools SET remaining_g = round(max(remaining_g - %s, 0), 1) WHERE id = %s", (take, roll_id))
+            if need > 0:
+                short.append(tr("book.short_item", name=" ".join(x for x in (row["brand"], row["product_type"]) if x), left=have, need=grams))
         conn.execute("UPDATE projects SET stock_booked_at = now() WHERE id = %s", (project_id,))
-    spoolman.flush_after_booking()
     stock_changed()
     return jsonify({"ok": True, "spools_updated": len(used), "short": short})

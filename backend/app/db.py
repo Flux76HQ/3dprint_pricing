@@ -10,9 +10,13 @@ conveniences that keep the modules readable:
   type (`uuid.UUID`, aware `datetime`, parsed JSON, `date`, `bool`, `Decimal`). Only bare columns are converted:
   an expression such as `SUM(price)` comes back as SQLite computed it.
 
-Every transaction is `BEGIN IMMEDIATE`: it holds the single write lock from its first statement on, so a
-read-then-write sequence cannot lose a race, and nothing in the app needs `SELECT ... FOR UPDATE` or an
-advisory lock. Keep transactions short; never hold one across a call to another service.
+Every transaction that may write is `BEGIN IMMEDIATE` (`Database.connection()`): it holds the single write lock from
+its first statement on, so a read-then-write sequence cannot lose a race, and nothing in the app needs
+`SELECT ... FOR UPDATE` or an advisory lock. Keep transactions short; never hold one across a call to another service.
+
+A block that only reads uses `Database.read()`: a snapshot (WAL lets it read while another connection writes), which
+takes no lock a writer waits for and waits for no writer. It cannot write (`query_only`), so reading in order to
+write is never done there by accident.
 """
 import hashlib
 import json
@@ -20,6 +24,7 @@ import logging
 import os
 import re
 import sqlite3
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -63,12 +68,10 @@ def _now() -> str:
 
 
 def _parse_time(raw: bytes) -> datetime:
-    text = raw.decode()
-    try:
-        return datetime.strptime(text, _TIME_FORMAT).replace(tzinfo=timezone.utc)
-    except ValueError:
-        return datetime.fromisoformat(text).astimezone(timezone.utc) if "+" in text[10:] else \
-            datetime.fromisoformat(text).replace(tzinfo=timezone.utc)
+    """A stored moment as an aware UTC datetime. `fromisoformat` and not `strptime`: it reads the stored form seven times faster
+    (1.4 against 9.8 microseconds), and a list of 300 models spent half of its read on that (measured: docs/performance.md)."""
+    value = datetime.fromisoformat(raw.decode())
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
 def _decimal(places: int):
@@ -148,9 +151,14 @@ def _classify(exc: sqlite3.IntegrityError) -> sqlite3.IntegrityError:
     name = getattr(exc, "sqlite_errorname", "")
     if name in ("SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"):
         return UniqueViolation(*exc.args)
-    if name == "SQLITE_CONSTRAINT_FOREIGNKEY":
+    if name == "SQLITE_CONSTRAINT_FOREIGNKEY" or (name == "SQLITE_CONSTRAINT_TRIGGER" and exc.args[:1] == (_FK_MESSAGE,)):
         return ForeignKeyViolation(*exc.args)
     return exc
+
+
+# ON DELETE RESTRICT is a trigger inside SQLite: a refused delete reports SQLITE_CONSTRAINT_TRIGGER with the foreign-key text, where
+# every other foreign-key failure reports SQLITE_CONSTRAINT_FOREIGNKEY. The text is SQLite's own, fixed in its source (fkey.c).
+_FK_MESSAGE = "FOREIGN KEY constraint failed"
 
 
 # ---- Connections -----------------------------------------------------------------------------------------------------
@@ -158,8 +166,9 @@ def _classify(exc: sqlite3.IntegrityError) -> sqlite3.IntegrityError:
 class Connection:
     """One transaction's connection: `execute(sql, params)` returns a cursor whose rows are dicts."""
 
-    def __init__(self, raw: sqlite3.Connection):
-        self.raw = raw
+    def __init__(self, raw: sqlite3.Connection, *, read_only: bool = False):
+        self.raw, self.read_only = raw, read_only
+        self.busy = False                                 # inside a block right now (Database._take)
 
     def execute(self, sql: str, params=()):
         try:
@@ -168,7 +177,7 @@ class Connection:
             raise _classify(exc) from None
 
     def begin(self) -> None:
-        self.raw.execute("BEGIN IMMEDIATE")
+        self.raw.execute("BEGIN" if self.read_only else "BEGIN IMMEDIATE")
 
     def commit(self) -> None:
         if self.raw.in_transaction:
@@ -181,8 +190,17 @@ class Connection:
         self.begin()
 
 
-def _open(path: str) -> sqlite3.Connection:
-    raw = sqlite3.connect(path, timeout=BUSY_MS / 1000, isolation_level=None, detect_types=sqlite3.PARSE_DECLTYPES)
+def _open(path: str, *, shared: bool = False) -> sqlite3.Connection:
+    """A connection with the settings every connection needs. They are chosen, not left over (measured: docs/performance.md):
+
+    * `synchronous = FULL`: a commit is on disk before the answer goes out. With NORMAL a power cut can lose the last commits in WAL mode, and
+      one of them may be an invoice number that was already printed; a write here is something a person typed, so the sync is paid rarely.
+    * `cache_size` and `mmap_size` stay SQLite's defaults (2 MB, off). A connection lives for one transaction, so a larger cache would be
+      filled and thrown away each time, and the operating system's file cache is what keeps the file in memory. Memory mapping turns a
+      disk error into a crash of the worker and is unreliable on the network and FUSE folders `deploy/entrypoint.sh` warns about.
+    """
+    # `shared`: a kept connection is used by one thread only, but `Database.close()` may close it from another.
+    raw = sqlite3.connect(path, timeout=BUSY_MS / 1000, isolation_level=None, detect_types=sqlite3.PARSE_DECLTYPES, check_same_thread=not shared)
     raw.row_factory = _dict_row
     raw.execute(f"PRAGMA busy_timeout = {BUSY_MS}")
     raw.execute("PRAGMA foreign_keys = ON")
@@ -195,7 +213,15 @@ def _open(path: str) -> sqlite3.Connection:
 
 
 class Database:
-    """What `app.extensions["pool"]` holds: hands out one connection per `with` block."""
+    """What `app.extensions["pool"]` holds: a transaction per `with` block, `connection()` to write and `read()` to only read.
+
+    Each thread keeps its two connections (one that writes, one that only reads) between blocks. A new connection reads and parses the
+    whole schema before its first statement (about a millisecond for this one, measured: docs/performance.md), and a request opens at
+    least two blocks, so opening one per block cost more than most of the queries it then ran. A kept connection holds no
+    transaction and no data of the app between blocks, only SQLite's own page cache, which SQLite checks against the file before
+    every use: a restore, a factory reset or a write by another worker is seen at the next statement. A block inside a block of the
+    same kind gets a connection of its own, as before.
+    """
 
     def __init__(self, path: str):
         self.path = path
@@ -205,24 +231,103 @@ class Database:
         probe.close()
         if mode != "wal":
             log.warning("SQLite could not switch %s to WAL (journal mode is %r). Keep DATA_PATH on a local disk, not on a network share.", path, mode)
+        self._kept = threading.local()
+        self._open_now: list = []                     # every kept connection, so `close()` can close those of other threads too
+        self._lock = threading.Lock()
+        self._closed = 0                              # how often `close()` ran: a connection kept from before is not used again
+        self._inherited: list = []
+
+    def _new(self, read_only: bool) -> Connection:
+        conn = Connection(_open(self.path, shared=True), read_only=read_only)
+        if read_only:
+            conn.raw.execute("PRAGMA query_only = ON")
+        return conn
+
+    def _take(self, read_only: bool) -> "tuple[Connection, bool]":
+        """This thread's kept connection of the kind, or a fresh one when that is in use (a block inside a block) -> (connection, kept)."""
+        mine = self._kept.__dict__.setdefault("connections", {})
+        slot = mine.get(read_only)
+        if slot is not None:
+            conn, owner, closed = slot
+            if owner == os.getpid() and closed == self._closed:
+                if conn.busy:
+                    return self._new(read_only), False
+                conn.busy = True
+                return conn, True
+            mine.pop(read_only)                       # from before a `close()` or a fork: never used again
+            if owner != os.getpid():
+                self._inherited.append(conn)          # a forked child must not close its parent's connection either: kept, untouched
+        conn = self._new(read_only)
+        conn.busy = True
+        mine[read_only] = (conn, os.getpid(), self._closed)
+        with self._lock:
+            self._open_now.append(conn)
+        return conn, True
+
+    def _give_back(self, conn: Connection, kept: bool, *, healthy: bool) -> None:
+        if kept and healthy and not conn.raw.in_transaction:
+            conn.busy = False
+            return
+        if kept:                                      # something went wrong with it: the next block starts on a new one
+            self._kept.__dict__.get("connections", {}).pop(conn.read_only, None)
+            with self._lock:
+                if conn in self._open_now:
+                    self._open_now.remove(conn)
+        try:
+            conn.raw.close()
+        except sqlite3.Error:
+            pass
 
     @contextmanager
     def connection(self):
         """A transaction: commits on success, rolls back on any exception."""
-        conn = Connection(_open(self.path))
+        conn, kept = self._take(False)
+        healthy = False
         try:
             conn.begin()
             yield conn
             conn.commit()
-        except BaseException:
+            healthy = True
+        except BaseException as exc:
             if conn.raw.in_transaction:
                 conn.raw.execute("ROLLBACK")
+            healthy = not isinstance(exc, sqlite3.Error) or isinstance(exc, sqlite3.IntegrityError)      # a refused row is the app's business; the rest may be the connection's
             raise
         finally:
-            conn.raw.close()
+            self._give_back(conn, kept, healthy=healthy)
+
+    @contextmanager
+    def read(self):
+        """A block that only reads: one consistent snapshot of the database, as it was at the first statement. It takes no lock that a
+        writer waits for and waits for no writer (WAL), so a long read (a backup of every picture) does not hold up a save, and a list
+        is not held up by one. It cannot write: `query_only` makes SQLite refuse, so use `connection()` for anything that reads in
+        order to write (claiming a number, checking and then inserting), which needs the write lock from its first statement. Inside a
+        `connection()` block of the same thread it would not see what that block has written and not committed yet."""
+        conn, kept = self._take(True)
+        healthy = False
+        try:
+            conn.begin()
+            yield conn
+            conn.raw.execute("ROLLBACK")                  # nothing was written: ending it only lets the snapshot go
+            healthy = True
+        except BaseException as exc:
+            if conn.raw.in_transaction:
+                conn.raw.execute("ROLLBACK")
+            healthy = not isinstance(exc, sqlite3.Error)
+            raise
+        finally:
+            self._give_back(conn, kept, healthy=healthy)
 
     def close(self) -> None:
-        """Nothing to release: connections live only inside `connection()`."""
+        """Close the kept connections of every thread (none may be inside a block). The next block opens a new one."""
+        with self._lock:
+            self._closed += 1
+            connections, self._open_now = self._open_now, []
+        for conn in connections:
+            try:
+                conn.raw.close()
+            except sqlite3.Error:
+                pass
 
     def check(self) -> dict:
         """The thorough health check: SQLite's own `quick_check` and a look for rows that point at nothing. It reads on a connection of its own (WAL lets
@@ -311,6 +416,13 @@ def _statements(script: str):
         yield buffer
 
 
+# Migrations that were renamed after they had been applied somewhere: {the name they were applied under: the name they have now}.
+# Three pull requests each added "0006" and were merged side by side; two of them got the next free numbers. An installation that
+# ran them under the old names must not run them again (they add columns), so its record of them is renamed first. The content,
+# and so the checksum, is unchanged. Add to this list only for a file whose content stays exactly the same.
+RENAMED = {"0006_integrations.sql": "0007_integrations.sql", "0006_project_models.sql": "0008_project_models.sql"}
+
+
 def run_migrations(database_path: str, directory: Path = MIGRATIONS_DIR) -> list[str]:
     """Apply unapplied `NNNN_name.sql` files in order, each in its own transaction.
 
@@ -326,6 +438,9 @@ def run_migrations(database_path: str, directory: Path = MIGRATIONS_DIR) -> list
         conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations ("
                      " filename TEXT PRIMARY KEY, checksum TEXT NOT NULL,"
                      " applied_at TIMESTAMP TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')))")
+        for old, new in RENAMED.items():                     # a file that was given a new number is the same migration
+            if not conn.execute("SELECT 1 FROM schema_migrations WHERE filename = ?", (new,)).fetchone():
+                conn.execute("UPDATE schema_migrations SET filename = ? WHERE filename = ?", (new, old))
         conn.execute("COMMIT")
         for path in sorted(directory.glob("[0-9][0-9][0-9][0-9]_*.sql")):
             checksum = _checksum(path)
