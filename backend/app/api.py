@@ -628,7 +628,9 @@ def calculate_endpoint():
 
 def _project_row(row):
     if "ai_busy" in row:
-        row = {**row, "ai_busy": bool(row["ai_busy"])}                  # an EXISTS comes back as 0 or 1
+        # An EXISTS comes back as 0 or 1, and a sub-select as SQLite computed it (the price of the listing: text, as every amount leaves here).
+        row = {**row, "ai_busy": bool(row["ai_busy"]), "for_sale": bool(row["for_sale"]),
+               "listing_price": None if row["listing_price"] is None else f"{Decimal(str(row['listing_price'])):.2f}"}
     return _serialise(row)
 
 
@@ -645,7 +647,9 @@ def list_projects():
     with pool().read() as conn:
         rows = conn.execute(f"SELECT id, number, name, margin_pct, vat_pct, price_rounding, {prices}, links, stock_booked_at, created_at, updated_at, "
                             "(SELECT i.id FROM project_images i WHERE i.project_id = projects.id AND i.is_cover) AS cover_image_id , "
-                            "EXISTS (SELECT 1 FROM ai_image_jobs j WHERE j.project_id = projects.id AND j.status IN ('queued', 'running')) AS ai_busy "
+                            "EXISTS (SELECT 1 FROM ai_image_jobs j WHERE j.project_id = projects.id AND j.status IN ('queued', 'running')) AS ai_busy, "
+                            "EXISTS (SELECT 1 FROM listings l WHERE l.project_id = projects.id) AS for_sale, "
+                            "(SELECT l.price FROM listings l WHERE l.project_id = projects.id) AS listing_price "
                             "FROM projects ORDER BY updated_at DESC").fetchall()
     return jsonify([_project_row({**{k: v for k, v in r.items() if k not in LIST_PRICES}, "totals": {key: r[key] for key in LIST_PRICES}}) for r in rows])
 
@@ -668,7 +672,7 @@ def model_editor():
     """What the screen of one calculation reads when it opens, in one answer: the calculation itself (`?project=<id>`; none for a new
     one), and the lists it chooses from. The screen used to send nine requests for this. Every part is what its own address answers,
     made by the same function and read in one snapshot, so nothing is decided twice and the parts belong together."""
-    from . import spoolman                                  # imported here: that module imports this one
+    from . import listings, spoolman                        # imported here: those modules import this one
     wanted = request.args.get("project")
     try:
         project_id = uuid.UUID(wanted) if wanted else None
@@ -679,6 +683,7 @@ def model_editor():
         answer = {name: LISTS[name](conn) for name in ("spools", "printers", "tariffs", "packaging", "parts", "accessories")}
         answer["stock"] = _stock(conn)
         answer["project"] = _project(conn, project_id) if project_id else None
+        answer["listing"] = listings.present(conn, project_id) if project_id else None       # what it is offered for sale as (listings.py)
     answer["spoolman"] = {"enabled": spoolman_on}           # only decides what is offered; the server refuses a booking itself
     return jsonify(answer)
 
@@ -830,7 +835,7 @@ def delete_project(project_id):
 def book_stock(project_id):
     """Subtract the project's filament grams from the spools it used, once. Not with a Spoolman: what is used is kept there (the printer
     reports it), so a booking here would take the same grams off a second time. That goes for every roll, also one typed in by hand."""
-    from . import spoolman                                  # imported here: that module imports this one
+    from . import listings, spoolman                        # imported here: those modules import this one
     if spoolman.enabled():                                  # asked before this request holds a connection (see `spoolman.address`)
         raise ApiError(409, "spoolman.no_booking")
     with pool().connection() as conn:

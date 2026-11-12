@@ -63,12 +63,13 @@ def test_the_screen_of_a_calculation_gets_what_it_opens_with_in_one_answer(owner
         assert answer[part] == owner.get(f"/api/{part}").get_json() and answer[part], part
     assert answer["stock"] == owner.get("/api/spools/stock").get_json() and answer["stock"]["groups"]
     assert answer["project"] == owner.get(f"/api/projects/{project['id']}").get_json()
+    assert answer["listing"] == owner.get(f"/api/projects/{project['id']}/listing").get_json() == {"listing": None, "photos": [], "max_photos": 12}
     assert answer["spoolman"] == {"enabled": owner.get("/api/spoolman").get_json()["enabled"]} == {"enabled": False}
-    assert set(answer) == {"spools", "printers", "tariffs", "packaging", "parts", "accessories", "stock", "project", "spoolman"}
+    assert set(answer) == {"spools", "printers", "tariffs", "packaging", "parts", "accessories", "stock", "project", "listing", "spoolman"}
     assert any(roll["archived"] for roll in answer["spools"])                            # the lists are whole; the screen leaves out what is archived
 
     new = owner.get("/api/model-editor").get_json()                                      # a new calculation: the lists, and no calculation
-    assert new["project"] is None and new["printers"] == answer["printers"]
+    assert new["project"] is None and new["listing"] is None and new["printers"] == answer["printers"]
 
 
 def test_the_one_answer_refuses_what_the_calculation_itself_would_refuse(owner, client):

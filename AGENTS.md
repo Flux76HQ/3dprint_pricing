@@ -396,7 +396,7 @@ measured on one machine on one day, and names its test. The plan-assertion test 
   (`test_static_build.py` compares it with the folder): add a new module there.
 - **Nothing under `/api/` is kept** (`no-store`, set in `create_app` after the handler, also over Flask's own header for a file), with one way past it: `http.keep_forever(response)`, for an
   answer whose bytes can never change under its URL. Today that is a stored product image and its thumbnail (`ai_images._kept`: `private`, the id is the ETag), which holds only while
-  `project_images.content` is written once (`test_ai_images.py` lists every `UPDATE` of that table), and the picture of a packaging item when it is asked for by its version
+  `project_images.content` is written once (`test_ai_images.py` lists every `UPDATE` of that table), a photo of a listing (`listings.photo_file`, written once in the same way), and the picture of a packaging item when it is asked for by its version
   (`/api/packaging-images/<id>?v=<hash>`: the address changes with the picture; any other address is `no-store`). A kept answer can be shown without a session on the device that kept it: decide that on purpose.
 - **A list sends what a list shows, and a screen asks once.** `GET /api/projects` gives a calculation's four prices (`api.LIST_PRICES`, read out of the stored totals by SQLite), not its lines; a screen
   that needs the lines asks for that calculation (`GET /api/projects/<id>`), as the order editor does when a model is picked. `GET /api/orders` reads only the columns a row shows. The screen of a calculation opens
@@ -404,9 +404,9 @@ measured on one machine on one day, and names its test. The plan-assertion test 
   list the screen needs to that answer, not as another request. Paging the lists was measured and left out on purpose (`docs/performance.md`, section 3): the lists filter and sort in the browser.
 - **Compression is the app's own** (gzip: its files once, a JSON answer of 1 kB or more per request, `http.compressed`), because the app also runs without a proxy. A download is left alone.
 
-## 6i. Other applications: API keys, `/api/v1` and webhooks
+## 6j. Other applications: API keys, `/api/v1` and webhooks
 
-`backend/app/api_keys.py`, `public_api.py`, `webhooks.py`; migration `0006`; `frontend/js/integrations.js` (Settings → Beheer → Koppelingen); tests `tests/test_integrations.py`.
+`backend/app/api_keys.py`, `public_api.py`, `webhooks.py`; migration `0007`; `frontend/js/integrations.js` (Settings → Beheer → Koppelingen); tests `tests/test_integrations.py`.
 The user-facing description, with the fields and the retry schedule, is `docs/handleiding.md`, section *Koppelingen*.
 
 - **A key is not a person and not a session.** `ppk_` + 32 random bytes, shown once, only its SHA-256 kept (as an invitation). It is accepted on `/api/v1` and nowhere else,
@@ -433,6 +433,25 @@ The user-facing description, with the fields and the retry schedule, is `docs/ha
 - **None of it is in a backup** (keys and signing keys are credentials, the addresses describe one network), a restore leaves them alone, and a factory reset removes them.
   `test_integrations.py` checks the backup for them; each guard there was checked by breaking it (the confirmation, the binding to one key, a session on `/api/v1`, a cost price in
   the view, redirects, a message outside the transaction, the lease, the link-local check, the key in the list).
+
+## 6k. What a model is for sale as (listings)
+
+`backend/app/listings.py`; migration `0010`; `frontend/js/listing.js` (the card *Verkoopitem* under a saved 3D model, saved with the model's own button, and opened with the model: `listing` in `GET /api/model-editor`); `/api/v1/items` in
+`public_api.py`; tests `tests/test_listings.py`. The user-facing description is `docs/handleiding.md`, section *Verkoopitem*.
+
+- **One listing per model, and it is what every channel is given.** Today by hand (title, text and a ZIP of the photos are put ready, and the address of the advertisement goes
+  into the model's `links`), later by a connector, which reads this same row. Do not give a channel fields of its own on the model; a channel that needs more gets a column
+  here or a table that points at the listing.
+- **The price is typed, never derived.** `listings.price` (VAT included, may be empty) is what was agreed with the outside world; the calculation only advises
+  (`listing.js` shows `sell_price_incl_vat` and warns under the cost price). Nothing that recalculates a model (a new filament price, a restore) may write it.
+- **An EAN is checked, not trusted** (`listings.ean`: GTIN-8/12/13/14 with its GS1 check digit; kept as digits). It is optional until a channel needs it.
+- **Photos are copies and are written once.** An own upload or a product picture taken over both go into `listing_photos`, through `ai_images._clean` for an upload
+  (untrusted: decoded, turned upright, scaled, written again as a JPEG). A photo's bytes never change under its id, which is why the browser may keep it
+  (`http.keep_forever`): the only `UPDATE` of that table sets `position`, and `test_listings.py` lists them. At most `MAX_PHOTOS`; the order is the `photos` list of the `PUT`.
+- **`/api/v1/items` holds what an advertisement shows** (`item_view` names every field): never `cost_price`, `margin_pct`, the model's notes or its print files. A model without
+  a listing does not exist there, and neither do its photos.
+- **Listings and their photos are in the backup** (`backup.py`: `listings`, photos inline in their order), read again with `listings.fields` and `listings.clean`;
+  `test_listings.py` has the round trip.
 
 ## 7. Work done in one client leaves the other clients correct
 

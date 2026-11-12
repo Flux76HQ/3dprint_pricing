@@ -8,7 +8,7 @@ import re
 
 import pytest
 
-from app import ai_images, db, push
+from app import ai_images, api_keys, db, push
 from tests.test_ai_images import FakeOpenAI, KEY, photo
 from tests.test_auth_api import H, onboard, post
 from tests.test_domain_api import make, sheet_payload
@@ -16,7 +16,7 @@ from tests.test_domain_api import make, sheet_payload
 # The indexes these plans rely on. One that goes missing (a table rebuilt by a migration loses its indexes) fails by name.
 EXPECTED_INDEXES = {"filament_spools_barcode", "order_lines_project_idx", "ai_image_jobs_batch", "ai_image_jobs_unfinished", "push_outbox_due",
                     "project_images_one_cover", "project_images_project", "ai_image_jobs_project", "order_lines_order_idx", "orders_customer_idx",
-                    "orders_order_date_idx", "projects_file_id"}
+                    "orders_order_date_idx", "projects_file_id", "listings_project", "listings_updated", "listing_photos_project"}
 
 
 @pytest.fixture
@@ -94,6 +94,7 @@ def test_the_list_of_models_looks_up_each_cover_and_each_busy_mark_through_an_in
     assert len(owner.get("/api/projects").get_json()) == 1
     (sql, plan), = plans(fresh_db, sent, "FROM projects ORDER BY updated_at DESC")
     assert through(plan, "project_images_one_cover") and through(plan, "ai_image_jobs_project"), plan
+    assert through(plan, "listings_project"), plan                                             # and whether it is for sale, and for how much
     assert [line for line in plan.splitlines() if line.startswith("SCAN")] == ["SCAN projects"], plan     # the list itself is every row, by design
 
 
@@ -144,3 +145,20 @@ def test_the_session_of_every_request_is_one_lookup_by_key(owner, fresh_db, sent
     assert owner.get("/api/printers").status_code == 200
     (sql, plan), = plans(fresh_db, sent, "SELECT role, is_owner, session_epoch FROM users WHERE id = ?")
     assert plan.startswith("SEARCH users USING INDEX sqlite_autoindex_users_1"), plan
+
+
+def test_what_is_for_sale_is_read_through_its_indexes(owner, app, fresh_db, sent):
+    """A sales channel asks for the items page by page, and each page fetches the photos of its items: neither reads a whole table."""
+    project = make(owner, "/api/projects", sheet_payload())
+    assert owner.put(f"/api/projects/{project['id']}/listing", json={"title": "Lamp", "price": "12.95"}, headers=H).status_code == 200
+    key = api_keys.PREFIX + "k" * 43
+    with app.extensions["pool"].connection() as conn:
+        conn.execute("INSERT INTO api_keys (name, shown, key_hash) VALUES (%s, %s, %s)", ("Shop", key[:api_keys.SHOWN], api_keys._hash(key)))
+    key = {"Authorization": f"Bearer {key}"}
+    sent.clear()
+    assert len(owner.get("/api/v1/items", headers=key).get_json()["data"]) == 1
+    assert owner.get(f"/api/projects/{project['id']}/listing").status_code == 200
+    (sql, plan), = plans(fresh_db, sent, "FROM listings ORDER BY updated_at")
+    assert through(plan, "listings_updated") and "TEMP B-TREE" not in plan, plan                # the next page without sorting all of them
+    photos = plans(fresh_db, sent, "FROM listing_photos WHERE project_id")
+    assert len(photos) == 2 and all(through(plan, "listing_photos_project") and "SCAN listing_photos" not in plan for _sql, plan in photos), photos

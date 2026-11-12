@@ -195,6 +195,9 @@ def seed(api):
     seed_library(api)
 
     projects = {p["name"]: p for p in api("GET", "/api/projects")}
+    # What is for sale: the two models that are advertised have a listing, with the price that is asked for them.
+    for name, price in (("Vaas Silk Goud", "24.95"), ("Raspberry Pi 5 behuizing", "12.95")):
+        api("PUT", f"/api/projects/{projects[name]['id']}/listing", {"title": name, "description": "", "price": price, "ean": ""})
     people = [
         ("Studio Bloem", "Keizersgracht 214", "1016 EV", "Amsterdam", "info@studiobloem.example", "020 555 0142", "Vaste afnemer."),
         ("Fam. Janssen", "Dorpsstraat 18", "3512 AB", "Utrecht", "m.janssen@example.nl", "06 1234 5678", ""),
