@@ -231,8 +231,8 @@ def _event(order: dict, lines: list) -> dict:
 
 # --- API --------------------------------------------------------------------------------------------------------
 
-LIST_COLUMNS = ("id", "number", "status", "order_date", "delivery_date", "customer_id", "customer_name", "customer_number", "city", "invoice_number",
-                "invoice_date", "updated_at")
+LIST_COLUMNS = ("id", "number", "status", "order_date", "delivery_date", "customer_id", "customer_name", "customer_number", "subject", "city",
+                "invoice_number", "invoice_date", "updated_at")
 
 @bp.get("")
 def list_orders():
@@ -246,8 +246,8 @@ def list_orders():
         params.append(status)
     if query:
         like = f"%{query.replace('%', '').replace('_', '')}%"
-        where.append("(customer_name ILIKE %s OR customer_number ILIKE %s OR city ILIKE %s OR CAST(number AS TEXT) = %s OR invoice_number ILIKE %s)")
-        params += [like, like, like, query.lstrip("#"), like]
+        where.append("(customer_name ILIKE %s OR customer_number ILIKE %s OR subject ILIKE %s OR city ILIKE %s OR CAST(number AS TEXT) = %s OR invoice_number ILIKE %s)")
+        params += [like, like, like, like, query.lstrip("#"), like]
     # Only what a row of the list shows is read: an order has 30 columns and a line three ids, and turning those into Python values was
     # most of the time of this list (docs/performance.md). The total is still worked out here, from the lines' own numbers.
     sql = (f"SELECT {', '.join(LIST_COLUMNS)} FROM orders" + (" WHERE " + " AND ".join(where) if where else "")

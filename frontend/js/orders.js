@@ -15,6 +15,11 @@ const today = () => new Date().toLocaleDateString('sv-SE');          // YYYY-MM-
 
 const stat = (label, value) => h('div', {}, h('dt', {}, label), h('dd', {}, value));
 
+// What the overview calls an order: its “Betreft”, or, as on the invoice, “Bestelling <number>” when none was filled in. The customer goes
+// under it, smaller; the number is left out of the small line when it already is the title.
+const titleOf = (o) => o.subject || t('orders.number', { n: o.number });
+const numberOf = (o) => (o.subject ? t('orders.number', { n: o.number }) : null);
+
 // --- list -----------------------------------------------------------------------
 
 export function orderListView() {
@@ -33,11 +38,12 @@ export function orderListView() {
   const view = listView({
     id: 'orders',
     search: { label: t('orders.search'), placeholder: t('orders.search_ph'),
-      text: (o) => [o.customer_name, o.customer_number, o.city, o.invoice_number, String(o.number)] },
+      text: (o) => [o.subject, o.customer_name, o.customer_number, o.city, o.invoice_number, String(o.number)] },
     chips: { label: t('orders.filter_status'), all: t('orders.all'), options: STATUSES.map((s) => [s, statusLabel(s)]), value: (o) => o.status },
     sorts: [
       { key: 'date', label: t('orders.date'), value: (o) => `${o.order_date || ''} ${String(o.number).padStart(9, '0')}`, desc: true },
       { key: 'number', label: t('sort.number'), value: (o) => Number(o.number), desc: true },
+      { key: 'subject', label: t('orders.subject'), value: (o) => titleOf(o) },
       { key: 'customer', label: t('orders.customer'), value: (o) => o.customer_name },
       { key: 'status', label: t('orders.status'), value: (o) => STATUSES.indexOf(o.status) },
       { key: 'delivery', label: t('orders.delivery'), value: (o) => o.delivery_date || '9999' },
@@ -45,8 +51,8 @@ export function orderListView() {
     tie: (o) => o.customer_name,
     href,
     columns: [
-      { label: t('orders.customer'), sort: 'customer', cls: 'main', cell: (o) => h('div', {}, h('a', { class: 'cell-title', href: href(o) }, o.customer_name),
-        h('div', { class: 'cell-sub muted' }, [t('orders.number', { n: o.number }), o.city].filter(Boolean).join(' · '))) },
+      { label: t('orders.subject'), sort: 'subject', cls: 'main', cell: (o) => h('div', {}, h('a', { class: 'cell-title', href: href(o) }, titleOf(o)),
+        h('div', { class: 'cell-sub muted' }, [o.customer_name, numberOf(o), o.city].filter(Boolean).join(' · '))) },
       { label: t('orders.date'), sort: 'date', cls: 'nowrap', cell: (o) => dateFmt(o.order_date) },
       { label: t('orders.status'), sort: 'status', cell: (o) => statusSelect(o) },
       { label: t('orders.lines'), cls: 'num', wide: true, cell: (o) => String(o.line_count) },
@@ -55,8 +61,9 @@ export function orderListView() {
       { label: t('orders.total'), sort: 'total', cls: 'num strong', cell: (o) => eur(o.total) }],
     tile: (o) => h('article', { class: 'glass card item' },
       h('div', { class: 'item-head' },
-        h('div', {}, h('h3', {}, h('a', { href: href(o) }, o.customer_name)),
-          h('p', { class: 'muted' }, `${t('orders.number', { n: o.number })} · ${dateFmt(o.order_date)}`)),
+        h('div', {}, h('h3', {}, h('a', { href: href(o) }, titleOf(o))),
+          h('p', { class: 'item-customer' }, o.customer_name),
+          h('p', { class: 'muted item-meta' }, [numberOf(o), dateFmt(o.order_date)].filter(Boolean).join(' · '))),
         statusSelect(o)),
       h('dl', { class: 'stats' },
         stat(t('orders.total'), eur(o.total)), stat(t('orders.lines'), String(o.line_count)),

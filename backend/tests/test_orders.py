@@ -200,6 +200,16 @@ def test_the_list_filters_by_status_and_searches_by_name_number_and_city(owner):
     assert listed["total"] == "12.10" and listed["line_count"] == 1
 
 
+def test_the_list_carries_the_subject_and_finds_an_order_by_it(owner):
+    """The overview is headed by an order's “Betreft” (the customer goes under it), so the list has to say it, and searching has to find it."""
+    a = new_order(owner, customer_name="Anna de Vries", subject="Plantenbakken voor de winkel")
+    new_order(owner, customer_name="Bram Bakker", subject="")
+    listed = {o["customer_name"]: o for o in owner.get("/api/orders").get_json()}
+    assert listed["Anna de Vries"]["subject"] == "Plantenbakken voor de winkel" and listed["Bram Bakker"]["subject"] == ""
+    assert [o["number"] for o in owner.get("/api/orders?q=plantenbak").get_json()] == [a["number"]]
+    assert owner.get("/api/orders?q=bestaat+niet").get_json() == []
+
+
 def test_an_order_can_be_edited_and_deleted(owner):
     order = new_order(owner)
     body = {**order, "customer_id": customer(owner, name="Piet")["id"], "lines": [line("Nieuw", 4, "2.50", "0")]}

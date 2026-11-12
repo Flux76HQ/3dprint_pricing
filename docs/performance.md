@@ -228,7 +228,7 @@ What changed:
   for the one calculation when a model is picked.
 - **The screen of a calculation opens with one request**, `GET /api/model-editor`, instead of nine. Every part of the answer is
   made by the function that answers that part's own address and all are read in one snapshot.
-- **`GET /api/orders` reads only what a row shows**: 12 of an order's columns and three numbers of each line (an order line has
+- **`GET /api/orders` reads only what a row shows**: 13 of an order's columns and three numbers of each line (an order line has
   three ids, and turning an id into a Python value is the slow part). The total is still worked out on the server from the lines.
 - **The picture of a packaging item is kept by the browser** when it is asked for by its version (`?v=<hash of the picture>`, which
   the list already did): the address changes with the picture. It was fetched again at every visit.
