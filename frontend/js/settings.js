@@ -4,6 +4,7 @@ import { filamentLibraryCards } from './filament-library.js';
 import { iosSteps, installState, onInstallChange, promptInstall } from './install.js';
 import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { langSwitch } from './langswitch.js';
+import { integrationsCards } from './integrations.js';
 import { confirmIdentity, passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, forgetPush, pushSupport, thisDeviceFingerprint } from './push.js';
 import { applyNavGlass, confirmDialog, fmt, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast } from './ui.js';
@@ -874,13 +875,13 @@ function aboutCards(part) {
 // A regular user does not see the parts that are for administrators (the server refuses them whatever the screen shows).
 const SECTIONS = [['algemeen', 'settings.tab_general'], ['weergave', 'settings.tab_appearance'], ['beveiliging', 'settings.tab_security'],
   ['zakelijk', 'settings.tab_business'], ['filamenten', 'settings.tab_filaments'], ['notificaties', 'settings.tab_notifications'],
-  ['gebruikers', 'settings.tab_users'], ['ai', 'settings.tab_ai'], ['backup', 'settings.tab_backup'], ['systeem', 'settings.tab_system'], ['over', 'settings.tab_about']];
-const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'ai', 'backup', 'systeem', 'over'];
+  ['gebruikers', 'settings.tab_users'], ['koppelingen', 'settings.tab_integrations'], ['ai', 'settings.tab_ai'], ['backup', 'settings.tab_backup'], ['systeem', 'settings.tab_system'], ['over', 'settings.tab_about']];
+const ADMIN_SECTIONS = ['zakelijk', 'gebruikers', 'koppelingen', 'ai', 'backup', 'systeem', 'over'];
 // How the menu is grouped and which icon each part has. A part is only shown when `settingsMenu()` lets it through, a group without parts not at all.
 const GROUPS = [['settings.group_personal', ['algemeen', 'weergave', 'beveiliging', 'notificaties']],
-  ['settings.group_data', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'ai', 'backup', 'systeem', 'over']]];
+  ['settings.group_data', ['zakelijk', 'filamenten']], ['settings.group_admin', ['gebruikers', 'koppelingen', 'ai', 'backup', 'systeem', 'over']]];
 const SECTION_ICONS = { algemeen: 'tune', weergave: 'theme-light-dark', beveiliging: 'shield-lock', notificaties: 'bell', zakelijk: 'domain',
-  filamenten: 'palette-swatch', gebruikers: 'account-group', ai: 'creation', backup: 'backup-restore', systeem: 'server', over: 'information-outline' };
+  filamenten: 'palette-swatch', gebruikers: 'account-group', koppelingen: 'link', ai: 'creation', backup: 'backup-restore', systeem: 'server', over: 'information-outline' };
 
 /** The parts of the settings this person sees, grouped as the menu shows them: [[group label key, [[route, label key, icon], ...]], ...]. There is one
     list, for the menu on the left (where the parts stand under Settings) and for the menu of the page itself (a phone, or the menu folded away). */
@@ -1051,6 +1052,7 @@ export function settingsView(ctx, requested) {
     filamenten: () => [spoolmanCard(undefined, { configure: true }), ...filamentLibraryCards()],
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
+    koppelingen: () => integrationsCards(),
     ai: () => [aiSettingsCard(), aiLogCard()],
     backup: () => [backupCard()],
     systeem: () => [...aboutCards('systeem'), resetCard()],

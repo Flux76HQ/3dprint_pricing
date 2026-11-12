@@ -386,6 +386,36 @@ measured on one machine on one day, and names its test.
   `project_images.content` is written once; `test_ai_images.py` lists every `UPDATE` of that table. A kept answer can be shown without a session on the device that kept it: decide that on purpose.
 - **Compression is the app's own** (gzip: its files once, a JSON answer of 1 kB or more per request, `http.compressed`), because the app also runs without a proxy. A download is left alone.
 
+## 6i. Other applications: API keys, `/api/v1` and webhooks
+
+`backend/app/api_keys.py`, `public_api.py`, `webhooks.py`; migration `0006`; `frontend/js/integrations.js` (Settings → Beheer → Koppelingen); tests `tests/test_integrations.py`.
+The user-facing description, with the fields and the retry schedule, is `docs/handleiding.md`, section *Koppelingen*.
+
+- **A key is not a person and not a session.** `ppk_` + 32 random bytes, shown once, only its SHA-256 kept (as an invitation). It is accepted on `/api/v1` and nowhere else,
+  and a session cookie is not accepted there: `public_api._guard` calls `api_keys.authenticate()` and nothing else does, and `auth.load_session` knows nothing of keys. So a key
+  never reaches a write, an administrator route or a confirmation. Never let a key set `g.user_id`, and never accept one on another blueprint; a key that must do more gets its
+  own surface and a decision.
+- **`/api/v1` is a promise to someone else; `/api/orders` and the rest are not.** It is read-only (no route there has another method than GET; a test tries them all), versioned
+  in its path, and holds what is on an invoice: **never `cost_price`, `margin_pct` or a note of the business** (`order_view`, `customer_view` name every field; do not serialise
+  a whole row). Adding a field is fine; removing or renaming one is a `/api/v2`. Its errors carry `code` (the message key) next to the sentence (`http.error_response`).
+- **Making and taking away needs a fresh confirmation bound to the thing** (`password_api._confirm`, `auth._purpose`: `api-key-create`, `api-key-revoke`, `webhook-create`,
+  `webhook-delete`, `webhook-rotate`). Everything under `/api/integrations` is administrator-only (`access.ADMIN_ONLY`, with its lines in `ADMIN_ONLY_CALLS`).
+- **A webhook message is written in the transaction of what it reports**: `webhooks.emit(conn, event, data)` takes the open connection, never one of its own, so there is no
+  message without the change and no change without its message. A new event is a name in `webhooks.EVENTS` (a past-tense fact, added at the end, never renamed), an `emit` in
+  the transaction, a label in `integrations.js` and both language files, and a line in the guide. The message stays small (`orders._event`): which order, its numbers and total,
+  and the `/api/v1` address of the rest. No customer details, no lines.
+- **Signed by the standard, from a module** (baseline §19): Standard Webhooks through the `standardwebhooks` package. Do not write the signature here. The signing key is sealed
+  (`passwords.seal`, `KEY_INFO`), never returned after it was shown once, and unreadable after `SESSION_SECRET` changes: then nothing is sent until it is rotated.
+- **Sending** (`webhooks.run_once`, a worker in every web process, off with `WEBHOOK_WORKER=off` and in tests): the lease of `push.run_outbox_once` (`UPDATE ... RETURNING` moves
+  `next_attempt_at` ahead and counts the attempt), **no connection held while a message is on its way**, then `_settle`. At least once; `BACKOFF` then `dead`; an address that
+  takes nothing for `GIVE_UP_AFTER` or answers 410 is switched off. The body is serialised once (`webhook_deliveries.body`) and a retry sends those bytes with the same `webhook-id`.
+- **The address is an administrator's and may be on the own network** (the owner chose this, as for Spoolman). `check_url` and `send` refuse only what is never an application
+  (link-local, multicast, unspecified), on the resolved address at the moment of sending; redirects are not followed, the answer is not read, and only a status and a reason key
+  are kept. Never store or show what the other side answered. Tests never reach a network: `Net` in `test_integrations.py` replaces `webhooks.requests.request` and `_resolve`.
+- **None of it is in a backup** (keys and signing keys are credentials, the addresses describe one network), a restore leaves them alone, and a factory reset removes them.
+  `test_integrations.py` checks the backup for them; each guard there was checked by breaking it (the confirmation, the binding to one key, a session on `/api/v1`, a cost price in
+  the view, redirects, a message outside the transaction, the lease, the link-local check, the key in the list).
+
 ## 7. Work done in one client leaves the other clients correct
 
 A change to a working convention goes in this file, never in a client's entry file. If a client

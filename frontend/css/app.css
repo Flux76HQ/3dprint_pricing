@@ -984,3 +984,13 @@ a.cell-title:hover { color: var(--accent); text-decoration: underline; text-unde
 .item-thumb.placeholder { display: inline-grid; place-items: center; background: var(--track); color: var(--text-muted); }
 .data-table .item-thumb { width: 36px; height: 36px; }
 .image-preview { max-width: min(100%, 200px); max-height: 200px; border: 1px solid var(--lijn-strong); border-radius: var(--radius-sm); object-fit: contain; }
+
+/* Settings > Integrations: a key that is shown once, the endpoints with their state, and what a webhook is told about. */
+input.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; }
+.hooks { display: grid; gap: 12px; }
+.hook { padding: 12px; border: 1px solid var(--lijn); border-radius: var(--radius-sm); }
+.hook .list-row:first-child { border-top: 0; padding-top: 0; }
+.hook .pill { margin-right: 4px; }
+.hook-log .list-row { align-items: flex-start; }
+.hook-form { padding-top: 12px; border-top: 1px solid var(--lijn); }
+.checks { display: grid; gap: 0 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
