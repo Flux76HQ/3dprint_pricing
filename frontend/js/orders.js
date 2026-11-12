@@ -293,10 +293,15 @@ function buildEditor(order, navigate, ctx) {
     const matches = (p, q) => !q || String(p.number) === q.replace(/^#/, '') || `#${p.number}`.startsWith(q) || p.name.toLowerCase().includes(q.toLowerCase());
     const draw = () => {
       const found = projects.filter((p) => matches(p, search.value.trim()));
-      results.replaceChildren(...(found.length ? found.map((p) => h('li', {}, h('button', { class: 'btn picker-item', type: 'button', onclick: () => {
+      results.replaceChildren(...(found.length ? found.map((p) => h('li', {}, h('button', { class: 'btn picker-item', type: 'button', onclick: async (event) => {
         const existing = state.lines.find((l) => l.project_id === p.id && !l.optional);
         if (existing) existing.quantity = String(Math.floor(parseNum(existing.quantity)) + 1);
-        else state.lines.push(...modelLines(p));
+        else {
+          // The list holds a model's prices, not its lines; the accessories that become lines of their own are in the model itself.
+          const button = event.currentTarget;
+          button.disabled = true;
+          try { state.lines.push(...modelLines(await api('GET', `/api/projects/${p.id}`))); } catch (e) { toast(e.message, 'error'); button.disabled = false; return; }
+        }
         added.set(p.id, (added.get(p.id) || 0) + 1);
         touch(); drawLines(); draw();
       } }, h('span', { class: 'badge' }, `#${p.number}`), h('span', { class: 'grow' }, p.name),

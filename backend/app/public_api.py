@@ -124,7 +124,7 @@ def list_orders():
         if invoiced not in ("true", "false"):
             raise ApiError(400, "v1.err_invoiced")
         where.append("invoice_number IS NOT NULL" if invoiced == "true" else "invoice_number IS NULL")
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = _paged(conn, "orders", where, params, size)
         page = rows[:size]
         ids = [o["id"] for o in page]
@@ -135,7 +135,7 @@ def list_orders():
 
 @bp.get("/orders/<uuid:order_id>")
 def get_order(order_id):
-    with pool().connection() as conn:
+    with pool().read() as conn:
         order = conn.execute("SELECT * FROM orders WHERE id = %s", (order_id,)).fetchone()
         if order is None:
             raise ApiError(404, "err.order_not_found")
@@ -147,7 +147,7 @@ def get_order(order_id):
 @bp.get("/orders/<uuid:order_id>/invoice")
 def get_invoice(order_id):
     """The invoice as it was made, as a PDF. Making one is done in the app, not here."""
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT invoice_number, content FROM invoice_pdfs WHERE order_id = %s", (order_id,)).fetchone()
     if row is None:
         raise ApiError(404, "invoice.err_no_pdf")
@@ -157,14 +157,14 @@ def get_invoice(order_id):
 @bp.get("/customers")
 def list_customers():
     size = _page_size()
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = _paged(conn, "customers", [], [], size)
     return jsonify({"data": [customer_view(r) for r in rows[:size]], "next_cursor": _next(rows, size)})
 
 
 @bp.get("/customers/<uuid:customer_id>")
 def get_customer(customer_id):
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT * FROM customers WHERE id = %s", (customer_id,)).fetchone()
     if row is None:
         raise ApiError(404, "err.not_found")

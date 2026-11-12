@@ -130,12 +130,8 @@ function fromSaved(project) {
 
 export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: async () => {} }) {
   const root = h('section', { class: 'page' }, h('p', { class: 'muted' }, t('common.loading')));
-  Promise.all([
-    api('GET', '/api/spools'), api('GET', '/api/spools/stock').catch(() => ({ groups: [] })), api('GET', '/api/printers'), api('GET', '/api/tariffs'), api('GET', '/api/packaging'),
-    api('GET', '/api/parts'), api('GET', '/api/accessories'),
-    id ? api('GET', `/api/projects/${id}`) : Promise.resolve(null),
-    api('GET', '/api/spoolman').catch(() => ({ enabled: false })),         // only decides what is offered; the server refuses a booking itself
-  ]).then(([spools, stock, printers, tariffs, packaging, parts, accessories, project, spoolman]) => {
+  // One request for the calculation and the lists it chooses from (it used to be nine): the server reads them in one go.
+  api('GET', `/api/model-editor${id ? `?project=${id}` : ''}`).then(({ spools, stock, printers, tariffs, packaging, parts, accessories, project, spoolman }) => {
     root.replaceChildren(buildEditor({
       spools: spools.filter((s) => !s.archived), stock: stock.groups, printers: printers.filter((p) => !p.archived), tariffs,
       packaging: packaging.filter((p) => !p.archived), parts: parts.filter((p) => !p.archived),

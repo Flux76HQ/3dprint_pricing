@@ -202,9 +202,93 @@ backup's read block made to write.
 Not measured: a real disk (for `synchronous`), a machine with fewer cores than four, LibreOffice (not installed here; it is a
 subprocess, so it behaves like the slow upload, which was measured), and Python's free-threaded build.
 
+## 3. Smaller answers and fewer requests; paging measured and left out (2026-11-12)
+
+Same machine and data. Before is `beta` at `e2bba5c` (sections 1 and 2 merged), after is the pull request on top of it.
+
+| What | Before | After |
+|---|---|---|
+| Opening the model editor: API requests | 12 | **4** (one for the screen, the materials, the pictures, the first calculation) |
+| Opening the model editor: visible (loopback) | 70 ms | 60 ms |
+| The editor's GETs replayed over 6 connections | 11 requests, median 18.6 ms | 3 requests, median 12.0 ms |
+| `GET /api/projects`: size | 414 kB, 24.0 kB compressed | **142 kB**, 17.3 kB compressed |
+| `GET /api/projects`: time | median 16.2 ms, p95 27.7 ms | median 11.6 ms, p95 18.3 ms |
+| `GET /api/orders`: time | median 47.1 ms, p95 72.7 ms | median 38.5 ms, p95 57.9 ms |
+| 8 clients asking for `/api/projects` at once | 60.2 requests/s, p95 267 ms | 97.5 requests/s, p95 175 ms |
+| Opening the app again (filled cache): bytes | 26 kB | 19 kB |
+
+The row with 8 clients moves by a third between runs of the same code (45 and 60 requests/s were both measured for the "before"
+of this section), so read it as "clearly better", not as a number.
+
+What changed:
+
+- **`GET /api/projects` gives a calculation's four prices, not its lines.** Every row carried the whole stored `totals` (every line
+  of the calculation, about 1.3 kB) for the three numbers a row shows. SQLite now reads the prices out of the stored JSON
+  (`json_extract`), so the rest is neither parsed nor sent. The order editor, which read a model's accessories from the list, asks
+  for the one calculation when a model is picked.
+- **The screen of a calculation opens with one request**, `GET /api/model-editor`, instead of nine. Every part of the answer is
+  made by the function that answers that part's own address and all are read in one snapshot.
+- **`GET /api/orders` reads only what a row shows**: 12 of an order's columns and three numbers of each line (an order line has
+  three ids, and turning an id into a Python value is the slow part). The total is still worked out on the server from the lines.
+- **The picture of a packaging item is kept by the browser** when it is asked for by its version (`?v=<hash of the picture>`, which
+  the list already did): the address changes with the picture. It was fetched again at every visit.
+
+- **A request with an API key reads without the write lock** (`/api/v1`, which came into `beta` while this was written): its five
+  reads are snapshots, and the key is looked up in a snapshot too; "last used" is written at most once a minute, as before, and
+  that is now its only write. Not measured separately: it is the mechanism of section 2, and `test_concurrency.py` holds the write
+  lock while it asks.
+
+Totals are still computed on the server and nowhere else; nothing in the browser calculates a price that it did not before.
+
+**Paging (step 9 of the plan) was measured and not built.** The lists at ten times the data (3000 models, 6000 orders, 1000 rolls;
+the slimmer answers of this section):
+
+| | 300 models / 600 orders | 3000 models / 6000 orders |
+|---|---|---|
+| `GET /api/projects` | 11.6 ms, 17 kB | 93 ms, 134 kB |
+| Model list on the screen | about 0.3 s | 1.4 s |
+| `GET /api/orders` | 38.5 ms, 43 kB | 386 ms, 470 kB |
+| Order list on the screen | 0.64 s | 4.5 s (1500 orders: 1.2 s, 3000: 2.3 s) |
+
+- At the size of the baseline neither list needs paging.
+- When a list gets long, **the wait is the browser drawing every row** (21 elements per order: 126,000 for 6000 orders), eight to
+  ten times what the server takes. Paging on the server would fix that, but it would also take away what the lists do now: they
+  search, filter and sort in the browser (`frontend/js/listview.js`), over everything. Drawing the first rows at once and the rest
+  as they are scrolled to keeps that and removes most of the wait, so it comes first. It is not in this pull request:
+  `listview.js` is being changed by other work at the moment, and no list is that long yet.
+- Server paging, with the search moved to the server and an index on `projects.updated_at` (section 2), is for after that: at
+  several thousand orders the answer itself is half a megabyte.
+- Saving a roll gets slower with the number of rolls (2.2 ms with 100 rolls, 11.8 ms with 1000), because every save checks the whole
+  stock for filament that has run low. Models, orders and customers do not (1.5, 5.6 and 1.3 ms at any size measured).
+
+What guards it: `backend/tests/test_payloads.py` (the list's prices equal those of the calculation and nothing else of the totals
+is there; every part of the one answer equals its own address; the order list's statements and its total),
+`test_packaging_images.py` (kept under the address of its version only). Checked by breaking: 5 changes, each failed a test. In a
+real browser, by hand: the editor of an existing and of a new calculation opens with the one request, and picking a model with an
+accessory in a new order adds both lines after one request for that model, a second pick only raises the quantity.
+
+## What was measured and what was only estimated
+
+Measured, with the numbers above: everything in the tables of sections 1 to 3; the cost of a new connection, of `strptime`, of a
+thumbnail, of gzip per level, of the interpreter lock during a backup; the plans of all 658 distinct statements the suite sends; the
+thread counts; cache size and memory mapping; the lists at ten times the data.
+
+Estimated or decided without a measurement that could settle it:
+
+- **`synchronous = FULL`**: the disk here does not really wait for a sync, so its cost on a real disk is unknown; it is kept for
+  durability.
+- **Real networks.** Every time is over loopback. The requests and bytes that were removed (61 to 6 requests and 4340 to 19 kB for
+  a repeat launch, 12 to 4 requests for the editor) are what a phone gains; how many milliseconds that is was not measured.
+- **Real data.** The owner's database was not used. Real product images are larger than the synthetic ones, so section 1 is
+  likely worth more than it shows; real lists are probably shorter than 300 models.
+- **Other browsers.** Chromium only; Safari and the installed app on iOS were not run.
+- **A small server.** Four cores here. On a two-core machine the cost of threads under load is likely higher than measured.
+
 ## Not done yet
 
-In the order of the work plan; each gets its own pull request with its own before and after.
-
-- Smaller answers for the lists, fewer requests for the model editor, and why `/api/orders` takes 57 ms.
-- Paging the lists.
+- **Draw a long list in parts** (`frontend/js/listview.js`): the first limit when lists grow, see section 3.
+- **The search box redraws the whole list on every keystroke**: not measured, same place.
+- **Paging on the server**, after that.
+- **App-Guidance** still lists this app as PostgreSQL and "not assessable" in `shared/plans/2026-11-11-performance-boost-overview.md`,
+  and its baseline (section 18) asks for an `app-engineering-conformance.md` with measured gates, which this repository does not
+  have. The numbers for the performance rows of that declaration are in this file.
