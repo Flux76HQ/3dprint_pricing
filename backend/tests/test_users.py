@@ -120,6 +120,11 @@ ADMIN_ONLY_CALLS = [
     ("POST", "/api/ai-images/test"), ("GET", "/api/ai-images/log"),
     ("POST", "/api/spoolman/sync"), ("POST", "/api/spoolman/push-library"), ("PUT", "/api/spoolman/settings"), ("POST", "/api/spoolman/test"), ("POST", "/api/spoolman/push-rolls"), ("POST", "/api/invoice-template"), ("DELETE", "/api/invoice-template"),
     ("POST", "/api/invoice-logo"), ("DELETE", "/api/invoice-logo"),
+    ("GET", "/api/integrations/keys"), ("POST", "/api/integrations/keys"), ("DELETE", f"/api/integrations/keys/{uuid.uuid4()}"),
+    ("GET", "/api/integrations/webhooks"), ("POST", "/api/integrations/webhooks"), ("PATCH", f"/api/integrations/webhooks/{uuid.uuid4()}"),
+    ("DELETE", f"/api/integrations/webhooks/{uuid.uuid4()}"), ("POST", f"/api/integrations/webhooks/{uuid.uuid4()}/rotate"),
+    ("POST", f"/api/integrations/webhooks/{uuid.uuid4()}/test"), ("GET", f"/api/integrations/webhooks/{uuid.uuid4()}/deliveries"),
+    ("POST", f"/api/integrations/webhooks/{uuid.uuid4()}/deliveries/{uuid.uuid4()}/retry"),
 ]
 
 

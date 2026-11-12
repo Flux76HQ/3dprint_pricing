@@ -441,6 +441,11 @@ def _purpose(action: str, target: str | None) -> str:
         return f"user:{target}:{action.split('-', 1)[1]}"
     if action == "backup-delete" and isinstance(target, str) and re.fullmatch(r"[A-Za-z0-9._-]{1,100}", target):   # bound to the one backup it removes
         return f"backup:{target}:delete"
+    # What lets another application in, or tells one what happens here: making one, and (bound to that one) taking it away or giving it a new key.
+    if action in ("api-key-create", "webhook-create"):
+        return f"{action.rsplit('-', 1)[0]}:create"
+    if action in ("api-key-revoke", "webhook-delete", "webhook-rotate") and isinstance(target, str) and re.fullmatch(r"[0-9a-f-]{36}", target):
+        return f"{action.rsplit('-', 1)[0]}:{target}:{action.rsplit('-', 1)[1]}"
     raise ApiError(400, "auth.unknown_action")
 
 

@@ -11,7 +11,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template, preferences
+from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template, preferences, webhooks
 from .api import _serialise, boolean, number, text
 from .db import id_list, next_number
 from .http import ApiError, json_body, login_required, pool
@@ -220,6 +220,14 @@ def _fetch(conn, order_id):
     return order, _lines_of(conn, [order_id])[order_id]
 
 
+def _event(order: dict, lines: list) -> dict:
+    """What a webhook says about an order (`webhooks.emit`): which one, its numbers and total, and where the rest is read. No customer
+    details and no prices of lines: the receiver asks `/api/v1` for those, with its key."""
+    return {"order_id": str(order["id"]), "order_number": order["number"], "status": order["status"],
+            "invoice_number": order["invoice_number"], "invoice_date": order["invoice_date"].isoformat() if order["invoice_date"] else None,
+            "total": compute_totals(lines)["total"], "url": f"/api/v1/orders/{order['id']}"}
+
+
 # --- API --------------------------------------------------------------------------------------------------------
 
 @bp.get("")
@@ -285,6 +293,7 @@ def create_order():
                              (next_number(conn, "order"), *(values[f] for f in ORDER_FIELDS), values["customer_id"])).fetchone()     # an invoice date only exists once there is an invoice
         _write_lines(conn, order["id"], values["lines"])
         order, lines = _fetch(conn, order["id"])
+        webhooks.emit(conn, "order.created", _event(order, lines))
     return jsonify(_present(order, lines)), 201
 
 
@@ -310,6 +319,9 @@ def update_order(order_id):
         conn.execute("DELETE FROM order_lines WHERE order_id = %s", (order_id,))
         _write_lines(conn, order_id, values["lines"])
         order, lines = _fetch(conn, order_id)
+        webhooks.emit(conn, "order.updated", _event(order, lines))
+        if order["status"] != current["status"]:                     # the status can also change with the rest of the order
+            webhooks.emit(conn, "order.status_changed", {**_event(order, lines), "previous_status": current["status"]})
     return jsonify(_present(order, lines))
 
 
@@ -319,18 +331,25 @@ def set_status(order_id):
     if status not in STATUSES:
         raise ApiError(400, "err.order_status")
     with pool().connection() as conn:
-        row = conn.execute("UPDATE orders SET status = %s, updated_at = now() WHERE id = %s RETURNING id", (status, order_id)).fetchone()
-    if row is None:
-        raise ApiError(404, "err.order_not_found")
+        before = conn.execute("SELECT status FROM orders WHERE id = %s", (order_id,)).fetchone()
+        if before is None:
+            raise ApiError(404, "err.order_not_found")
+        conn.execute("UPDATE orders SET status = %s, updated_at = now() WHERE id = %s", (status, order_id))
+        if before["status"] != status:                               # setting it to what it was is not a change to report
+            order, lines = _fetch(conn, order_id)
+            webhooks.emit(conn, "order.status_changed", {**_event(order, lines), "previous_status": before["status"]})
     return jsonify({"ok": True, "status": status})
 
 
 @bp.delete("/<uuid:order_id>")
 def delete_order(order_id):
     with pool().connection() as conn:
-        row = conn.execute("DELETE FROM orders WHERE id = %s RETURNING id", (order_id,)).fetchone()
-    if row is None:
-        raise ApiError(404, "err.order_not_found")
+        row = conn.execute("DELETE FROM orders WHERE id = %s RETURNING id, number, status, invoice_number, invoice_date", (order_id,)).fetchone()
+        if row is None:
+            raise ApiError(404, "err.order_not_found")
+        # There is nothing left to read, so the message says what was removed (an order that had an invoice keeps its number in it).
+        webhooks.emit(conn, "order.deleted", {"order_id": str(row["id"]), "order_number": row["number"], "status": row["status"],
+                                              "invoice_number": row["invoice_number"], "invoice_date": row["invoice_date"].isoformat() if row["invoice_date"] else None})
     return jsonify({"ok": True})
 
 
@@ -364,7 +383,8 @@ def make_invoice(order_id):
         if not lines:
             raise ApiError(409, "invoice.no_lines")
         business = preferences.shared(conn).get("business") or {}
-        if not order["invoice_number"]:
+        first = not order["invoice_number"]                          # the first time is the invoice being made; after that the same one, made again
+        if first:
             today = date.today()
             invoice_date = order["invoice_date"] or today
             template_text = business.get("invoice_number_format") or invoice_numbers.DEFAULT
@@ -383,6 +403,7 @@ def make_invoice(order_id):
                      "ON CONFLICT (order_id) DO UPDATE SET invoice_number = EXCLUDED.invoice_number, content = EXCLUDED.content, "
                      "size_bytes = EXCLUDED.size_bytes, created_at = now()",
                      (order_id, order["invoice_number"], content, len(content)))
+        webhooks.emit(conn, "invoice.created" if first else "invoice.updated", _event(order, lines))
     return _pdf_response(order["invoice_number"], content)
 
 
