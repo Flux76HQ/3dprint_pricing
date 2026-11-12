@@ -50,9 +50,10 @@ void main() {
 
 /** The model of a print file: { positions, colours }. `positions` holds nine numbers per triangle (x, y, z of the three corners, in
  *  millimetres, Z up); `colours` four bytes per triangle (red, green, blue, and 255 or 0 for "the file names none"), or null when
- *  the file names no colours at all. The layout is the server's (printfile.triangles). */
-export async function loadMesh(fileId) {
-  const { blob } = await downloadFile(`/api/print-files/${fileId}/mesh`);
+ *  the file names no colours at all. `plate` asks for one build plate of a slicer project. The layout is the server's
+ *  (printfile.triangles). */
+export async function loadMesh(fileId, plate = '') {
+  const { blob } = await downloadFile(`/api/print-files/${fileId}/mesh${plate ? `?plate=${plate}` : ''}`);
   const buffer = await blob.arrayBuffer();
   const head = new DataView(buffer);
   if (buffer.byteLength < 12 || head.getUint32(0, false) !== 0x50504d31) throw new Error(t('ai.view3d_unreadable'));       // "PPM1"

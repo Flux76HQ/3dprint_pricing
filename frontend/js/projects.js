@@ -114,6 +114,7 @@ function fromSaved(project) {
   return {
     id: project.id, number: project.number, name: project.name, notes: project.notes, object_description: project.object_description || '', margin_pct: str(project.margin_pct),
     file_id: project.file_id || null,
+    models: (project.models || []).map((m) => ({ file_id: m.file_id, label: str(m.label), meta: null })),
     links: (project.links || []).map((l) => ({ kind: l.kind || 'other', label: str(l.label), url: str(l.url) })),
     vat_pct: str(project.vat_pct),
     stock_booked_at: project.stock_booked_at,
@@ -143,7 +144,7 @@ export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: asy
 
 function buildEditor({ spools, stock, printers, tariffs, packaging, parts, accessories, project, navigate, ctx, spoolman }) {
   const state = project ? fromSaved(project) : {
-    id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, file_id: null, links: [],
+    id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, file_id: null, models: [], links: [],
     vat_pct: ctx.prefs.vat_pct ?? '21',
     filament: [blankFilament()], parts: [], depreciation: [], energy: [],
   };
@@ -186,6 +187,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     name: state.name, notes: state.notes, object_description: state.object_description, margin_pct: parseNum(state.margin_pct),
     vat_pct: parseNum(state.vat_pct), price_rounding: 'none',      // rounding is decided per order
     file_id: state.file_id,
+    models: state.models.map((m) => ({ file_id: m.file_id, label: m.label.trim() })),
     links: state.links.filter((l) => l.url.trim()).map((l) => ({ kind: l.kind, label: l.label.trim(), url: l.url.trim() })),
     data: {
       filament: state.filament.map((r) => ({ spool_id: r.spool_id || null, colour: colourCode(r.colour) || null, label: r.label, grams: parseNum(r.grams), price_per_kg: parseNum(r.price_per_kg) })),
@@ -536,8 +538,37 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   }
   drawLinks();
 
+  // The 3D models of the object, one per part: to look at and to make pictures from. They are apart from the file above them,
+  // which is the one the filament is worked out from.
+  function modelsBox() {
+    const add = h('input', { type: 'file', accept: '.stl,.3mf', multiple: true, 'aria-label': t('file.model_add'), onchange: async () => {
+      add.disabled = true;
+      for (const file of add.files) {
+        const form = new FormData();
+        form.append('file', file);
+        try {
+          const meta = await upload('/api/print-files', form);
+          state.models.push({ file_id: meta.id, label: '', meta });
+          touch();
+        } catch (err) { toast(`${file.name}: ${err.message}`, 'error'); }
+      }
+      drawFile();
+    } });
+    const rows = state.models.map((m, i) => h('div', { class: 'list-row' },
+      h('div', { class: 'model-row' },
+        field(t('file.model_label'), textInput(m, 'label', { maxlength: 60, placeholder: t('file.model_label_ph') })),
+        h('p', { class: 'muted' }, m.meta ? m.meta.filename : t('common.loading'))),
+      h('div', { class: 'row' },
+        imagesCard ? h('button', { class: 'btn small', type: 'button', onclick: () => imagesCard.showModel(m.file_id) }, t('file.view_3d')) : null,
+        h('a', { class: 'btn small', href: `/api/print-files/${m.file_id}/download` }, t('file.download')),
+        removeBtn(t('file.model_remove'), () => { state.models.splice(i, 1); touch(); drawFile(); }))));
+    return h('div', { class: 'stack' },
+      h('h3', {}, t('file.models_title')), h('p', { class: 'muted' }, t('file.models_intro')),
+      ...rows, field(t('file.model_add'), add, t('file.model_add_hint')));
+  }
+
   function drawFile() {
-    const parts = [h('h2', {}, t('file.title'))];
+    const parts = [h('h2', {}, t('file.title')), h('h3', {}, t('file.calc_title')), h('p', { class: 'muted' }, t('file.calc_intro'))];
     if (!fileMeta) {
       const input = h('input', { type: 'file', accept: '.stl,.3mf', onchange: async (e) => {
         const file = e.target.files[0];
@@ -562,7 +593,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         h('div', {}, h('strong', {}, fileMeta.filename),
           h('p', { class: 'muted' }, `${fileMeta.size_bytes < 1048576 ? `${fmt(fileMeta.size_bytes / 1024, 0)} kB` : `${fmt(fileMeta.size_bytes / 1048576, 1)} MB`} · `, h('span', { class: `badge${a.exact ? '' : ' muted'}` }, a.exact ? t('file.exact') : t('file.estimated')))),
         h('div', { class: 'row' },
-          imagesCard && (a.volume_cm3 || a.bbox_mm) ? h('button', { class: 'btn small', type: 'button', onclick: () => imagesCard.showModel() }, t('file.view_3d')) : null,
+          imagesCard && !state.models.length ? h('button', { class: 'btn small', type: 'button', onclick: () => imagesCard.showModel() }, t('file.view_3d')) : null,
           h('a', { class: 'btn small', href: `/api/print-files/${fileMeta.id}/download` }, t('file.download')),
           h('button', { class: 'btn small', type: 'button', onclick: () => { fileMeta = null; state.file_id = null; touch(); drawFile(); } }, t('file.unlink')))));
       if (a.plates.length) {
@@ -607,9 +638,13 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         refresh();
       }
     }
-    fill(fileBox, ...parts, linksBox);
+    fill(fileBox, ...parts, modelsBox(), linksBox);
   }
 
+  // what the linked models are called: asked once, for the list
+  state.models.forEach((m) => {
+    api('GET', `/api/print-files/${m.file_id}`).then((meta) => { m.meta = meta; drawFile(); }).catch(() => { m.meta = { filename: '?' }; drawFile(); });
+  });
   if (state.file_id) {
     Promise.all([api('GET', `/api/print-files/${state.file_id}`), api('GET', '/api/print-files/materials')])
       .then(([meta, dens]) => { fileMeta = meta; densities = dens; drawFile(); })
@@ -655,7 +690,13 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   };
   if (ctx.aiImages && state.id) {
     imagesCard = productImagesCard(state.id, () => state.object_description, () => !!ctx.prefs.business_mode,
-      () => ({ fileId: state.file_id || null, colour: modelColour() }));
+      // the models to look at: the 3D models of the calculation, or, while there are none, the file its filament is worked out from
+      () => ({
+        models: state.models.length
+          ? state.models.map((m, i) => ({ fileId: m.file_id, label: m.label.trim() || (m.meta ? m.meta.filename : `${t('file.model')} ${i + 1}`) }))
+          : (state.file_id ? [{ fileId: state.file_id, label: fileMeta ? fileMeta.filename : t('file.model') }] : []),
+        colour: modelColour(),
+      }));
     drawFile();                                       // the file card has a button that leads to it
   }
 

@@ -9,8 +9,11 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
 - **3D Modellen** (menu; voorheen *Berekeningen*) — de berekening per model: filament, onderdelen, accessoires (kabels/laders), printerafschrijving en
   energie → totale kostprijs, optioneel met marge voor een adviesverkoopprijs. Opgeslagen berekeningen
   bewaren de prijzen van het moment van opslaan.
-- **Printbestand koppelen** — upload een `.3mf` of `.stl` bij een berekening; het bestand blijft bewaard en is later
-  te downloaden. Uit een **gesliced 3MF** (Bambu Studio / Orca, “Export plate sliced file”) leest de app de
+- **Printbestand koppelen** — een berekening houdt twee soorten bestanden uit elkaar. Het **bestand voor de filamentberekening** is er één: koppel bij
+  voorkeur het geslicede bestand (`.gcode.3mf`), want daarin staan de echte grammen per filament en de printtijd van elke plaat. De **3D-modellen** zijn
+  er zoveel als het object onderdelen heeft (bijvoorbeeld de voor- en de achterkant van een lightbox), elk met een eigen naam: STL-bestanden of het
+  projectbestand (`.3mf`) uit de slicer. Die zijn om te bekijken en om afbeeldingen mee te maken en tellen niet mee in de berekening; een gesliced
+  bestand bevat zelf geen model om te draaien. Alle bestanden blijven bewaard en zijn later te downloaden. Uit een **gesliced 3MF** (Bambu Studio / Orca, “Export plate sliced file”) leest de app de
   echte **gram per filament** en **printtijd**. Die worden standaard **automatisch** verwerkt in de berekening (uit te
   zetten): een filamentregel per filament uit het bestand, gekoppeld aan het filament uit je voorraad met hetzelfde materiaal en de kleur die er het dichtst bij ligt
   (met de prijs daarvan; ligt geen kleur dichtbij, dan blijft de regel *Handmatig*), printtijd naar boven op hele uren, en een printerregel
@@ -541,12 +544,16 @@ zie je in de app niets. De server beslist, niet de browser.
    van het 3D-model**, of van allebei (dan gaat de foto mee voor kleur en materiaal, het model voor de exacte vorm):
 
    - *Foto*: upload een foto (JPEG, PNG of WebP, maximaal 8 MB; hij wordt opnieuw opgeslagen en tot 2048 px verkleind, zonder metadata).
-   - *3D-model*: is er een STL of 3MF aan de berekening gekoppeld, dan toont *3D-model laden* het model in de browser. De kaart *Productafbeeldingen* staat
+   - *3D-model*: heeft de berekening 3D-modellen (of, als die er niet zijn, een STL of 3MF als bestand voor de filamentberekening), dan toont *3D-model laden*
+     het model in de browser. Met meerdere modellen kies je welk onderdeel je ziet; heeft een projectbestand meerdere platen, dan kies je *Alle platen* of
+     één plaat. Per model en per plaat bewaar je één beeld (hooguit zes bij elkaar); ze gaan samen met de foto naar het model, dat ze als de onderdelen
+     van één object behandelt. De kaart *Productafbeeldingen* staat
      standaard dichtgeklapt; de knop *3D-model bekijken* bij het printbestand klapt haar open en laadt het model meteen. Sleep om het te draaien (of gebruik de
      pijltjestoetsen), zoom met twee vingers of de schuif en kies *Beeld opslaan bij deze berekening*. Het model krijgt de kleuren uit het 3D-bestand als die erin staan: de materialen van een 3MF, of bij een project uit Bambu Studio of OrcaSlicer de filamentkleur per object en onderdeel, en de kleuren die in de slicer op het model zijn geschilderd (per driehoek de kleur die het grootste deel bedekt; een STL kent geen kleur). Wat het bestand geen kleur geeft, krijgt die van de eerste filamentrol. Kies je bij *Kleur van het item* een eigen kleur, dan krijgt het hele model die kleur.
      Het beeld staat daarna naast de foto en is net als de foto te verwijderen of te vervangen door een nieuw beeld. De server leest het model uit het
-     bestand; een model met meer dan 400.000 driehoeken is te gedetailleerd om te tonen, en een gesliced 3MF dat alleen de printopdracht bevat heeft geen
-     model. De weergave vraagt WebGL van de browser.
+     bestand; een model met meer dan 400.000 driehoeken is te gedetailleerd om te tonen, en een gesliced 3MF (`.gcode.3mf`) bevat alleen de printopdracht en dus geen
+     model om te draaien: koppel daarvoor het projectbestand (`.3mf`) uit de slicer. Zo'n gesliced bestand bevat meestal wel de afbeelding die de slicer van
+     de printplaat maakte, in de kleuren van het filament; de app toont die dan en je kunt haar met één klik als beeld van het model opslaan. De weergave vraagt WebGL van de browser.
 
    Kies daarna **waar de afbeeldingen voor zijn**; zonder keuze wordt er niets gemaakt.
    Per keuze worden vier afbeeldingen gemaakt, een voor een:
