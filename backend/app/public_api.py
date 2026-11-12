@@ -15,7 +15,7 @@ import binascii
 import uuid
 from datetime import datetime, timezone
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, Response, g, jsonify, request
 
 from . import api_keys
 from .api import _serialise
@@ -124,7 +124,7 @@ def list_orders():
         if invoiced not in ("true", "false"):
             raise ApiError(400, "v1.err_invoiced")
         where.append("invoice_number IS NOT NULL" if invoiced == "true" else "invoice_number IS NULL")
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = _paged(conn, "orders", where, params, size)
         page = rows[:size]
         ids = [o["id"] for o in page]
@@ -135,7 +135,7 @@ def list_orders():
 
 @bp.get("/orders/<uuid:order_id>")
 def get_order(order_id):
-    with pool().connection() as conn:
+    with pool().read() as conn:
         order = conn.execute("SELECT * FROM orders WHERE id = %s", (order_id,)).fetchone()
         if order is None:
             raise ApiError(404, "err.order_not_found")
@@ -147,24 +147,74 @@ def get_order(order_id):
 @bp.get("/orders/<uuid:order_id>/invoice")
 def get_invoice(order_id):
     """The invoice as it was made, as a PDF. Making one is done in the app, not here."""
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT invoice_number, content FROM invoice_pdfs WHERE order_id = %s", (order_id,)).fetchone()
     if row is None:
         raise ApiError(404, "invoice.err_no_pdf")
     return _pdf_response(row["invoice_number"], bytes(row["content"]))
 
 
+def item_view(listing: dict, project: dict, photos: list) -> dict:
+    """What a model is offered for sale as (`listings.py`): what a sales channel needs, never what it costs to make."""
+    out = _serialise({"id": project["id"], "number": project["number"], "title": listing["title"], "description": listing["description"],
+                      "price": listing["price"], "vat_pct": project["vat_pct"], "ean": listing["ean"] or None, "updated_at": listing["updated_at"]})
+    out["photos"] = [{"id": str(p["id"]), "width": p["width_px"], "height": p["height_px"], "url": f"/api/v1/items/{project['id']}/photos/{p['id']}"} for p in photos]
+    out["links"] = [{"kind": link["kind"], "label": link["label"], "url": link["url"]} for link in project["links"]]       # where it is offered already
+    return out
+
+
+def _items(conn, listings_rows: list) -> list:
+    ids = [row["project_id"] for row in listings_rows]
+    if not ids:
+        return []
+    projects = {p["id"]: p for p in conn.execute("SELECT id, number, vat_pct, links FROM projects WHERE id IN (SELECT value FROM json_each(%s))", (id_list(ids),)).fetchall()}
+    photos: dict = {pid: [] for pid in ids}
+    for photo in conn.execute("SELECT id, project_id, width_px, height_px FROM listing_photos WHERE project_id IN (SELECT value FROM json_each(%s)) "
+                              "ORDER BY project_id, position, created_at, id", (id_list(ids),)).fetchall():
+        photos[photo["project_id"]].append(photo)
+    return [item_view(row, projects[row["project_id"]], photos[row["project_id"]]) for row in listings_rows]
+
+
+@bp.get("/items")
+def list_items():
+    """The models that are for sale, oldest change of the listing first. An item's `id` is that of its 3D model."""
+    size = _page_size()
+    with pool().read() as conn:
+        rows = _paged(conn, "listings", [], [], size)
+        data = _items(conn, rows[:size])
+    return jsonify({"data": data, "next_cursor": _next(rows, size)})
+
+
+@bp.get("/items/<uuid:project_id>")
+def get_item(project_id):
+    with pool().read() as conn:
+        row = conn.execute("SELECT * FROM listings WHERE project_id = %s", (project_id,)).fetchone()
+        if row is None:
+            raise ApiError(404, "err.not_found")
+        return jsonify(_items(conn, [row])[0])
+
+
+@bp.get("/items/<uuid:project_id>/photos/<uuid:photo_id>")
+def get_item_photo(project_id, photo_id):
+    with pool().read() as conn:
+        row = conn.execute("SELECT content FROM listing_photos WHERE id = %s AND project_id = %s AND EXISTS (SELECT 1 FROM listings l WHERE l.project_id = %s)",
+                           (photo_id, project_id, project_id)).fetchone()
+    if row is None:
+        raise ApiError(404, "err.not_found")
+    return Response(bytes(row["content"]), mimetype="image/jpeg")
+
+
 @bp.get("/customers")
 def list_customers():
     size = _page_size()
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = _paged(conn, "customers", [], [], size)
     return jsonify({"data": [customer_view(r) for r in rows[:size]], "next_cursor": _next(rows, size)})
 
 
 @bp.get("/customers/<uuid:customer_id>")
 def get_customer(customer_id):
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT * FROM customers WHERE id = %s", (customer_id,)).fetchone()
     if row is None:
         raise ApiError(404, "err.not_found")

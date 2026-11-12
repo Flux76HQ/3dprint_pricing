@@ -997,3 +997,15 @@ input.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .
 .hook-log .list-row { align-items: flex-start; }
 .hook-form { padding-top: 12px; border-top: 1px solid var(--lijn); }
 .checks { display: grid; gap: 0 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
+
+/* The listing of a 3D model: its photos in their order, each with the buttons to move or remove it. */
+.photo-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 120px), 1fr)); margin-top: 8px; }
+.photo-grid > p { grid-column: 1 / -1; margin: 0; }
+.photo { position: relative; margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--lijn-strong); border-radius: var(--radius-sm); background: var(--surface-solid); }
+.photo img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; }
+.photo figcaption { display: flex; justify-content: center; padding: 2px; border-top: 1px solid var(--lijn); }
+.photo-first { position: absolute; top: 6px; left: 6px; background: var(--surface-solid); box-shadow: var(--shadow); }
+.photo.pick { cursor: pointer; transition: border-color .15s var(--ease), opacity .15s var(--ease); }
+.photo.pick:hover:not(:disabled) { border-color: var(--accent); }
+.photo.pick.picked { opacity: .45; cursor: default; }
+.hint.error { color: var(--danger); font-weight: 500; }

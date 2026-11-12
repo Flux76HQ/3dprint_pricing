@@ -616,7 +616,9 @@ def calculate_endpoint():
 
 def _project_row(row):
     if "ai_busy" in row:
-        row = {**row, "ai_busy": bool(row["ai_busy"])}                  # an EXISTS comes back as 0 or 1
+        # An EXISTS comes back as 0 or 1, and a sub-select as SQLite computed it (the price of the listing: text, as every amount leaves here).
+        row = {**row, "ai_busy": bool(row["ai_busy"]), "for_sale": bool(row["for_sale"]),
+               "listing_price": None if row["listing_price"] is None else f"{Decimal(str(row['listing_price'])):.2f}"}
     return _serialise(row)
 
 
@@ -625,7 +627,9 @@ def list_projects():
     with pool().read() as conn:
         rows = conn.execute("SELECT id, number, name, margin_pct, vat_pct, price_rounding, totals, links, stock_booked_at, created_at, updated_at, "
                             "(SELECT i.id FROM project_images i WHERE i.project_id = projects.id AND i.is_cover) AS cover_image_id , "
-                            "EXISTS (SELECT 1 FROM ai_image_jobs j WHERE j.project_id = projects.id AND j.status IN ('queued', 'running')) AS ai_busy "
+                            "EXISTS (SELECT 1 FROM ai_image_jobs j WHERE j.project_id = projects.id AND j.status IN ('queued', 'running')) AS ai_busy, "
+                            "EXISTS (SELECT 1 FROM listings l WHERE l.project_id = projects.id) AS for_sale, "
+                            "(SELECT l.price FROM listings l WHERE l.project_id = projects.id) AS listing_price "
                             "FROM projects ORDER BY updated_at DESC").fetchall()
     return jsonify([_project_row(r) for r in rows])
 

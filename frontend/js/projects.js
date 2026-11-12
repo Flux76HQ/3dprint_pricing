@@ -2,6 +2,7 @@ import { busyBadge, coverUrl, productImagesCard } from './ai-images.js';
 import { api, upload } from './api.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
 import { formatDate, t } from './i18n.js';
+import { listingCard } from './listing.js';
 import { listView } from './listview.js';
 import { setDirty } from './updates.js';
 import { backLink, blurToggle, confirmDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
@@ -44,13 +45,16 @@ export function projectListView(ctx) {
     id: 'models',
     search: { label: t('calc.search'), placeholder: t('calc.search_ph'), text: (p) => [p.name, `#${p.number}`, ...p.links.map((l) => `${linkName(l)} ${l.url}`)] },
     filters: [{ key: 'kind', label: t('calc.filter_links'), all: t('calc.filter_links_all'), value: (p) => (p.links.length ? p.links.map((l) => l.kind) : ['none']),
-      name: (kind) => (kind === 'none' ? t('calc.filter_links_none') : kindLabel(kind)) }],
+      name: (kind) => (kind === 'none' ? t('calc.filter_links_none') : kindLabel(kind)) },
+    { key: 'sale', label: t('listing.filter'), all: t('listing.filter_all'), value: (p) => (p.for_sale ? 'yes' : 'no'),
+      name: (value) => (value === 'yes' ? t('listing.filter_yes') : t('listing.filter_no')) }],
     sorts: [
       { key: 'updated', label: t('sort.updated'), value: (p) => String(p.updated_at || ''), desc: true },
       { key: 'name', label: t('sort.name'), value: (p) => p.name },
       { key: 'number', label: t('sort.number'), value: (p) => Number(p.number) },
       { key: 'cost', label: t('calc.cost_price'), value: (p) => Number(p.totals.cost_price) },
-      { key: 'sell', label: t('calc.col_sell'), value: (p) => Number(sell(p)), desc: true }],
+      { key: 'sell', label: t('calc.col_sell'), value: (p) => Number(sell(p)), desc: true },
+      { key: 'sale', label: t('listing.column'), value: (p) => (p.for_sale ? Number(p.listing_price ?? 0) : -1), desc: true }],
     tie: (p) => p.name,
     href,
     columns: [
@@ -59,11 +63,13 @@ export function projectListView(ctx) {
       { label: t('calc.cost_price'), sort: 'cost', cls: 'num private', cell: (p) => eur(p.totals.cost_price) },
       { label: t('calc.col_excl'), cls: 'num', wide: true, cell: (p) => (priced(p) ? eur(p.totals.sell_price) : '—') },
       { label: t('calc.col_sell'), sort: 'sell', cls: 'num strong', cell: (p) => (priced(p) ? eur(sell(p)) : '—') },
+      { label: t('listing.column'), sort: 'sale', cls: 'num', cell: (p) => (p.for_sale ? (p.listing_price === null ? h('span', { class: 'badge' }, t('listing.badge')) : eur(p.listing_price)) : '—') },
       { label: t('calc.links'), cls: 'nowrap', wide: true, cell: (p) => linkChips(p.links) || h('span', { class: 'muted' }, '—') },
       { label: t('sort.updated'), sort: 'updated', cls: 'nowrap', wide: true, cell: (p) => dateFmt(p.updated_at) }],
     tile: (p) => h('a', { class: 'glass card item link-card', href: href(p) },
       h('div', { class: 'item-head' }, cover(p),
-        h('div', { class: 'grow' }, h('h3', {}, h('span', { class: 'badge' }, `#${p.number}`), ' ', p.name, badges(p)),
+        h('div', { class: 'grow' }, h('h3', {}, h('span', { class: 'badge' }, `#${p.number}`), ' ', p.name, badges(p),
+          p.for_sale ? h('span', { class: 'badge' }, p.listing_price === null ? t('listing.badge') : t('listing.badge_price', { price: eur(p.listing_price) })) : null),
           h('p', { class: 'muted' }, dateFmt(p.updated_at)))),
       h('dl', { class: 'stats' },
         h('div', {}, h('dt', {}, t('calc.cost_price')), h('dd', { class: 'private' }, eur(p.totals.cost_price))),
@@ -225,6 +231,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         }
       });
     }
+    listing?.refresh();                                // the price the calculation advises may have changed
   }
 
   async function recalc() {
@@ -400,6 +407,8 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       const body = payload();
       if (asCopy) body.name = t('calc.copy_name', { name: body.name });
       const saved = state.id && !asCopy ? await api('PUT', `/api/projects/${state.id}`, body) : await api('POST', '/api/projects', body);
+      // What it is offered for sale as is saved by the same button, after the model itself; when that is refused it says why, and stays to be saved.
+      if (state.id && !asCopy && listing && !(await listing.save())) return;
       dirty = false;
       setDirty(false);
       toast(t('common.saved'));
@@ -421,6 +430,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   // --- print file: upload, read, adopt -------------------------------------------------
   let fileMeta = null;
   let imagesCard = null;                              // the product images card, once it is there: the 3D model is shown in it
+  let listing = null;                                 // the listing card of a saved model (what it is offered for sale as)
   let plateIndex = 0;                                 // ALL_PLATES = every plate of the file together
   const ALL_PLATES = -1;
   let densities = {};
@@ -688,6 +698,14 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     }
     return '';
   };
+  // What the model is offered for sale as (listing.js). The price there is typed; the calculation only advises one, and says what it costs.
+  if (state.id) {
+    listing = listingCard(state.id, {
+      name: () => state.name, texts: () => project.image_text, aiImages: !!ctx.aiImages,
+      advice: () => (result ? { price: Number(result.vat_pct) > 0 ? result.sell_price_incl_vat : result.sell_price, cost: result.cost_price } : null),
+      changed: () => { dirty = true; setDirty(true); },
+    });
+  }
   if (ctx.aiImages && state.id) {
     imagesCard = productImagesCard(state.id, () => state.object_description, () => !!ctx.prefs.business_mode,
       // the models to look at: the 3D models of the calculation, or, while there are none, the file its filament is worked out from
@@ -721,7 +739,8 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
             field(t('calc.object_description'), objectDescription, t('calc.object_description_hint')))),
         fileBox,
         imagesCard,
-        sections),
+        sections,
+        listing ? listing.el : null),
       h('aside', { class: 'glass card summary', 'aria-label': t('calc.cost_price') },
         h('div', { class: 'row between' }, h('h2', {}, t('calc.cost_price')), blurToggle(ctx)), totals, calcError,
         bookable && spoolman ? h('p', { class: 'hint' }, t('calc.book_spoolman')) : null)));

@@ -479,13 +479,36 @@ Per persoon blijven: taal, thema en accentkleur, de balk onderaan, in- of uitkla
 Elk overzicht (*3D Modellen*, *Bestellingen*, *Klanten*, *Filament*, *Verpakking*, *Onderdelen*, *Accessoires*, *Printers*, *Energie*) heeft dezelfde balk en werkt hetzelfde:
 
 - **Zoeken terwijl je typt**: elk woord moet voorkomen, hoofdletters en accenten tellen niet mee, *Esc* wist het veld. Bij *Filament* staat er een knop naast om een barcode te scannen.
-- **Filteren**: de knop *Filteren* opent de keuzelijsten (bij filament soort, merk en type; bij klanten de plaats; bij 3D-modellen waar ze gepubliceerd zijn). Elke keuze beperkt wat de volgende aanbiedt, en *Wis filters* zet alles terug. Bij *Bestellingen* staat de status als een rij knoppen met het aantal erbij.
+- **Filteren**: de knop *Filteren* opent de keuzelijsten (bij filament soort, merk en type; bij klanten de plaats; bij 3D-modellen waar ze gepubliceerd zijn en of ze een verkoopitem hebben). Elke keuze beperkt wat de volgende aanbiedt, en *Wis filters* zet alles terug. Bij *Bestellingen* staat de status als een rij knoppen met het aantal erbij.
 - **Sorteren**: kies waarop in de keuzelijst en draai de volgorde om met de pijl ernaast. In de lijstweergave sorteert een klik op een kolomkop, en een tweede klik draait om.
 - **Tegels of lijst**: de schakelaar rechts. In de lijst opent een klik op een regel het model, de bestelling of de klant; de status van een bestelling zet je er zonder haar te openen. Op een smal scherm vallen de minder belangrijke kolommen weg en veeg je de rest opzij.
 
 Weergave, volgorde en groepering onthoudt de **browser** per overzicht (dus per apparaat: een telefoon mag tegels tonen terwijl de computer een lijst toont); wat je zoekt en filtert geldt tot je de pagina verlaat. Blijft er niets over, dan zegt het overzicht dat en biedt het *Wis filters* aan.
 
 De code staat op één plek, `frontend/js/listview.js`; een pagina zegt alleen wat haar regels en kolommen zijn.
+
+## Verkoopitem: een 3D-model te koop zetten
+
+Onderaan een opgeslagen 3D-model staat het blok *Verkoopitem*. Daarin leg je vast waarmee je het model te koop zet; per model is er één. Je slaat het op met
+dezelfde knop *Opslaan* als het model. Laat je het blok leeg, dan is het model niet te koop.
+
+- **Titel en tekst** van de advertentie (titel hooguit 80 tekens, tekst hooguit 4000). *Vul in vanuit de productteksten* neemt de naam van het model en de
+  teksten van de productafbeeldingen over als begin; daarna zijn ze van jou.
+- **Vraagprijs** (incl. btw): die typ je zelf. De berekening geeft er een **advies** naast (de verkoopprijs incl. btw) en waarschuwt als je onder de kostprijs zit,
+  maar verandert je vraagprijs nooit: een advertentie zegt wat je met de buitenwereld hebt afgesproken, ook als het filament morgen duurder is.
+- **EAN** (optioneel): de streepjescode van het product, 8, 12, 13 of 14 cijfers. Het laatste cijfer is het controlecijfer; een typefout wordt geweigerd.
+  Marktplaats vraagt er geen, Bol.com wel.
+- **Foto's**, hooguit 12, in de volgorde waarin ze getoond worden; de eerste is de hoofdfoto. Voeg eigen foto's toe (JPEG, PNG of WebP, hooguit 8 MB per foto) of neem er een over
+  *uit de productafbeeldingen* van het model. Een overgenomen foto is een **kopie**: maak je de productafbeelding opnieuw, dan blijft de foto in je verkoopitem
+  zoals hij was. Elke foto wordt opnieuw opgeslagen als JPEG zonder de gegevens van de camera (ook geen locatie).
+- **Advertentie plaatsen**: *Kopieer de titel*, *Kopieer de tekst* en *Download foto's* (één ZIP-bestand, `foto-01.jpg`, `foto-02.jpg`… in jouw volgorde) zetten
+  alles klaar; *Marktplaats openen* opent het scherm waar je een advertentie plaatst. Plakken en uploaden doe je daar zelf: Marktplaats heeft voor particulieren
+  geen koppeling. Zet daarna het adres van je advertentie bij *Links* (onder *Printbestand en bron*), dan zie je in het overzicht waar het model staat.
+- **Niet meer te koop** verwijdert het verkoopitem en zijn foto's. Het model, de berekening en de productafbeeldingen blijven.
+
+In het overzicht *3D Modellen* staat bij een model met een verkoopitem *te koop voor € …*, de lijst heeft de kolom *Te koop* (waarop je sorteert), en onder
+*Filteren* kies je *Met verkoopitem* of *Zonder verkoopitem*. Verkoopitems en hun foto's zitten in de back-up. Een andere applicatie leest ze met een
+API-sleutel onder `/api/v1/items` (zie *Koppelingen*); een kant-en-klare koppeling met Bol.com is er nog niet.
 
 ## Talen (Nederlands en Engels)
 
@@ -540,7 +563,7 @@ dit is de basis waar zo'n koppeling op aansluit.
   ervan. *Intrekken* werkt direct. Er kunnen hooguit 20 sleutels zijn. De lijst toont de eerste tekens, wanneer hij gemaakt is en wanneer hij voor het laatst gebruikt is.
 - **Meesturen**: `Authorization: Bearer ppk_…`. Een sleutel werkt **alleen** onder `/api/v1` en kan alleen lezen; op de rest van de app (ook alles voor beheerders)
   wordt hij geweigerd. Andersom werkt een ingelogde browser niet op `/api/v1`. Een sleutel is van niemand persoonlijk: hij blijft werken als degene die hem maakte vertrekt.
-- **Wat erin zit**: wat op een factuur staat. **Kostprijzen, marges en interne notities zitten er niet in.**
+- **Wat erin zit**: wat op een factuur staat, en wat je te koop zet (je verkoopitems met hun foto's). **Kostprijzen, marges en interne notities zitten er niet in.**
 
 | Adres | Geeft |
 |---|---|
@@ -549,6 +572,8 @@ dit is de basis waar zo'n koppeling op aansluit.
 | `GET /api/v1/orders/<id>` | één bestelling: `number`, `status`, `order_date`, `delivery_date`, `subject`, `customer` (id, klantnummer, naam, adres, e-mail, telefoon), `invoice` (`number`, `date`, `has_pdf`; `null` zolang er geen factuur is), `lines` (omschrijving, aantal, `unit_price` incl. btw, `vat_pct`, `optional`, `total`, `net`, `vat`) en `totals` (`excl`, `vat`, `incl`, en per btw-tarief `by_vat_rate`) |
 | `GET /api/v1/orders/<id>/invoice` | de factuur als PDF, zoals hij gemaakt is (404 als er geen is). Een factuur *maken* doe je in de app |
 | `GET /api/v1/customers`, `GET /api/v1/customers/<id>` | klanten (zonder notities), met dezelfde `updated_since`, `limit` en `cursor` |
+| `GET /api/v1/items`, `GET /api/v1/items/<id>` | wat er te koop is (de verkoopitems), oudste wijziging eerst, met dezelfde `updated_since`, `limit` en `cursor`. Per item: `id` (dat van het 3D-model), `number`, `title`, `description`, `price` (de vraagprijs incl. btw; `null` zolang die niet is ingevuld), `vat_pct`, `ean` (`null` als er geen is), `photos` (`id`, `width`, `height`, `url`), `links` (waar het al te koop staat: `kind`, `label`, `url`) en `updated_at`. Een model zonder verkoopitem bestaat hier niet (404) |
+| `GET /api/v1/items/<id>/photos/<foto-id>` | één foto als JPEG, het adres uit `photos[].url` |
 
 Bedragen zijn tekst met twee decimalen (`"180.90"`), tijden zijn UTC. Een fout is `{"error": "<zin in de taal van het verzoek>", "code": "<vaste sleutel>"}`; reken in code op
 `code`, niet op de zin. **Limieten**: 300 verzoeken per minuut per sleutel (per web-worker; `429` met `Retry-After: 60`), en een adres dat steeds onbekende sleutels aanbiedt
@@ -822,7 +847,7 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
 en **bewaart hem op de server**, naast de automatische, in `DATA_PATH/backups/auto` (de map `DATA_PATH` uit `.env`, en daarin `backups/auto`; in Home Assistant de datamap van de app). Er wordt niets gedownload:
 dat doe je daarna met het downloadicoon in *Back-ups op de server* (hieronder), waar hij bovenaan staat. Kan de server hem niet bewaren (bijvoorbeeld een volle schijf), dan zegt de kaart waarom. In het bestand:
 je instellingen (thema, taal, btw, afronding, stille uren, bedrijfsgegevens…), printers, energietarieven, verpakkingen, onderdelen, accessoires, de filamentbibliotheek, filamentrollen,
-berekeningen (met hun nummers), klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: gebruikers en uitnodigingen, passkeys, herstelcodes, het wachtwoord
+berekeningen (met hun nummers), verkoopitems met hun foto's, klanten, bestellingen met hun factuurnummers en bewaarde factuur-PDF’s, het factuursjabloon en het logo, op wens ook de geüploade printbestanden (groter). **Niet** in het bestand: gebruikers en uitnodigingen, passkeys, herstelcodes, het wachtwoord
 met zijn authenticatorgeheim en meldingsaanmeldingen. Het zijn sleutels of horen bij één apparaat; een bestand dat je kunt
 mailen of bewaren mag de app niet kunnen openen. Na herstellen op een lege installatie log je dus gewoon in met je passkey.
 

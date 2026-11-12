@@ -27,7 +27,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, current_app, g, jsonify, request, send_file
 
-from . import ai_images, customers, filament_library, invoice_docs, invoice_logo, invoice_template, orders, packaging_images, preferences, printfile
+from . import ai_images, customers, filament_library, invoice_docs, invoice_logo, invoice_template, listings, orders, packaging_images, preferences, printfile
 from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized, render, request_language
@@ -129,6 +129,12 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
          "created_at": r["created_at"].isoformat(), "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
         for r in conn.execute("SELECT project_id, kind, origin, model_ref, variant, purpose, is_cover, created_at, content FROM project_images "
                               "ORDER BY created_at, id").fetchall()]
+    doc["listings"] = [
+        {"project_id": str(r["project_id"]), "title": r["title"], "description": r["description"], "price": None if r["price"] is None else str(r["price"]),
+         "ean": r["ean"], "created_at": r["created_at"].isoformat(), "updated_at": r["updated_at"].isoformat(),
+         "photos": [base64.b64encode(bytes(p["content"])).decode("ascii") for p in conn.execute(
+             "SELECT content FROM listing_photos WHERE project_id = %s ORDER BY position, created_at, id", (r["project_id"],)).fetchall()]}
+        for r in conn.execute("SELECT * FROM listings ORDER BY created_at, id").fetchall()]
     doc["packaging_images"] = [{"packaging_id": str(r["packaging_id"]), "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
                                for r in conn.execute("SELECT packaging_id, content FROM packaging_images ORDER BY packaging_id").fetchall()]
     ai = conn.execute("SELECT model, quality FROM ai_image_settings").fetchone()      # never the API key
@@ -327,6 +333,7 @@ def _parse(doc, archive=None, progress=None) -> dict:
     _number_projects(projects, doc)
     plan["projects"] = projects
     plan["project_images"] = _parse_project_images(doc.get("project_images"), {p["id"] for p in projects})
+    plan["listings"] = _parse_listings(doc.get("listings"), {p["id"] for p in projects})
     plan["packaging_images"] = _parse_packaging_images(doc.get("packaging_images"), {item["id"] for item in plan["sections"]["packaging"][1]})
     plan["ai_settings"] = _parse_ai_settings(doc.get("ai_image_settings"))
     plan["orders"] = _parse_orders(doc)
@@ -497,6 +504,37 @@ def _parse_ai_settings(entry):
     if not isinstance(entry, dict) or entry.get("quality") not in ai_images.QUALITIES or not ai_images.MODEL.match(str(entry.get("model", ""))):
         raise _row_error("ai_image_settings", 1, Localized("backup.bad_row_type"))
     return {"model": entry["model"], "quality": entry["quality"]}
+
+
+def _parse_listings(entries, project_ids: set) -> list:
+    """What the models are offered for sale as, with their photos: absent in an older file. One per model, of a model that is in the file;
+    the fields are checked as when they are typed and every photo is read again like an upload."""
+    if entries in (None, []):
+        return []
+    if not isinstance(entries, list) or len(entries) > MAX_ROWS:
+        raise _row_error("listings", 1, Localized("backup.bad_section", section=L("backup.s.listings")))
+    items, seen = [], set()
+    for n, entry in enumerate(entries, 1):
+        try:
+            if not isinstance(entry, dict):
+                raise Localized("backup.bad_row_type")
+            project_id = _uuid(entry.get("project_id"), "listings")
+            photos = entry.get("photos") or []
+            if project_id not in project_ids or project_id in seen or not isinstance(photos, list) or len(photos) > listings.MAX_PHOTOS:
+                raise Localized("backup.bad_row_type")
+            seen.add(project_id)
+            cleaned = []
+            for encoded in photos:
+                try:
+                    content = base64.b64decode(str(encoded), validate=True)
+                except (binascii.Error, ValueError):
+                    raise Localized("backup.bad_file") from None
+                cleaned.append(listings.clean(content))                              # read again, never taken on trust from the file
+            items.append({"project_id": project_id, "fields": listings.fields(entry), "photos": cleaned,
+                          "created_at": _when(entry.get("created_at")), "updated_at": _when(entry.get("updated_at"))})
+        except (ApiError, Localized) as exc:
+            raise _row_error("listings", n, exc) from None
+    return items
 
 
 def _parse_packaging_images(entries, packaging_ids: set) -> list:
@@ -947,6 +985,15 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                              + (", %s" if img["created_at"] else "") + ")",
                              (img["project_id"], img["kind"], img["origin"], img["model_ref"], img["variant"], img["purpose"], img["content"], img["width"], img["height"], img["is_cover"],
                               *([img["created_at"]] if img["created_at"] else [])))
+            for item in plan["listings"]:                           # the models they belong to were put back above
+                f = item["fields"]
+                values = {"project_id": item["project_id"], "title": f["title"], "description": f["description"], "price": f["price"], "ean": f["ean"]}
+                if item["created_at"]:
+                    values["created_at"] = item["created_at"]
+                    values["updated_at"] = item["updated_at"] or item["created_at"]
+                _insert(conn, "listings", values)
+                for content, width, height in item["photos"]:
+                    listings.add_photo(conn, item["project_id"], content, width, height)
             for img in plan["packaging_images"]:                    # the items they belong to were put back above
                 packaging_images.store(conn, img["packaging_id"], img["content"], img["width"], img["height"])
             if plan["ai_settings"]:                                 # model and quality only; the API key stays where it is
