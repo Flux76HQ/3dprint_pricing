@@ -83,6 +83,7 @@
  "backup.s.accessories": "Accessories",
  "backup.s.filament_library": "Filament library",
  "backup.s.files": "Print files",
+ "backup.s.packaging_images": "Pictures of packaging",
  "backup.s.parts": "Parts",
  "backup.s.project_images": "Product images",
  "bambu.err_encrypted": "This PDF is protected with a password and cannot be read.",

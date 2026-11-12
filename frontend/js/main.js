@@ -4,7 +4,7 @@ import { customerEditorView, customerListView } from './customers.js';
 import { orderEditorView, orderListView } from './orders.js';
 import { projectEditorView, projectListView } from './projects.js';
 import { resourceView } from './resources.js';
-import { ACCENTS, settingsView } from './settings.js';
+import { ACCENTS, settingsMenu, settingsSection, settingsView } from './settings.js';
 import { initRelease, redrawRelease, releaseAvailable, stopRelease } from './release.js';
 import { initUpdates, setDirty } from './updates.js';
 import { maybeShowInstallBanner } from './install.js';
@@ -44,6 +44,7 @@ let prefs = {};
 let flags = { recovered: false };
 let appVersion = null;
 let updatesStarted = false;
+let redrawMenu = () => {};                 // draws the parts of the settings in the menu again (a part appeared or went: Business switched on or off)
 
 // --- theme & preferences ------------------------------------------------------
 
@@ -120,7 +121,8 @@ function pageContent({ page, id }) {
           h('h3', {}, navIcon(ic, false), t(label))))),
         h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: logout }, icon('logout'), h('span', {}, t('session.logout')))));
     case 'instellingen':
-      return settingsView({ get prefs() { return prefs; }, setPrefs, setLanguage: chooseLanguage, user: session.user, highlightPasskey: flags.recovered, get aiImages() { return session.aiImages; } }, id);
+      return settingsView({ get prefs() { return prefs; }, setPrefs, setLanguage: chooseLanguage, user: session.user, highlightPasskey: flags.recovered, get aiImages() { return session.aiImages; },
+        redrawMenu: () => redrawMenu() }, id);
     default: return h('p', {}, t('nav.not_found'));
   }
 }
@@ -130,11 +132,11 @@ async function logout() {
   start();
 }
 
-function navLink([page, labelKey, ic], active) {
+function navLink([page, labelKey, ic], active, current) {
   const label = t(labelKey);
   // A dot on the entries that lead to Settings while a newer release exists (release.js shows and hides it).
   const dot = page === 'instellingen' || page === 'meer' ? h('span', { class: 'nav-dot', 'aria-hidden': 'true', hidden: !releaseAvailable() }) : null;
-  return h('a', { href: `#/${page}`, 'aria-current': active ? 'page' : null, title: label },
+  return h('a', { href: `#/${page}`, 'aria-current': active ? (current || 'page') : null, title: label },
     h('span', { class: 'nav-icon' }, navIcon(ic, active), dot), h('span', { class: 'nav-label' }, label));
 }
 
@@ -150,8 +152,20 @@ function route() {
   setDirty(false);                       // a new screen starts clean; the editor raises it again on edits
   const r = currentRoute();
   const main = h('main', { id: 'main', tabindex: '-1' }, pageContent(r));
-  const entry = (page) => { const n = NAV.find((x) => x[0] === page); return navLink(n, n[0] === r.page); };
+  const entry = (page, current) => { const n = NAV.find((x) => x[0] === page); return navLink(n, n[0] === r.page, current); };
   const collapsed = !!prefs.sidebar_collapsed;
+  // Settings is one menu with the rest: on its pages its parts stand under it, grouped as they are on the page itself.
+  const inSettings = r.page === 'instellingen';
+  const who = { get prefs() { return prefs; }, user: session.user, get aiImages() { return session.aiImages; } };
+  const settingsParts = h('div', { class: 'nav-sub', hidden: !inSettings });
+  redrawMenu = () => {
+    const open = settingsSection(who, r.id);
+    settingsParts.replaceChildren(...settingsMenu(who).map(([title, items]) => h('div', { class: 'nav-sub-group', role: 'group', 'aria-label': t(title) },
+      h('span', { class: 'nav-group-title', 'aria-hidden': 'true' }, t(title)),
+      items.map(([key, label, name]) => h('a', { href: `#/instellingen/${key}`, 'aria-current': key === open ? 'page' : null, title: t(label) },
+        h('span', { class: 'nav-icon' }, icon(name)), h('span', { class: 'nav-label' }, t(label)))))));
+  };
+  if (inSettings) redrawMenu();
   const sidebar = h('nav', { class: 'sidebar glass', 'aria-label': t('nav.main') },
     h('div', { class: 'sidebar-brand' }, h('img', { src: '/icons/icon.svg', alt: '', width: 32, height: 32 }),
       h('span', { class: 'nav-label brand-text' }, h('span', { class: 'brand-name' }, '3D Print Pricing', betaBadge()),
@@ -160,9 +174,10 @@ function route() {
       h('button', { class: 'tool-btn sidebar-toggle', type: 'button', 'aria-expanded': String(!collapsed), title: collapsed ? t('nav.expand') : t('nav.collapse'),
         'aria-label': collapsed ? t('nav.expand') : t('nav.collapse'), onclick: () => { setPrefs({ sidebar_collapsed: !prefs.sidebar_collapsed }).then(route); } }, icon('sidebar'))),
     h('div', { class: 'sidebar-nav' }, NAV_GROUPS.map(([label, pages]) => h('div', { class: 'nav-group', role: 'group', 'aria-label': t(label) },
-      h('span', { class: 'nav-group-title', 'aria-hidden': 'true' }, t(label)), pages.map(entry)))),
+      h('span', { class: 'nav-group-title', 'aria-hidden': 'true' }, t(label)), pages.map((page) => entry(page)))),
+      // While its parts are listed, Settings itself is only where you are in the menu, not the page: the part is. Folded away, it is the page again.
+      h('div', { class: 'nav-group nav-settings' }, entry('instellingen', inSettings && !collapsed ? 'true' : undefined), settingsParts)),
     h('div', { class: 'sidebar-foot' },
-      entry('instellingen'),
       h('div', { class: 'sidebar-tools' }, themeToggle({ get prefs() { return prefs; }, setPrefs }, route), langSwitch(chooseLanguage)),
       h('button', { class: 'logout', type: 'button', title: t('session.logout'), onclick: logout }, icon('logout'), h('span', { class: 'nav-label' }, t('session.logout')))));
   // One primary navigator at a time: CSS shows the tab bar on compact widths, the sidebar otherwise.
@@ -171,6 +186,8 @@ function route() {
     ...COMPACT.map((n) => navLink(n, n[0] === r.page)), navLink(['meer', 'nav.more', 'dots-horizontal'], inOverflow));
   root.replaceChildren(h('div', { class: 'app' }, sidebar, main, tabbar));
   window.scrollTo(0, 0);
+  // The menu is long with the parts of the settings open: on those pages it starts at Settings, so all its parts are in sight without scrolling.
+  if (inSettings && !collapsed) { const list = sidebar.querySelector('.sidebar-nav'); list.scrollTop = settingsParts.parentElement.offsetTop - list.offsetTop; }
 }
 
 // --- boot ----------------------------------------------------------------------
