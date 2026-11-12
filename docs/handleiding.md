@@ -46,7 +46,7 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
   **voorraad per soort**: de rollen die je nog hebt met hun gewicht, het totaal per soort en per materiaal (een soort is
   één barcode, of merk + materiaal + kleur). Merk (bijvoorbeeld *Bambu Lab*) en **type** (*Matte*, *Basic*, *Silk*) zijn aparte velden; een bestaande rol houdt wat in het merkveld stond en het type is leeg tot je het invult. Pas je bij een rol met barcode merk, type, materiaal, kleur, gewicht, diameter of temperaturen aan, dan vraagt de app bij het opslaan of de andere rollen met dezelfde barcode ook bijgewerkt moeten worden (alleen wat je veranderde; prijs, wat er nog over is en notities zijn per rol en blijven staan). Bovenaan *Voorraad* en *Rollen* staat een **zoekveld** dat filtert terwijl je typt: op naam (merk, type, kleur), barcode en materiaal, zonder op hoofdletters of accenten te letten; met meer woorden (*bambu zwart*) moet elk woord passen. Met de scanknop ernaast zoek je op een gescande barcode, en wat je typte blijft staan als je tussen *Voorraad* en *Rollen* wisselt. Daarnaast kun je de lijst en de voorraad filteren op **soort** (materiaal), **merk** en **type**; elke keuzelijst past zich aan de vorige keuzes aan. **Dupliceren** (op een rol onder *Rollen*) opent het rolformulier, ingevuld met die rol, met bovenaan *Aantal rollen*: zo voeg je een of meer rollen van hetzelfde filament toe. De nieuwe rollen beginnen vol en zijn niet gearchiveerd; pas aan wat anders is (de prijs, bijvoorbeeld) en ze komen er in één keer bij (alles of niets, hooguit 200). Een rol uit Spoolman dupliceer je in Spoolman. Verbruik van een berekening kun je met één klik van de voorraad afboeken.
   Het menu *Filament* heeft twee onderdelen: **Voorraad** (de soorten, met een spoel-icoon in de kleur van de rol en bovenaan het totaal per materiaal) en **Rollen** (elke rol afzonderlijk). Beide werken als elk ander overzicht (zie *Overzichten*): tegels of lijst, zoeken, filteren op soort, merk en type, en sorteren. Bij *Rollen* zet de schakelaar *Groepeer per soort* de rollen van één soort bij elkaar (drie rollen Bambu Lab Basic Rood onder één kop, met de barcode erbij, zodat twee tinten rood uit elkaar blijven). Binnen een groep staan de rollen in de gekozen volgorde en de groepen staan op volgorde van hun eerste rol: gesorteerd op *Resterend* staat de soort met de leegste rol bovenaan, met die rol als eerste. Zet je de schakelaar uit, dan is het één lijst op die volgorde, en bij gelijk gewicht op naam. De kleur kies je per rol (*Kleur van de rol*); kies je niets, dan wordt hij uit de naam geraden (*zwart*, *Red*, …). Het icoon is in de stijl van de Material Design-iconen getekend, want die hebben geen filamentspoel.
-- **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk. Verpakking hoort bij de **bestelling**, niet bij het model: met
+- **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk, elk met optioneel een **afbeelding** (een foto van de doos of zak, of het logo): kies in het formulier een JPEG, PNG of WebP (op een telefoon kun je meteen een foto maken); hij staat daarna klein in de tegel en in de lijst, en met *Afbeelding weghalen* haal je hem er weer af. De app bewaart een verkleinde kopie (hooguit 800 pixels breed of hoog) zonder de gegevens die een telefoon in een foto zet, in de database; hij zit in de back-up en verdwijnt met de verpakking. Verpakking hoort bij de **bestelling**, niet bij het model: met
   *Verpakking toevoegen* in de bestelling kies je er een uit de lijst (zie *Verpakking op een bestelling*). Een berekening die al verpakking bevatte, houdt die
   (en de kosten ervan) tot je de regel verwijdert; nieuwe verpakking kun je er niet meer aan toevoegen.
 - **Onderdelen** — twee lijsten onder één menu. **Onderdelen** zijn extra onderdelen zoals kabeltjes, connectoren en chips;
@@ -87,7 +87,8 @@ Bouwen uit een checkout (met de `Dockerfile`) kan ook:
 GIT_COMMIT=$(git rev-parse --short HEAD) docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
-(`GIT_COMMIT` verschijnt naast het versienummer; zonder staat er `dev`. CI zet hem automatisch.)
+(`GIT_COMMIT` verschijnt naast het versienummer; zonder staat er `dev`. CI zet hem automatisch. Geef hem altijd mee als je zelf bouwt: een browser bewaart de bestanden van een release
+onder versie plus commit, dus twee verschillende builds met dezelfde commit zou hij door elkaar halen. Een `dev`-build wordt nooit bewaard.)
 
 Zonder `--domain` blijven `RP_ID` en `RP_ORIGINS` leeg: de app volgt dan het adres waarop je hem opent, ook een IP-adres, genoeg om het uit te proberen. Een passkey vraagt wel een domein met https (zie hieronder).
 Handmatig kan ook: `cp .env.example .env` en de waarden invullen.
@@ -193,6 +194,8 @@ met een eigen icoon en opstartscherm en reageert als een native app:
 ### Meldingen en updates
 
 **Nieuwe versie.** De versie in de zijbalk is die van de code die de pagina echt geladen heeft (de server vult hem in `js/build.js` in), niet het antwoord van de server van dit moment; elke script- en stijl-URL draagt de release (`?v=0.7.3-abc1234`), zodat een oude cache of proxy geen oude scripts met een nieuwe server kan mengen. De app vraagt de server bij het openen, na terugkeren naar de voorgrond en elk kwartier welke versie draait.
+Omdat de release in de URL staat, bewaart de browser die bestanden zolang de release draait (`Cache-Control: immutable`) en vraagt hij bij het openen alleen nog de pagina zelf en `sw.js` op; die twee
+worden altijd bij de server nagevraagd, en daaraan merkt de browser een nieuwe release. De productafbeeldingen bewaart hij op dezelfde manier (`private`, dus alleen in de browser van wie ingelogd is). De app comprimeert zelf (gzip): een proxy ervoor hoeft dat niet te doen, maar moet `Cache-Control`, `ETag`, `Vary` en `Content-Encoding` ongewijzigd doorgeven. Gemeten cijfers: [`performance.md`](performance.md).
 Is die nieuwer dan wat de app geladen heeft, dan verschijnt bovenaan “Nieuwe versie beschikbaar: vX.Y.Z (commit)” met
 *Nu bijwerken* en *Later* (een uur rust). Heb je een berekening met niet-opgeslagen wijzigingen open, dan vraagt de app
 eerst of je die wilt kwijtraken. *Instellingen → Beheer → Over → Updatecontrole* toont de geïnstalleerde versie en controleert op verzoek.
@@ -350,8 +353,8 @@ Hosten op de gedeelde Flux76-server: zie `shared/infrastructure/adding-an-app.md
 - `docker compose up -d` pullt een image die al lokaal bestaat **niet** opnieuw; gebruik `docker compose pull && docker compose up -d`.
   Een eerder lokaal gebouwde `…:latest` heeft voorrang tot je pullt.
 - Controleer of `PRINTPRICING_TAG` in `.env` niet op een oude versie staat; zet hem desnoods op `latest`. Een oude `APP_IMAGE` in `.env` wordt niet meer gelezen.
-- Draait alles goed maar toont je browser oude schermen, ververs dan één keer hard (de service worker haalt bestanden
-  vanaf versie 0.3.1 eerst van het netwerk).
+- Draait alles goed maar toont je browser oude schermen, ververs dan één keer hard (de service worker haalt de pagina altijd
+  eerst van het netwerk; alleen bestanden met de draaiende release in hun URL komen uit zijn cache, en die van een vorige release ruimt hij op).
 
 ### Back-up en herstel
 ```bash
@@ -383,6 +386,7 @@ De container start als root om de rechten van de gemounte map te zetten en draai
 | `backend/app/files.py`, `printfile.py` | upload/download van STL/3MF en het uitlezen ervan (slicer-gegevens of volume) |
 | `backend/app/db.py`, `migrations/` | migratierunner (vooruit-only, checksum-bewaakt) |
 | `frontend/` | statische PWA zonder buildstap, plus service worker voor offline schil |
+| `backend/app/static_files.py` | de bestanden van `frontend/`: release in elke URL, één keer gecomprimeerd, en wat de browser mag bewaren |
 
 ### Limieten buiten de repository
 Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de app nodig heeft:
@@ -499,7 +503,7 @@ back-upcodes die je nog niet bewaard hebt), dan vraagt de app eerst om bevestigi
 
 ## Instellingen
 
-*Instellingen* heeft een submenu bovenaan; elk onderdeel heeft een eigen adres (`#/instellingen/<onderdeel>`):
+De onderdelen van *Instellingen* staan in het **menu links, onder *Instellingen***, gegroepeerd (*Persoonlijk*, *Gegevens*, *Beheer*): ze klappen uit zodra je in de instellingen bent, zodat er één menu is. Is dat menu er niet (een telefoon) of is het ingeklapt, dan toont de pagina de onderdelen zelf: op een telefoon als een rij om te vegen, naast het ingeklapte menu als een kolom. Elk onderdeel heeft een eigen adres (`#/instellingen/<onderdeel>`):
 
 | Onderdeel | Bevat |
 |---|---|

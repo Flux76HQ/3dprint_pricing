@@ -54,6 +54,8 @@ jobs:
             node --check "$RUNNER_TEMP/check.mjs" || { echo "Syntax error in $f"; exit 1; }
           done
           node -e "JSON.parse(require('fs').readFileSync('frontend/manifest.webmanifest','utf8'))"
+      - name: The service worker answers from its cache only what it may
+        run: node scripts/test_service_worker.mjs
 
   docker-build:
     runs-on: ubuntu-latest

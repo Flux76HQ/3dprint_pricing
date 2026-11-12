@@ -3,7 +3,9 @@ request to OpenAI is what we say it is, and the pictures survive a backup (the k
 import base64
 import dataclasses
 import json
+import re
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 import requests
@@ -16,6 +18,8 @@ from tests.test_domain_api import make, sheet_payload
 from tests.conftest import connect
 
 KEY = "sk-test-0123456789abcdefghijklmnop"
+APP = Path(__file__).resolve().parents[1]
+FRONT = APP.parent / "frontend"
 REAL_START = ai_images._start
 
 
@@ -774,6 +778,60 @@ def test_cover_download_and_delete(ai, project, monkeypatch):
     assert f"berekening-{project['number']}-webshop-square.jpg" in download.headers["Content-Disposition"]
     assert ai.delete(f"/api/project-images/{second['id']}", headers=H).status_code == 200
     assert listed() == {project["id"]: None} and ai.get(f"/api/project-images/{second['id']}/file").status_code == 404
+
+
+# --- kept by the browser (docs/performance.md) ---------------------------------------------------------------------------
+
+KEPT = "private, max-age=31536000, immutable"
+
+
+def test_a_stored_picture_is_kept_by_the_browser_and_everything_else_is_not(ai, project):
+    """The list of calculations shows a cover per row; with `no-store` every visit fetched every picture again."""
+    image = photo(ai, project["id"]).get_json()
+    for path in (f"/api/project-images/{image['id']}/file", f"/api/project-images/{image['id']}/thumb"):
+        first = ai.get(path)
+        assert first.status_code == 200 and first.headers["Cache-Control"] == KEPT and first.headers["ETag"] == f'"{image["id"]}"', path
+        again = ai.get(path, headers={"If-None-Match": first.headers["ETag"]})
+        assert again.status_code == 304 and not again.data and again.headers["Cache-Control"] == KEPT
+    # never `public`: the picture is only for someone who is signed in, so no proxy in between may keep it
+    assert "public" not in KEPT and "private" in KEPT
+    download = ai.get(f"/api/project-images/{image['id']}/file?download=1")                      # named after the calculation, which can be renumbered by a restore
+    assert download.headers["Cache-Control"] == "no-store" and "ETag" not in download.headers
+    for path in ("/api/projects", f"/api/projects/{project['id']}", f"/api/projects/{project['id']}/images", "/api/preferences", "/api/auth/status",
+                 "/api/project-images/00000000-0000-4000-8000-000000000000/file", "/api/project-images/00000000-0000-4000-8000-000000000000/thumb"):
+        assert ai.get(path).headers["Cache-Control"] == "no-store", path
+
+
+def test_what_is_refused_is_never_kept(ai, project, app):
+    image = photo(ai, project["id"]).get_json()
+    path, on = f"/api/project-images/{image['id']}/thumb", app.config["APP_CONFIG"]
+    assert ai.get(path).status_code == 200
+    app.config["APP_CONFIG"] = dataclasses.replace(on, ai_images_enabled=False)                  # the feature was switched off
+    assert ai.get(path).status_code == 404 and ai.get(path).headers["Cache-Control"] == "no-store"
+    app.config["APP_CONFIG"] = on
+    ai.post("/api/auth/logout", headers=H)                                                       # nobody is signed in
+    assert ai.get(path).status_code == 401 and ai.get(path).headers["Cache-Control"] == "no-store"
+
+
+def test_the_list_gets_a_small_version_of_the_cover(ai, project):
+    big = BytesIO()
+    Image.effect_noise((2400, 1600), 40).convert("RGB").save(big, "JPEG", quality=90)
+    image = photo(ai, project["id"], big.getvalue(), "x.jpg").get_json()
+    stored, thumb = ai.get(f"/api/project-images/{image['id']}/file"), ai.get(f"/api/project-images/{image['id']}/thumb")
+    assert Image.open(BytesIO(stored.data)).size == (2048, 1365)
+    small = Image.open(BytesIO(thumb.data))
+    assert thumb.mimetype == "image/jpeg" and small.format == "JPEG" and small.size == (192, 128)       # the same shape, at most THUMB_EDGE a side
+    assert len(thumb.data) < len(stored.data) / 20
+    assert "/thumb`" in (FRONT / "js/ai-images.js").read_text() and "coverUrl(p.cover_image_id)" in (FRONT / "js/projects.js").read_text()
+
+
+def test_the_bytes_of_a_stored_picture_are_never_rewritten():
+    """`immutable` and the id as the validator are only true while a row's `content` is written once. Every UPDATE of the table in the code
+    is listed here: one that sets anything but `is_cover` needs a new id for the picture, or this caching has to go."""
+    updates = []
+    for path in sorted((APP / "app").glob("*.py")):
+        updates += re.findall(r"UPDATE project_images SET (.+?) WHERE", path.read_text(encoding="utf-8"))
+    assert updates and set(updates) == {"is_cover = false", "is_cover = true"}
 
 
 def test_deleting_the_calculation_deletes_its_pictures(ai, project, app):

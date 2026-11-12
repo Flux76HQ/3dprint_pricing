@@ -27,10 +27,10 @@ export async function api(method, path, body, headers = {}) {
   return data;
 }
 
-export async function upload(path, formData) {
+export async function upload(path, formData, method = 'POST') {
   let res;
   try {
-    res = await fetch(path, { method: 'POST', credentials: 'same-origin', headers: langHeader(), body: formData });
+    res = await fetch(path, { method, credentials: 'same-origin', headers: langHeader(), body: formData });
   } catch {
     throw new ApiError(0, t('api.no_connection'));
   }
