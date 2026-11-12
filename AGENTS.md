@@ -126,6 +126,8 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
   pipeline raises it after the merge to `main`, i.e. when `beta` is promoted: the `docker` workflow runs `scripts/bump_version.py` on every push to `main`, commits the new
   number (`Release X.Y.Z`) and builds the image from that commit. `enforce-version-bump` fails a pull request (into `beta` or `main`) that touches `VERSION`.
   A push to `beta` never raises it and publishes no release, only the `beta` image (section 5).
+- **Owner's intent (noted): the build raises the version by 0.1 for every pull request**, i.e. the **minor** number (`X.Y.Z` → `X.(Y+1).0`).
+  `scripts/bump_version.py` still defaults to `--part patch` until the `docker` workflow passes `minor` by default; until then, the rule below is what actually runs.
 - A promotion that changed protected paths raises the **patch** number; put the label `version:minor` or `version:major` on the
   **promotion pull request** (`beta` → `main`, the pull request the bump reads) to raise that part instead. A promotion of documentation only (`*.md`, `*.txt`) keeps the number.
 - Protected paths: `backend/`, `frontend/`, `deploy/`, `homeassistant/`, `repository.yaml`, `scripts/`, `.github/workflows/`,
