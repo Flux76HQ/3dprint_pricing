@@ -428,6 +428,7 @@
  "f.colour_hex": "Colour code",
  "f.model_label": "Name of the 3D model",
  "err.colour_hex": "{label}: use a colour like #rrggbb, or leave it empty.",
+ "err.calc_files": "Invalid list of files for the filament calculation (at most {max}).",
  "err.models": "Invalid list of 3D models (at most {max}).",
  "err.navbar_style": "Navigation bar: choose iOS-like or Android-like.",
  "err.navbar_glass": "Glass effect: a whole number from 0 to 100.",

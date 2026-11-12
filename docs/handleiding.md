@@ -9,8 +9,11 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
 - **3D Modellen** (menu; voorheen *Berekeningen*) — de berekening per model: filament, onderdelen, accessoires (kabels/laders), printerafschrijving en
   energie → totale kostprijs, optioneel met marge voor een adviesverkoopprijs. Opgeslagen berekeningen
   bewaren de prijzen van het moment van opslaan.
-- **Printbestand koppelen** — een berekening houdt twee soorten bestanden uit elkaar. Het **bestand voor de filamentberekening** is er één: koppel bij
-  voorkeur het geslicede bestand (`.gcode.3mf`), want daarin staan de echte grammen per filament en de printtijd van elke plaat. De **3D-modellen** zijn
+- **Printbestand koppelen** — een berekening houdt twee soorten bestanden uit elkaar. De **bestanden voor de filamentberekening**: koppel bij
+  voorkeur het geslicede bestand (`.gcode.3mf`), want daarin staan de echte grammen per filament en de printtijd van elke plaat. Print je het object in
+  meerdere opdrachten (de voor- en de achterkant apart), voeg dan elk gesliced bestand toe en kies per bestand de plaat of *Alle platen*; *Filament van
+  alle bestanden overnemen* telt ze bij elkaar op (hetzelfde filament als één regel, de uren opgeteld) en zet een bestand zonder slicer-gegevens er als
+  schatting bij. De **3D-modellen** zijn
   er zoveel als het object onderdelen heeft (bijvoorbeeld de voor- en de achterkant van een lightbox), elk met een eigen naam: STL-bestanden of het
   projectbestand (`.3mf`) uit de slicer. Die zijn om te bekijken en om afbeeldingen mee te maken en tellen niet mee in de berekening; een gesliced
   bestand bevat zelf geen model om te draaien. Alle bestanden blijven bewaard en zijn later te downloaden. Uit een **gesliced 3MF** (Bambu Studio / Orca, “Export plate sliced file”) leest de app de
@@ -604,8 +607,7 @@ zie je in de app niets. De server beslist, niet de browser.
      het model in de browser. Met meerdere modellen kies je welk onderdeel je ziet; heeft een projectbestand meerdere platen, dan kies je *Alle platen* of
      één plaat. Per model en per plaat bewaar je één beeld (hooguit zes bij elkaar); ze gaan samen met de foto naar het model, dat ze als de onderdelen
      van één object behandelt. De kaart *Productafbeeldingen* staat
-     standaard dichtgeklapt; de knop *3D-model bekijken* bij het printbestand klapt haar open en laadt het model meteen. Sleep om het te draaien (of gebruik de
-     pijltjestoetsen), zoom met twee vingers of de schuif en kies *Beeld opslaan bij deze berekening*. Het model krijgt de kleuren uit het 3D-bestand als die erin staan: de materialen van een 3MF, of bij een project uit Bambu Studio of OrcaSlicer de filamentkleur per object en onderdeel, en de kleuren die in de slicer op het model zijn geschilderd (per driehoek de kleur die het grootste deel bedekt; een STL kent geen kleur). Wat het bestand geen kleur geeft, krijgt die van de eerste filamentrol. Kies je bij *Kleur van het item* een eigen kleur, dan krijgt het hele model die kleur.
+     standaard dichtgeklapt; de knop *3D-model bekijken* bij het printbestand klapt haar open en laadt het model meteen. Sleep om het model helemaal rond te draaien, in elke richting (ook over de kop); met *Verplaatsen*, Shift of de rechtermuisknop verschuif je het in beeld, met *Kantelen* draai je het om de kijkas, *Aanzicht* zet het recht op een kant (voor, achter, links, rechts, boven, onder) en *Beginstand* zet alles terug. Met twee vingers zoom, kantel en verschuif je tegelijk; de pijltjestoetsen draaien, met Shift verschuiven ze, Q en E kantelen. Zoom verder met de schuif en kies *Beeld opslaan bij deze berekening*. Het model krijgt de kleuren uit het 3D-bestand als die erin staan: de materialen van een 3MF, of bij een project uit Bambu Studio of OrcaSlicer de filamentkleur per object en onderdeel, en de kleuren die in de slicer op het model zijn geschilderd (per driehoek de kleur die het grootste deel bedekt; een STL kent geen kleur). Wat het bestand geen kleur geeft, krijgt die van de eerste filamentrol. Kies je bij *Kleur van het item* een eigen kleur, dan krijgt het hele model die kleur.
      Het beeld staat daarna naast de foto en is net als de foto te verwijderen of te vervangen door een nieuw beeld. De server leest het model uit het
      bestand; een model met meer dan 400.000 driehoeken is te gedetailleerd om te tonen, en een gesliced 3MF (`.gcode.3mf`) bevat alleen de printopdracht en dus geen
      model om te draaien: koppel daarvoor het projectbestand (`.3mf`) uit de slicer. Zo'n gesliced bestand bevat meestal wel de afbeelding die de slicer van
