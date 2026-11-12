@@ -20,6 +20,7 @@ ADMIN_ONLY = (
     ("/api/ai-images", True),           # the OpenAI key, its test and its log; making pictures goes through /api/projects/<id>/images
     ("/api/integrations", True),        # API keys and webhooks: what lets another application in, and where this one reports to
     ("/api/spoolman", False),           # syncing with Spoolman; the status is for everybody
+    ("/api/haspelsync", False),         # the address and the key of HaspelSync, and its test; what it shows (the running print, the filament) is for everybody
     ("/api/invoice-template", False),   # uploading and removing the invoice template
     ("/api/invoice-logo", False),       # uploading and removing the invoice logo
 )

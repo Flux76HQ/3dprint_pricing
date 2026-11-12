@@ -36,4 +36,6 @@ schema:
   max_upload_mb: "int(1,500)"
   ai_images_enabled: bool
   spoolman_url: "url?"
+  haspelsync_url: "url?"
+  haspelsync_api_key: "password?"
   update_check: bool

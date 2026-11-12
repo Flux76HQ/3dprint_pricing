@@ -96,6 +96,20 @@ def boolean(label):
     return check
 
 
+SERIAL = re.compile(r"[0-9A-Z]{6,32}")
+
+
+def serial_number(label):
+    """A printer's serial number the way HaspelSync keeps it (upper case, letters and digits only), or empty for none. It ends up in a path
+    on HaspelSync (`haspelsync.py`), which is why nothing else gets through."""
+    def check(value):
+        value = "" if value is None else str(value).strip().upper()
+        if value and not SERIAL.fullmatch(value):
+            raise ApiError(400, "err.serial", label=L(label))
+        return value
+    return check
+
+
 RESOURCES = {
     "printers": ("printers", {
         "name": text("f.name"),
@@ -104,6 +118,7 @@ RESOURCES = {
         "power_kw": number("f.power", maximum=100),
         "notes": text("f.notes", required=False, max_len=1000),
         "archived": boolean("f.archived"),
+        "haspelsync_serial": serial_number("f.haspelsync_serial"),
     }, "name"),
     "tariffs": ("energy_tariffs", {
         "name": text("f.name"),
@@ -166,7 +181,7 @@ RESOURCES = {
     }, "brand, colour"),
 }
 OPTIONAL = {"notes", "archived", "unit", "is_default", "material", "colour", "colour_hex", "product_type", "power_kw", "barcode", "diameter_mm",
-            "print_temp_c", "bed_temp_c", "notify_low", "filament_id", "sku", "refill"}
+            "print_temp_c", "bed_temp_c", "notify_low", "filament_id", "sku", "refill", "haspelsync_serial"}
 
 
 def _serialise(row: dict) -> dict:
@@ -215,6 +230,17 @@ def _refuse_mirrored(conn, spool_id, *, allowed: bool) -> None:
         raise ApiError(409, "spoolman.managed")
 
 
+def _refuse_taken_serial(conn, printer_id, serial: str) -> None:
+    """A printer of HaspelSync is one printer here: another one that already names this serial number refuses it (the database insists too, this says which).
+    `printer_id` is the printer being saved, None for a new one."""
+    if not serial:
+        return
+    row = conn.execute("SELECT name FROM printers WHERE haspelsync_serial = %s AND haspelsync_serial <> '' AND id IS NOT %s",          # the second test is what lets SQLite use the partial index
+                       (serial, None if printer_id is None else str(printer_id))).fetchone()
+    if row:
+        raise ApiError(409, "haspelsync.serial_taken", name=row["name"])
+
+
 LISTS: dict = {}                     # path -> rows(conn): what `GET /api/<path>` answers, for whoever needs the same list (model_editor)
 
 
@@ -241,6 +267,8 @@ def _register(path, table, fields, order):
             if table == "filament_library":
                 from . import filament_library                  # imported here: that module imports this one
                 filament_library.before_create(conn, values)     # refuses a filament that is already in the library
+            if table == "printers":
+                _refuse_taken_serial(conn, None, values.get("haspelsync_serial", ""))
             if values.get("is_default"):
                 conn.execute(f"UPDATE {table} SET is_default = false")
             elif table == "energy_tariffs" and not conn.execute("SELECT 1 FROM energy_tariffs").fetchone():
@@ -273,6 +301,8 @@ def _register(path, table, fields, order):
             if table == "filament_library":
                 from . import filament_library
                 filament_library.before_update(conn, item_id, values)
+            if table == "printers":
+                _refuse_taken_serial(conn, item_id, values.get("haspelsync_serial", ""))
             if values.get("is_default"):
                 conn.execute(f"UPDATE {table} SET is_default = false")
             row = conn.execute(f"UPDATE {table} SET {sets} WHERE id = %s RETURNING *",

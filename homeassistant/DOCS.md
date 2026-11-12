@@ -40,6 +40,8 @@ not offered through the Home Assistant sidebar (Ingress): it is made to be serve
 | **max_upload_mb** | Largest STL/3MF upload. A proxy in front has to allow at least as much. |
 | **ai_images_enabled** | Switches on the optional AI product images. The OpenAI key is entered in the app, under Settings. |
 | **spoolman_url** | Address of a Spoolman, for example `http://homeassistant.local:7912`. Empty: type it in the app (Settings > Filaments). |
+| **haspelsync_url** | Address of a HaspelSync, for example `http://homeassistant.local:4000`. Empty: type it in the app (Settings > Integrations). A name that does not end in `.local` has to be listed under *Allowed host names* in HaspelSync. |
+| **haspelsync_api_key** | An API key made in HaspelSync under *Network access* (it starts with `ams_`; it can do everything there, so make one for this app). Needs `haspelsync_url` as well and is only sent to that address. Empty: type it in the app. |
 | **update_check** | The app asks GitHub whether a newer release exists and tells the owner. It never updates anything; updating is done here, in Home Assistant. |
 
 Changes take effect after a restart of the app.

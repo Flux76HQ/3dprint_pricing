@@ -5,6 +5,7 @@ nothing here is a secret default except where the app refuses to start without
 one.
 """
 import os
+import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -67,6 +68,8 @@ class Config:
     ai_images_enabled: bool = False
     filament_library_url: str = DEFAULT_LIBRARY_URL
     spoolman_url: str = ""
+    haspelsync_url: str = ""
+    haspelsync_api_key: str = ""
     update_check: bool = True
     legacy_database_url: str = ""
 
@@ -94,10 +97,10 @@ def _library_url() -> str:
     return url
 
 
-def check_spoolman_url(value: str) -> str:
-    """A Spoolman address, tidied: empty means there is none. A home network runs Spoolman on plain http, so http is allowed; a trailing slash,
-    a query and a login in the address are not (a path is: Spoolman can sit under one): the app adds `/api/v1/...` itself. Used for `SPOOLMAN_URL` and for the address an
-    administrator types in the app, so both are held to the same rule."""
+def _http_address(value: str, name: str, example: str) -> str:
+    """The address of a service on the own network, tidied: empty means there is none. Plain http is allowed (a home network runs these on it);
+    a trailing slash, a query and a login in the address are not (a path is: the service can sit under one), because the app adds the paths
+    itself. `name` and `example` only word the refusal."""
     url = value.strip().rstrip("/")
     if not url:
         return ""
@@ -105,16 +108,50 @@ def check_spoolman_url(value: str) -> str:
         parts = urlparse(url)
         port = parts.port
     except ValueError:
-        raise ConfigError("SPOOLMAN_URL must be an http(s) address such as http://spoolman:8000.") from None
+        raise ConfigError(f"{name} must be an http(s) address such as {example}.") from None
     if (parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment
             or port == 0 or len(url) > 200):
-        raise ConfigError("SPOOLMAN_URL must be an http(s) address such as http://spoolman:8000 (no login, query or fragment), or empty.")
+        raise ConfigError(f"{name} must be an http(s) address such as {example} (no login, query or fragment), or empty.")
     return url
+
+
+def check_spoolman_url(value: str) -> str:
+    """A Spoolman address, tidied: empty means there is none. Used for `SPOOLMAN_URL` and for the address an administrator types in the app,
+    so both are held to the same rule."""
+    return _http_address(value, "SPOOLMAN_URL", "http://spoolman:8000")
 
 
 def _spoolman_url() -> str:
     """`SPOOLMAN_URL` from .env; empty (the default) means that the address, if any, is the one typed in the app."""
     return check_spoolman_url(os.environ.get("SPOOLMAN_URL", ""))
+
+
+def check_haspelsync_url(value: str) -> str:
+    """A HaspelSync address, tidied: empty means there is none. Used for `HASPELSYNC_URL` and for the address an administrator types in the app."""
+    return _http_address(value, "HASPELSYNC_URL", "http://haspelsync:4000")
+
+
+def _haspelsync_url() -> str:
+    """`HASPELSYNC_URL` from .env; empty (the default) means that the address, if any, is the one typed in the app."""
+    return check_haspelsync_url(os.environ.get("HASPELSYNC_URL", ""))
+
+
+# What HaspelSync hands out as an API key: `ams_` and the base64url of 32 random bytes. The length is a range so that a longer key later still passes;
+# what matters is that nothing but a token can reach a header (no space, no line break).
+HASPELSYNC_KEY = re.compile(r"^ams_[A-Za-z0-9_-]{20,128}$")
+
+
+def check_haspelsync_key(value: str) -> str:
+    """A HaspelSync API key, tidied: empty means there is none. Used for `HASPELSYNC_API_KEY` and for the key an administrator types in the app."""
+    key = value.strip()
+    if key and not HASPELSYNC_KEY.match(key):
+        raise ConfigError("HASPELSYNC_API_KEY must be an API key from HaspelSync (it starts with ams_), or empty.")
+    return key
+
+
+def _haspelsync_key() -> str:
+    """`HASPELSYNC_API_KEY` from .env; empty (the default) means that the key, if any, is the one typed in the app."""
+    return check_haspelsync_key(os.environ.get("HASPELSYNC_API_KEY", ""))
 
 
 def _legacy_database_url() -> str:
@@ -134,6 +171,10 @@ def load_config() -> Config:
     secret = _required("SESSION_SECRET")
     if len(secret) < 32:
         raise ConfigError("SESSION_SECRET must be at least 32 characters (generate: openssl rand -hex 32).")
+    haspelsync_url, haspelsync_key = _haspelsync_url(), _haspelsync_key()
+    if haspelsync_key and not haspelsync_url:
+        # A key from .env must not be sendable to an address someone types in the app later: it goes to the address .env names, and nowhere else.
+        raise ConfigError("HASPELSYNC_API_KEY needs HASPELSYNC_URL: a key set in .env is only sent to the address set in .env.")
     return Config(
         database_path=os.environ.get("DATABASE_PATH", "").strip() or DEFAULT_DATABASE_PATH,
         session_secret=secret,
@@ -152,6 +193,8 @@ def load_config() -> Config:
         ai_images_enabled=_flag("AI_IMAGES_ENABLED"),
         filament_library_url=_library_url(),
         spoolman_url=_spoolman_url(),
+        haspelsync_url=haspelsync_url,
+        haspelsync_api_key=haspelsync_key,
         update_check=_switch("PRINTPRICING_UPDATE_CHECK"),
         legacy_database_url=_legacy_database_url(),
     )

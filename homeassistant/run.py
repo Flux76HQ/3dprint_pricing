@@ -60,6 +60,9 @@ def settings(options: dict, kept: dict) -> dict:
         fail("rp_id must be a domain name only, without https://, a path or a port (for example print.example.com).")
     origins = str(options.get("rp_origins") or "").strip() or (f"https://{rp_id}" if rp_id else "")
     code = str(options.get("setup_code") or "").strip() or kept["setup_code"]
+    haspelsync_url, haspelsync_key = str(options.get("haspelsync_url") or "").strip(), str(options.get("haspelsync_api_key") or "").strip()
+    if haspelsync_key and not haspelsync_url:
+        fail("haspelsync_api_key needs haspelsync_url: a key set here is only sent to the address set here.")
     env = {
         "RP_ID": rp_id,
         "RP_ORIGINS": origins,
@@ -71,6 +74,8 @@ def settings(options: dict, kept: dict) -> dict:
         "MAX_UPLOAD_MB": str(int(options.get("max_upload_mb", 50))),
         "AI_IMAGES_ENABLED": "TRUE" if options.get("ai_images_enabled") else "FALSE",
         "SPOOLMAN_URL": str(options.get("spoolman_url") or "").strip(),
+        "HASPELSYNC_URL": haspelsync_url,
+        "HASPELSYNC_API_KEY": haspelsync_key,
         "PRINTPRICING_UPDATE_CHECK": "true" if options.get("update_check", True) else "false",
         "DATA_PATH": str(DATA),
     }

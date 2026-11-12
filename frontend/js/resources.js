@@ -4,6 +4,7 @@ import { colourOf, spoolIcon, stockTile } from './filament-ui.js';
 import { openBulkScan } from './bulk-scan.js';
 import { listView, rowActions } from './listview.js';
 import { scanBarcode } from './scanner.js';
+import { livePanel, serialField } from './haspelsync.js';
 import { spoolmanBar } from './spoolman.js';
 import { askChoice, confirmDialog, enhanceDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
 
@@ -166,12 +167,13 @@ function resources() {
   printers: {
     id: 'printer', title: t('printers.title'), path: '/api/printers', empty: t('printers.empty'), archivable: true,
     intro: t('printers.intro'),
-    defaults: { name: '', purchase_price: '', lifetime_hours: '3000', power_kw: '0.15', notes: '' },
+    defaults: { name: '', purchase_price: '', lifetime_hours: '3000', power_kw: '0.15', notes: '', haspelsync_serial: '' },
     fields: [
       { key: 'name', label: t('common.name'), type: 'text', required: true, placeholder: t('printers.name_ph') },
       { key: 'purchase_price', label: t('printers.purchase_price'), type: 'number', required: true },
       { key: 'lifetime_hours', label: t('printers.lifetime'), type: 'number', required: true },
       { key: 'power_kw', label: t('printers.power'), type: 'number', hint: t('printers.power_hint') },
+      { key: 'haspelsync_serial', label: t('haspelsync.field'), type: 'haspelsync', hint: t('haspelsync.field_hint') },
       { key: 'notes', label: t('common.notes'), type: 'textarea' },
     ],
     card(item) {
@@ -535,6 +537,9 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
     if (f.type === 'barcode') return barcodeField(f);
     if (f.type === 'brand') return brandField(f);
     if (f.type === 'color') return colourField(f);
+    if (f.type === 'haspelsync') {
+      return serialField({ label: f.label, hint: f.hint, value: values[f.key] || '', onchange: (serial) => { values[f.key] = serial; dirty.add(f.key); } });
+    }
     if (f.type === 'checkbox') {
       const box = h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: !!values[f.key],
         onchange: (e) => { values[f.key] = e.target.checked; dirty.add(f.key); } });
@@ -762,6 +767,7 @@ export function resourceView(key, sub) {
         h('button', { class: 'btn primary', type: 'button', onclick: () => openForm(config, null, load) },
           icon('plus'), h('span', {}, t(`${config.id}.new`))))),
     h('p', { class: 'muted page-intro' }, config.intro),
+    key === 'printers' ? livePanel() : null,                         // what each printer is doing now: hidden without HaspelSync
     key === 'filament' ? h('div', { class: 'subbar' },
       h('nav', { class: 'subnav', 'aria-label': t('filament.parts') },
         ...[['voorraad', 'filament.part_stock'], ['rollen', 'filament.part_rolls']].map(([to, label]) => h('a', { href: `#/filament/${to}`, 'aria-current': part === to ? 'page' : null }, t(label)))),

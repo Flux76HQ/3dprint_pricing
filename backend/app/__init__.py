@@ -5,7 +5,7 @@ from pathlib import Path
 from flask import Flask, g, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, access, ai_images, api, api_keys, auth, auto_backup, backup, bambu_catalog, customers, filament_library, files, invoice_logo, invites, invoice_template, listings, orders, packaging_images, password_api, public_api, push, push_api, relying_party, spoolman, system, updates, users, webhooks
+from . import about, access, ai_images, api, api_keys, auth, auto_backup, backup, bambu_catalog, customers, filament_library, files, haspelsync, invoice_logo, invites, invoice_template, listings, orders, packaging_images, password_api, public_api, push, push_api, relying_party, spoolman, system, updates, users, webhooks
 from .config import Config, build_channel, load_config
 from .db import make_pool
 from .http import KEEP_FOREVER, ApiError, compressed, error_response
@@ -84,6 +84,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     app.register_blueprint(password_api.bp)
     app.register_blueprint(ai_images.bp)
     app.register_blueprint(spoolman.bp)
+    app.register_blueprint(haspelsync.bp)
     app.register_blueprint(system.bp)
     app.register_blueprint(updates.bp)
     app.register_blueprint(about.bp)
