@@ -110,8 +110,8 @@ def test_the_list_of_orders_reads_only_what_a_row_shows(owner, monkeypatch):
     assert any(sql.startswith("SELECT order_id, quantity, unit_price, vat_pct FROM order_lines") for sql in read)
     whole = owner.get(f"/api/orders/{order['id']}").get_json()
     assert row["total"] == whole["totals"]["total"] == "35.10" and row["line_count"] == 2          # the same total as the order itself works out
-    for key in ("id", "number", "status", "order_date", "delivery_date", "customer_id", "customer_name", "customer_number", "city", "invoice_number",
-                "invoice_date", "updated_at"):
+    for key in ("id", "number", "status", "order_date", "delivery_date", "customer_id", "customer_name", "customer_number", "subject", "city",
+                "invoice_number", "invoice_date", "updated_at"):
         assert row[key] == whole[key], key
-    assert set(row) == {"id", "number", "status", "order_date", "delivery_date", "customer_id", "customer_name", "customer_number", "city", "invoice_number",
-                        "invoice_date", "updated_at", "line_count", "total"}
+    assert set(row) == {"id", "number", "status", "order_date", "delivery_date", "customer_id", "customer_name", "customer_number", "subject", "city",
+                        "invoice_number", "invoice_date", "updated_at", "line_count", "total"}

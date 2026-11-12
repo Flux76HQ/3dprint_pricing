@@ -1062,7 +1062,7 @@
  "orders.search_models_ph": "Number or name",
  "orders.search_packaging": "Search packaging",
  "orders.search_packaging_ph": "Name",
- "orders.search_ph": "Search by name, city or number",
+ "orders.search_ph": "Search by subject, name, city or number",
  "orders.status": "Status",
  "orders.status_afgehandeld": "Completed",
  "orders.status_nieuw": "New",

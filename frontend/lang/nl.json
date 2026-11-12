@@ -1062,7 +1062,7 @@
  "orders.search_models_ph": "Nummer of naam",
  "orders.search_packaging": "Zoek verpakking",
  "orders.search_packaging_ph": "Naam",
- "orders.search_ph": "Zoek op naam, plaats of nummer",
+ "orders.search_ph": "Zoek op betreft, naam, plaats of nummer",
  "orders.status": "Status",
  "orders.status_afgehandeld": "Afgehandeld",
  "orders.status_nieuw": "Nieuw",

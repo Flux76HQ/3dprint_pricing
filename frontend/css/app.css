@@ -677,6 +677,8 @@ h1, h2 { font-weight: 700; }
 .link-card:active { transform: none; }
 .item h3 a { color: var(--text); text-decoration: none; }
 .item h3 a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.item-customer, .item-meta { font-size: .9rem; }                          /* an order's customer and its number and date, under the title: a little smaller than it */
+.item-customer { margin: 2px 0 0; }
 .item { gap: 12px; }
 .item-head { align-items: flex-start; }
 .stats { gap: 8px 28px; padding-top: 12px; border-top: 1px solid var(--lijn); }
