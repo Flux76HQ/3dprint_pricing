@@ -81,7 +81,8 @@ def photos_of(conn, project_id) -> list:
     return conn.execute("SELECT id, position, width_px, height_px FROM listing_photos WHERE project_id = %s ORDER BY position, created_at, id", (project_id,)).fetchall()
 
 
-def _present(conn, project_id) -> dict:
+def present(conn, project_id) -> dict:
+    """The listing of a model with its photos, as the screen gets it (also as a part of `GET /api/model-editor`)."""
     listing = conn.execute("SELECT title, description, price, ean, created_at, updated_at FROM listings WHERE project_id = %s", (project_id,)).fetchone()
     return {"listing": _serialise(listing) if listing else None,
             "photos": [{**_serialise(p), "url": f"/api/listing-photos/{p['id']}/file"} for p in photos_of(conn, project_id)], "max_photos": MAX_PHOTOS}
@@ -91,7 +92,7 @@ def _present(conn, project_id) -> dict:
 def get_listing(project_id):
     with pool().read() as conn:
         _project(conn, project_id)
-        return jsonify(_present(conn, project_id))
+        return jsonify(present(conn, project_id))
 
 
 @bp.put("/projects/<uuid:project_id>/listing")
@@ -115,7 +116,7 @@ def put_listing(project_id):
                 conn.execute("DELETE FROM listing_photos WHERE id = %s", (gone,))
             for position, photo_id in enumerate(order, 1):
                 conn.execute("UPDATE listing_photos SET position = %s WHERE id = %s", (position, str(photo_id)))
-        return jsonify(_present(conn, project_id))
+        return jsonify(present(conn, project_id))
 
 
 @bp.delete("/projects/<uuid:project_id>/listing")

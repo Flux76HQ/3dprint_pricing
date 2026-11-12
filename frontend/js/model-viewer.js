@@ -8,7 +8,29 @@ import { h } from './ui.js';
 
 const SIZE = 1024;                                // the picture is square and always this many pixels, whatever the screen
 const BACKGROUND = [0.94, 0.94, 0.93];            // a plain light backdrop: the saved picture is a starting point, not the result
-const START = { yaw: -0.6, pitch: 0.42, zoom: 1 };
+// How the model is turned is kept as a rotation matrix (three rows of three), not as two angles: with angles one direction is
+// always blocked at the top; a matrix can be turned on, about any axis of the screen, for ever.
+const rotX = (a) => [1, 0, 0, 0, Math.cos(a), -Math.sin(a), 0, Math.sin(a), Math.cos(a)];
+const rotY = (a) => [Math.cos(a), 0, Math.sin(a), 0, 1, 0, -Math.sin(a), 0, Math.cos(a)];
+const rotZ = (a) => [Math.cos(a), -Math.sin(a), 0, Math.sin(a), Math.cos(a), 0, 0, 0, 1];
+const times = (a, b) => [0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]));
+/** The same turn with the rounding of many small steps taken out again: three rows of length one, square to each other. */
+function squared(m) {
+  const unit = (v) => { const l = Math.hypot(...v) || 1; return v.map((x) => x / l); };
+  const x = unit(m.slice(0, 3));
+  const dot = x[0] * m[3] + x[1] * m[4] + x[2] * m[5];
+  const y = unit([m[3] - dot * x[0], m[4] - dot * x[1], m[5] - dot * x[2]]);
+  return [...x, ...y, x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+}
+// The sides a model can be looked at from, by name; `angled` is how it is shown first.
+const VIEWS = {
+  angled: () => times(rotX(0.42), rotY(-0.6)), front: () => rotY(0), back: () => rotY(Math.PI), left: () => rotY(Math.PI / 2),
+  right: () => rotY(-Math.PI / 2), top: () => rotX(Math.PI / 2), bottom: () => rotX(-Math.PI / 2),
+};
+const SIDE_LABEL = { angled: 'ai.view3d_side_angled', front: 'ai.view3d_side_front', back: 'ai.view3d_side_back', left: 'ai.view3d_side_left',
+  right: 'ai.view3d_side_right', top: 'ai.view3d_side_top', bottom: 'ai.view3d_side_bottom' };
+const ROLL_STEP = Math.PI / 12;                   // 15 degrees per press of a tilt button
+const MAX_PAN = 1.6;                              // how far the model can be moved from the middle (its own radius is 1)
 const FOV = 0.5;                                  // radians
 
 const VERTEX = `
@@ -116,8 +138,8 @@ function rgb(hex) {
   return [1, 3, 5].map((at) => parseInt(value.slice(at, at + 2), 16) / 255);
 }
 
-/** The model on a canvas that can be turned. Returns { element, controls, setColour(hex, own), snapshot() } or null when the browser
- *  has no WebGL. The model is drawn in the colours its file names; `colour` is for what the file names none for, and with `own` it
+/** The model on a canvas that can be turned all the way round in every direction, tilted, moved in the picture and zoomed. Returns
+ *  { element, controls: { zoom, mode, side, tilt, reset }, setColour(hex, own), snapshot() } or null when the browser has no WebGL. The model is drawn in the colours its file names; `colour` is for what the file names none for, and with `own` it
  *  is the colour of the whole item instead. `snapshot()` resolves a PNG of what is shown. */
 export function modelViewer({ positions: mesh, colours }, colour, own = false) {
   const canvas = h('canvas', { class: 'model-canvas', width: SIZE, height: SIZE, tabindex: '0', role: 'img', 'aria-label': t('ai.view3d_canvas') });
@@ -148,21 +170,23 @@ export function modelViewer({ positions: mesh, colours }, colour, own = false) {
   gl.viewport(0, 0, SIZE, SIZE);
   gl.clearColor(...BACKGROUND, 1);
 
-  const view = { ...START };
+  // The model can be turned any way round, tilted, moved in the picture and brought closer.
+  const view = { turn: VIEWS.angled(), x: 0, y: 0, zoom: 1 };
   let tint = rgb(colour);
   let whole = own;
   let queued = false;
+  const distanceNow = () => 1.12 / Math.sin(FOV / 2) / view.zoom;  // far enough for the whole ball to fit, then the zoom
 
   function draw() {
     queued = false;
-    const cy = Math.cos(view.yaw), sy = Math.sin(view.yaw), cp = Math.cos(view.pitch), sp = Math.sin(view.pitch);
-    const distance = 1.12 / Math.sin(FOV / 2) / view.zoom;         // far enough for the whole ball to fit, then the zoom
-    // Turn about the upright axis (yaw), tip towards the viewer (pitch), move away from the camera. Column-major, as WebGL reads it.
+    const m = view.turn;
+    const distance = distanceNow();
+    // The turn, then the place in the picture and the way from the camera. Column-major, as WebGL reads it.
     const model = new Float32Array([
-      cy, sp * sy, -cp * sy, 0,
-      0, cp, sp, 0,
-      sy, -sp * cy, cp * cy, 0,
-      0, 0, -distance, 1]);
+      m[0], m[3], m[6], 0,
+      m[1], m[4], m[7], 0,
+      m[2], m[5], m[8], 0,
+      view.x, view.y, -distance, 1]);
     const f = 1 / Math.tan(FOV / 2), near = Math.max(0.05, distance - 1.2), far = distance + 1.2;
     const projection = new Float32Array([
       f, 0, 0, 0,
@@ -181,44 +205,85 @@ export function modelViewer({ positions: mesh, colours }, colour, own = false) {
   const zoom = h('input', { type: 'range', min: '0.5', max: '3', step: '0.05', value: String(view.zoom), 'aria-label': t('ai.view3d_zoom'),
     oninput: () => { view.zoom = Number(zoom.value); redraw(); } });
   const setZoom = (value) => { view.zoom = Math.min(3, Math.max(0.5, value)); zoom.value = String(view.zoom); redraw(); };
-  const turn = (dx, dy) => {
-    view.yaw += dx;
-    view.pitch = Math.min(1.55, Math.max(-1.55, view.pitch + dy));  // never over the top: the model stays upright
+  // Turning follows the screen: sideways about the upright of the screen, up and down about its level line, whatever way the
+  // model already lies. So it goes all the way round in every direction.
+  const turn = (dx, dy) => { view.turn = squared(times(rotX(dy), times(rotY(dx), view.turn))); redraw(); };
+  const roll = (angle) => { view.turn = squared(times(rotZ(angle), view.turn)); redraw(); };
+  const move = (dx, dy) => {
+    view.x = Math.min(MAX_PAN, Math.max(-MAX_PAN, view.x + dx));
+    view.y = Math.min(MAX_PAN, Math.max(-MAX_PAN, view.y + dy));
     redraw();
   };
+  // a distance on screen (in the pixels of the page) as a distance where the model is
+  const inModel = (pixels) => (pixels * 2 * distanceNow() * Math.tan(FOV / 2)) / (canvas.clientWidth || SIZE);
 
-  // One finger or the mouse turns; two fingers zoom.
+  // What one finger (or the mouse) does: turn, or move. Two fingers always do all of it: spread to zoom, twist to tilt, drag to move.
+  let dragMoves = false;
+  const modeButton = (moves, label) => h('button', { class: 'seg', type: 'button', 'aria-pressed': String(dragMoves === moves),
+    onclick: () => { dragMoves = moves; for (const b of mode.children) b.setAttribute('aria-pressed', String(b === (moves ? mode.lastChild : mode.firstChild))); } }, t(label));
+  const mode = h('div', { class: 'segmented', role: 'group', 'aria-label': t('ai.view3d_drag') });
+  mode.append(modeButton(false, 'ai.view3d_drag_turn'), modeButton(true, 'ai.view3d_drag_move'));
+
   const fingers = new Map();
-  let spread = 0;
-  const gap = () => { const [a, b] = [...fingers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  let pair = null;                                                 // the two fingers as they were: how far apart, at what angle, where
+  const pairNow = () => {
+    const [a, b] = [...fingers.values()];
+    return { spread: Math.hypot(a.x - b.x, a.y - b.y), angle: Math.atan2(b.y - a.y, b.x - a.x), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
-    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (fingers.size === 2) spread = gap();
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY, moves: dragMoves || e.shiftKey || e.button === 2 || e.button === 1 });
+    pair = fingers.size === 2 ? pairNow() : null;
   });
   canvas.addEventListener('pointermove', (e) => {
     const was = fingers.get(e.pointerId);
     if (!was) return;
-    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (fingers.size === 1) turn((e.clientX - was.x) * 0.012, (e.clientY - was.y) * 0.012);
-    else if (fingers.size === 2 && spread > 0) { const now = gap(); setZoom(view.zoom * (now / spread)); spread = now; }
+    fingers.set(e.pointerId, { ...was, x: e.clientX, y: e.clientY });
+    if (fingers.size === 1) {
+      if (was.moves) move(inModel(e.clientX - was.x), -inModel(e.clientY - was.y));
+      else turn((e.clientX - was.x) * 0.012, (e.clientY - was.y) * 0.012);
+    } else if (fingers.size === 2 && pair) {
+      const now = pairNow();
+      if (pair.spread > 0) setZoom(view.zoom * (now.spread / pair.spread));
+      roll(pair.angle - now.angle);                                // the screen counts angles clockwise, the model the other way
+      move(inModel(now.x - pair.x), -inModel(now.y - pair.y));
+      pair = now;
+    }
   });
-  const lift = (e) => { fingers.delete(e.pointerId); spread = 0; };
+  const lift = (e) => { fingers.delete(e.pointerId); pair = null; };
   canvas.addEventListener('pointerup', lift);
   canvas.addEventListener('pointercancel', lift);
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());        // the right button moves the model
   canvas.addEventListener('keydown', (e) => {
     const step = 0.1;
-    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
-    if (moves[e.key]) { e.preventDefault(); turn(...moves[e.key]); }
+    const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    if (arrows[e.key]) {
+      e.preventDefault();
+      if (e.shiftKey) move(arrows[e.key][0] * 0.08, -arrows[e.key][1] * 0.08);
+      else turn(arrows[e.key][0] * step, arrows[e.key][1] * step);
+    } else if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); roll(ROLL_STEP); }
+    else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); roll(-ROLL_STEP); }
     else if (e.key === '+' || e.key === '=') { e.preventDefault(); setZoom(view.zoom * 1.1); }
     else if (e.key === '-') { e.preventDefault(); setZoom(view.zoom / 1.1); }
   });
 
-  const reset = h('button', { class: 'btn small', type: 'button', onclick: () => { Object.assign(view, START); zoom.value = String(view.zoom); redraw(); } }, t('ai.view3d_reset'));
+  // Straight onto a side, with the model back in the middle; from there it is turned on by hand.
+  const side = h('select', { 'aria-label': t('ai.view3d_side'), onchange: () => { show(side.value); } },
+    Object.keys(VIEWS).map((name) => h('option', { value: name }, t(SIDE_LABEL[name]))));
+  const show = (name) => {
+    Object.assign(view, { turn: VIEWS[name](), x: 0, y: 0, zoom: 1 });
+    zoom.value = '1';
+    side.value = name;
+    redraw();
+  };
+  const tilt = h('div', { class: 'row' },
+    h('button', { class: 'btn small', type: 'button', 'aria-label': t('ai.view3d_tilt_left'), title: t('ai.view3d_tilt_left'), onclick: () => roll(ROLL_STEP) }, '↺'),
+    h('button', { class: 'btn small', type: 'button', 'aria-label': t('ai.view3d_tilt_right'), title: t('ai.view3d_tilt_right'), onclick: () => roll(-ROLL_STEP) }, '↻'));
+  const reset = h('button', { class: 'btn small', type: 'button', onclick: () => show('angled') }, t('ai.view3d_reset'));
   draw();
   return {
     element: canvas,
-    controls: [zoom, reset],
+    controls: { zoom, mode, side, tilt, reset },
     setColour(hex, asWhole = false) { tint = rgb(hex); whole = asWhole; redraw(); },
     snapshot() {
       draw();                                                        // what is on screen now, not what was there a frame ago

@@ -60,6 +60,25 @@ def test_a_new_picture_replaces_the_old_one_and_changes_its_version(owner):
     assert first != second and owner.get("/api/packaging-images").get_json()["images"] == {item["id"]: second}
 
 
+def test_the_browser_keeps_a_picture_under_the_address_of_its_version_only(owner):
+    """The list asks for `?v=<version>`, and the version is the hash of the picture: only that address can never change what it gives.
+    Before, every picture was fetched again at every visit of the list (docs/performance.md)."""
+    item = box(owner)
+    first = put(owner, item["id"], picture(colour=(10, 20, 30))).get_json()["version"]
+    kept = owner.get(f"/api/packaging-images/{item['id']}?v={first}")
+    assert kept.status_code == 200 and kept.headers["Cache-Control"] == "private, max-age=31536000, immutable"
+    assert owner.get(f"/api/packaging-images/{item['id']}?v={first}", headers={"If-None-Match": kept.headers["ETag"]}).status_code == 304
+    for address in (f"/api/packaging-images/{item['id']}", f"/api/packaging-images/{item['id']}?v=", f"/api/packaging-images/{item['id']}?v=0123456789abcdef"):
+        assert owner.get(address).headers["Cache-Control"] == "no-store", address
+    second = put(owner, item["id"], picture(colour=(200, 20, 30))).get_json()["version"]
+    assert second != first
+    old = owner.get(f"/api/packaging-images/{item['id']}?v={first}")                    # the address of the picture that was replaced
+    assert old.headers["Cache-Control"] == "no-store" and old.data != kept.data          # gives the new one, and that is not kept under the old address
+    new = owner.get(f"/api/packaging-images/{item['id']}?v={second}")
+    assert new.headers["Cache-Control"] == "private, max-age=31536000, immutable" and new.data == old.data
+    assert owner.get("/api/packaging-images").headers["Cache-Control"] == "no-store"     # which pictures there are is asked every time
+
+
 def test_it_can_be_removed_and_goes_with_its_item(owner):
     one, two = box(owner), box(owner, "Luchtkussenenvelop")
     put(owner, one["id"], picture())

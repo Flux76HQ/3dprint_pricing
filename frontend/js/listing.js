@@ -18,7 +18,7 @@ async function copy(value, done) {
  * the model can have product pictures, and `changed()` to call when something here needs saving.
  * Returns the card, `dirty()`, `save()` (resolves to whether the editor can go on) and `refresh()` for when the advice changed.
  */
-export function listingCard(projectId, source) {
+export function listingCard(projectId, source, opened = null) {
   const state = { exists: false, title: '', description: '', price: '', ean: '', photos: [], max: 12 };
   let dirty = false;
   const touch = () => { dirty = true; source.changed(); };
@@ -158,7 +158,6 @@ export function listingCard(projectId, source) {
     } catch (e) { dirty = true; toast(e.message, 'error'); return false; }
   }
 
-  load();
   const el = h('div', { class: 'glass card stack listing' },
     foldHead('listing', t('listing.card_title')),
     h('p', { class: 'muted' }, t('listing.intro')),
@@ -172,5 +171,6 @@ export function listingCard(projectId, source) {
       h('div', { class: 'sub-head' }, h('h3', {}, t('listing.photos')), h('div', { class: 'row' }, fromModel, add, file)),
       photos),
     h('div', { class: 'line-group' }, h('div', { class: 'sub-head' }, h('h3', {}, t('listing.place')), remove), place));
+  if (opened) show(opened); else load();              // the screen got it with the model (GET /api/model-editor)
   return { el, dirty: () => dirty, save, refresh: drawAdvice };
 }

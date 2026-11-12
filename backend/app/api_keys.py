@@ -40,9 +40,12 @@ def authenticate() -> dict:
     if scheme.lower() != "bearer" or not value.startswith(PREFIX) or len(value) > 200:
         raise ApiError(401, "apikey.missing")
     now = datetime.now(timezone.utc)
-    with pool().connection() as conn:
-        row = conn.execute("SELECT id, name FROM api_keys WHERE key_hash = %s", (_hash(value),)).fetchone()
-        if row is not None:
+    with pool().read() as conn:
+        row = conn.execute("SELECT id, name, last_used_at FROM api_keys WHERE key_hash = %s", (_hash(value),)).fetchone()
+    if row is not None and (row["last_used_at"] is None or row["last_used_at"] < now - USED_EVERY):
+        # The one write of a request with a key, and only once in USED_EVERY: the rest of the time another application reads without
+        # ever taking the write lock (AGENTS.md, section 6h), however often it asks.
+        with pool().connection() as conn:
             conn.execute("UPDATE api_keys SET last_used_at = %s WHERE id = %s AND (last_used_at IS NULL OR last_used_at < %s)", (now, row["id"], now - USED_EVERY))
     if row is None:
         wrong_key.check(request.remote_addr or "?")

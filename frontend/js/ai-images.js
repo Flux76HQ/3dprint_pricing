@@ -252,7 +252,8 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
         try { keepView(await made.snapshot(), '3d-model.png', name, save); } catch (e) { lastError = e.message; draw(); }
       } }, t('ai.view3d_save'));
       fill(stage, made.element, h('p', { class: 'hint' }, t('ai.view3d_hint')),
-        h('div', { class: 'model-controls' }, field(t('ai.view3d_zoom'), made.controls[0]), made.controls[1]),
+        h('div', { class: 'model-controls' }, field(t('ai.view3d_drag'), made.controls.mode), field(t('ai.view3d_side'), made.controls.side),
+          field(t('ai.view3d_tilt'), made.controls.tilt), field(t('ai.view3d_zoom'), made.controls.zoom), made.controls.reset),
         h('div', { class: 'row' }, save));
     }
 

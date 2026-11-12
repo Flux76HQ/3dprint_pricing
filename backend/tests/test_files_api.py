@@ -246,6 +246,26 @@ def test_a_project_with_several_plates_can_be_shown_per_plate(owner):
     assert owner.get(f"/api/print-files/{stl}/mesh?plate=1").status_code == 422
 
 
+def test_the_filament_of_a_calculation_can_come_from_several_files(owner, app):
+    front = upload(owner, pf.sliced_3mf(), "voor.gcode.3mf").get_json()["id"]
+    back = upload(owner, pf.sliced_3mf(), "achter.gcode.3mf").get_json()["id"]
+    made = make(owner, "/api/projects", {**sheet_payload(), "calc_files": [front, back, front]})
+    assert made["calc_files"] == [front, back] and made["file_id"] == front         # in order, once each; the first is also `file_id`
+    assert owner.get(f"/api/projects/{made['id']}").get_json()["calc_files"] == [front, back]
+    old = make(owner, "/api/projects", {**sheet_payload(), "file_id": back})        # a client from before there were several
+    assert old["calc_files"] == [back] and old["file_id"] == back
+    assert make(owner, "/api/projects", sheet_payload())["calc_files"] == []
+    for bad in (["nope"], ["00000000-0000-0000-0000-000000000000"], front, [front] + [str(n) for n in range(12)]):
+        assert owner.put(f"/api/projects/{made['id']}", json={**sheet_payload(), "calc_files": bad}, headers=H).status_code == 400, bad
+    # every file in the list is kept, not only the first
+    owner.delete(f"/api/projects/{old['id']}", headers=H)
+    with app.extensions["pool"].connection() as conn:
+        conn.execute("UPDATE print_files SET created_at = strftime('%Y-%m-%d %H:%M:%f', 'now', '-2 days')")
+    upload(owner, pf.stl_binary(), "nieuw.stl")
+    assert owner.get(f"/api/print-files/{front}").status_code == 200 and owner.get(f"/api/print-files/{back}").status_code == 200
+    assert owner.put(f"/api/projects/{made['id']}", json={**sheet_payload(), "calc_files": []}, headers=H).get_json()["file_id"] is None
+
+
 def test_a_calculation_keeps_its_3d_models_apart_from_its_filament_file(owner, app):
     sliced = upload(owner, pf.sliced_3mf(), "lightbox.gcode.3mf").get_json()["id"]
     front = upload(owner, pf.stl_binary(), "voor.stl").get_json()["id"]

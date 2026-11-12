@@ -119,7 +119,10 @@ function fromSaved(project) {
   const str = (v) => (v == null ? '' : String(v));
   return {
     id: project.id, number: project.number, name: project.name, notes: project.notes, object_description: project.object_description || '', margin_pct: str(project.margin_pct),
-    file_id: project.file_id || null,
+    // the files the filament is worked out from; of each: which plate is chosen (ALL_PLATES for all), and for a file without slicer
+    // data the material and fill its weight is estimated with
+    files: ((project.calc_files || []).length ? project.calc_files : (project.file_id ? [project.file_id] : []))
+      .map((id) => ({ file_id: id, meta: null, plate: 0, material: 'PLA', fill: '40' })),
     models: (project.models || []).map((m) => ({ file_id: m.file_id, label: str(m.label), meta: null })),
     links: (project.links || []).map((l) => ({ kind: l.kind || 'other', label: str(l.label), url: str(l.url) })),
     vat_pct: str(project.vat_pct),
@@ -133,24 +136,20 @@ function fromSaved(project) {
 
 export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: async () => {} }) {
   const root = h('section', { class: 'page' }, h('p', { class: 'muted' }, t('common.loading')));
-  Promise.all([
-    api('GET', '/api/spools'), api('GET', '/api/spools/stock').catch(() => ({ groups: [] })), api('GET', '/api/printers'), api('GET', '/api/tariffs'), api('GET', '/api/packaging'),
-    api('GET', '/api/parts'), api('GET', '/api/accessories'),
-    id ? api('GET', `/api/projects/${id}`) : Promise.resolve(null),
-    api('GET', '/api/spoolman').catch(() => ({ enabled: false })),         // only decides what is offered; the server refuses a booking itself
-  ]).then(([spools, stock, printers, tariffs, packaging, parts, accessories, project, spoolman]) => {
+  // One request for the calculation and the lists it chooses from (it used to be nine): the server reads them in one go.
+  api('GET', `/api/model-editor${id ? `?project=${id}` : ''}`).then(({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listing, spoolman }) => {
     root.replaceChildren(buildEditor({
       spools: spools.filter((s) => !s.archived), stock: stock.groups, printers: printers.filter((p) => !p.archived), tariffs,
       packaging: packaging.filter((p) => !p.archived), parts: parts.filter((p) => !p.archived),
-      accessories: accessories.filter((p) => !p.archived), project, navigate, ctx, spoolman: !!spoolman.enabled,
+      accessories: accessories.filter((p) => !p.archived), project, listed: listing, navigate, ctx, spoolman: !!spoolman.enabled,
     }));
   }).catch((e) => root.replaceChildren(h('p', { class: 'error', role: 'alert' }, e.message)));
   return root;
 }
 
-function buildEditor({ spools, stock, printers, tariffs, packaging, parts, accessories, project, navigate, ctx, spoolman }) {
+function buildEditor({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listed, navigate, ctx, spoolman }) {
   const state = project ? fromSaved(project) : {
-    id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, file_id: null, models: [], links: [],
+    id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, files: [], models: [], links: [],
     vat_pct: ctx.prefs.vat_pct ?? '21',
     filament: [blankFilament()], parts: [], depreciation: [], energy: [],
   };
@@ -192,7 +191,8 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   const payload = () => ({
     name: state.name, notes: state.notes, object_description: state.object_description, margin_pct: parseNum(state.margin_pct),
     vat_pct: parseNum(state.vat_pct), price_rounding: 'none',      // rounding is decided per order
-    file_id: state.file_id,
+    file_id: state.files.length ? state.files[0].file_id : null,
+    calc_files: state.files.map((f) => f.file_id),
     models: state.models.map((m) => ({ file_id: m.file_id, label: m.label.trim() })),
     links: state.links.filter((l) => l.url.trim()).map((l) => ({ kind: l.kind, label: l.label.trim(), url: l.url.trim() })),
     data: {
@@ -428,15 +428,10 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   }
 
   // --- print file: upload, read, adopt -------------------------------------------------
-  let fileMeta = null;
   let imagesCard = null;                              // the product images card, once it is there: the 3D model is shown in it
   let listing = null;                                 // the listing card of a saved model (what it is offered for sale as)
-  let plateIndex = 0;                                 // ALL_PLATES = every plate of the file together
-  const ALL_PLATES = -1;
   let densities = {};
-  let material = 'PLA';
-  let fillPct = '40';
-  let estimateTimer = null;
+  const ALL_PLATES = -1;                              // every plate of a file together
   const fileBox = h('div', { class: 'glass card stack' });
 
   // The kind of filament in stock that a file's filament is: the same material, and the colour that looks nearest to the slicer's
@@ -480,8 +475,8 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
 
   // Takes the filament and the hours from the slicer into the calculation: a line per filament of the file, each on the kind in
   // stock with its material and colour (and priced from it), whole print hours, and a printer line with depreciation and energy.
-  function adoptSliced(plate, auto = false) {
-    state.filament = plate.filaments.map((f) => filamentRow(`${f.type} ${f.color}`.trim() || t('calc.filament'), f.grams, f.type, f.color));
+  function adoptSliced(plate, auto = false, estimated = []) {
+    state.filament = [...plate.filaments.map((f) => filamentRow(`${f.type} ${f.color}`.trim() || t('calc.filament'), f.grams, f.type, f.color)), ...estimated];
     const notes = [];
     let whole = null;
     if (plate.hours) {
@@ -504,13 +499,27 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       onchange: (e) => ctx.setPrefs({ auto_adopt_file: e.target.checked }) }),
     t('file.auto_adopt'));
 
-  async function adoptEstimate() {
+  // The plate(s) of a file that count: one plate, or all of them as one.
+  const chosenPlate = (f) => {
+    const plates = f.meta.analysis.plates;
+    return plates.length > 1 && f.plate === ALL_PLATES ? combinePlates(plates) : plates[Math.min(Math.max(f.plate, 0), plates.length - 1)];
+  };
+  const estimateOf = (f) => api('GET', `/api/print-files/${f.file_id}/estimate?density=${densities[f.material]}&fill=${parseNum(f.fill)}`);
+
+  // Takes the filament of all the files together: of every sliced file its chosen plate(s), the same filament on different files as
+  // one line and the hours added up; of a file without slicer data its estimated weight as a line of its own.
+  async function adoptAll(auto = false) {
+    const read = state.files.filter((f) => f.meta);
+    const sliced = read.filter((f) => f.meta.analysis.plates.length).map(chosenPlate);
+    const estimated = [];
     try {
-      const res = await api('GET', `/api/print-files/${fileMeta.id}/estimate?density=${densities[material]}&fill=${parseNum(fillPct)}`);
-      state.filament = [filamentRow(t('file.estimate_label', { material, file: fileMeta.filename }), res.grams, material)];
-      touch(); redraw();
-      toast(t('file.estimate_adopted'));
-    } catch (e) { toast(e.message, 'error'); }
+      for (const f of read.filter((x) => !x.meta.analysis.plates.length && x.meta.analysis.volume_cm3)) {
+        const res = await estimateOf(f);
+        estimated.push(filamentRow(t('file.estimate_label', { material: f.material, file: f.meta.filename }), res.grams, f.material));
+      }
+    } catch (e) { toast(e.message, 'error'); return; }
+    if (!sliced.length && !estimated.length) return;
+    adoptSliced(combinePlates(sliced), auto, estimated);
   }
 
   // The links of the model: where it comes from, and where it is offered for sale. A pasted address says what it is by its host.
@@ -579,61 +588,41 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
 
   function drawFile() {
     const parts = [h('h2', {}, t('file.title')), h('h3', {}, t('file.calc_title')), h('p', { class: 'muted' }, t('file.calc_intro'))];
-    if (!fileMeta) {
-      const input = h('input', { type: 'file', accept: '.stl,.3mf', onchange: async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        input.disabled = true; status.textContent = t('file.reading');
-        const form = new FormData();
-        form.append('file', file);
-        try {
-          fileMeta = await upload('/api/print-files', form);
-          state.file_id = fileMeta.id; plateIndex = 0; touch();
-          if (!Object.keys(densities).length) densities = await api('GET', '/api/print-files/materials');
-        } catch (err) { toast(err.message, 'error'); }
-        drawFile();
-        const first = fileMeta && fileMeta.analysis.plates[0];
-        if (first && ctx.prefs.auto_adopt_file !== false) adoptSliced(first, true);
-      } });
-      const status = h('p', { class: 'muted', role: 'status' });
-      parts.push(field(t('file.field'), input, t('file.field_hint')), autoToggle(), status);
-    } else {
-      const a = fileMeta.analysis;
+    const status = h('p', { class: 'muted', role: 'status' });
+    for (const f of state.files) {
+      if (!f.meta) { parts.push(h('p', { class: 'muted' }, t('common.loading'))); continue; }
+      const a = f.meta.analysis;
+      const size = f.meta.size_bytes < 1048576 ? `${fmt(f.meta.size_bytes / 1024, 0)} kB` : `${fmt(f.meta.size_bytes / 1048576, 1)} MB`;
       parts.push(h('div', { class: 'list-row' },
-        h('div', {}, h('strong', {}, fileMeta.filename),
-          h('p', { class: 'muted' }, `${fileMeta.size_bytes < 1048576 ? `${fmt(fileMeta.size_bytes / 1024, 0)} kB` : `${fmt(fileMeta.size_bytes / 1048576, 1)} MB`} · `, h('span', { class: `badge${a.exact ? '' : ' muted'}` }, a.exact ? t('file.exact') : t('file.estimated')))),
+        h('div', {}, h('strong', {}, f.meta.filename),
+          h('p', { class: 'muted' }, `${size} · `, h('span', { class: `badge${a.exact ? '' : ' muted'}` }, a.exact ? t('file.exact') : t('file.estimated')))),
         h('div', { class: 'row' },
-          imagesCard && !state.models.length ? h('button', { class: 'btn small', type: 'button', onclick: () => imagesCard.showModel() }, t('file.view_3d')) : null,
-          h('a', { class: 'btn small', href: `/api/print-files/${fileMeta.id}/download` }, t('file.download')),
-          h('button', { class: 'btn small', type: 'button', onclick: () => { fileMeta = null; state.file_id = null; touch(); drawFile(); } }, t('file.unlink')))));
+          imagesCard && !state.models.length ? h('button', { class: 'btn small', type: 'button', onclick: () => imagesCard.showModel(f.file_id) }, t('file.view_3d')) : null,
+          h('a', { class: 'btn small', href: `/api/print-files/${f.file_id}/download` }, t('file.download')),
+          h('button', { class: 'btn small', type: 'button', onclick: () => { state.files.splice(state.files.indexOf(f), 1); touch(); drawFile(); } }, t('file.unlink')))));
       if (a.plates.length) {
-        const all = a.plates.length > 1 && plateIndex === ALL_PLATES;
-        const plate = all ? combinePlates(a.plates) : a.plates[Math.min(Math.max(plateIndex, 0), a.plates.length - 1)];
+        const plate = chosenPlate(f);
         if (a.plates.length > 1) {
           const total = combinePlates(a.plates);
-          parts.push(field(t('file.plate'), h('select', { onchange: (e) => { plateIndex = Number(e.target.value); drawFile(); } },
-            [...a.plates.map((pl, i) => h('option', { value: i, selected: i === plateIndex }, `${t('file.plate')} ${pl.index}${pl.grams ? ` · ${fmt(pl.grams, 1)} g` : ''}`)),
-              h('option', { value: ALL_PLATES, selected: all }, `${t('file.all_plates')}${total.grams ? ` · ${fmt(total.grams, 1)} g` : ''}`)])));
+          parts.push(field(t('file.plate'), h('select', { onchange: (e) => { f.plate = Number(e.target.value); drawFile(); } },
+            [...a.plates.map((pl, i) => h('option', { value: i, selected: i === f.plate }, `${t('file.plate')} ${pl.index}${pl.grams ? ` · ${fmt(pl.grams, 1)} g` : ''}`)),
+              h('option', { value: ALL_PLATES, selected: f.plate === ALL_PLATES }, `${t('file.all_plates')}${total.grams ? ` · ${fmt(total.grams, 1)} g` : ''}`)])));
         }
         parts.push(h('dl', { class: 'stats' },
           h('div', {}, h('dt', {}, t('file.print_time')), h('dd', {}, plate.hours ? t('file.hours', { n: fmt(plate.hours, 2) }) : '—')),
           h('div', {}, h('dt', {}, t('file.filament_total')), h('dd', {}, plate.grams ? `${fmt(plate.grams, 1)} g` : '—'))),
-        h('ul', { class: 'plain-list' }, plate.filaments.map((f) => {
+        h('ul', { class: 'plain-list' }, plate.filaments.map((fl) => {
           const dot = h('span', { class: 'dot', 'aria-hidden': 'true' });
-          if (colourCode(f.color)) dot.style.background = colourCode(f.color);
-          return h('li', { class: 'row' }, dot, `${f.type || t('calc.filament')} ${f.color}`.trim(), h('span', { class: 'muted' }, `· ${fmt(f.grams, 1)} g`));
-        })),
-        h('button', { class: 'btn primary', type: 'button', onclick: () => adoptSliced(plate) }, t('file.adopt')),
-        autoToggle());
-      } else {
+          if (colourCode(fl.color)) dot.style.background = colourCode(fl.color);
+          return h('li', { class: 'row' }, dot, `${fl.type || t('calc.filament')} ${fl.color}`.trim(), h('span', { class: 'muted' }, `· ${fmt(fl.grams, 1)} g`));
+        })));
+      } else if (a.volume_cm3) {
         const estimate = h('output', { class: 'cost' }, '…');
+        let timer = null;
         const refresh = () => {
-          clearTimeout(estimateTimer);
-          estimateTimer = setTimeout(async () => {
-            try {
-              const res = await api('GET', `/api/print-files/${fileMeta.id}/estimate?density=${densities[material]}&fill=${parseNum(fillPct)}`);
-              estimate.textContent = `≈ ${fmt(res.grams, 1)} g`;
-            } catch (e) { estimate.textContent = e.message; }
+          clearTimeout(timer);
+          timer = setTimeout(async () => {
+            try { estimate.textContent = `≈ ${fmt((await estimateOf(f)).grams, 1)} g`; } catch (e) { estimate.textContent = e.message; }
           }, 150);
         };
         parts.push(h('dl', { class: 'stats' },
@@ -641,13 +630,35 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
           a.bbox_mm ? h('div', {}, h('dt', {}, t('file.dimensions')), h('dd', {}, `${a.bbox_mm.map((v) => fmt(v, 0)).join(' × ')} mm`)) : null),
         h('p', { class: 'muted' }, t('file.no_slicer')),
         h('div', { class: 'two' },
-          field(t('file.material'), h('select', { onchange: (e) => { material = e.target.value; refresh(); } },
-            Object.keys(densities).map((m) => h('option', { value: m, selected: m === material }, `${m} (${fmt(densities[m])} g/cm³)`)))),
-          field(t('file.fill'), numberInput(fillPct, (v) => { fillPct = v; refresh(); }), t('file.fill_hint'))),
-        h('div', { class: 'row' }, estimate, h('button', { class: 'btn primary', type: 'button', onclick: adoptEstimate }, t('file.adopt_estimate'))));
-        refresh();
+          field(t('file.material'), h('select', { onchange: (e) => { f.material = e.target.value; refresh(); } },
+            Object.keys(densities).map((m) => h('option', { value: m, selected: m === f.material }, `${m} (${fmt(densities[m])} g/cm³)`)))),
+          field(t('file.fill'), numberInput(f.fill, (v) => { f.fill = v; refresh(); }), t('file.fill_hint'))),
+        h('div', { class: 'row' }, estimate));
+        if (Object.keys(densities).length) refresh();
       }
     }
+    // More than one file: an object printed as several jobs has a sliced file per job, and they are taken together.
+    const input = h('input', { type: 'file', accept: '.stl,.3mf', multiple: true, onchange: async () => {
+      input.disabled = true; status.textContent = t('file.reading');
+      let slicedNew = false;
+      for (const file of input.files) {
+        const form = new FormData();
+        form.append('file', file);
+        try {
+          const meta = await upload('/api/print-files', form);
+          state.files.push({ file_id: meta.id, meta, plate: 0, material: 'PLA', fill: '40' });
+          slicedNew = slicedNew || meta.analysis.plates.length > 0;
+          touch();
+        } catch (err) { toast(`${file.name}: ${err.message}`, 'error'); }
+      }
+      drawFile();
+      if (slicedNew && ctx.prefs.auto_adopt_file !== false) adoptAll(true);
+    } });
+    parts.push(field(state.files.length ? t('file.field_more') : t('file.field'), input, t('file.field_hint')), status);
+    if (state.files.some((f) => f.meta)) {
+      parts.push(h('button', { class: 'btn primary', type: 'button', onclick: () => adoptAll() }, state.files.length > 1 ? t('file.adopt_all') : t('file.adopt')));
+    }
+    parts.push(autoToggle());
     fill(fileBox, ...parts, modelsBox(), linksBox);
   }
 
@@ -655,13 +666,11 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   state.models.forEach((m) => {
     api('GET', `/api/print-files/${m.file_id}`).then((meta) => { m.meta = meta; drawFile(); }).catch(() => { m.meta = { filename: '?' }; drawFile(); });
   });
-  if (state.file_id) {
-    Promise.all([api('GET', `/api/print-files/${state.file_id}`), api('GET', '/api/print-files/materials')])
-      .then(([meta, dens]) => { fileMeta = meta; densities = dens; drawFile(); })
-      .catch(() => { state.file_id = null; drawFile(); });
-  } else {
-    api('GET', '/api/print-files/materials').then((d) => { densities = d; }).catch(() => {});
-  }
+  api('GET', '/api/print-files/materials').then((d) => { densities = d; drawFile(); }).catch(() => {});
+  [...state.files].forEach((f) => {                   // what each linked file holds; one that is gone is let go
+    api('GET', `/api/print-files/${f.file_id}`).then((meta) => { f.meta = meta; drawFile(); })
+      .catch(() => { state.files.splice(state.files.indexOf(f), 1); drawFile(); });
+  });
   drawFile();
 
   const nameInput = textInput(state, 'name', { required: true, maxlength: 120, placeholder: t('calc.name_ph') });
@@ -704,7 +713,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       name: () => state.name, texts: () => project.image_text, aiImages: !!ctx.aiImages,
       advice: () => (result ? { price: Number(result.vat_pct) > 0 ? result.sell_price_incl_vat : result.sell_price, cost: result.cost_price } : null),
       changed: () => { dirty = true; setDirty(true); },
-    });
+    }, listed);
   }
   if (ctx.aiImages && state.id) {
     imagesCard = productImagesCard(state.id, () => state.object_description, () => !!ctx.prefs.business_mode,
@@ -712,7 +721,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       () => ({
         models: state.models.length
           ? state.models.map((m, i) => ({ fileId: m.file_id, label: m.label.trim() || (m.meta ? m.meta.filename : `${t('file.model')} ${i + 1}`) }))
-          : (state.file_id ? [{ fileId: state.file_id, label: fileMeta ? fileMeta.filename : t('file.model') }] : []),
+          : state.files.map((f, i) => ({ fileId: f.file_id, label: f.meta ? f.meta.filename : `${t('file.model')} ${i + 1}` })),
         colour: modelColour(),
       }));
     drawFile();                                       // the file card has a button that leads to it

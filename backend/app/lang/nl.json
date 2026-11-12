@@ -437,6 +437,7 @@
  "f.colour_hex": "Kleurcode",
  "f.model_label": "Naam van het 3D-model",
  "err.colour_hex": "{label}: gebruik een kleur als #rrggbb, of laat het leeg.",
+ "err.calc_files": "Ongeldige lijst met bestanden voor de filamentberekening (maximaal {max}).",
  "err.models": "Ongeldige lijst met 3D-modellen (maximaal {max}).",
  "err.navbar_style": "Navigatiebalk: kies iOS-achtig of Android-achtig.",
  "err.navbar_glass": "Glaseffect: een heel getal van 0 tot en met 100.",

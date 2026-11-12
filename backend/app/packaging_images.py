@@ -8,7 +8,7 @@ import hashlib
 from flask import Blueprint, Response, jsonify, request
 
 from . import ai_images
-from .http import ApiError, login_required, pool
+from .http import ApiError, keep_forever, login_required, pool
 
 bp = Blueprint("packaging_images", __name__, url_prefix="/api/packaging-images")
 MAX_EDGE = 800                           # shown small (a tile, a row of the list); this is sharp on any screen and keeps the database lean
@@ -38,18 +38,25 @@ def store(conn, packaging_id, content: bytes, width: int, height: int) -> str:
 @bp.get("")
 def list_images():
     """Which items have a picture, and its version: the list of packaging asks this once instead of trying an address per item."""
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = conn.execute("SELECT packaging_id, sha256 FROM packaging_images").fetchall()
     return jsonify({"images": {str(r["packaging_id"]): r["sha256"][:16] for r in rows}})
 
 
 @bp.get("/<uuid:packaging_id>")
 def get_image(packaging_id):
-    with pool().connection() as conn:
-        row = conn.execute("SELECT content FROM packaging_images WHERE packaging_id = %s", (packaging_id,)).fetchone()
+    with pool().read() as conn:
+        row = conn.execute("SELECT content, sha256 FROM packaging_images WHERE packaging_id = %s", (packaging_id,)).fetchone()
     if row is None:
         raise ApiError(404, "err.not_found")
-    return Response(bytes(row["content"]), mimetype="image/jpeg")
+    response = Response(bytes(row["content"]), mimetype="image/jpeg")
+    # The list asks for `?v=<version>` and the version is the hash of the picture: under that address the bytes can never change (a new
+    # picture has a new address), so the browser may keep it instead of fetching every picture at every visit. Any other address
+    # (no version, the version of a picture that was replaced) is answered with what is there now and not kept, like the rest of the API.
+    if request.args.get("v") != row["sha256"][:16]:
+        return response
+    response.set_etag(row["sha256"])
+    return keep_forever(response.make_conditional(request))
 
 
 @bp.put("/<uuid:packaging_id>")

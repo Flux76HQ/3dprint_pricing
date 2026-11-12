@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from app import backup, db
+from app import api_keys, backup, db
 from tests.test_auth_api import H, onboard
 from tests.test_domain_api import make, sheet_payload
 
@@ -25,6 +25,11 @@ def test_the_screens_read_while_another_request_is_in_the_middle_of_a_write(owne
     customer = make(owner, "/api/customers", {"number": "", "name": "Anna"})
     order = make(owner, "/api/orders", {"customer_id": customer["id"], "status": "nieuw", "order_date": "2026-11-11", "price_rounding": "none",
                                         "lines": [{"project_id": None, "description": "los", "quantity": 1, "vat_pct": "21", "unit_price": "12.10"}]})
+    key = api_keys.PREFIX + "k" * 43                              # another application, reading through /api/v1 with its key
+    with app.extensions["pool"].connection() as conn:
+        conn.execute("INSERT INTO api_keys (name, shown, key_hash) VALUES ('Boekhouding', %s, %s)", (key[:10], api_keys._hash(key)))
+    with_key = {"Authorization": f"Bearer {key}"}
+    assert owner.get("/api/v1", headers=with_key).status_code == 200                               # (its first use is noted, which is a write)
     monkeypatch.setattr(db, "BUSY_MS", 300)                       # how long a block that needs the write lock waits; short, so a mistake fails fast
     app.extensions["pool"].close()
     writer = sqlite3.connect(fresh_db, isolation_level=None)      # another worker, half way through a save
@@ -41,6 +46,10 @@ def test_the_screens_read_while_another_request_is_in_the_middle_of_a_write(owne
             answer = owner.get(path)
             assert answer.status_code == 200 and time.monotonic() - began < 0.25, path
         assert owner.get("/api/printers").get_json()[0]["name"] == "P1S"                       # the other's unfinished change is not seen
+        for path in ("/api/v1", "/api/v1/orders", f"/api/v1/orders/{order['id']}", "/api/v1/customers", f"/api/v1/customers/{customer['id']}"):
+            began = time.monotonic()
+            answer = app.test_client().get(path, headers=with_key)                             # no session: the key alone
+            assert answer.status_code == 200 and time.monotonic() - began < 0.25, path
         # A save does wait for that other save, and gives up after the wait: the lock is real.
         refused = owner.patch(f"/api/printers/{printer['id']}", json={"name": "X1"}, headers=H)
         assert refused.status_code == 500

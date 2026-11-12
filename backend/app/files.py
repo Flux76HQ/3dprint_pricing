@@ -45,6 +45,7 @@ def _purge_orphans(conn) -> None:
         "DELETE FROM print_files WHERE created_at < %s "
         "AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.file_id = print_files.id) "
         "AND NOT EXISTS (SELECT 1 FROM projects p, json_each(p.models) m WHERE json_extract(m.value, '$.file_id') = print_files.id) "
+        "AND NOT EXISTS (SELECT 1 FROM projects p, json_each(p.calc_files) c WHERE c.value = print_files.id) "
         "RETURNING stored_name",
         (datetime.now(timezone.utc) - timedelta(days=1),)
     ).fetchall()

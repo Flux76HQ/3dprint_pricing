@@ -416,18 +416,19 @@ def _statements(script: str):
         yield buffer
 
 
+# Migrations that were renamed after they had been applied somewhere: {the name they were applied under: the name they have now}.
+# Three pull requests each added "0006" and were merged side by side; two of them got the next free numbers. An installation that
+# ran them under the old names must not run them again (they add columns), so its record of them is renamed first. The content,
+# and so the checksum, is unchanged. Add to this list only for a file whose content stays exactly the same.
+RENAMED = {"0006_integrations.sql": "0007_integrations.sql", "0006_project_models.sql": "0008_project_models.sql"}
+
+
 def run_migrations(database_path: str, directory: Path = MIGRATIONS_DIR) -> list[str]:
     """Apply unapplied `NNNN_name.sql` files in order, each in its own transaction.
 
     Refuses to continue when a previously applied file has changed: editing an
     applied migration would make fresh installs and upgraded installs diverge
     silently, which is the one failure nobody notices until it is too late.
-
-    A file is known by its name, and a renumbered one by the rest of its name with
-    its content: when two merges gave two files the same number, one of them gets
-    the next number afterwards, and a database that applied it under the old number
-    must not apply it again. The file under the old number has to be gone, or it
-    would be a second migration and not a renumbered one.
     """
     Database(database_path)                                  # creates the folder and switches to WAL
     conn = _open(database_path)
@@ -437,6 +438,9 @@ def run_migrations(database_path: str, directory: Path = MIGRATIONS_DIR) -> list
         conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations ("
                      " filename TEXT PRIMARY KEY, checksum TEXT NOT NULL,"
                      " applied_at TIMESTAMP TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')))")
+        for old, new in RENAMED.items():                     # a file that was given a new number is the same migration
+            if not conn.execute("SELECT 1 FROM schema_migrations WHERE filename = ?", (new,)).fetchone():
+                conn.execute("UPDATE schema_migrations SET filename = ? WHERE filename = ?", (new, old))
         conn.execute("COMMIT")
         for path in sorted(directory.glob("[0-9][0-9][0-9][0-9]_*.sql")):
             checksum = _checksum(path)
@@ -449,9 +453,6 @@ def run_migrations(database_path: str, directory: Path = MIGRATIONS_DIR) -> list
                             f"Migration {path.name} was changed after it was applied. "
                             "Never edit an applied migration; add a new NNNN_*.sql instead."
                         )
-                elif earlier := next((name for name, value in known.items() if name[4:] == path.name[4:] and value == checksum
-                                      and not (directory / name).exists()), None):
-                    conn.execute("UPDATE schema_migrations SET filename = ? WHERE filename = ?", (path.name, earlier))
                 else:
                     for statement in _statements(path.read_text(encoding="utf-8")):
                         conn.execute(statement)

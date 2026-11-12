@@ -537,12 +537,14 @@ def test_without_files_a_calculation_keeps_its_file_only_if_that_file_is_still_h
     assert "files" not in doc
     post(owner, "/api/backup/restore", doc)
     assert owner.get(f"/api/projects/{project['id']}").get_json()["file_id"] == meta["id"]       # still on the server
+    assert owner.get(f"/api/projects/{project['id']}").get_json()["calc_files"] == [meta["id"]]
     owner.delete(f"/api/projects/{project['id']}", headers=H)
     with connect(owner.application.config["APP_CONFIG"].database_path) as conn:
         conn.execute("DELETE FROM print_files")
         conn.commit()
     post(owner, "/api/backup/restore", doc)
     assert owner.get(f"/api/projects/{project['id']}").get_json()["file_id"] is None               # gone: let go, not an error
+    assert owner.get(f"/api/projects/{project['id']}").get_json()["calc_files"] == []
 
 
 def test_a_damaged_or_edited_print_file_is_refused_in_the_json_form(owner, app):
