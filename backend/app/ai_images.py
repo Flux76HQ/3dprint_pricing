@@ -119,10 +119,27 @@ MAX_MODEL_VIEWS = 10                 # saved views of the 3D models of one calcu
 MODEL_REF = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(:[1-9][0-9]{0,2})?$")
 
 
+# with more than one photo: the object from several sides, with or without renderings of its model after them
+LEAD[("photo", "photo")] = (
+    "These pictures are photos of one 3D-printed object, taken from several sides. Make {shape} of that object. Keep the object itself "
+    "exactly as it is: same shape, proportions, colour and visible print layers; do not redesign, restyle or add parts to it.")
+LEAD[("photo", "photo", "model")] = (
+    "The first {photos} pictures are photos of one 3D-printed object, taken from several sides; the rest are plain renderings of its 3D "
+    "model, which show its exact shape. Make {shape} of the object. Keep the object itself exactly as it is: the shape and proportions of "
+    "the model, the colour, material and visible print layers of the photos; do not redesign, restyle or add parts to it.")
+MAX_PHOTOS = 10                      # photos of the object that one calculation keeps
+MAX_SELECTED = 6                     # pictures (photos and views together) that go to the image model with one request
+
+
 def lead(sources: tuple, shape: str) -> str:
-    """The opening of the prompt for these pictures (their origins, the photo first): what the model is looking at."""
-    models = min(sum(1 for origin in sources if origin == "model"), 2)       # two and more read the same
-    return LEAD[tuple(o for o in sources if o == "photo")[:1] + ("model",) * models].format(shape=shape)
+    """The opening of the prompt for these pictures (their origins, the photos first): what the model is looking at."""
+    photos = sum(1 for origin in sources if origin == "photo")
+    models = sum(1 for origin in sources if origin == "model")
+    if photos >= 2:
+        key = ("photo", "photo") + (("model",) if models else ())
+    else:
+        key = ("photo",) * photos + ("model",) * min(models, 2)              # two renderings and more read the same
+    return LEAD[key].format(shape=shape, photos=photos)
 
 
 PROMPT = (
@@ -457,6 +474,7 @@ def _clean(content: bytes, *, jpeg_quality: int = 92, max_edge: int = MAX_EDGE) 
 
 def _serialise(row) -> dict:
     return {"id": str(row["id"]), "kind": row["kind"], "origin": row["origin"] if row["kind"] == "source" else None,
+            "selected": bool(row["selected"]) if row["kind"] == "source" else None,
             "model_ref": row["model_ref"] if row["kind"] == "source" else None,
             "variant": row["variant"], "purpose": row["purpose"], "width_px": row["width_px"],
             "height_px": row["height_px"], "is_cover": row["is_cover"], "created_at": row["created_at"].isoformat()}
@@ -469,7 +487,7 @@ def _project(conn, project_id):
     return row
 
 
-COLUMNS = "id, kind, origin, model_ref, variant, purpose, width_px, height_px, is_cover, created_at"
+COLUMNS = "id, kind, origin, model_ref, selected, variant, purpose, width_px, height_px, is_cover, created_at"
 
 
 def _job_json(row) -> dict:
@@ -506,6 +524,7 @@ def list_images(project_id):
         project = _project(conn, project_id)
         _recover(conn)
         has_logo = conn.execute("SELECT 1 FROM invoice_logo").fetchone() is not None
+        sent = _sent(conn, project_id, "id")
         rows = conn.execute(f"SELECT {COLUMNS} FROM project_images WHERE project_id = %s ORDER BY kind DESC, origin DESC, created_at, id",
                             (project_id,)).fetchall()
         jobs = conn.execute("SELECT * FROM ai_image_jobs WHERE project_id = %s ORDER BY created_at, position",
@@ -513,7 +532,8 @@ def list_images(project_id):
     return jsonify({"images": [_serialise(r) for r in rows], "jobs": [_job_json(j) for j in jobs], "warnings": _warnings(jobs),
                     "text": _stored_text(project),
                     "logo_available": has_logo, "purposes": {name: list(made) for name, (made, _style) in PURPOSES.items()},
-                    "limits": {"product_name": NAME_MAX, "spec": SPEC_MAX, "specs": SPECS_MAX, "extra_text": EXTRA_MAX, "scene": SCENE_MAX}})
+                    "sent": [str(r["id"]) for r in sent],
+                    "limits": {"selected": MAX_SELECTED, "product_name": NAME_MAX, "spec": SPEC_MAX, "specs": SPECS_MAX, "extra_text": EXTRA_MAX, "scene": SCENE_MAX}})
 
 
 @bp.delete("/projects/<uuid:project_id>/images/jobs")
@@ -528,8 +548,9 @@ def dismiss_jobs(project_id):
 @bp.post("/projects/<uuid:project_id>/images/source")
 def upload_source(project_id):
     """Keep the picture the images are made from: a photo of the object, or (`origin=model`) a picture of its 3D model as the viewer
-    in the browser drew it. There is one photo: a new one replaces it. Views are added, every one that is saved is kept (`model`
-    says which model and build plate it shows: "<file id>" or "<file id>:<plate>"), up to MAX_MODEL_VIEWS."""
+    in the browser drew it. Every one is kept, next to the others: up to MAX_PHOTOS photos and MAX_MODEL_VIEWS views (`model` says
+    which model and build plate a view shows: "<file id>" or "<file id>:<plate>"). The first picture of a calculation is the one
+    that goes to the image model; which others go with it is chosen afterwards (`PUT /project-images/<id>/selected`)."""
     upload = request.files.get("file")
     origin = request.form.get("origin", "photo")
     model_ref = request.form.get("model", "").strip().lower() if origin == "model" else ""
@@ -544,16 +565,16 @@ def upload_source(project_id):
         raise
     with pool().connection() as conn:
         project = _project(conn, project_id)
-        if origin == "photo":
-            conn.execute("DELETE FROM project_images WHERE project_id = %s AND kind = 'source' AND origin = 'photo'", (project_id,))
-        views = conn.execute("SELECT count(*) AS n FROM project_images WHERE project_id = %s AND kind = 'source' AND origin = 'model'",
-                             (project_id,)).fetchone()["n"]
-        if origin == "model" and views >= MAX_MODEL_VIEWS:
+        there = {r["origin"]: r["n"] for r in conn.execute(
+            "SELECT origin, count(*) AS n FROM project_images WHERE project_id = %s AND kind = 'source' GROUP BY origin", (project_id,)).fetchall()}
+        if origin == "model" and there.get("model", 0) >= MAX_MODEL_VIEWS:
             raise ApiError(409, "ai.err_views_many", max=MAX_MODEL_VIEWS)
+        if origin == "photo" and there.get("photo", 0) >= MAX_PHOTOS:
+            raise ApiError(409, "ai.err_photos_many", max=MAX_PHOTOS)
         row = conn.execute(
-            f"INSERT INTO project_images (project_id, kind, origin, model_ref, mime, content, width_px, height_px) "
-            f"VALUES (%s, 'source', %s, %s, 'image/jpeg', %s, %s, %s) RETURNING {COLUMNS}",
-            (project_id, origin, model_ref, content, width, height)).fetchone()
+            f"INSERT INTO project_images (project_id, kind, origin, model_ref, selected, mime, content, width_px, height_px) "
+            f"VALUES (%s, 'source', %s, %s, %s, 'image/jpeg', %s, %s, %s) RETURNING {COLUMNS}",
+            (project_id, origin, model_ref, not there, content, width, height)).fetchone()        # the first picture is the one that is sent
         _log(conn, "info", "ai.log_photo" if origin == "photo" else "ai.log_model_view", project=project)
     return jsonify(_serialise(row)), 201
 
@@ -657,7 +678,10 @@ def _generate(key: str, model: str, quality: str, variant: str, description: str
     if len(sources) == 1:
         files = {"image": (f"{sources[0][0]}.jpg", sources[0][1], "image/jpeg")}
     else:
-        files = [("image[]", (f"{origin}.jpg" if n < 2 else f"{origin}-{n}.jpg", content, "image/jpeg")) for n, (origin, content) in enumerate(sources)]
+        files, seen = [], {}
+        for origin, content in sources:                                  # photo.jpg, photo-2.jpg, model.jpg, model-2.jpg ...
+            seen[origin] = seen.get(origin, 0) + 1
+            files.append(("image[]", (f"{origin}.jpg" if seen[origin] == 1 else f"{origin}-{seen[origin]}.jpg", content, "image/jpeg")))
     response = _call("POST", f"{OPENAI}/images/edits", key,
                      data={"model": model, "prompt": prompt, "size": VARIANTS[variant][0], "quality": quality, "n": "1"},
                      files=files)
@@ -689,9 +713,7 @@ def _run_next(project_id, batch) -> bool:
             return False
         conn.execute("UPDATE ai_image_jobs SET updated_at = now() WHERE batch_id = %s AND status = 'queued'", (batch,))     # still alive
         project = conn.execute("SELECT id, number, name FROM projects WHERE id = %s", (project_id,)).fetchone()
-        sources = [(r["origin"], bytes(r["content"])) for r in conn.execute(
-            "SELECT origin, content FROM project_images WHERE project_id = %s AND kind = 'source' ORDER BY origin DESC, created_at, id",
-            (project_id,)).fetchall()]
+        sources = [(r["origin"], bytes(r["content"])) for r in _sent(conn, project_id, "origin, content")]
         overlay = job["overlay"] or {}
         logo = invoice_logo.load(conn) if overlay.get("logo") else None        # no logo uploaded: the picture is made without one
         if project is not None:
@@ -801,6 +823,34 @@ def image_thumb(image_id):
         out = BytesIO()
         image.save(out, "JPEG", quality=80, optimize=True)
     return _kept(Response(out.getvalue(), mimetype="image/jpeg"), image_id)
+
+
+def _sent(conn, project_id, columns: str) -> list:
+    """The pictures that go to the image model for this calculation: the ones chosen for it, the photos first, at most MAX_SELECTED;
+    when none is chosen (the chosen one was removed), the first picture there is."""
+    order = "ORDER BY origin DESC, created_at, id"
+    rows = conn.execute(f"SELECT {columns} FROM project_images WHERE project_id = %s AND kind = 'source' AND selected {order} LIMIT %s",
+                        (project_id, MAX_SELECTED)).fetchall()
+    return rows or conn.execute(f"SELECT {columns} FROM project_images WHERE project_id = %s AND kind = 'source' {order} LIMIT 1",
+                                (project_id,)).fetchall()
+
+
+@bp.put("/project-images/<uuid:image_id>/selected")
+def set_selected(image_id):
+    """Choose whether this photo or view goes to the image model. At most MAX_SELECTED of a calculation do."""
+    wanted = json_body().get("selected")
+    if not isinstance(wanted, bool):
+        raise ApiError(400, "ai.err_selected")
+    with pool().connection() as conn:
+        row = _image_row(conn, image_id, COLUMNS + ", project_id")
+        if row["kind"] != "source":
+            raise ApiError(400, "ai.err_selected")
+        chosen = conn.execute("SELECT count(*) AS n FROM project_images WHERE project_id = %s AND kind = 'source' AND selected AND id <> %s",
+                              (row["project_id"], image_id)).fetchone()["n"]
+        if wanted and chosen >= MAX_SELECTED:
+            raise ApiError(409, "ai.err_selected_many", max=MAX_SELECTED)
+        conn.execute("UPDATE project_images SET selected = %s WHERE id = %s", (wanted, image_id))
+    return jsonify({**_serialise(row), "selected": wanted})
 
 
 @bp.put("/project-images/<uuid:image_id>/cover")

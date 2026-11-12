@@ -627,10 +627,13 @@ zie je in de app niets. De server beslist, niet de browser.
 3. **Maken**: open een opgeslagen berekening, kaart *Productafbeeldingen*. De afbeeldingen worden gemaakt van een **foto van het object**, van een **beeld
    van het 3D-model**, of van allebei (dan gaat de foto mee voor kleur en materiaal, het model voor de exacte vorm):
 
-   - *Foto*: upload een foto (JPEG, PNG of WebP, maximaal 8 MB; hij wordt opnieuw opgeslagen en tot 2048 px verkleind, zonder metadata).
+   - *Foto's*: upload een of meer foto's (JPEG, PNG of WebP, maximaal 8 MB per foto; ze worden opnieuw opgeslagen en tot 2048 px verkleind, zonder
+     metadata). Elke foto komt erbij, hooguit tien; een nieuwe foto vervangt de vorige niet.
+   - *Meesturen*: onder elke foto en elk beeld van het model staat een vinkje *Meesturen*. Wat aangevinkt is gaat naar het AI-model: standaard alleen de
+     eerste afbeelding, hooguit zes. Meer afbeeldingen geven het model meer houvast over de vorm, en maken elke aanvraag groter.
    - *3D-model*: heeft de berekening 3D-modellen (of, als die er niet zijn, een STL of 3MF als bestand voor de filamentberekening), dan toont *3D-model laden*
      het model in de browser. Met meerdere modellen kies je welk onderdeel je ziet; heeft een projectbestand meerdere platen, dan kies je *Alle platen* of
-     één plaat. Elk beeld dat je opslaat komt erbij (hooguit tien): draai het model en sla opnieuw op voor een ander aanzicht. Ze gaan samen met de foto naar het
+     één plaat. Elk beeld dat je opslaat komt erbij (hooguit tien): draai het model en sla opnieuw op voor een ander aanzicht. De beelden die je aanvinkt gaan samen met de aangevinkte foto's naar het
      model, dat ze als de onderdelen of de kanten van één object behandelt. Onder elke afbeelding, ook de foto en de beelden van het model, staan drie
      iconen: downloaden, als omslag van het 3D Model kiezen (de ster) en verwijderen (de rode prullenbak). De kaart *Productafbeeldingen* staat
      standaard dichtgeklapt; de knop *3D-model bekijken* bij het printbestand klapt haar open en laadt het model meteen. Sleep om het model helemaal rond te draaien, in elke richting (ook over de kop); met *Verplaatsen*, Shift of de rechtermuisknop verschuif je het in beeld, met *Kantelen* draai je het om de kijkas, *Aanzicht* zet het recht op een kant (voor, achter, links, rechts, boven, onder) en *Beginstand* zet alles terug. Met twee vingers zoom, kantel en verschuif je tegelijk; de pijltjestoetsen draaien, met Shift verschuiven ze, Q en E kantelen. Zoom verder met de schuif en kies *Beeld opslaan bij deze berekening*. Het model krijgt de kleuren uit het 3D-bestand als die erin staan: de materialen van een 3MF, of bij een project uit Bambu Studio of OrcaSlicer de filamentkleur per object en onderdeel, en de kleuren die in de slicer op het model zijn geschilderd (per driehoek de kleur die het grootste deel bedekt; een STL kent geen kleur). Wat het bestand geen kleur geeft, krijgt die van de eerste filamentrol. Kies je bij *Kleur van het item* een eigen kleur, dan krijgt het hele model die kleur.

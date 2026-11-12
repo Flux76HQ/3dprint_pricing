@@ -537,6 +537,9 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .ai-tools .btn.icon-only { min-width: 40px; min-height: 40px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .ai-tools .btn.icon-only .icon { width: 20px; height: 20px; }
 .ai-tools .btn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+/* A photo or view that goes to the image model has the accent round it; the choice sits under the picture. */
+.ai-kept.sent .ai-source { outline: 3px solid var(--accent); outline-offset: 1px; }
+.ai-send { font-size: .9rem; }
 .ai-sources { display: flex; flex-wrap: wrap; gap: 12px; }
 .ai-kept { width: min(220px, 100%); }
 .ai-kept .ai-source { width: 100%; height: auto; max-height: none; }

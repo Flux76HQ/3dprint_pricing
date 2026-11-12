@@ -180,11 +180,58 @@ def test_a_photo_is_re_encoded_and_scaled(ai, project):
     assert Image.open(BytesIO(stored.data)).size == (2048, 683)
 
 
-def test_a_new_photo_replaces_the_old_one(ai, project):
-    photo(ai, project["id"])
-    second = photo(ai, project["id"], png((50, 50)))
+def choose(owner, image_id, on=True):
+    """Choose whether a photo or view goes to the image model."""
+    return owner.put(f"/api/project-images/{image_id}/selected", json={"selected": on}, headers=H)
+
+
+def test_a_new_photo_is_kept_next_to_the_others(ai, project):
+    first = photo(ai, project["id"]).get_json()
+    second = photo(ai, project["id"], png((50, 50))).get_json()
     rows = state(ai, project)["images"]
-    assert [r["id"] for r in rows] == [second.get_json()["id"]]
+    assert [r["id"] for r in rows] == [first["id"], second["id"]]                  # a new photo does not replace the one before
+    assert [r["selected"] for r in rows] == [True, False] and state(ai, project)["sent"] == [first["id"]]       # the first is the one that is sent
+    for _ in range(ai_images.MAX_PHOTOS - 2):
+        assert photo(ai, project["id"]).status_code == 201
+    assert photo(ai, project["id"]).status_code == 409                             # ten photos, not an eleventh
+
+
+def test_which_pictures_go_to_the_model_is_chosen_one_by_default_six_at_most(ai, project, monkeypatch):
+    set_key(ai)
+    fake = FakeOpenAI(monkeypatch)
+    photos = [photo(ai, project["id"], png((300 + n, 200))).get_json() for n in range(5)]
+    views = [view(ai, project["id"], png((400 + n, 400))).get_json() for n in range(3)]
+    assert queue(ai, project, "square").status_code == 202
+    assert fake.calls[0]["files"]["image"][0] == "photo.jpg" and Image.open(BytesIO(fake.calls[0]["files"]["image"][1])).size == (300, 200)
+    assert "Edit this photo" in fake.calls[0]["data"]["prompt"]                    # by default the first picture, and only that
+    for image in (photos[2], photos[4], views[1], views[0], views[2]):
+        assert choose(ai, image["id"]).get_json()["selected"] is True
+    assert state(ai, project)["limits"]["selected"] == 6 and len(state(ai, project)["sent"]) == 6
+    refused = choose(ai, photos[1]["id"])                                          # a seventh does not fit
+    assert refused.status_code == 409 and "6" in refused.get_json()["error"]
+    assert choose(ai, photos[2]["id"]).status_code == 200                          # choosing a chosen one again changes nothing
+    wipe(ai, project)
+    assert queue(ai, project, "square").status_code == 202
+    files = fake.calls[1]["files"]
+    assert [part[0] for _field, part in files] == ["photo.jpg", "photo-2.jpg", "photo-3.jpg", "model.jpg", "model-2.jpg", "model-3.jpg"]
+    assert [Image.open(BytesIO(part[1])).size[0] for _field, part in files] == [300, 302, 304, 400, 401, 402]       # the photos first, each in its order
+    assert "The first 3 pictures are photos" in fake.calls[1]["data"]["prompt"]
+    for image in (photos[2], photos[4], *views):
+        assert choose(ai, image["id"], False).get_json()["selected"] is False
+    assert choose(ai, photos[1]["id"]).status_code == 200                          # two photos, no view
+    wipe(ai, project)
+    queue(ai, project, "square")
+    assert len(fake.calls[2]["files"]) == 2 and "photos of one 3D-printed object, taken from several sides" in fake.calls[2]["data"]["prompt"]
+    for image in (photos[0], photos[1]):                                           # nothing chosen: the first picture again, never nothing
+        choose(ai, image["id"], False)
+    assert state(ai, project)["sent"] == [photos[0]["id"]]
+    ai.delete(f"/api/project-images/{photos[0]['id']}", headers=H)
+    assert state(ai, project)["sent"] == [photos[1]["id"]]
+    made = [i for i in state(ai, project)["images"] if i["kind"] == "generated"][0]
+    for body in ({"selected": "ja"}, {}):
+        assert ai.put(f"/api/project-images/{photos[1]['id']}/selected", json=body, headers=H).status_code == 400
+    assert choose(ai, made["id"]).status_code == 400                               # a generated picture is not something to make pictures from
+    assert choose(ai, "00000000-0000-0000-0000-000000000000").status_code == 404
 
 
 @pytest.mark.parametrize("data", [b"not an image", b"GIF89a" + b"\x00" * 40, b""])
@@ -206,16 +253,18 @@ def view(owner, project, data=None, model=""):
 FRONT_ID, BACK_ID = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
 
 
-def test_every_view_that_is_saved_is_kept_and_all_of_them_are_sent(ai, project, monkeypatch):
+def test_every_view_that_is_saved_is_kept(ai, project, monkeypatch):
     fake = ready(ai, project, monkeypatch)                                         # a photo is there
     assert view(ai, project["id"], model=FRONT_ID).get_json()["model_ref"] == FRONT_ID
     view(ai, project["id"], png((410, 410)), model=f"{BACK_ID}:2")
     again = view(ai, project["id"], png((420, 420)), model=FRONT_ID).get_json()        # the front once more, turned: a picture more
-    kept = [(i["origin"], i["model_ref"], i["width_px"]) for i in state(ai, project)["images"]]
-    assert kept == [("photo", "", 300), ("model", FRONT_ID, 400), ("model", f"{BACK_ID}:2", 410), ("model", FRONT_ID, 420)]
+    kept = [(i["origin"], i["model_ref"], i["width_px"], i["selected"]) for i in state(ai, project)["images"]]
+    assert kept == [("photo", "", 300, True), ("model", FRONT_ID, 400, False), ("model", f"{BACK_ID}:2", 410, False), ("model", FRONT_ID, 420, False)]
     assert again["width_px"] == 420
     for bad in ("voorkant", f"{FRONT_ID}:0", f"{FRONT_ID}:1234", FRONT_ID.upper() + "x"):
         assert view(ai, project["id"], model=bad).status_code == 400, bad
+    for image in state(ai, project)["images"][1:]:
+        assert choose(ai, image["id"]).status_code == 200
     assert queue(ai, project, "square").status_code == 202
     files = fake.calls[0]["files"]
     assert [(field, part[0]) for field, part in files] == [("image[]", "photo.jpg"), ("image[]", "model.jpg"), ("image[]", "model-2.jpg"),
@@ -228,13 +277,16 @@ def test_every_view_that_is_saved_is_kept_and_all_of_them_are_sent(ai, project, 
     for n in range(ai_images.MAX_MODEL_VIEWS - 3):                                 # there is room for ten views, not for an eleventh
         assert view(ai, project["id"], model=FRONT_ID).status_code == 201
     assert view(ai, project["id"], model=FRONT_ID).status_code == 409
-    assert photo(ai, project["id"]).status_code == 201                             # the photo is not a view: it still fits
-    assert photo(ai, project["id"], png((50, 50))).status_code == 201              # and a new photo still replaces the photo
-    assert [i["origin"] for i in state(ai, project)["images"]].count("photo") == 1
+    assert photo(ai, project["id"]).status_code == 201                             # a photo is not a view: it still fits
     doc = backup(ai).get_json()
     assert len([i for i in doc["project_images"] if i["origin"] == "model"]) == ai_images.MAX_MODEL_VIEWS
+    assert [i["selected"] for i in doc["project_images"] if i["kind"] == "source"].count(True) == 3
     assert post(ai, "/api/backup/restore", doc).status_code == 200
     assert len([i for i in state(ai, project)["images"] if i["origin"] == "model"]) == ai_images.MAX_MODEL_VIEWS
+    assert [i["selected"] for i in state(ai, project)["images"] if i["kind"] == "source"].count(True) == 3       # the choice came back
+    for entry in doc["project_images"]:                                            # a file that marks more than there is room for: six are
+        entry["selected"] = entry["kind"] == "source"
+    assert post(ai, "/api/backup/restore", doc).status_code == 200 and len(state(ai, project)["sent"]) == ai_images.MAX_SELECTED
     doc["project_images"][0]["model_ref"] = "voorkant"
     assert post(ai, "/api/backup/restore", doc).status_code == 400
 
@@ -288,7 +340,7 @@ def test_pictures_are_made_from_the_view_of_the_model_alone(ai, project, monkeyp
 
 def test_with_a_photo_and_a_view_both_are_sent_the_photo_first(ai, project, monkeypatch):
     fake = ready(ai, project, monkeypatch)
-    view(ai, project["id"])
+    assert choose(ai, view(ai, project["id"]).get_json()["id"]).status_code == 200
     assert queue(ai, project, "square").status_code == 202
     files = fake.calls[0]["files"]
     assert [(field, part[0]) for field, part in files] == [("image[]", "photo.jpg"), ("image[]", "model.jpg")]
@@ -880,11 +932,11 @@ def test_the_list_gets_a_small_version_of_the_cover(ai, project):
 
 def test_the_bytes_of_a_stored_picture_are_never_rewritten():
     """`immutable` and the id as the validator are only true while a row's `content` is written once. Every UPDATE of the table in the code
-    is listed here: one that sets anything but `is_cover` needs a new id for the picture, or this caching has to go."""
+    is listed here: one that sets anything but `is_cover` or `selected` needs a new id for the picture, or this caching has to go."""
     updates = []
     for path in sorted((APP / "app").glob("*.py")):
         updates += re.findall(r"UPDATE project_images SET (.+?) WHERE", path.read_text(encoding="utf-8"))
-    assert updates and set(updates) == {"is_cover = false", "is_cover = true"}
+    assert updates and set(updates) == {"is_cover = false", "is_cover = true", "selected = %s"}
 
 
 def test_deleting_the_calculation_deletes_its_pictures(ai, project, app):
@@ -943,8 +995,8 @@ def test_a_backup_with_a_damaged_picture_is_refused_before_anything_changes(ai, 
     doc["project_images"][0]["project_id"] = "00000000-0000-0000-0000-000000000000"
     assert post(ai, "/api/backup/restore", doc).status_code == 400
     doc = backup(ai).get_json()
-    doc["project_images"].append({**doc["project_images"][0]})                     # two photos for one calculation
-    assert post(ai, "/api/backup/restore", doc).status_code == 400
+    doc["project_images"].append({**doc["project_images"][0]})                     # two photos for one calculation: that is fine now
+    assert post(ai, "/api/backup/restore", doc).status_code == 200 and len(state(ai, project)["images"]) == 2
     doc["project_images"][1]["origin"] = "drawing"
     assert post(ai, "/api/backup/restore", doc).status_code == 400
     doc["project_images"][1]["origin"] = "model"                                   # a photo and a view: that is fine

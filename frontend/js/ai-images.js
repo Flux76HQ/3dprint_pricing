@@ -139,6 +139,8 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   let images = [];
   let jobs = [];
   let warnings = [];
+  let sent = [];                                                   // the pictures that go to the image model now (ids)
+  let maxSent = 6;
   let uploading = false;
   let wasBusy = false;
   let lastError = '';
@@ -150,6 +152,8 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       images = got.images;
       jobs = got.jobs;
       warnings = got.warnings || [];
+      sent = got.sent || [];
+      maxSent = (got.limits || {}).selected || 6;
       lastError = '';
       if (!form) buildForm(got);
     } catch (e) { lastError = e.message; }
@@ -263,12 +267,16 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     choosePlates();
   }
 
-  async function addPhoto(file) {
-    const form = new FormData();
-    form.append('file', file);
+  // Every photo is kept next to the others; several can be chosen at once.
+  async function addPhotos(files) {
     uploading = true;
+    lastError = '';
     draw();
-    try { await upload(`/api/projects/${projectId}/images/source`, form); lastError = ''; } catch (e) { lastError = e.message; }
+    for (const file of files) {
+      const form = new FormData();
+      form.append('file', file);
+      try { await upload(`/api/projects/${projectId}/images/source`, form); } catch (e) { lastError = `${file.name}: ${e.message}`; break; }
+    }
     uploading = false;
     await refresh();
   }
@@ -388,7 +396,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
 
   function draw() {
     drawModel();
-    const source = images.find((i) => i.kind === 'source' && i.origin !== 'model');
+    const photos = images.filter((i) => i.kind === 'source' && i.origin !== 'model');
     const views = images.filter((i) => i.kind === 'source' && i.origin === 'model');
     // "Beeld van het 3D-model · voorkant · plaat 2": which model a saved view is of, when the calculation knows
     const viewName = (image) => {
@@ -401,24 +409,34 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     const finished = jobs.filter((j) => j.status === 'done').length;
     const working = coming.length > 0;
     // What the pictures are made from: the photo, the saved view of the 3D model, or both.
-    const kept = (image, caption, alt) => h('figure', { class: 'ai-tile ai-kept' },
-      h('img', { class: 'ai-source', src: imageUrl(image.id), alt }),
-      h('figcaption', {}, h('strong', {}, caption), coverBadge(image)),
-      tools(image, working));                                        // not removed while pictures are being made from it
-    const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', disabled: uploading || working, 'aria-label': t('ai.photo_choose'),
-      onchange: () => { const chosen = file.files[0]; if (chosen) addPhoto(chosen); } });
+    // A photo or view with the choice under it: does it go to the image model? What is ticked is what is sent (`sent`: with
+    // nothing chosen that is the first picture, so there is always one).
+    const kept = (image, caption, alt) => {
+      const goes = sent.includes(image.id);
+      const pick = h('input', { type: 'checkbox', checked: goes, disabled: working || (!goes && sent.length >= maxSent) || (goes && sent.length === 1),
+        onchange: () => act(() => api('PUT', `/api/project-images/${image.id}/selected`, { selected: pick.checked })) });
+      return h('figure', { class: `ai-tile ai-kept${goes ? ' sent' : ''}` },
+        h('img', { class: 'ai-source', src: imageUrl(image.id), alt }),
+        h('figcaption', {}, h('strong', {}, caption), coverBadge(image)),
+        h('label', { class: 'check ai-send' }, pick, t('ai.send')),
+        tools(image, working));                                      // not removed while pictures are being made from it
+    };
+    const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', multiple: true, disabled: uploading || working, 'aria-label': t('ai.photo_choose'),
+      onchange: () => { if (file.files.length) addPhotos([...file.files]); } });
     const purposeChosen = !!(form && form.values().purpose);
     fill(body,
-      source || views.length ? h('div', { class: 'ai-sources' },
-        source ? kept(source, t('ai.photo_caption'), t('ai.photo_alt')) : null,
-        views.map((view) => kept(view, viewName(view), t('ai.view_alt')))) : h('p', { class: 'muted' }, t('ai.photo_none')),
-      field(source ? t('ai.photo_replace') : t('ai.photo_choose'), file, t('ai.photo_hint')),
+      photos.length || views.length ? h('div', { class: 'stack' },
+        h('p', { class: 'hint', role: 'status' }, t('ai.send_count', { n: sent.length, max: maxSent })),
+        h('div', { class: 'ai-sources' },
+          photos.map((photo, i) => kept(photo, photos.length > 1 ? `${t('ai.photo_caption')} ${i + 1}` : t('ai.photo_caption'), t('ai.photo_alt'))),
+          views.map((view) => kept(view, viewName(view), t('ai.view_alt'))))) : h('p', { class: 'muted' }, t('ai.photo_none')),
+      field(photos.length ? t('ai.photo_replace') : t('ai.photo_choose'), file, t('ai.photo_hint')),
       uploading ? h('div', { class: 'ai-progress', role: 'status' }, spinner(), h('strong', {}, t('ai.uploading'))) : null,
       working
         ? h('div', { class: 'ai-progress', role: 'status' }, spinner(),
           h('div', {}, h('strong', {}, t('ai.generating', { done: finished, n: finished + coming.length })), h('p', { class: 'hint' }, t('ai.generating_hint'))))
         : h('div', { class: 'stack' },
-          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !(source || views.length) || uploading || !purposeChosen, onclick: generate }, t('ai.generate'))),
+          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !(photos.length || views.length) || uploading || !purposeChosen, onclick: generate }, t('ai.generate'))),
           form && !purposeChosen ? h('p', { class: 'hint' }, t('ai.purpose_needed')) : null),
       h('p', { class: 'error', role: 'alert', hidden: !lastError }, lastError),
       // Everything that went wrong or was left out, here on the page and as soon as it is known (also while the rest is still being made).
