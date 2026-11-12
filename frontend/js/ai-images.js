@@ -3,9 +3,9 @@
 // The pictures are made by the server in the background: this page only asks for them and then polls how far they are, so leaving
 // the page (or closing the browser) does not stop anything; the card picks the progress up again when it is shown.
 import { api, downloadFile, upload } from './api.js';
-import { formatDateTime, t } from './i18n.js';
+import { formatDateTime, getLocale, t } from './i18n.js';
 import { loadMesh, modelViewer } from './model-viewer.js';
-import { confirmDialog, field, fill, foldHead, h, icon, saveBlob, switchRow, toast } from './ui.js';
+import { confirmDialog, eur, field, fill, fmt, foldHead, h, icon, saveBlob, switchRow, toast } from './ui.js';
 
 const VARIANT_LABEL = { square: 'ai.variant_square', landscape: 'ai.variant_landscape', portrait: 'ai.variant_portrait', studio: 'ai.variant_studio', detail: 'ai.variant_detail', context: 'ai.variant_context' };
 // What the pictures are for; the server makes four per purpose and has a template with its own colours for each.
@@ -13,6 +13,7 @@ const PURPOSE_LABEL = { marktplaats: 'ai.purpose_marktplaats', social: 'ai.purpo
 const QUALITIES = [['low', 'ai.quality_low'], ['medium', 'ai.quality_medium'], ['high', 'ai.quality_high']];
 const POLL_MS = 3000;
 const LOG_POLL_MS = 5000;
+const USAGE_POLL_MS = 15000;
 const imageUrl = (id) => `/api/project-images/${id}/file`;
 
 /** The small version for a list (the stored picture is up to 2048 pixels a side). */
@@ -78,6 +79,91 @@ export function aiSettingsCard() {
   }
   draw();
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('ai.title')), body);
+}
+
+// --- What the pictures cost -------------------------------------------------------
+
+const DOLLAR_FORMATS = new Map();
+const dollars = (value) => {
+  const key = getLocale();
+  if (!DOLLAR_FORMATS.has(key)) DOLLAR_FORMATS.set(key, new Intl.NumberFormat(key, { style: 'currency', currency: 'USD' }));
+  return DOLLAR_FORMATS.get(key).format(Number(value) || 0);
+};
+
+/** What the pictures cost, set by set, with the totals of this month and of everything, and the prices and the rate they are worked out with. The server does all the
+ *  counting (tokens times a price per million, in euros with the rate, a set rounded to cents before sets are added); this only shows it. The list refreshes itself while the
+ *  page is open, so a set that is still being made counts as it goes; the form of the prices is built once, so what is being typed in it stays. */
+export function aiUsageCard() {
+  const chips = h('ul', { class: 'stat-chips' });
+  const notice = h('p', { class: 'notice', role: 'status', hidden: true });
+  const list = h('ul', { class: 'plain-list ai-usage' }, h('li', { class: 'muted' }, t('common.loading')));
+  const error = h('p', { class: 'error', role: 'alert', hidden: true });
+  const form = h('div', { class: 'stack' });
+  let drawn = false;                                              // the form is built once, and again after it is saved
+
+  /** [what to show first, what to show beside it] for something that has `cost_eur` and `cost_usd`: euros when there are any, else dollars, else a dash. */
+  const money = (cost) => (cost.cost_eur != null ? [eur(cost.cost_eur), cost.cost_usd != null ? dollars(cost.cost_usd) : null]
+    : cost.cost_usd != null ? [dollars(cost.cost_usd), null] : ['—', null]);
+
+  const setRow = (s) => {
+    const [main, side] = money(s);
+    const tokens = s.reported ? `${t('ai.usage_tokens', { n: fmt(s.tokens.total, 0) })} (${t('ai.usage_split', { input: fmt(s.tokens.input_text + s.tokens.input_image, 0), output: fmt(s.tokens.output, 0) })})`
+      : t('ai.usage_unreported');
+    const calc = s.project_number == null && !s.project_name ? null : `#${s.project_number ?? ''} ${s.project_name ?? ''}`.trim();
+    return h('li', { class: 'list-row' },
+      h('div', {}, h('strong', {}, s.purpose && PURPOSE_LABEL[s.purpose] ? t(`${PURPOSE_LABEL[s.purpose]}_short`) : t('ai.usage_set')),
+        h('p', { class: 'muted' }, [formatDateTime(s.at, { dateStyle: 'short', timeStyle: 'short' }), t('ai.usage_pictures', { n: s.pictures }), tokens].join(' · ')),
+        calc ? h('p', { class: 'muted' }, s.project_id ? h('a', { href: `#/berekeningen/${s.project_id}` }, calc) : [calc, ` (${t('ai.usage_deleted')})`]) : null),
+      h('div', { class: 'ai-usage-cost', title: main === '—' && s.reported ? t('ai.usage_unpriced') : null }, h('strong', {}, main), side ? h('span', { class: 'muted' }, side) : null));
+  };
+
+  const chip = (label, totals, eurs) => {
+    const [main] = money(totals);
+    const without = eurs ? totals.without_eur : totals.without_usd;
+    return h('li', {}, h('strong', {}, label), h('span', {}, [t('ai.usage_sets', { n: totals.sets }), t('ai.usage_tokens', { n: fmt(totals.tokens, 0) }), main].join(' · ')),
+      without && totals.sets ? h('span', { class: 'muted' }, t('ai.usage_without', { n: without })) : null);
+  };
+
+  function drawForm(info) {
+    const input = (value, placeholder) => h('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', spellcheck: 'false', value: value ?? '', placeholder: placeholder ?? '' });
+    const fields = { text_in: input(info.prices.text_in, info.price_defaults.text_in), image_in: input(info.prices.image_in, info.price_defaults.image_in),
+      image_out: input(info.prices.image_out, info.price_defaults.image_out) };
+    const rate = input(info.usd_eur, '0,92');
+    const hint = (key) => (info.price_defaults[key] ? t('ai.price_default', { price: `$ ${info.price_defaults[key]}` }) : t('ai.price_nodefault'));
+    const save = async () => {
+      try {
+        await api('PUT', '/api/ai-images/settings', { prices: { text_in: fields.text_in.value, image_in: fields.image_in.value, image_out: fields.image_out.value }, usd_eur: rate.value });
+        toast(t('ai.prices_saved'));
+        drawn = false;
+      } catch (e) { toast(e.message, 'error'); }
+      load();
+    };
+    fill(form, h('p', { class: 'muted' }, t('ai.prices_intro', { model: info.model })),
+      h('div', { class: 'two' }, field(t('ai.price_text_in'), fields.text_in, hint('text_in')), field(t('ai.price_image_in'), fields.image_in, hint('image_in'))),
+      h('div', { class: 'two' }, field(t('ai.price_image_out'), fields.image_out, hint('image_out')), field(t('ai.rate'), rate, t('ai.rate_hint'))),
+      Object.keys(info.price_defaults).length ? h('p', { class: 'hint' }, t('ai.prices_source', { model: info.model })) : null,
+      h('p', { class: 'hint' }, t('ai.prices_note')),
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: save }, t('common.save'))));
+    drawn = true;
+  }
+
+  async function load() {
+    try {
+      const [report, info] = await Promise.all([api('GET', '/api/ai-images/usage'), drawn ? null : api('GET', '/api/ai-images/settings')]);
+      const eurs = report.totals.all.cost_eur != null;
+      fill(chips, chip(t('ai.usage_month'), report.totals.month, eurs), chip(t('ai.usage_all'), report.totals.all, eurs));
+      notice.textContent = t('ai.usage_no_rate');
+      notice.hidden = !(report.rate == null && report.totals.all.cost_usd != null);
+      fill(list, report.sets.length ? report.sets.map(setRow) : h('li', { class: 'muted' }, t('ai.usage_none')));
+      if (info) drawForm(info);
+      error.hidden = true;
+    } catch (e) { error.textContent = e.message; error.hidden = false; }
+  }
+
+  const card = h('div', { class: 'glass card stack' }, h('h2', {}, t('ai.usage_title')), h('p', { class: 'muted' }, t('ai.usage_intro')),
+    chips, notice, error, list, h('details', {}, h('summary', {}, t('ai.prices_title')), form));
+  setTimeout(keepFresh(card, load, USAGE_POLL_MS), 0);
+  return card;
 }
 
 // --- The log ----------------------------------------------------------------------

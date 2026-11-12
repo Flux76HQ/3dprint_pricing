@@ -1,4 +1,4 @@
-import { aiLogCard, aiSettingsCard } from './ai-images.js';
+import { aiLogCard, aiSettingsCard, aiUsageCard } from './ai-images.js';
 import { api, confirmWithPasskey, createPasskey, downloadFile, sendFile, upload } from './api.js';
 import { filamentLibraryCards } from './filament-library.js';
 import { iosSteps, installState, onInstallChange, promptInstall } from './install.js';
@@ -1050,11 +1050,11 @@ export function settingsView(ctx, requested) {
             ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (ctx.prefs.price_rounding || 'none') === v }, t(l)))))),
         h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
       companyCard(ctx), qrCard(ctx), invoiceLogoCard(), invoiceTemplateCard()],
-    filamenten: () => [spoolmanCard(undefined, { configure: true }), ...filamentLibraryCards()],
+    filamenten: () => filamentLibraryCards(),
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
-    koppelingen: () => [...integrationsCards(), haspelsyncCard()],
-    ai: () => [aiSettingsCard(), aiLogCard()],
+    koppelingen: () => integrationsCards([spoolmanCard(undefined, { configure: true }), haspelsyncCard()]),
+    ai: () => [aiSettingsCard(), aiUsageCard(), aiLogCard()],
     backup: () => [backupCard()],
     systeem: () => [...aboutCards('systeem'), resetCard()],
     over: () => aboutCards('over'),

@@ -543,9 +543,9 @@ De onderdelen van *Instellingen* staan in het **menu links, onder *Instellingen*
 | **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon; alleen zichtbaar voor beheerders, en als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
 | **Filamenten** | de filamentbibliotheek: specificaties van filamenten, een Bambu Lab-factuur inlezen, JSON-export en -import en synchroniseren met GitHub; zie *Filamentbibliotheek* |
 | **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
-| **Koppelingen** | alleen beheerders: API-sleutels waarmee een andere applicatie bestellingen en facturen leest, en webhooks die een seintje geven als er iets gebeurt (zie *Koppelingen: API-sleutels en webhooks*) |
+| **Koppelingen** | alleen beheerders: de koppelingen met [Spoolman](#spoolman-optioneel) en [HaspelSync](#haspelsync-optioneel), API-sleutels waarmee een andere applicatie bestellingen en facturen leest, en webhooks die een seintje geven als er iets gebeurt (zie *Koppelingen: API-sleutels en webhooks*); elke koppeling klapt dicht en toont dan of hij actief is |
 | **Gebruikers** | alleen beheerders: wie mag inloggen, uitnodigen, nieuwe inloglink, beheerder maken, verwijderen; zie *Gebruikers en rollen* |
-| **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel en het logboek |
+| **AI-afbeeldingen** | alleen beheerders, en alleen als `AI_IMAGES_ENABLED=TRUE`: de OpenAI-sleutel, de kosten (tokens en euro's per set) met de prijzen en de koers, en het logboek |
 | **Back-up** | alleen beheerders: back-up en herstel, de automatische back-ups en de lijst van back-ups op de server (zie *Back-up in de app*) |
 | **Systeem** | alleen beheerders: de gezondheid van de database en de actieve koppeling ermee (zie *Instellingen → Beheer → Systeem*), en onder *Opruimen* terug naar fabrieksinstellingen (zie *Fabrieksinstellingen*) |
 | **Over** | alleen beheerders: een samenvatting (versie, database, laatste back-up, updates), de updatecontrole (zie *Meldingen en updates*) en wat er draait (zie *Instellingen → Beheer → Over*) |
@@ -556,7 +556,15 @@ Het menu links is gegroepeerd (*Verkoop*, *Voorraad*, *Productie*), met *Instell
 
 ## Koppelingen: API-sleutels en webhooks
 
-*Instellingen → Beheer → Koppelingen* (alleen beheerders). Hiermee kan een andere applicatie (je boekhouding of finance-app, een eigen script) bestellingen en
+*Instellingen → Beheer → Koppelingen* (alleen beheerders). Op deze pagina staan alle koppelingen met andere applicaties, elk als kaart: [Spoolman](#spoolman-optioneel) en [HaspelSync](#haspelsync-optioneel)
+(die leveren gegevens aan deze app), en daaronder de API-sleutels en de webhooks.
+
+**Elke kaart klapt dicht, en dicht zie je nog hoe het ervoor staat.** Naast de titel staat de toestand van de koppeling: **Actief** (groen), **Niet verbonden** (rood: er is een koppeling ingesteld, maar de andere kant antwoordt niet of weigert)
+of **Niet geconfigureerd** (grijs), met kort erachter wat erbij hoort (een adres, het aantal printers, sleutels of webhooks). Bij Spoolman en HaspelSync vraagt de pagina dat telkens opnieuw aan de andere kant (zolang dat duurt, staat er *Controleren…*);
+bij *Niet verbonden* staat de reden in de opengeklapte kaart. Bij de API-sleutels is het *Niet geconfigureerd* zolang er geen sleutel is; bij de webhooks is het *Niet verbonden* zodra een adres is uitgezet omdat het bleef mislukken (of weg is),
+of zijn sleutel niet meer te lezen is, en *Niet geconfigureerd* zolang er geen werkend adres is. Wat je open- of dichtklapt wordt in deze browser onthouden; een eerste bezoek toont alles dicht.
+
+Hiermee kan een andere applicatie (je boekhouding of finance-app, een eigen script) bestellingen en
 facturen uit deze app lezen, en geeft deze app een seintje als er iets gebeurt. Er is nog geen kant-en-klare koppeling met een verkoopkanaal of boekhoudpakket:
 dit is de basis waar zo'n koppeling op aansluit.
 
@@ -682,9 +690,22 @@ zie je in de app niets. De server beslist, niet de browser.
    klaar (met de duur), een gewijzigde sleutel of gewijzigde instellingen, en elke fout met de melding en wat OpenAI zelf zei (bijvoorbeeld `HTTP 429
    insufficient_quota`). Stukjes die op een sleutel lijken worden eruit gehaald. De nieuwste regel staat bovenaan, het logboek ververst zichzelf, de laatste 500 regels blijven
    bewaard en het is leeg te maken. Het logboek en de voortgang zitten niet in de back-up.
+6. **Kosten**: *Instellingen → AI-afbeeldingen* heeft boven het logboek de kaart *Kosten van de afbeeldingen*. OpenAI telt bij elke afbeelding de **tokens** (tekstinvoer, beeldinvoer en uitvoer); de app
+   bewaart ze bij die afbeelding, in dezelfde stap als de afbeelding zelf, samen met de prijzen en de koers van dat moment. Per **set** (wat één keer *Maak afbeeldingen* maakte) zie je het doel, het moment, het aantal
+   afbeeldingen, de tokens (invoer en uitvoer apart) en de kosten in euro's (en in dollars), en daarboven het totaal van **deze maand** en van **alles**. De kosten zijn de tokens maal de **prijs per miljoen tokens** (in dollar), omgerekend met
+   **jouw koers**; een set wordt op centen afgerond voordat de sets worden opgeteld, zodat de bedragen op het scherm kloppen met het totaal.
+   - **Prijzen** (*Prijzen en koers*, onder de lijst). Voor `gpt-image-2` kent de app de lijstprijs van OpenAI (Standard, gelezen op 12 november 2026 op openai.com/api/pricing): tekstinvoer $ 5, beeldinvoer $ 8 en
+     uitvoer $ 30 per miljoen tokens; die gelden zolang je niets invult en je kunt ze overschrijven. Controleer ze: OpenAI kan ze wijzigen. Voor een **ander model** is geen prijs bekend: dan krijgt een afbeelding
+     geen bedrag (alleen tokens) tot je prijzen invult, en wissel je van model, dan vervallen de prijzen die je voor het vorige invulde. Een nieuwe prijs geldt voor afbeeldingen die je daarna maakt; wat al gemaakt is, blijft tegen de prijs van toen.
+   - **Koers** (euro per dollar). Die vul **jij** in, bijvoorbeeld de koers waarmee je creditcard omrekent; de app verzint er geen en haalt er niet een op. Zolang er geen koers is, staan de kosten in dollars en zegt de kaart dat.
+     Een afbeelding gebruikt de koers van het moment dat hij gemaakt werd; een afbeelding van vóór je een koers invulde gebruikt de koers van nu.
+   - **Wat niet meetelt.** Afbeeldingen van vóór deze functie (daar zijn geen tokens van bekend), en een afbeelding die mislukte (OpenAI rekent die niet als gemaakt; er komt geen regel). Meldt OpenAI bij een gemaakte afbeelding niet
+     (volledig) hoeveel tokens het telde, dan staat er *OpenAI meldde geen tokens* en geen bedrag: de app rekent niet met een gok. De regel van een set blijft staan als je de berekening verwijdert (het geld is uitgegeven; nummer en naam blijven bewaard).
+   - **Een berekening, geen factuur.** De bedragen zijn de tokens die OpenAI meldt, maal de prijzen en de koers die jij kiest. Je factuur van OpenAI kan afwijken (belasting, tegoed, een andere koers, prijswijzigingen).
+   Alleen beheerders zien de kaart.
 
 De foto en de gemaakte afbeeldingen staan in de database (tabel `project_images`) en zitten in de back-up; de API-sleutel zit er bewust niet in. De wachtrij en het logboek
-(`ai_image_jobs`, `ai_image_log`) beschrijven lopend werk en geschiedenis en zitten er niet in. De foto en
+(`ai_image_jobs`, `ai_image_log`) beschrijven lopend werk en geschiedenis en zitten er niet in; **de kosten (`ai_image_usage`), de prijzen en de koers zitten er wel in**. De foto en
 je omschrijving gaan naar OpenAI; wat daar mee gebeurt volgt hun voorwaarden.
 
 ## Bestellingen en facturen
@@ -815,12 +836,12 @@ De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg b
 ## Spoolman (optioneel)
 
 Gebruik je [Spoolman](https://github.com/Donkie/Spoolman) voor je spoelen, dan kan dat de **bron van de rollen en van wat er nog op zit** zijn, zodat je dat op één plek bijhoudt. Je vult het adres in als beheerder
-onder *Instellingen → Filamenten* (veld *Adres van Spoolman*, met *Opslaan* en *Verbinding testen*), of je zet het in `.env` als `SPOOLMAN_URL=http://spoolman:8000`. Het moet het adres zijn waarop **de server van de app** Spoolman bereikt
+onder *Instellingen → Koppelingen* (kaart *Spoolman*, veld *Adres van Spoolman*, met *Opslaan* en *Verbinding testen*), of je zet het in `.env` als `SPOOLMAN_URL=http://spoolman:8000`. Het moet het adres zijn waarop **de server van de app** Spoolman bereikt
 (dat kan een ander zijn dan in je browser, bijvoorbeeld `http://spoolman:8000` in hetzelfde Docker-netwerk of `http://192.168.1.20:7912` met de poort die je naar buiten zette); `http` mag, zonder inlog of vraagteken, en een pad mag
 als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles blijft zoals het was. Staat het in `.env`, dan **gaat dat voor**: de app toont het dan alleen-lezen. Het adres staat **niet in een back-up** (het hoort bij
 één netwerk) en alleen een beheerder kan het zien of wijzigen; de server doet met dit adres uitsluitend de vaste aanroepen onder `/api/v1/` van Spoolman en geeft van de test alleen het oordeel door. Spoolman heeft zelf geen inlog: zet het niet open op internet.
 
-- **Synchroniseren** (*Instellingen → Filamenten* en bovenaan *Filament*, alleen voor beheerders; iedereen ziet wanneer het voor het laatst gebeurde). De app leest alle spoelen uit Spoolman en maakt er elk een rol van,
+- **Synchroniseren** (*Instellingen → Koppelingen* en bovenaan *Filament*, alleen voor beheerders; iedereen ziet wanneer het voor het laatst gebeurde). De app leest alle spoelen uit Spoolman en maakt er elk een rol van,
   gekoppeld aan het spoolnummer van Spoolman: de volgende keer wordt die rol bijgewerkt, niet nog een keer toegevoegd. Merk, materiaal, kleur (naam en kleurcode), gewicht, prijs, diameter, temperaturen,
   opmerking en wat er nog op zit komen uit Spoolman; de *artikelnummer* van het filament wordt de barcode (rollen met dezelfde barcode tellen in de voorraad samen). Een spoel met een eigen prijs telt voor die prijs, anders geldt de prijs van het filament.
   **Prijzen worden overgenomen zoals ze in Spoolman staan en gelden hier als prijs excl. btw**, net als overal in de app.
@@ -872,6 +893,11 @@ en de grammen die je bij een slot ziet zijn wat Spoolman via HaspelSync meldt.
   hoeveel van een slot deze print nodig heeft en al heeft gebruikt. Een slot dat niet aan een spoel in Spoolman is gekoppeld, zegt dat (er is dan geen gewicht). Daaronder staan per AMS de luchtvochtigheid, de temperatuur en een lopende droogbeurt. De pagina vraagt het elke
   **5 seconden** opnieuw zolang hij open staat en stopt daarmee zodra je de pagina verlaat of het tabblad op de achtergrond staat; de server onthoudt een antwoord **4 seconden**, zodat tien schermen HaspelSync niet vaker lastigvallen dan één. Een printer waar HaspelSync
   geen antwoord voor heeft (onbekend serienummer, niet bereikbaar) krijgt een kaart met de reden; is het adres zelf het probleem, dan wordt voor de andere printers niet apart gevraagd. Iedereen die is ingelogd ziet de kaarten, alleen beheerders zien het adres en stellen het in.
+- **Filament uit de printer kiezen in een 3D Model.** Is HaspelSync gekoppeld en hoort er minstens één printer bij, dan staat in de keuzelijst van elke filamentregel van een 3D Model, onder *Handmatig* en de soorten uit je voorraad, per printer een groep **In de printer: *naam***
+  met wat er nu in de slots zit (*A1 · PLA Rood · 613 g*; een slot dat wordt gebruikt zegt dat; lege slots staan er niet in). De printers die in de berekening voorkomen staan bovenaan; is een printer niet verbonden, dan staat dat in de naam van de groep (het is dan wat het laatst bekend was).
+  Kies je een slot, dan wordt de regel ingevuld: (1) hoort het slot bij een **spoel van Spoolman die deze app als rol heeft** (*Instellingen → Koppelingen → Spoolman → Synchroniseren*), dan wordt het **precies die rol**, met haar prijs; (2) anders de **soort uit je voorraad met hetzelfde materiaal en de kleur die er het dichtst bij ligt**
+  (dezelfde regel als bij een gesliced bestand: een kleur die te ver afligt telt niet); (3) past niets, dan blijft de regel **handmatig**, met de naam en de kleur uit de printer en een **lege prijs**, en zegt een melding dat je het gewicht en de prijs zelf invult. Er wordt nooit gegokt.
+  Het gewicht neemt de keuze niet over: dat staat in je gesliced bestand of typ je zelf. HaspelSync wordt pas gevraagd als de berekening al openstaat en nooit afgewacht: is het traag of weg, dan opent de berekening gewoon en ontbreekt de groep.
 - **Wat er van HaspelSync binnenkomt.** Alleen de velden die op het scherm staan, elk gecontroleerd en begrensd (een onbegrijpelijk antwoord geeft een ontbrekend veld, geen fout). Tags en chip-ID's van spoelen, het adres van Spoolman en het IP-adres en de toegangscode
   van de printers komen **nooit** in de app (de laatste twee worden niet eens opgevraagd). De lagen tellen zoals HaspelSync ze zelf toont: het totaal is de hoogste laag van het gesliced bestand plus één, en de teller loopt er niet overheen.
 - **Als het niet werkt.** *HaspelSync weigert het adres …* is de 403 hierboven (naam bij *Allowed host names* zetten of het IP-adres gebruiken). *HaspelSync weigert de API-sleutel* is een 401: maak er in HaspelSync een nieuwe aan. *HaspelSync is niet bereikbaar*: controleer

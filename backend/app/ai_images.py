@@ -12,7 +12,13 @@ by one and writes what happens to `ai_image_log`. The browser polls the jobs, so
 Pictures are made for a purpose (`PURPOSES`: a marketplace ad, social media, a web shop), four per purpose. The product name, the
 specifications and the extra text typed with the calculation (`projects.image_text`) are put on the first of the four by `image_overlay`,
 as a poster in a fixed template, never by the model, and only when all three are filled in; the logo of the invoice goes on when its switch is on and
-whoever asks has the business mode on."""
+whoever asks has the business mode on.
+
+What a set of pictures cost is kept, not worked out from the picture: OpenAI says how many tokens it counted for each (`usage` in its answer), and that is
+written to `ai_image_usage` in the transaction that stores the picture, with the prices and the rate of that moment (`usage_of`, `_record_usage`). The prices
+are OpenAI's, in dollars per million tokens, typed under Settings; for a model whose list price is known here (`DEFAULT_PRICES`) none has to be typed. The rate
+that turns dollars into euros is always typed: it is nobody's to guess. Money is `Decimal` all the way, and a set is rounded to cents before sets are added, so
+the lines on the screen add up to the total (`sets_of`). `GET /api/ai-images/usage` is for administrators, like everything under `/api/ai-images`."""
 import base64
 import colorsys
 import json
@@ -22,6 +28,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from io import BytesIO
 
 import requests
@@ -41,6 +48,17 @@ bp = Blueprint("ai_images", __name__, url_prefix="/api")
 KEY_INFO = b"printpricing/ai-key/v1"
 OPENAI = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-image-2"
+# OpenAI's own list price, Standard tier, in US dollars per million tokens (https://developers.openai.com/api/docs/pricing, read on 2026-11-12). Only a *default*: what an
+# administrator typed goes before it, and a model that is not here has none, so no cost is ever worked out from a price nobody checked. When OpenAI changes a price, change it here
+# (the pictures made before keep the price they were made at).
+DEFAULT_PRICES = {"gpt-image-2": {"text_in": Decimal("5"), "image_in": Decimal("8"), "image_out": Decimal("30")}}
+PRICE_KEYS = ("text_in", "image_in", "image_out")
+MAX_PRICE = Decimal("100000")        # dollars per million tokens; a typo, not a price, above this
+MAX_RATE = Decimal("100")            # euros per dollar
+MAX_TOKENS = 10**9                   # one picture; more than this in an answer is not a count
+MILLION = Decimal(1_000_000)
+CENT = Decimal("0.01")
+MAX_SETS = 100                       # sets listed on the screen; the totals count all of them
 QUALITIES = ("low", "medium", "high")
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 MAX_PIXELS = 40_000_000
@@ -263,9 +281,17 @@ def put_image_text(project_id):
 
 # --- settings ----------------------------------------------------------------------------------------------------
 
+SETTINGS = "api_key_enc, model, quality, price_text_in, price_image_in, price_image_out, usd_eur"
+
+
 def _settings(conn) -> dict:
-    row = conn.execute("SELECT api_key_enc, model, quality FROM ai_image_settings").fetchone()
-    return row or {"api_key_enc": None, "model": DEFAULT_MODEL, "quality": "medium"}
+    row = conn.execute(f"SELECT {SETTINGS} FROM ai_image_settings").fetchone()
+    return row or {"api_key_enc": None, "model": DEFAULT_MODEL, "quality": "medium", "price_text_in": None, "price_image_in": None, "price_image_out": None, "usd_eur": None}
+
+
+def _plain(value) -> "str | None":
+    """A number as people write it (`5`, `0.92`, not `5.0000`); None stays None."""
+    return None if value is None else format(value.normalize(), "f")
 
 
 def _read_key(row) -> "str | None":
@@ -279,7 +305,40 @@ def _public(row) -> dict:
     """What the browser may see: whether there is a key and its tail, never the key."""
     key = _read_key(row)
     return {"configured": bool(row["api_key_enc"]), "readable": key is not None or not row["api_key_enc"],
-            "last4": key[-4:] if key else "", "model": row["model"], "quality": row["quality"]}
+            "last4": key[-4:] if key else "", "model": row["model"], "quality": row["quality"],
+            # what was typed (None: nothing), OpenAI's list price for this model where it is known, and the rate
+            "prices": {k: _plain(row[f"price_{k}"]) for k in PRICE_KEYS}, "price_defaults": {k: _plain(v) for k, v in DEFAULT_PRICES.get(row["model"], {}).items()},
+            "usd_eur": _plain(row["usd_eur"])}
+
+
+def _number(value, label: str, *, maximum: Decimal, positive: bool = False) -> "Decimal | None":
+    """A price or a rate as typed (`0,92` is as good as `0.92`); empty is None, which takes the typed value away. Anything else that is not a finite number in range is refused."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    key = "ai.err_rate" if positive else "ai.err_price"
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ApiError(400, key, max=_plain(maximum))
+    try:
+        number = Decimal(str(value).strip().replace(",", "."))
+    except InvalidOperation:
+        raise ApiError(400, key, max=_plain(maximum)) from None
+    if not number.is_finite() or number < 0 or number > maximum or (positive and number == 0):
+        raise ApiError(400, key, max=_plain(maximum))
+    return number.quantize(Decimal("0.0001"), ROUND_HALF_UP)
+
+
+def _typed_prices(prices, rate, row) -> dict:
+    """The three prices and the rate after this request: what the request names (a key that is left out stays), else what was there."""
+    if prices is not None and not isinstance(prices, dict):
+        raise ApiError(400, "ai.err_price", max=_plain(MAX_PRICE))
+    out = {k: row[f"price_{k}"] for k in PRICE_KEYS}
+    out["usd_eur"] = row["usd_eur"]
+    for k in PRICE_KEYS:
+        if prices and k in prices:
+            out[k] = _number(prices[k], k, maximum=MAX_PRICE)
+    if rate is not ...:
+        out["usd_eur"] = _number(rate, "usd_eur", maximum=MAX_RATE, positive=True)
+    return out
 
 
 @bp.get("/ai-images/settings")
@@ -307,14 +366,22 @@ def put_settings():
             if not KEY.match(key):
                 raise ApiError(400, "ai.err_key_format")
             enc = passwords.seal(config().session_secret, key.encode(), KEY_INFO).decode()
+        typed = _typed_prices(body.get("prices"), body.get("usd_eur", ...), row)
+        if model != row["model"]:                           # the prices typed belonged to the model that was: for this one they are not known until they are typed
+            for k in PRICE_KEYS:
+                if not (isinstance(body.get("prices"), dict) and k in body["prices"]):
+                    typed[k] = None
         saved = conn.execute(
-            "INSERT INTO ai_image_settings (id, api_key_enc, model, quality) VALUES (true, %s, %s, %s) "
-            "ON CONFLICT (id) DO UPDATE SET api_key_enc = EXCLUDED.api_key_enc, model = EXCLUDED.model, quality = EXCLUDED.quality, "
-            "updated_at = now() RETURNING api_key_enc, model, quality", (enc, model, quality)).fetchone()
+            "INSERT INTO ai_image_settings (id, api_key_enc, model, quality, price_text_in, price_image_in, price_image_out, usd_eur) VALUES (true, %s, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (id) DO UPDATE SET api_key_enc = EXCLUDED.api_key_enc, model = EXCLUDED.model, quality = EXCLUDED.quality, price_text_in = EXCLUDED.price_text_in, "
+            "price_image_in = EXCLUDED.price_image_in, price_image_out = EXCLUDED.price_image_out, usd_eur = EXCLUDED.usd_eur, updated_at = now() "
+            f"RETURNING {SETTINGS}", (enc, model, quality, typed["text_in"], typed["image_in"], typed["image_out"], typed["usd_eur"])).fetchone()
         if enc != row["api_key_enc"]:
             _log(conn, "info", "ai.log_key_saved")
         if (model, quality) != (row["model"], row["quality"]):
             _log(conn, "info", "ai.log_settings", model=model, quality=quality)
+        if any(typed[k] != row[f"price_{k}" if k != "usd_eur" else k] for k in (*PRICE_KEYS, "usd_eur")):
+            _log(conn, "info", "ai.log_prices")
     return jsonify(_public(saved))
 
 
@@ -675,6 +742,7 @@ def _generate(key: str, model: str, quality: str, variant: str, description: str
     `image[]`."""
     prompt = build_prompt(variant, description, purpose, text=text, logo=logo, sources=tuple(origin for origin, _ in sources), colour=colour,
                           scene=scene)
+    # returns (jpeg, width, height, the tokens OpenAI counted or None: see `usage_of`)
     if len(sources) == 1:
         files = {"image": (f"{sources[0][0]}.jpg", sources[0][1], "image/jpeg")}
     else:
@@ -686,10 +754,11 @@ def _generate(key: str, model: str, quality: str, variant: str, description: str
                      data={"model": model, "prompt": prompt, "size": VARIANTS[variant][0], "quality": quality, "n": "1"},
                      files=files)
     try:
-        encoded = response.json()["data"][0]["b64_json"]
-        return _clean(base64.b64decode(encoded, validate=True))
+        answer = response.json()
+        content, width, height = _clean(base64.b64decode(answer["data"][0]["b64_json"], validate=True))
     except (ApiError, ValueError, KeyError, IndexError, TypeError):
         raise AiError(502, "ai.err_bad_result", detail="no usable image in the answer") from None
+    return content, width, height, usage_of(answer)
 
 
 def _give_up(project_id, batch, exc: ApiError, project) -> None:
@@ -725,9 +794,9 @@ def _run_next(project_id, batch) -> bool:
         key, model, quality = _need_key()
         if not sources:
             raise ApiError(400, "ai.err_no_photo")
-        content, width, height = _generate(key, model, quality, job["variant"], job["description"], sources, job["purpose"],
-                                           text=bool(overlay.get("text")), logo=logo is not None, colour=overlay.get("colour") or "",
-                                           scene=overlay.get("scene") or "")
+        content, width, height, usage = _generate(key, model, quality, job["variant"], job["description"], sources, job["purpose"],
+                                                  text=bool(overlay.get("text")), logo=logo is not None, colour=overlay.get("colour") or "",
+                                                  scene=overlay.get("scene") or "")
         if job["purpose"] and (overlay.get("text") or logo):
             content = image_overlay.compose(content, job["purpose"], job["variant"], text=overlay.get("text"), logo=logo["content"] if logo else None)
     except ApiError as exc:
@@ -743,6 +812,7 @@ def _run_next(project_id, batch) -> bool:
                          "VALUES (%s, 'generated', %s, %s, 'image/jpeg', %s, %s, %s)",
                          (project_id, job["variant"], job["purpose"], content, width, height))
             conn.execute("UPDATE ai_image_jobs SET status = 'done', finished_at = now(), updated_at = now() WHERE id = %s", (job["id"],))
+            _record_usage(conn, job, project, model, quality, usage)          # with the picture: no picture without what it cost, no cost without a picture
             _log(conn, "info", "ai.log_done", project=project, variant=job["variant"], seconds=round(time.monotonic() - started))
     except ForeignKeyViolation:
         return False
@@ -760,6 +830,119 @@ def _failed(project_id, batch, job, project, exc: ApiError) -> bool:
         _give_up(project_id, batch, exc, project)
         return False
     return True
+
+
+# --- what the pictures cost ----------------------------------------------------------------------------------------------
+
+def _count(value) -> "int | None":
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= MAX_TOKENS else None
+
+
+def usage_of(answer) -> "dict | None":
+    """The tokens OpenAI counted for one picture, from `usage` in its answer: the text and the image tokens that went in, and the tokens that came out. None when the answer
+    does not say it completely (the fields are whole numbers or they are nothing): a cost is never guessed from half an answer."""
+    usage = answer.get("usage") if isinstance(answer, dict) else None
+    details = usage.get("input_tokens_details") if isinstance(usage, dict) else None
+    if not isinstance(details, dict):
+        return None
+    counted = {"input_text": _count(details.get("text_tokens")), "input_image": _count(details.get("image_tokens")), "output": _count(usage.get("output_tokens"))}
+    return None if None in counted.values() else counted
+
+
+def prices_for(settings, model: str) -> dict:
+    """What a million tokens of each kind cost in dollars for `model`: what was typed (only if it was typed for this model), else OpenAI's list price for it, else None."""
+    default = DEFAULT_PRICES.get(model, {})
+    own = settings["model"] == model
+    return {k: settings[f"price_{k}"] if own and settings[f"price_{k}"] is not None else default.get(k) for k in PRICE_KEYS}
+
+
+def _record_usage(conn, job, project, model: str, quality: str, usage) -> None:
+    """One row for the picture that was just made, with the prices and the rate as they are now."""
+    settings = _settings(conn)
+    price = prices_for(settings, model)
+    counted = usage or {"input_text": 0, "input_image": 0, "output": 0}
+    conn.execute(
+        "INSERT INTO ai_image_usage (batch_id, project_id, project_number, project_name, purpose, variant, model, quality, reported, input_text_tokens, input_image_tokens, "
+        "output_tokens, price_text_in, price_image_in, price_image_out, usd_eur) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (job["batch_id"], project["id"], project["number"], project["name"], job["purpose"], job["variant"], model, quality, usage is not None,
+         counted["input_text"], counted["input_image"], counted["output"], price["text_in"], price["image_in"], price["image_out"], settings["usd_eur"]))
+
+
+def cost_usd(row) -> "Decimal | None":
+    """What one picture cost in dollars, exact: tokens times the price of its kind per million. None when OpenAI did not say how many tokens, or a kind that was used had no price then."""
+    if not row["reported"]:
+        return None
+    total = Decimal(0)
+    for tokens, price in ((row["input_text_tokens"], row["price_text_in"]), (row["input_image_tokens"], row["price_image_in"]), (row["output_tokens"], row["price_image_out"])):
+        if tokens:
+            if price is None:
+                return None
+            total += Decimal(tokens) * price / MILLION
+    return total
+
+
+def sets_of(rows, rate) -> list:
+    """The rows (newest first) as sets, one per request for pictures: when, which calculation, how many pictures, the tokens, and the cost in dollars and in euros. A set is rounded to
+    cents (`CENT`) before sets are added to a total, so what is on the screen adds up. The euros of a picture use the rate it was made at, else `rate` (the current one); with no rate, or a
+    picture whose cost is not known, the set has no euros (or dollars). `rate` is euros per dollar."""
+    sets: dict = {}
+    for row in rows:
+        s = sets.setdefault(str(row["batch_id"]), {"batch_id": str(row["batch_id"]), "at": row["created_at"], "project_id": str(row["project_id"]) if row["project_id"] else None,
+                                                    "project_number": row["project_number"], "project_name": row["project_name"], "purpose": row["purpose"], "pictures": 0,
+                                                    "reported": True, "input_text": 0, "input_image": 0, "output": 0, "_usd": Decimal(0), "_eur": Decimal(0)})
+        s["pictures"] += 1
+        s["reported"] = s["reported"] and bool(row["reported"])
+        s["input_text"] += row["input_text_tokens"]
+        s["input_image"] += row["input_image_tokens"]
+        s["output"] += row["output_tokens"]
+        cost = cost_usd(row)
+        at_rate = row["usd_eur"] if row["usd_eur"] is not None else rate
+        s["_usd"] = None if cost is None or s["_usd"] is None else s["_usd"] + cost
+        s["_eur"] = None if cost is None or at_rate is None or s["_eur"] is None else s["_eur"] + cost * at_rate
+    for s in sets.values():
+        usd, eur = s.pop("_usd"), s.pop("_eur")
+        s["tokens"] = s["input_text"] + s["input_image"] + s["output"]
+        s["cost_usd"] = None if usd is None else usd.quantize(CENT, ROUND_HALF_UP)
+        s["cost_eur"] = None if eur is None else eur.quantize(CENT, ROUND_HALF_UP)
+    return list(sets.values())
+
+
+def _money(value) -> "str | None":
+    return None if value is None else format(value, "f")
+
+
+def _totals(sets) -> dict:
+    """What the sets come to: how many, the tokens, and the cost in dollars and in euros of the sets that have one (the others are counted apart, so a total is never presented as more than it is)."""
+    usd = [s["cost_usd"] for s in sets if s["cost_usd"] is not None]
+    eur = [s["cost_eur"] for s in sets if s["cost_eur"] is not None]
+    return {"sets": len(sets), "pictures": sum(s["pictures"] for s in sets), "tokens": sum(s["tokens"] for s in sets),
+            "cost_usd": _money(sum(usd, Decimal(0))) if usd else None, "cost_eur": _money(sum(eur, Decimal(0))) if eur else None,
+            "without_usd": len(sets) - len(usd), "without_eur": len(sets) - len(eur)}
+
+
+def _set_json(s) -> dict:
+    return {"batch_id": s["batch_id"], "at": s["at"].isoformat(), "project_id": s["project_id"], "project_number": s["project_number"], "project_name": s["project_name"],
+            "purpose": s["purpose"], "pictures": s["pictures"], "reported": s["reported"],
+            "tokens": {"input_text": s["input_text"], "input_image": s["input_image"], "output": s["output"], "total": s["tokens"]},
+            "cost_usd": _money(s["cost_usd"]), "cost_eur": _money(s["cost_eur"])}
+
+
+def usage_report(rows, settings, now) -> dict:
+    """The answer of `GET /api/ai-images/usage`. `now` decides what "this month" is (UTC)."""
+    rate = settings["usd_eur"]
+    sets = sets_of(rows, rate)
+    month = [s for s in sets if (s["at"].year, s["at"].month) == (now.year, now.month)]
+    return {"sets": [_set_json(s) for s in sets[:MAX_SETS]], "totals": {"month": _totals(month), "all": _totals(sets)}, "model": settings["model"], "rate": _plain(rate),
+            "prices": {k: _plain(v) for k, v in prices_for(settings, settings["model"]).items()}}
+
+
+@bp.get("/ai-images/usage")
+def get_usage():
+    """What the pictures cost: the newest sets with their tokens and cost, and the totals of this month and of everything, and the prices and the rate they are worked out with."""
+    with pool().read() as conn:
+        settings = _settings(conn)
+        rows = conn.execute("SELECT * FROM ai_image_usage ORDER BY created_at DESC, id DESC").fetchall()
+    return jsonify(usage_report(rows, settings, datetime.now(timezone.utc)))
 
 
 # --- the log -------------------------------------------------------------------------------------------------------------

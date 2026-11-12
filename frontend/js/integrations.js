@@ -1,10 +1,11 @@
-// Settings -> Koppelingen (administrators only; the server refuses these calls to anyone else): API keys, with which another application
-// reads orders, invoices and customers, and webhooks, which tell another application that something happened. A key and a signing key are
-// shown once, when they are made: the server keeps only a hash of the first and a sealed copy of the second.
+// Settings -> Koppelingen (administrators only; the server refuses these calls to anyone else): the connections to Spoolman and HaspelSync (spoolman.js, haspelsync.js),
+// API keys, with which another application reads orders, invoices and customers, and webhooks, which tell another application that something happened. Every one is a card
+// that folds away and says in its heading whether the connection is active, not connected or not configured. A key and a signing key are shown once, when they are made:
+// the server keeps only a hash of the first and a sealed copy of the second.
 import { api } from './api.js';
 import { formatDateTime, t } from './i18n.js';
 import { confirmIdentity } from './password.js';
-import { field, fill, h, icon, switchRow, toast } from './ui.js';
+import { connectionBadge, field, fill, foldHead, h, icon, switchRow, toast } from './ui.js';
 
 // What a webhook can be told: [name the server knows it by, label key]. The order is the server's.
 const EVENT_LABELS = { 'invoice.created': 'hooks.ev_invoice_created', 'invoice.updated': 'hooks.ev_invoice_updated', 'order.created': 'hooks.ev_order_created',
@@ -25,6 +26,7 @@ function onceBox(value, title, hint) {
 }
 
 function keysCard() {
+  const badge = connectionBadge();
   const list = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
   const shown = h('div');
   const name = h('input', { type: 'text', autocomplete: 'off', maxlength: 60, required: true, placeholder: t('keys.name_ph') });
@@ -32,7 +34,8 @@ function keysCard() {
 
   async function load() {
     let data;
-    try { data = await api('GET', '/api/integrations/keys'); } catch (e) { fill(list, h('p', { class: 'error', role: 'alert' }, e.message)); return; }
+    try { data = await api('GET', '/api/integrations/keys'); } catch (e) { badge.set('offline', { message: e.message }); fill(list, h('p', { class: 'error', role: 'alert' }, e.message)); return; }
+    badge.set(data.keys.length ? 'active' : 'off', { detail: data.keys.length ? t('keys.count', { n: data.keys.length }) : null });        // a key is the only thing to set up: with none, nothing can connect
     fill(list, data.keys.length ? h('ul', { class: 'plain-list' }, data.keys.map((key) => h('li', { class: 'list-row' },
       h('div', {}, h('strong', {}, key.name), ' ', h('code', {}, `${key.shown}…`),
         h('p', { class: 'muted' }, `${t('keys.made', { date: when(key.created_at) })} · ${key.last_used_at ? t('keys.used', { date: when(key.last_used_at) }) : t('keys.never_used')}`)),
@@ -61,7 +64,7 @@ function keysCard() {
 
   load();
   return h('div', { class: 'glass card stack' },
-    h('h2', {}, t('keys.title')),
+    foldHead('integration-keys', t('keys.title'), { open: false, extra: badge.el }),
     h('p', { class: 'muted' }, t('keys.intro')),
     h('dl', { class: 'kv' }, h('span', {}, t('keys.address')), h('strong', {}, h('code', {}, address))),
     list, shown,
@@ -70,6 +73,7 @@ function keysCard() {
 }
 
 function hooksCard() {
+  const badge = connectionBadge();
   const list = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
   const shown = h('div');
   const name = h('input', { type: 'text', autocomplete: 'off', maxlength: 60, required: true, placeholder: t('hooks.name_ph') });
@@ -124,7 +128,13 @@ function hooksCard() {
 
   async function load() {
     let data;
-    try { data = await api('GET', '/api/integrations/webhooks'); } catch (e) { fill(list, h('p', { class: 'error', role: 'alert' }, e.message)); return; }
+    try { data = await api('GET', '/api/integrations/webhooks'); } catch (e) { badge.set('offline', { message: e.message }); fill(list, h('p', { class: 'error', role: 'alert' }, e.message)); return; }
+    // An address that was switched off because it kept failing (or is gone), or whose signing key cannot be read, is not connected; one that works is active; with none that works, nothing is set up.
+    const broken = data.endpoints.filter((e) => !e.readable || (!e.enabled && (e.disabled_reason === 'failing' || e.disabled_reason === 'gone')));
+    const working = data.endpoints.filter((e) => e.enabled && e.readable);
+    if (broken.length) badge.set('offline', { detail: t('hooks.problem', { n: broken.length }) });
+    else if (working.length) badge.set('active', { detail: t('hooks.count', { n: working.length }) });
+    else badge.set('off');
     if (!events.length) { events = data.events; drawPicks(); }
     fill(list, data.endpoints.length ? h('ul', { class: 'plain-list hooks' }, data.endpoints.map(row)) : h('p', { class: 'muted' }, t('hooks.none')));
   }
@@ -169,7 +179,7 @@ function hooksCard() {
 
   load();
   return h('div', { class: 'glass card stack' },
-    h('h2', {}, t('hooks.title')),
+    foldHead('integration-hooks', t('hooks.title'), { open: false, extra: badge.el }),
     h('p', { class: 'muted' }, t('hooks.intro')),
     list, shown,
     h('form', { class: 'stack hook-form', onsubmit: create },
@@ -179,9 +189,11 @@ function hooksCard() {
       h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, icon('plus'), h('span', {}, t('hooks.add'))))));
 }
 
-export function integrationsCards() {
+/** The cards of the page: its introduction, the cards of connections made elsewhere (`first`: Spoolman and HaspelSync), then API keys and webhooks. */
+export function integrationsCards(first = []) {
   return [
     h('p', { class: 'muted page-intro' }, t('integrations.intro')),
+    ...first,
     keysCard(),
     hooksCard()];
 }

@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { spoolIcon } from './filament-ui.js';
 import { formatDateTime, formatTime, t } from './i18n.js';
-import { confirmDialog, field, fill, fmt, foldHead, h, toast } from './ui.js';
+import { confirmDialog, connectionBadge, field, fill, fmt, foldHead, h, toast } from './ui.js';
 
 // HaspelSync (https://github.com/Rdiger-36/HaspelSync) shows what a Bambu Lab printer is doing and what is loaded in it. The server asks it (backend/app/haspelsync.py);
 // everything on screen is what that answers, already validated: nothing here reads HaspelSync itself.
@@ -17,11 +17,23 @@ const STATE_BADGE = { RUNNING: 'badge', PREPARE: 'badge', PAUSE: 'badge muted', 
  * everybody else. The key is typed here, kept sealed on the server and never shown again: a field left empty keeps it. */
 export function haspelsyncCard() {
   const card = h('div', { class: 'glass card stack', hidden: true });
+  const badge = connectionBadge();                                 // in the heading, so it can be read while the card is folded
 
   async function draw() {
     let status;
     try { status = await api('GET', '/api/haspelsync'); } catch { return; }          // a convenience: the page works without it
     if (!status.can_configure) { card.hidden = true; return; }
+    // Not configured, or asked whether HaspelSync answers (the heading says "checking" until it does); why not, when it does not, is shown in the card.
+    const problem = h('p', { class: 'notice error', role: 'alert', hidden: true });
+    if (!status.enabled) badge.set('off');
+    else {
+      badge.set('checking');
+      api('GET', '/api/haspelsync/connection').then((c) => {
+        badge.set(c.state, { detail: c.state === 'active' ? t('haspelsync.printers', { n: c.printers }) : null, message: c.message });
+        problem.textContent = c.state === 'offline' ? c.message : '';
+        problem.hidden = c.state !== 'offline';
+      }).catch(() => badge.set('offline'));
+    }
     const url = h('input', { type: 'text', inputmode: 'url', autocomplete: 'off', spellcheck: 'false', placeholder: 'http://haspelsync:4000', value: status.url || '', disabled: status.url_from_env });
     const key = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off', disabled: status.key_from_env,
       placeholder: status.key_set ? '••••••••••••' : 'ams_…' });
@@ -46,8 +58,8 @@ export function haspelsyncCard() {
     const keyHint = status.key_from_env ? t('haspelsync.key_env')
       : !status.key_readable ? t('haspelsync.key_unreadable')
         : status.key_set ? t('haspelsync.key_saved') : t('haspelsync.key_hint');
-    fill(card, foldHead('haspelsync', t('haspelsync.title'), { open: false }),
-      h('p', { class: 'muted' }, t('haspelsync.intro')),
+    fill(card, foldHead('haspelsync', t('haspelsync.title'), { open: false, extra: badge.el }),
+      h('p', { class: 'muted' }, t('haspelsync.intro')), problem,
       status.enabled ? h('p', { class: 'hint breakable' }, t('haspelsync.status', { host: status.host })) : null,
       h('div', { class: 'stack' },
         field(t('haspelsync.address'), url, status.url_from_env ? t('haspelsync.address_env') : t('haspelsync.address_hint')),
@@ -86,6 +98,20 @@ export function serialField({ label, hint, value, onchange }) {
     try { draw(await api('GET', '/api/haspelsync/printers')); } catch (err) { draw([], err.message); }
   }).catch(() => {});
   return box;
+}
+
+// --- the filament choice of a calculation: what is in the printers right now -------------------------------------------------
+
+/** The filaments that are loaded in the printers right now, for the filament choice of a calculation: one group per linked printer that HaspelSync answers for (`{ printer_id, name,
+ *  connected, slots }`, the loaded slots only, with their label, material, name, vendor, colours, grams left, the Spoolman spool they are and whether they are the one in use). It is asked
+ *  after the calculation is open and never waited for, because HaspelSync is another service and may be slow or away: when it does not answer the list is empty and the choice is what it was. */
+export async function printerFilaments() {
+  try {
+    const answer = await api('GET', '/api/haspelsync/live');
+    return (answer.printers || []).filter((p) => p.live)
+      .map((p) => ({ printer_id: p.printer_id, name: p.name, connected: p.live.connected, slots: (p.live.slots || []).filter((s) => s.loaded) }))
+      .filter((group) => group.slots.length);
+  } catch { return []; }
 }
 
 // --- the Printers page: what each printer is doing now and what is in it ----------------------------------------------------

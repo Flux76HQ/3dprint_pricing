@@ -394,10 +394,10 @@ def test_the_running_print_and_the_filament_of_a_printer_that_names_one(owner, s
     assert view["job"] == {"state": "RUNNING", "busy": True, "name": "Draak", "layer": 37, "total_layers": 150, "progress_pct": 25, "preparing": False,
                            "started_at": "2026-11-12T10:00:00+00:00", "elapsed_s": 1800, "remaining_min": 95, "ends_at": "2026-11-12T11:35:00+00:00"}
     red, green, empty = view["slots"]
-    assert red == {"label": "A1", "loaded": True, "active": False, "material": "PLA", "vendor": "Bambu Lab", "name": "Rood", "colours": ["#ff0000"], "linked": True,
+    assert red == {"label": "A1", "loaded": True, "active": False, "material": "PLA", "vendor": "Bambu Lab", "name": "Rood", "colours": ["#ff0000"], "linked": True, "spoolman_id": 7,
                    "remaining_g": 612.5, "initial_g": 1000.0, "remaining_pct": 61}
-    assert (green["label"], green["active"], green["material"], green["colours"], green["linked"], green["remaining_g"], green["remaining_pct"]) == \
-        ("A2", True, "PETG", ["#00ff00"], False, None, None)
+    assert (green["label"], green["active"], green["material"], green["colours"], green["linked"], green["spoolman_id"], green["remaining_g"], green["remaining_pct"]) == \
+        ("A2", True, "PETG", ["#00ff00"], False, None, None, None)
     assert empty == {"label": "A3", "loaded": False, "active": False}
     assert view["uses"] == [{"slot": "A2", "needed_g": 42.3, "used_g": 10.4}]
     assert view["ams"] == [{"id": "A", "model": "AMS 2 Pro", "humidity": 2, "humidity_pct": 31, "temperature": 25, "drying": True, "drying_min": 95}]
@@ -611,3 +611,73 @@ def test_a_backup_that_names_one_serial_number_twice_gives_it_to_the_first_only(
     res = post(owner, "/api/backup/restore", doc)
     assert res.status_code == 200, res.get_json()
     assert sorted((p["name"], p["haspelsync_serial"]) for p in owner.get("/api/printers").get_json()) == [("P2S", SERIAL), ("Tweede", "")]
+
+
+# --- the state of the connection, for the badge on its card ----------------------------------------------------------
+
+def connection(client, lang="en"):
+    res = client.get("/api/haspelsync/connection", headers={"X-Lang": lang})
+    assert res.status_code == 200, res.get_json()
+    return res.get_json()
+
+
+def test_the_connection_is_off_until_there_is_an_address_and_a_key(owner, stand_in):
+    assert connection(owner) == {"state": "off", "message": None, "printers": None}
+    save(owner, url=URL)
+    state = connection(owner)
+    assert state["state"] == "off" and "No API key" in state["message"] and stand_in.calls == []        # nothing is asked without a key
+    save(owner, api_key=KEY)
+    assert connection(owner)["state"] == "active"
+
+
+def test_the_connection_is_active_and_counts_the_printers(owner, server):
+    server.printers = [{"id": SERIAL, "name": "A"}, {"id": SECOND, "name": "B"}]
+    assert connection(owner) == {"state": "active", "message": None, "printers": 2}
+
+
+@pytest.mark.parametrize("code,fragment", [(401, "refuses the API key"), (403, "Allowed host names"), (500, "status 500")])
+def test_the_connection_is_offline_and_says_why_in_the_language_of_the_person(owner, server, code, fragment):
+    server.codes["/api/printers"] = code
+    state = connection(owner)
+    assert state["state"] == "offline" and fragment in state["message"] and state["printers"] is None
+
+
+def test_the_connection_is_offline_when_haspelsync_is_down(owner, typed):
+    typed.down = True
+    assert "cannot be reached" in connection(owner)["message"] and "niet bereikbaar" in connection(owner, "nl")["message"]
+
+
+def test_the_connection_is_offline_when_the_key_cannot_be_read_and_nothing_is_sent_with_it(owner, typed, app):
+    sql(app, "UPDATE haspelsync_settings SET api_key_enc = %s", (passwords.seal("y" * 40, KEY.encode(), haspelsync.KEY_INFO).decode(),))
+    state = connection(owner)
+    assert state["state"] == "offline" and "Enter the key again" in state["message"] and typed.calls == []
+
+
+def test_everybody_signed_in_may_ask_for_the_state_and_nobody_else(app, owner, server):
+    assert connection(join_with_passkey(app, owner))["state"] == "active"
+    assert app.test_client().get("/api/haspelsync/connection").status_code == 401
+
+
+# --- the filaments in the printers, for the filament choice of a calculation --------------------------------------------------
+
+@pytest.mark.parametrize("number,expected", [(7, 7), (1, 1), (0, None), (-3, None), (7.5, None), (7.0, None), ("7", None), (True, None), (None, None), (10**9 + 1, None), ([7], None)])
+def test_a_slot_says_which_spool_of_spoolman_it_is_by_its_number_alone(owner, server, number, expected):
+    """The app finds the roll it mirrored from that spool by this number; nothing else of Spoolman's record is passed on."""
+    server.add()
+    server.print[SERIAL]["loadedSpools"][0]["existingSpool"]["id"] = number
+    printer(owner)
+    slot_ = live(owner)["printers"][0]["live"]["slots"][0]
+    assert slot_["spoolman_id"] == expected and set(slot_) >= {"label", "linked", "spoolman_id"}
+    assert "archived" not in json.dumps(slot_) and "filament" not in slot_                    # the rest of the record stays where it is
+
+
+def test_a_slot_that_no_spool_is_has_no_number(owner, server):
+    server.add()
+    printer(owner)
+    assert live(owner)["printers"][0]["live"]["slots"][1]["spoolman_id"] is None
+
+
+def test_the_answer_of_the_calculation_screen_says_whether_there_is_a_haspelsync_and_never_asks_it(owner, typed):
+    printer(owner)
+    assert owner.get("/api/model-editor").get_json()["haspelsync"] == {"enabled": True}
+    assert typed.calls == []                                  # the screen asks for what is in the printers itself, after it is open: another service is never waited for

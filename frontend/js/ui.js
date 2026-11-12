@@ -100,8 +100,8 @@ export const navIcon = (name, active) => icon(!active && MDI[`${name}-outline`] 
 
 /** The heading of a card that can be folded away: a button with the title and a chevron. While it is not expanded the card shows only this
     heading (css: `.card:has(> .fold-head [aria-expanded="false"])`). The choice is remembered in this browser under `key`; `open` is
-    what a first visit gets. */
-export function foldHead(key, title, { open = true } = {}) {
+    what a first visit gets. `extra` (an element, e.g. a `connectionBadge`) stands next to the title, so it can be read while the card is folded. */
+export function foldHead(key, title, { open = true, extra = null } = {}) {
   const store = `pp-fold-${key}`;
   let isOpen = open;
   try { const saved = localStorage.getItem(store); if (saved === '1' || saved === '0') isOpen = saved === '1'; } catch { /* storage blocked: the default */ }
@@ -109,8 +109,25 @@ export function foldHead(key, title, { open = true } = {}) {
     const now = button.getAttribute('aria-expanded') !== 'true';
     button.setAttribute('aria-expanded', String(now));
     try { localStorage.setItem(store, now ? '1' : '0'); } catch { /* not remembered */ }
-  } }, h('span', {}, title), icon('chevron-down'));
+  } }, h('span', { class: 'fold-title' }, title, extra), icon('chevron-down'));
   return h('h2', { class: 'fold-head' }, button);
+}
+
+// How a connection to another application can stand: working, set up but not answering, or not set up (or still being looked at).
+const CONNECTION = { active: ['badge ok', 'connection.active'], offline: ['badge danger', 'connection.offline'], off: ['badge muted', 'connection.off'],
+  checking: ['badge muted', 'connection.checking'] };
+
+/** The state of a connection as it stands in the heading of its card (`foldHead`'s `extra`): **active**, **not connected** (there is a setup and the other side does not answer)
+    or **not configured**, with a short `detail` (a count, a host) and, for a connection that does not answer, the reason as a tooltip. It starts as "checking"; `set(state, { detail, message })` changes it. */
+export function connectionBadge() {
+  const el = h('span', { class: 'connection-state' });
+  const set = (state, { detail = null, message = null } = {}) => {
+    const [cls, key] = CONNECTION[state];
+    el.dataset.state = state;
+    fill(el, h('span', { class: cls, title: message || null }, t(key)), detail ? h('span', { class: 'muted connection-detail' }, detail) : null);
+  };
+  set('checking');
+  return { el, set };
 }
 
 export const eur = (value) => new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'EUR' }).format(Number(value) || 0);

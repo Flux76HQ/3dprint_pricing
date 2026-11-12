@@ -680,3 +680,38 @@ def test_everybody_may_read_the_status_but_only_an_administrator_may_sync(app, o
     member = join_with_passkey(app, owner)
     assert member.get("/api/spoolman").get_json()["can_sync"] is False
     assert member.post("/api/spoolman/sync", json={}, headers=H).status_code == 403
+
+
+# --- the state of the connection, for the badge on its card -------------------------------------------------------
+
+def connection(client, lang="en"):
+    res = client.get("/api/spoolman/connection", headers={"X-Lang": lang})
+    assert res.status_code == 200, res.get_json()
+    return res.get_json()
+
+
+def test_the_connection_is_off_without_an_address_and_active_while_spoolman_answers(owner, stand_in):
+    assert connection(owner) == {"state": "off", "message": None}
+    save_address(owner, URL)
+    assert connection(owner) == {"state": "active", "message": None}
+
+
+def test_the_connection_is_offline_and_says_why_when_spoolman_does_not_answer(owner, server):
+    server.down = True
+    state = connection(owner)
+    assert state["state"] == "offline" and "cannot be reached" in state["message"]
+    assert "onbereikbaar" in connection(owner, "nl")["message"] or "niet bereikbaar" in connection(owner, "nl")["message"]
+    server.down, server.answer = False, Reply(500, b"{}")
+    assert "status 500" in connection(owner)["message"]                         # the answer of PR 135: the code is a parameter of its own
+    server.answer = Reply(302, b"")
+    assert "redirects" in connection(owner)["message"]
+
+
+def test_the_connection_passes_on_a_verdict_and_nothing_of_what_spoolman_said(owner, server):
+    server.answer = Reply(200, b'{"secret": "x"}')
+    assert connection(owner) == {"state": "active", "message": None}
+
+
+def test_everybody_signed_in_may_ask_for_the_state_and_nobody_else(app, owner, server):
+    assert connection(join_with_passkey(app, owner))["state"] == "active"
+    assert app.test_client().get("/api/spoolman/connection").status_code == 401

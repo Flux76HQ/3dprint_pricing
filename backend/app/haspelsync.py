@@ -46,6 +46,7 @@ CACHE_SECONDS = 4                                   # what one printer answered 
 MAX_PRINTERS = 50                                   # printers listed: a household, not a farm, and where a malformed list is cut off
 MAX_SLOTS = 40                                      # HaspelSync addresses at most 24 slots and two external holders
 MAX_COLOURS = 8
+MAX_TOKENS = 10**9                                  # an id or a count of this size is not one
 STATES = ("IDLE", "PREPARE", "RUNNING", "PAUSE", "FINISH", "FAILED", "CANCEL")      # what the printer says it is doing (gcode_state)
 LABEL = re.compile(r"[A-Za-z0-9-]{1,12}")           # a slot as HaspelSync names it: A1, D4, HT-A, External, External-2
 HEX = re.compile(r"#?([0-9a-fA-F]{6})(?:[0-9a-fA-F]{2})?")                          # six hex digits, with the alpha byte the AMS appends or without
@@ -219,13 +220,15 @@ def _slot(entry, active) -> "dict | None":
     percentage = _num(spool.get("remaining_percentage"), 0, 100)
     if percentage is None and remaining is not None and initial:
         percentage = min(remaining / initial * 100, 100)
+    number = spool.get("id")                                     # which spool of Spoolman it is: only the number, so that a roll the app mirrored from it can be found
+    number = number if isinstance(number, int) and not isinstance(number, bool) and 0 < number <= MAX_TOKENS else None
     return {
         "label": label, "loaded": True, "active": label == active,
         "material": _text(entry.get("material") or filament.get("material") or raw.get("tray_type"), 40),
         "vendor": _text(entry.get("vendor") or _dict(filament.get("vendor")).get("name"), 60),
         "name": _text(entry.get("filamentName") or filament.get("name") or raw.get("tray_sub_brands"), 80),
         "colours": _colours(raw.get("cols"), raw.get("tray_color"), filament.get("multi_color_hexes"), filament.get("color_hex")),
-        "linked": bool(spool),
+        "linked": bool(spool), "spoolman_id": number,
         "remaining_g": None if remaining is None else round(remaining, 1),
         "initial_g": None if initial is None else round(initial, 1),
         "remaining_pct": None if percentage is None else round(percentage),
@@ -409,6 +412,21 @@ def save_settings():
     g.haspelsync = None
     clear_cache()
     return status()
+
+
+@bp.get("/connection")
+def connection():
+    """The state of the connection, for the badge on the card of Settings -> Integrations: `off` (no address, or no key yet), `active` (HaspelSync answers its list of printers,
+    and says how many there are) or `offline` (set up, and HaspelSync does not answer as it should, with why in the words of whoever asks). The answer is the one `/printers` keeps."""
+    found = settings()
+    if not found["url"]:
+        return jsonify({"state": "off", "message": None, "printers": None})
+    if not found["key_set"]:
+        return jsonify({"state": "off", "message": HaspelSyncError("haspelsync.no_key").words(), "printers": None})
+    result = _answer((found["url"], "*"), fetch_printers)
+    if "error" in result:
+        return jsonify({"state": "offline", "message": result["error"].words(), "printers": None})
+    return jsonify({"state": "active", "message": None, "printers": len(result["value"])})
 
 
 @bp.post("/test")

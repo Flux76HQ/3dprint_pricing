@@ -526,6 +526,11 @@ code { overflow-wrap: anywhere; white-space: normal; }
 @media (max-width: 600px) { .spoolman-bar { flex: 1 1 100%; justify-content: space-between; } }
 
 /* HaspelSync on the Printers page (js/haspelsync.js): what each printer is doing now and what is loaded in it. */
+/* What the AI pictures cost (js/ai-images.js): the amount stands on the right of its set */
+.ai-usage-cost { display: grid; justify-items: end; gap: 2px; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+.ai-usage-cost .muted { font-size: .85rem; }
+.ai-usage .list-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+
 .live-panel { display: grid; gap: 12px; margin: 0 0 20px; }
 .live-panel[hidden] { display: none; }
 .live-panel .cards { align-items: start; }
@@ -771,6 +776,8 @@ dialog.sheet { border: 1px solid var(--lijn-strong); border-radius: 20px; box-sh
 .fold-head { margin: 0; }
 .fold-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; margin: -8px 0; padding: 8px 0;
   background: none; border: 0; border-radius: 10px; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.fold-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
+.connection-state { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: .85rem; font-weight: 400; }
 .fold-toggle .icon { color: var(--text-muted); transition: transform .2s var(--ease), color .15s var(--ease); }
 .fold-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
 .fold-toggle:hover .icon { color: var(--text); }

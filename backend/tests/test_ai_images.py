@@ -57,8 +57,8 @@ def photo(owner, project, data=None, name="foto.png"):
 class FakeOpenAI:
     """Stands in for requests.request: records the call and answers like the images API."""
 
-    def __init__(self, monkeypatch, *, status=200, error=None, raises=None, result=None):
-        self.calls, self.status, self.error, self.raises = [], status, error, raises
+    def __init__(self, monkeypatch, *, status=200, error=None, raises=None, result=None, usage=None):
+        self.calls, self.status, self.error, self.raises, self.usage = [], status, error, raises, usage
         self.result = result if result is not None else png((64, 64), (10, 120, 10))
         monkeypatch.setattr(ai_images.requests, "request", self)
 
@@ -71,7 +71,10 @@ class FakeOpenAI:
         if self.status >= 400:
             res._content = ('{"error": %s}' % (self.error or "{}")).encode()
         else:
-            res._content = ('{"data": [{"b64_json": "%s"}]}' % base64.b64encode(self.result).decode()).encode()
+            answer = {"data": [{"b64_json": base64.b64encode(self.result).decode()}]}
+            if self.usage is not None:                                                  # what the GPT image models add: the tokens they counted
+                answer["usage"] = self.usage
+            res._content = json.dumps(answer).encode()
         return res
 
 
@@ -120,8 +123,9 @@ def test_a_session_is_needed_even_with_the_flag(app, client):
 # --- the key ----------------------------------------------------------------------------------------------------------
 
 def test_the_key_is_encrypted_and_never_shown(ai, app):
-    assert ai.get("/api/ai-images/settings").get_json() == {"configured": False, "readable": True, "last4": "", "model": "gpt-image-2",
-                                                            "quality": "medium"}
+    assert ai.get("/api/ai-images/settings").get_json() == {"configured": False, "readable": True, "last4": "", "model": "gpt-image-2", "quality": "medium",
+                                                            "prices": {"text_in": None, "image_in": None, "image_out": None},
+                                                            "price_defaults": {"text_in": "5", "image_in": "8", "image_out": "30"}, "usd_eur": None}
     res = set_key(ai)
     assert res.get_json()["last4"] == KEY[-4:] and res.get_json()["configured"] is True
     assert KEY not in res.get_data(as_text=True) and KEY not in ai.get("/api/ai-images/settings").get_data(as_text=True)
