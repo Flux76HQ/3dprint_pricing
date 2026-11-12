@@ -42,3 +42,24 @@ def test_migration_numbers_are_unique_and_without_gaps():
     apply both in file-name order and nobody would notice. `python scripts/update_branch.py` renumbers the branch's migration."""
     numbers = [int(p.name[:4]) for p in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql"))]
     assert numbers == list(range(1, len(numbers) + 1)), f"migration numbers must be unique and consecutive, got {numbers}"
+
+
+def test_the_migrations_that_were_renumbered_run_again_without_effect(fresh_db):
+    """Three pull requests each added migration 0006, passed on their own and were merged one after the other. `0006_project_models.sql`
+    kept the number (it adds columns, which cannot be done twice); the other two became 0007 and 0008 and are written so that a database
+    that already ran them under their old names (a beta build from in between) runs them again and nothing changes."""
+    run_migrations(fresh_db)
+
+    def schema(conn):
+        return sorted((row[0], row[1]) for row in conn.execute("SELECT name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").fetchall())
+
+    with connect(fresh_db) as conn:
+        before = schema(conn)
+        conn.execute("INSERT INTO api_keys (name, shown, key_hash) VALUES ('boekhouding', 'pp_live_ab', 'hash')")
+        conn.execute("UPDATE schema_migrations SET filename = '0006_indexes_for_scans.sql' WHERE filename = '0007_indexes_for_scans.sql'")
+        conn.execute("UPDATE schema_migrations SET filename = '0006_integrations.sql' WHERE filename = '0008_integrations.sql'")
+    assert run_migrations(fresh_db) == ["0007_indexes_for_scans.sql", "0008_integrations.sql"]
+    with connect(fresh_db) as conn:
+        assert schema(conn) == before
+        assert conn.execute("SELECT name FROM api_keys").fetchall() == [("boekhouding",)]            # what was there stays
+    assert run_migrations(fresh_db) == []

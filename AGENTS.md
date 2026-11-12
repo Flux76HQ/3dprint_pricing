@@ -401,7 +401,7 @@ measured on one machine on one day, and names its test. The plan-assertion test 
 
 ## 6i. Other applications: API keys, `/api/v1` and webhooks
 
-`backend/app/api_keys.py`, `public_api.py`, `webhooks.py`; migration `0006`; `frontend/js/integrations.js` (Settings → Beheer → Koppelingen); tests `tests/test_integrations.py`.
+`backend/app/api_keys.py`, `public_api.py`, `webhooks.py`; migration `0008`; `frontend/js/integrations.js` (Settings → Beheer → Koppelingen); tests `tests/test_integrations.py`.
 The user-facing description, with the fields and the retry schedule, is `docs/handleiding.md`, section *Koppelingen*.
 
 - **A key is not a person and not a session.** `ppk_` + 32 random bytes, shown once, only its SHA-256 kept (as an invitation). It is accepted on `/api/v1` and nowhere else,

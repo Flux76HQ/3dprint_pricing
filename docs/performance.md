@@ -163,7 +163,7 @@ What changed:
   in all. A block that may write is unchanged.
 - **A thread keeps its two connections** (one that writes, one that only reads) between blocks.
 - **Gunicorn runs threads**: `--worker-class gthread --threads ${WEB_THREADS:-4}`, two workers as before.
-- **Migration 0006**: a usable barcode index, `order_lines (project_id)`, `ai_image_jobs (batch_id, position)`, a partial index on
+- **Migration 0007**: a usable barcode index, `order_lines (project_id)`, `ai_image_jobs (batch_id, position)`, a partial index on
   the image jobs that are not finished, `push_outbox (deliver_after)`. They were found by recording all 658 distinct statements the
   test suite sends and explaining each on the grown database.
 - `fromisoformat` for stored moments; the backup is encoded row by row; the rate limiter has a lock.

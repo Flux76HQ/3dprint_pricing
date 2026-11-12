@@ -1,8 +1,11 @@
+-- (Was 0006_integrations.sql. Three pull requests each took number 0006 and all three were merged; this one was renumbered because it
+-- can be: every statement is IF NOT EXISTS, so a database that already ran it under the old name runs it again without effect.
+-- 0006_project_models.sql keeps its number: it adds columns, which cannot be done twice.)
 -- Connections with other applications (a finance app, later a sales channel).
 --
 -- An API key lets another application read orders, invoices and customers (the read-only API under /api/v1) without a browser session. Only its
 -- SHA-256 is kept: the key itself is shown once, when it is made. It is nobody's session and stays when the person who made it leaves.
-CREATE TABLE api_keys (
+CREATE TABLE IF NOT EXISTS api_keys (
     id            UUID TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))),
     name          TEXT NOT NULL,
     shown         TEXT NOT NULL,                                  -- the first characters of the key, to tell keys apart; not enough to use it
@@ -11,11 +14,11 @@ CREATE TABLE api_keys (
     created_at    TIMESTAMP TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
     last_used_at  TIMESTAMP TEXT
 );
-CREATE UNIQUE INDEX api_keys_hash ON api_keys (key_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS api_keys_hash ON api_keys (key_hash);
 
 -- An address that is told when something happens (an invoice is made, an order changes). The key its messages are signed with has to be
 -- readable to sign, so it is sealed (passwords.seal), never returned after it was shown once.
-CREATE TABLE webhook_endpoints (
+CREATE TABLE IF NOT EXISTS webhook_endpoints (
     id               UUID TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))),
     name             TEXT NOT NULL,
     url              TEXT NOT NULL,
@@ -30,7 +33,7 @@ CREATE TABLE webhook_endpoints (
 
 -- The messages: the outbox and the delivery log in one. A row is written in the transaction of what it reports, so the two are kept or lost
 -- together. `body` is the message as it is sent, serialised once: a retry signs and sends the same bytes.
-CREATE TABLE webhook_deliveries (
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
     id               UUID TEXT PRIMARY KEY,
     endpoint_id      UUID TEXT NOT NULL REFERENCES webhook_endpoints(id) ON DELETE CASCADE,
     event            TEXT NOT NULL,
@@ -43,5 +46,5 @@ CREATE TABLE webhook_deliveries (
     created_at       TIMESTAMP TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
     delivered_at     TIMESTAMP TEXT
 );
-CREATE INDEX webhook_deliveries_due ON webhook_deliveries (next_attempt_at) WHERE state = 'pending';
-CREATE INDEX webhook_deliveries_endpoint ON webhook_deliveries (endpoint_id, created_at);
+CREATE INDEX IF NOT EXISTS webhook_deliveries_due ON webhook_deliveries (next_attempt_at) WHERE state = 'pending';
+CREATE INDEX IF NOT EXISTS webhook_deliveries_endpoint ON webhook_deliveries (endpoint_id, created_at);
