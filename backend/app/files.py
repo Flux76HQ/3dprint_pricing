@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, Response, jsonify, request, send_file
 
 from . import printfile
 from .http import ApiError, config, login_required, pool
@@ -40,9 +40,13 @@ def serialise(row) -> dict:
 
 
 def _purge_orphans(conn) -> None:
+    """A file is kept while a calculation uses it: as the file its filament is worked out from, or as one of its 3D models."""
     rows = conn.execute(
         "DELETE FROM print_files WHERE created_at < %s "
-        "AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.file_id = print_files.id) RETURNING stored_name",
+        "AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.file_id = print_files.id) "
+        "AND NOT EXISTS (SELECT 1 FROM projects p, json_each(p.models) m WHERE json_extract(m.value, '$.file_id') = print_files.id) "
+        "AND NOT EXISTS (SELECT 1 FROM projects p, json_each(p.calc_files) c WHERE c.value = print_files.id) "
+        "RETURNING stored_name",
         (datetime.now(timezone.utc) - timedelta(days=1),)
     ).fetchall()
     for row in rows:
@@ -89,7 +93,7 @@ def upload():
 
 
 def _get(file_id):
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT * FROM print_files WHERE id = %s", (file_id,)).fetchone()
     if row is None:
         raise ApiError(404, "files.not_found")
@@ -109,6 +113,60 @@ def download(file_id):
         raise ApiError(404, "files.gone")
     return send_file(path, as_attachment=True, download_name=row["filename"],
                      mimetype="application/octet-stream")
+
+
+def _plate() -> "int | None":
+    """`?plate=2`: one build plate of the file; nothing for all of it."""
+    given = request.args.get("plate", "")
+    if not given:
+        return None
+    if not given.isdigit() or not 1 <= int(given) <= 999:
+        raise ApiError(400, "files.plate")
+    return int(given)
+
+
+@bp.get("/<uuid:file_id>/parts")
+def file_parts(file_id):
+    """Which build plates of the file hold a model, and which the slicer left a picture of (see `printfile.parts`)."""
+    row = _get(file_id)
+    path = _dir() / row["stored_name"]
+    if not path.is_file():
+        raise ApiError(404, "files.gone")
+    return jsonify(printfile.parts(path, row["kind"]))
+
+
+@bp.get("/<uuid:file_id>/mesh")
+def mesh(file_id):
+    """The model as raw triangles (see `printfile.triangles`), for the viewer in the browser. Read from the file each time it is
+    asked for: it is only looked at now and then, and a copy next to every upload would double what is kept."""
+    row = _get(file_id)
+    path = _dir() / row["stored_name"]
+    if not path.is_file():
+        raise ApiError(404, "files.gone")
+    try:
+        data = printfile.triangles(path, row["kind"], _plate())
+    except printfile.PrintFileError as exc:
+        raise ApiError(422, exc) from None
+    return Response(data, mimetype="application/octet-stream")
+
+
+@bp.get("/<uuid:file_id>/preview")
+def preview(file_id):
+    """The slicer's own picture of the build plate, for a file that holds no model to draw. It is decoded and written again
+    (`ai_images._clean`: size and pixel caps, nothing of the original file kept), like every picture that comes from an upload."""
+    from .ai_images import _clean                           # imported here: that module imports the API this one stands next to
+    row = _get(file_id)
+    path = _dir() / row["stored_name"]
+    if not path.is_file():
+        raise ApiError(404, "files.gone")
+    picture = printfile.plate_picture(path, row["kind"], _plate())
+    if picture is None:
+        raise ApiError(404, "files.no_preview")
+    try:
+        content, _width, _height = _clean(picture)
+    except ApiError:
+        raise ApiError(404, "files.no_preview") from None
+    return Response(content, mimetype="image/jpeg")
 
 
 @bp.get("/<uuid:file_id>/estimate")

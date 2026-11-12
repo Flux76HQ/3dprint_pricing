@@ -200,6 +200,16 @@ def test_the_list_filters_by_status_and_searches_by_name_number_and_city(owner):
     assert listed["total"] == "12.10" and listed["line_count"] == 1
 
 
+def test_the_list_carries_the_subject_and_finds_an_order_by_it(owner):
+    """The overview is headed by an order's “Betreft” (the customer goes under it), so the list has to say it, and searching has to find it."""
+    a = new_order(owner, customer_name="Anna de Vries", subject="Plantenbakken voor de winkel")
+    new_order(owner, customer_name="Bram Bakker", subject="")
+    listed = {o["customer_name"]: o for o in owner.get("/api/orders").get_json()}
+    assert listed["Anna de Vries"]["subject"] == "Plantenbakken voor de winkel" and listed["Bram Bakker"]["subject"] == ""
+    assert [o["number"] for o in owner.get("/api/orders?q=plantenbak").get_json()] == [a["number"]]
+    assert owner.get("/api/orders?q=bestaat+niet").get_json() == []
+
+
 def test_an_order_can_be_edited_and_deleted(owner):
     order = new_order(owner)
     body = {**order, "customer_id": customer(owner, name="Piet")["id"], "lines": [line("Nieuw", 4, "2.50", "0")]}
@@ -624,6 +634,28 @@ def test_a_template_and_a_logo_from_an_earlier_release_are_moved_into_the_databa
     with app.extensions["pool"].connection() as conn:
         assert conn.execute("SELECT content IS NOT NULL AS ok FROM invoice_template").fetchone()["ok"]
         assert conn.execute("SELECT content IS NOT NULL AS ok FROM invoice_logo").fetchone()["ok"]
+
+
+def test_a_backup_reads_a_template_and_a_logo_from_an_earlier_release_without_moving_them(owner, app):
+    """A backup only reads (`Database.read()`, which cannot write): it takes the files as they are and leaves the move to a block that may write."""
+    import base64
+    from pathlib import Path
+    paper, png = letter_paper("OUD"), picture()
+    upload(owner, "p.pdf", paper)
+    upload_logo(owner, "logo.png", png)
+    folder = Path(app.config["APP_CONFIG"].upload_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "invoice-template-old.pdf").write_bytes(paper)
+    (folder / "invoice-logo-old.png").write_bytes(png)
+    with app.extensions["pool"].connection() as conn:
+        conn.execute("UPDATE invoice_template SET content = NULL, stored_name = 'invoice-template-old.pdf'")
+        conn.execute("UPDATE invoice_logo SET content = NULL, stored_name = 'invoice-logo-old.png'")
+    saved = owner.get("/api/backup")
+    assert saved.status_code == 200
+    assert base64.b64decode(saved.get_json()["invoice_template"]["content_b64"]) == paper
+    assert base64.b64decode(saved.get_json()["invoice_logo"]["content_b64"]) == png
+    assert sorted(path.name for path in folder.iterdir()) == ["invoice-logo-old.png", "invoice-template-old.pdf"]
+    assert owner.get("/api/invoice-template/download").data == paper and list(folder.iterdir()) != []       # and the next block that may write moves them
 
 
 def test_the_template_can_be_downloaded_and_removed_to_return_to_the_built_in_layout(owner, app):

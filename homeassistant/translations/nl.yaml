@@ -24,6 +24,12 @@ configuration:
   spoolman_url:
     name: Spoolman-adres
     description: Adres van een Spoolman, bijvoorbeeld http://homeassistant.local:7912. Leeg betekent dat je het in de app zelf invult.
+  haspelsync_url:
+    name: HaspelSync-adres
+    description: Adres van een HaspelSync, bijvoorbeeld http://homeassistant.local:4000. Leeg betekent dat je het in de app zelf invult.
+  haspelsync_api_key:
+    name: HaspelSync-API-sleutel
+    description: Een API-sleutel die je in HaspelSync maakt onder Network access (hij begint met ams_). Hij heeft ook het HaspelSync-adres hier nodig en wordt alleen naar dat adres gestuurd. Leeg betekent dat je hem in de app zelf invult.
   update_check:
     name: Controleren op nieuwe versies
     description: Laat de app bij GitHub nagaan of er een nieuwere versie is en meldt dat aan de eigenaar. Er wordt nooit iets automatisch bijgewerkt.

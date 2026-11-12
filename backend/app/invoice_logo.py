@@ -86,8 +86,9 @@ def content_of(conn, row) -> "bytes | None":
     if path is None or not path.is_file():
         return None
     content = path.read_bytes()
-    conn.execute("UPDATE invoice_logo SET content = %s, stored_name = NULL WHERE id = true", (content,))
-    path.unlink(missing_ok=True)
+    if not conn.read_only:                           # a block that only reads (a backup) leaves the move to the next one that may write
+        conn.execute("UPDATE invoice_logo SET content = %s, stored_name = NULL WHERE id = true", (content,))
+        path.unlink(missing_ok=True)
     return content
 
 
@@ -110,7 +111,7 @@ def clean_filename(name, kind: str) -> str:
 
 @bp.get("")
 def get_logo():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT * FROM invoice_logo").fetchone()
     return jsonify({"logo": serialise(row) if row else None})
 
@@ -145,7 +146,7 @@ def delete_logo():
 @bp.get("/file")
 def logo_file():
     """The image itself, for the preview in Settings."""
-    with pool().connection() as conn:
+    with pool().connection() as conn:                # (not `read()`: a file an earlier release left is moved into the database here)
         logo = load(conn)
     if logo is None:
         raise ApiError(404, "invoice.err_logo_none")

@@ -2,6 +2,8 @@
 // `t('key', { n: 3 })` also picks `key_one` / `key_other` when a count `n` is given and those exist.
 // The language is the browser's by default; a choice made with the flags is kept in localStorage (for
 // the screens before sign-in) and saved with the user's preferences, so every device shows the same.
+import { BUILD } from './build.js';
+
 export const LANGUAGES = [
   { code: 'nl', name: 'Nederlands', locale: 'nl-NL' },
   { code: 'en', name: 'English', locale: 'en-GB' },
@@ -32,7 +34,8 @@ export const getLocale = () => LANGUAGES.find((l) => l.code === current).locale;
 
 async function load(code) {
   if (catalogs[code]) return;
-  const res = await fetch(`/lang/${code}.json`, { cache: 'no-cache' });
+  // The release is part of the address, like every script's: the browser keeps the file for this release and asks once for the next.
+  const res = await fetch(`/lang/${code}.json?v=${BUILD.version}-${BUILD.commit}`);
   if (!res.ok) throw new Error(`language ${code}`);
   catalogs[code] = await res.json();
 }

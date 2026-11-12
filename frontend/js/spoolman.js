@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import { formatDateTime, t } from './i18n.js';
-import { confirmDialog, field, fill, foldHead, h, icon, toast } from './ui.js';
+import { confirmDialog, connectionBadge, field, fill, foldHead, h, icon, toast } from './ui.js';
 
 /** Read every spool of Spoolman; says what came of it. True when it went through. */
 async function runSync() {
@@ -38,12 +38,24 @@ export function spoolmanBar(onSynced = () => {}) {
  * `onSynced` runs after a sync that went through (to redraw a list). */
 export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
   const card = h('div', { class: 'glass card stack', hidden: true });
+  const badge = connectionBadge();                                 // in the heading, so it can be read while the card is folded
 
   async function draw() {
     let status;
     try { status = await api('GET', '/api/spoolman'); } catch { return; }          // a convenience: the page works without it
     const setup = configure && status.can_sync;
     if (!status.enabled && !setup) { card.hidden = true; return; }
+    // Not configured, or asked whether Spoolman answers (which can take a moment: the heading says "checking" until it does); why not, when it does not, is shown in the card.
+    const problem = h('p', { class: 'notice error', role: 'alert', hidden: true });
+    if (!status.enabled) badge.set('off');
+    else {
+      badge.set('checking');
+      api('GET', '/api/spoolman/connection').then((c) => {
+        badge.set(c.state, { detail: c.state === 'active' ? status.host : null, message: c.message });
+        problem.textContent = c.message || '';
+        problem.hidden = !c.message;
+      }).catch(() => badge.set('offline'));
+    }
     // The address: typed here by an administrator, unless .env sets it (then it is shown and cannot be changed).
     const input = h('input', { type: 'text', inputmode: 'url', autocomplete: 'off', spellcheck: 'false', placeholder: 'http://spoolman:8000',
       value: status.url || '', disabled: status.from_env });
@@ -63,7 +75,7 @@ export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
         status.from_env ? null : h('button', { class: 'btn primary', type: 'button', onclick: save }, t('common.save')),
         status.enabled ? h('button', { class: 'btn', type: 'button', onclick: test }, t('spoolman.test')) : null));
     if (!status.enabled) {
-      fill(card, foldHead('spoolman', t('spoolman.title'), { open: false }), h('p', { class: 'muted' }, t('spoolman.setup_intro')), address);
+      fill(card, foldHead('spoolman', t('spoolman.title'), { open: false, extra: badge.el }), h('p', { class: 'muted' }, t('spoolman.setup_intro')), address);
       card.hidden = false;
       return;
     }
@@ -88,18 +100,21 @@ export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
     // The rolls typed in here become spools in Spoolman and are linked to them: asked first, with the numbers.
     const pushRolls = async () => {
       try {
+        // What a run comes to: the spools it makes (`made`), the rolls Spoolman already has as a spool (only linked), and what is left for another run.
+        const says = (run, made) => [run.created ? made : null, run.linked ? t('spoolman.rolls_linked', run) : null,
+          run.left ? t('spoolman.push_left', run) : null].filter(Boolean).join(' ');
         const plan = await api('POST', '/api/spoolman/push-rolls?dry_run=1');
-        const left = plan.left ? ` ${t('spoolman.push_left', plan)}` : '';
-        if (!plan.created) { toast(t('spoolman.rolls_nothing') + left); return; }
-        if (!(await confirmDialog(t('spoolman.rolls_confirm', plan) + left, t('spoolman.rolls_do')))) return;
+        if (!plan.created && !plan.linked) { toast([t('spoolman.rolls_nothing'), says(plan, null)].filter(Boolean).join(' ')); return; }
+        const go = plan.created ? t('spoolman.rolls_do') : t('spoolman.rolls_link_do');
+        if (!(await confirmDialog(says(plan, t('spoolman.rolls_confirm', plan)), go))) return;
         const done = await api('POST', '/api/spoolman/push-rolls');
-        toast(t('spoolman.rolls_done', done) + (done.left ? ` ${t('spoolman.push_left', done)}` : ''));
+        toast(says(done, t('spoolman.rolls_done', done)));
         onSynced();
       } catch (err) { toast(err.message, 'error'); }
       draw();
     };
-    fill(card, foldHead('spoolman', t('spoolman.title'), { open: false }),
-      h('p', { class: 'muted' }, t('spoolman.intro')),
+    fill(card, foldHead('spoolman', t('spoolman.title'), { open: false, extra: badge.el }),
+      h('p', { class: 'muted' }, t('spoolman.intro')), problem,
       h('p', { class: 'hint breakable' }, t('spoolman.status', { host: status.host, n: status.rolls,
         when: status.last_sync ? formatDateTime(status.last_sync, { dateStyle: 'short', timeStyle: 'short' }) : t('spoolman.never') })),
       status.pending ? h('p', { class: 'notice', role: 'status' }, t('spoolman.pending', { n: status.pending })) : null,

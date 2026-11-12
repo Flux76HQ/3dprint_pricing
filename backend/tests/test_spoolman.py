@@ -1,4 +1,5 @@
-"""Spoolman as the source of the rolls: the sync, what a mirrored roll may and may not do, and reporting booked filament back."""
+"""Spoolman as the source of the rolls and of what is used: the sync, a roll that is one row wherever it was entered, what a mirrored roll may and
+may not do, and that nothing is booked from a calculation while there is a Spoolman."""
 import dataclasses
 
 import pytest
@@ -186,6 +187,15 @@ def test_the_test_says_when_spoolman_is_not_there_and_only_the_verdict_is_passed
     assert owner.post("/api/spoolman/test", json={}, headers=H).get_json() == {"ok": True}
 
 
+@pytest.mark.parametrize("code", [404, 500])
+def test_an_error_status_from_spoolman_is_a_502_that_names_the_status(owner, server, code):
+    """`status` is `ApiError`'s own first argument, so the text parameter for it must not be called that: it used to end in the generic 500."""
+    server.answer = Reply(code)
+    res = owner.post("/api/spoolman/test", json={}, headers={**H, "X-Lang": "en"})
+    assert res.status_code == 502
+    assert f"status {code}" in res.get_json()["error"]
+
+
 def test_the_address_is_not_in_a_backup(owner, stand_in, app):
     save_address(owner, URL)
     assert sql(app, "SELECT url FROM spoolman_settings")[0]["url"] == URL
@@ -207,7 +217,7 @@ def test_a_sync_makes_a_roll_of_every_spool_and_the_status_says_so(owner, server
     server.spools[1]["used_weight"] = 250.0
     server.spools[1]["filament"]["price"] = 24.99
     res = sync(owner)
-    assert res.status_code == 200 and res.get_json() == {"created": 2, "updated": 0, "archived": 0, "skipped": 0, "total": 2, "sent": 0, "dropped": 0}
+    assert res.status_code == 200 and res.get_json() == {"created": 2, "linked": 0, "updated": 0, "archived": 0, "skipped": 0, "total": 2, "sent": 0, "dropped": 0}
     black, orange = rolls(owner)[1], rolls(owner)[2]
     assert (black["brand"], black["colour"], black["material"], black["colour_hex"], black["barcode"]) == ("Bambu Lab", "Zwart", "PLA", "#1a1a1a", "EAN-1")
     assert (black["roll_weight_g"], black["remaining_g"], black["price"], black["diameter_mm"], black["print_temp_c"], black["bed_temp_c"]) == \
@@ -256,6 +266,72 @@ def test_a_roll_typed_in_by_hand_is_left_alone(owner, server):
     server.spools = []
     sync(owner)
     assert [r for r in owner.get("/api/spools").get_json() if r["id"] == mine["id"]][0]["archived"] is False
+
+
+# --- one roll, one row: a spool that a roll typed in here already is -------------------------------------------------
+
+def grey_spool(number, **values):
+    """The spool that `hand_roll` is: the same vendor and article number."""
+    return spool(number, name="Basic Grijs", article_number="43992833229019", **values)
+
+
+def test_a_spool_that_a_roll_typed_in_here_already_is_becomes_that_roll_and_not_a_second_one(owner, server):
+    mine = hand_roll(owner)
+    assert owner.patch(f"/api/spools/{mine['id']}", json={"notify_low": True}, headers=H).status_code == 200
+    server.spools = [grey_spool(1, remaining=600.0)]
+    res = sync(owner).get_json()
+    assert (res["created"], res["linked"], res["updated"]) == (0, 1, 0)
+    everything = owner.get("/api/spools").get_json()
+    assert len(everything) == 1                                        # one roll on the shelf, one row on the screen
+    roll = everything[0]
+    assert roll["id"] == mine["id"] and roll["spoolman_id"] == 1      # the same row, so calculations still point at it
+    assert (roll["remaining_g"], roll["colour"], roll["notify_low"]) == ("600.0", "Basic Grijs", True)     # Spoolman's details, the app's own setting
+    again = sync(owner).get_json()
+    assert (again["created"], again["linked"], again["updated"]) == (0, 0, 0) and len(owner.get("/api/spools").get_json()) == 1
+    assert owner.get("/api/spoolman").get_json()["rolls"] == 1
+
+
+def test_without_a_barcode_the_brand_name_and_material_say_it_is_the_same_roll(owner, server):
+    mine = hand_roll(owner, barcode="")
+    other = hand_roll(owner, barcode="", material="PETG")              # the same name in another material is another filament
+    server.spools = [spool(1, vendor="BAMBU LAB", name="basic grijs", article_number="")]
+    assert sync(owner).get_json()["linked"] == 1
+    assert rolls(owner)[1]["id"] == mine["id"]
+    assert [r for r in owner.get("/api/spools").get_json() if r["id"] == other["id"]][0]["spoolman_id"] is None
+
+
+def test_a_roll_is_one_spool_and_a_spool_is_one_roll(owner, server):
+    mine = hand_roll(owner)
+    server.spools = [grey_spool(1), grey_spool(2)]                     # two spools of the kind, one roll typed in: the second spool is a new roll
+    res = sync(owner).get_json()
+    assert (res["created"], res["linked"]) == (1, 1) and len(owner.get("/api/spools").get_json()) == 2
+    assert rolls(owner)[1]["id"] == mine["id"]
+
+
+def test_of_two_rolls_of_a_kind_the_one_nearest_in_weight_is_the_spool(owner, server):
+    nearly_empty = hand_roll(owner, remaining_g=120)
+    nearly_full = hand_roll(owner, remaining_g=900)
+    server.spools = [grey_spool(1, remaining=880.0)]
+    assert sync(owner).get_json()["linked"] == 1
+    assert rolls(owner)[1]["id"] == nearly_full["id"]
+    left = [r for r in owner.get("/api/spools").get_json() if r["id"] == nearly_empty["id"]][0]
+    assert left["spoolman_id"] is None and left["remaining_g"] == "120.0" and left["archived"] is False
+
+
+def test_a_roll_that_is_archived_or_has_no_name_or_barcode_is_nobodys_twin(owner, server):
+    archived = hand_roll(owner)
+    owner.patch(f"/api/spools/{archived['id']}", json={"archived": True}, headers=H)
+    make(owner, "/api/spools", {"brand": "Prusament", "material": "PETG", "roll_weight_g": 1000, "price": 10, "remaining_g": 500})
+    server.spools = [grey_spool(1), spool(2, vendor="Prusament", name="", material="PETG", article_number="")]
+    res = sync(owner).get_json()
+    assert (res["created"], res["linked"]) == (2, 0) and len(owner.get("/api/spools").get_json()) == 4
+
+
+def test_a_vendor_that_is_not_text_does_not_end_the_sync(owner, server):
+    hand_roll(owner)
+    server.spools = [grey_spool(1)]
+    server.spools[0]["filament"]["vendor"] = {"name": 12}
+    assert sync(owner).get_json()["created"] == 1
 
 
 def test_more_than_a_page_is_read_and_a_spool_that_is_not_one_is_skipped(owner, server):
@@ -379,7 +455,7 @@ def hand_roll(owner, **values):
 def test_a_roll_typed_in_here_becomes_a_spool_in_spoolman_and_stays_one_roll(owner, server):
     roll = hand_roll(owner)
     res = push_rolls(owner)
-    assert res.status_code == 200 and res.get_json() == {"created": 1, "filaments": 1, "vendors": 1, "skipped": 0, "left": 0}
+    assert res.status_code == 200 and res.get_json() == {"created": 1, "linked": 0, "filaments": 1, "vendors": 1, "skipped": 0, "left": 0}
     assert [path for path, _ in server.created] == ["/vendor", "/filament"]
     assert server.made == [{"filament_id": 101, "initial_weight": 1000.0, "remaining_weight": 640.0, "price": 19.32, "comment": "plank 2"}]
     assert server.created[1][1]["name"] == "Basic Grijs" and server.created[1][1]["article_number"] == "43992833229019"
@@ -393,7 +469,7 @@ def test_a_roll_typed_in_here_becomes_a_spool_in_spoolman_and_stays_one_roll(own
 
 def test_a_dry_run_of_the_rolls_changes_nothing_here_or_in_spoolman(owner, server):
     hand_roll(owner)
-    assert push_rolls(owner, dry=True).get_json() == {"created": 1, "filaments": 1, "vendors": 1, "skipped": 0, "left": 0}
+    assert push_rolls(owner, dry=True).get_json() == {"created": 1, "linked": 0, "filaments": 1, "vendors": 1, "skipped": 0, "left": 0}
     assert server.created == [] and server.made == [] and rolls(owner) == {}
 
 
@@ -403,7 +479,7 @@ def test_a_roll_uses_the_filament_spoolman_has_and_two_rolls_of_one_kind_make_it
     hand_roll(owner)
     hand_roll(owner, remaining_g=900)
     res = push_rolls(owner).get_json()
-    assert res == {"created": 2, "filaments": 0, "vendors": 0, "skipped": 0, "left": 0} and server.created == []
+    assert res == {"created": 2, "linked": 0, "filaments": 0, "vendors": 0, "skipped": 0, "left": 0} and server.created == []
     assert [m["filament_id"] for m in server.made] == [9, 9]
     hand_roll(owner, barcode="", colour="Blauw")
     hand_roll(owner, barcode="", colour="Blauw", remaining_g=100)
@@ -417,7 +493,7 @@ def test_rolls_that_are_archived_from_spoolman_or_without_a_name_are_left_alone(
     hand = hand_roll(owner)
     owner.patch(f"/api/spools/{hand['id']}", json={"archived": True}, headers=H)
     make(owner, "/api/spools", {"brand": "Naamloos", "roll_weight_g": 1000, "price": 10, "remaining_g": 500})
-    assert push_rolls(owner).get_json() == {"created": 0, "filaments": 0, "vendors": 0, "skipped": 1, "left": 0}
+    assert push_rolls(owner).get_json() == {"created": 0, "linked": 0, "filaments": 0, "vendors": 0, "skipped": 1, "left": 0}
     assert server.made == []
 
 
@@ -443,7 +519,29 @@ def test_the_rolls_go_over_in_runs(owner, server, monkeypatch):
     hand_roll(owner, barcode="A", colour="Een")
     hand_roll(owner, barcode="B", colour="Twee")
     assert push_rolls(owner).get_json()["left"] == 1
-    assert push_rolls(owner).get_json() == {"created": 1, "filaments": 1, "vendors": 0, "skipped": 0, "left": 0}
+    assert push_rolls(owner).get_json() == {"created": 1, "linked": 0, "filaments": 1, "vendors": 0, "skipped": 0, "left": 0}
+
+
+def test_a_roll_spoolman_already_has_as_a_spool_is_linked_to_it_and_not_made_there_again(owner, server):
+    server.spools = [grey_spool(1, remaining=600.0)]                   # in Spoolman already, never read here
+    roll = hand_roll(owner)
+    assert push_rolls(owner, dry=True).get_json() == {"created": 0, "linked": 1, "filaments": 0, "vendors": 0, "skipped": 0, "left": 0}
+    assert rolls(owner) == {}                                          # a dry run links nothing
+    assert push_rolls(owner).get_json()["linked"] == 1
+    assert server.made == [] and server.created == []                 # no second spool, so no second roll at the next sync
+    linked = rolls(owner)[1]
+    assert linked["id"] == roll["id"] and linked["remaining_g"] == "600.0"
+    assert sync(owner).get_json()["created"] == 0 and len(owner.get("/api/spools").get_json()) == 1
+
+
+def test_a_second_roll_of_a_kind_spoolman_has_one_spool_of_is_still_made_there(owner, server):
+    hand_roll(owner, remaining_g=120)
+    nearly_full = hand_roll(owner, remaining_g=900)
+    server.spools = [grey_spool(1, remaining=890.0)]
+    res = push_rolls(owner).get_json()
+    assert (res["created"], res["linked"]) == (1, 1) and len(server.made) == 1 and server.made[0]["remaining_weight"] == 120.0
+    assert rolls(owner)[1]["id"] == nearly_full["id"]
+    assert sync(owner).get_json()["created"] == 0 and len(owner.get("/api/spools").get_json()) == 2
 
 
 # --- a roll from Spoolman is Spoolman's ----------------------------------------------------------------------------
@@ -469,7 +567,7 @@ def test_copying_product_details_to_rolls_with_the_same_barcode_skips_mirrored_o
     assert res.get_json() == {"updated": 0} and rolls(owner)[1]["brand"] == "Bambu Lab"
 
 
-# --- reporting what was used ---------------------------------------------------------------------------------------
+# --- what is used is Spoolman's to keep ------------------------------------------------------------------------------
 
 def booked(owner, server):
     server.spools = [spool(7, remaining=500.0)]
@@ -479,46 +577,60 @@ def booked(owner, server):
     return roll, project
 
 
-def test_booking_a_calculation_reports_the_grams_to_spoolman(owner, server, app):
+def test_with_a_spoolman_a_calculation_books_nothing(owner, server, app):
     roll, project = booked(owner, server)
-    assert post(owner, f"/api/projects/{project['id']}/book-stock").status_code == 200
-    assert server.used == [(7, 70.0)]
-    assert rolls(owner)[7]["remaining_g"] == "430.0"
+    res = post(owner, f"/api/projects/{project['id']}/book-stock", headers={**H, **NL})
+    assert res.status_code == 409 and "Spoolman" in res.get_json()["error"]
+    assert server.used == [] and rolls(owner)[7]["remaining_g"] == "500.0"
+    assert owner.get(f"/api/projects/{project['id']}").get_json()["stock_booked_at"] is None
     assert sql(app, "SELECT count(*) AS n FROM spoolman_pending_use")[0]["n"] == 0
-    assert owner.get("/api/spoolman").get_json()["pending"] == 0
 
 
-def test_a_booking_while_spoolman_is_away_still_works_and_is_sent_by_the_next_sync(owner, server, app):
-    roll, project = booked(owner, server)
-    server.down = True
+def test_a_roll_typed_in_by_hand_is_not_booked_either_while_there_is_a_spoolman(owner, server):
+    mine = make(owner, "/api/spools", {"brand": "Eigen", "roll_weight_g": 1000, "price": 10, "remaining_g": 500})
+    project = make(owner, "/api/projects", sheet_payload(mine["id"]))
+    assert post(owner, f"/api/projects/{project['id']}/book-stock").status_code == 409
+    assert [r for r in owner.get("/api/spools").get_json() if r["id"] == mine["id"]][0]["remaining_g"] == "500.0"
+
+
+def test_once_spoolman_is_switched_off_a_calculation_books_again(owner, stand_in):
+    mine = make(owner, "/api/spools", {"brand": "Eigen", "roll_weight_g": 1000, "price": 10, "remaining_g": 500})
+    project = make(owner, "/api/projects", sheet_payload(mine["id"]))
+    save_address(owner, URL)
+    assert post(owner, f"/api/projects/{project['id']}/book-stock").status_code == 409
+    save_address(owner, "")
     assert post(owner, f"/api/projects/{project['id']}/book-stock").status_code == 200
-    assert server.used == [] and owner.get("/api/spoolman").get_json()["pending"] == 1
-    server.down = False
-    server.spools[0]["remaining_weight"] = 500.0                  # Spoolman has not heard of the 70 g yet
+    assert owner.get("/api/spools").get_json()[0]["remaining_g"] == "430.0"
+
+
+# --- what was booked while the app still reported it -------------------------------------------------------------
+
+def test_what_was_booked_before_is_still_sent_by_the_next_sync(owner, server, app):
+    server.spools = [spool(7, remaining=500.0)]
+    sync(owner)
+    sql(app, "INSERT INTO spoolman_pending_use (spoolman_id, grams) VALUES (7, 70)")
+    assert owner.get("/api/spoolman").get_json()["pending"] == 1
     res = sync(owner).get_json()
     assert res["sent"] == 1 and server.used == [(7, 70.0)]
     assert owner.get("/api/spoolman").get_json()["pending"] == 0
-    server.spools[0]["remaining_weight"] = 430.0                  # ...and now it has
+
+
+def test_a_sync_that_cannot_send_what_is_owed_does_not_read_the_shelf_either(owner, server, app):
+    server.spools = [spool(7, remaining=500.0)]
     sync(owner)
-    assert rolls(owner)[7]["remaining_g"] == "430.0"
-
-
-def test_what_is_still_owed_is_taken_off_the_weight_spoolman_reports(owner, server):
-    roll, project = booked(owner, server)
-    server.down = True
-    post(owner, f"/api/projects/{project['id']}/book-stock")                   # 70 g owed
-    server.down = False
+    sql(app, "INSERT INTO spoolman_pending_use (spoolman_id, grams) VALUES (7, 70)")
+    server.spools[0]["remaining_weight"] = 300.0
     server.no_use = True
-    assert sync(owner).status_code == 502                                      # it cannot send them, so it does not read the shelf either
-    assert rolls(owner)[7]["remaining_g"] == "430.0"
+    assert sync(owner).status_code == 502
+    assert rolls(owner)[7]["remaining_g"] == "500.0" and owner.get("/api/spoolman").get_json()["pending"] == 1
     server.no_use = False
     assert sync(owner).get_json()["sent"] == 1
 
 
-def test_a_booking_that_lands_during_a_sync_is_counted_against_the_weight_just_read(owner, server, app, monkeypatch):
+def test_what_is_still_owed_is_taken_off_the_weight_spoolman_reports(owner, server, app, monkeypatch):
     from app import spoolman
     server.spools = [spool(1, remaining=800.0)]
-    monkeypatch.setattr(spoolman, "flush", lambda *, wait: (0, 0))        # the booking is committed after the flush, before the shelf is written
+    monkeypatch.setattr(spoolman, "flush", lambda *, wait: (0, 0))        # not sent yet when the shelf is written
     sql(app, "INSERT INTO spoolman_pending_use (spoolman_id, grams) VALUES (1, 30)")
     sync(owner)
     assert rolls(owner)[1]["remaining_g"] == "770.0"
@@ -530,13 +642,6 @@ def test_a_use_that_spoolman_refuses_for_good_is_dropped_and_not_retried_forever
     res = sync(owner).get_json()
     assert res["dropped"] == 1 and res["sent"] == 0
     assert owner.get("/api/spoolman").get_json()["pending"] == 0
-
-
-def test_a_roll_typed_in_by_hand_reports_nothing(owner, server):
-    mine = make(owner, "/api/spools", {"brand": "Eigen", "roll_weight_g": 1000, "price": 10, "remaining_g": 500})
-    project = make(owner, "/api/projects", sheet_payload(mine["id"]))
-    assert post(owner, f"/api/projects/{project['id']}/book-stock").status_code == 200
-    assert server.used == []
 
 
 # --- backup ------------------------------------------------------------------------------------------------------
@@ -575,3 +680,38 @@ def test_everybody_may_read_the_status_but_only_an_administrator_may_sync(app, o
     member = join_with_passkey(app, owner)
     assert member.get("/api/spoolman").get_json()["can_sync"] is False
     assert member.post("/api/spoolman/sync", json={}, headers=H).status_code == 403
+
+
+# --- the state of the connection, for the badge on its card -------------------------------------------------------
+
+def connection(client, lang="en"):
+    res = client.get("/api/spoolman/connection", headers={"X-Lang": lang})
+    assert res.status_code == 200, res.get_json()
+    return res.get_json()
+
+
+def test_the_connection_is_off_without_an_address_and_active_while_spoolman_answers(owner, stand_in):
+    assert connection(owner) == {"state": "off", "message": None}
+    save_address(owner, URL)
+    assert connection(owner) == {"state": "active", "message": None}
+
+
+def test_the_connection_is_offline_and_says_why_when_spoolman_does_not_answer(owner, server):
+    server.down = True
+    state = connection(owner)
+    assert state["state"] == "offline" and "cannot be reached" in state["message"]
+    assert "onbereikbaar" in connection(owner, "nl")["message"] or "niet bereikbaar" in connection(owner, "nl")["message"]
+    server.down, server.answer = False, Reply(500, b"{}")
+    assert "status 500" in connection(owner)["message"]                         # the answer of PR 135: the code is a parameter of its own
+    server.answer = Reply(302, b"")
+    assert "redirects" in connection(owner)["message"]
+
+
+def test_the_connection_passes_on_a_verdict_and_nothing_of_what_spoolman_said(owner, server):
+    server.answer = Reply(200, b'{"secret": "x"}')
+    assert connection(owner) == {"state": "active", "message": None}
+
+
+def test_everybody_signed_in_may_ask_for_the_state_and_nobody_else(app, owner, server):
+    assert connection(join_with_passkey(app, owner))["state"] == "active"
+    assert app.test_client().get("/api/spoolman/connection").status_code == 401

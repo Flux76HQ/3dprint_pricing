@@ -14,6 +14,7 @@ import pytest
 
 os.environ.setdefault("PUSH_WORKER", "off")      # no background threads in tests; the outbox is run explicitly
 os.environ.setdefault("AUTO_BACKUP_WORKER", "off")   # likewise: test_auto_backup.py calls run_once, and starts the loop itself once
+os.environ.setdefault("WEBHOOK_WORKER", "off")       # likewise: test_integrations.py calls webhooks.run_once
 os.environ.setdefault("PRINTPRICING_DB_BUSY_MS", "3000")
 SECRET = "x" * 40
 RP_ID = "localhost"

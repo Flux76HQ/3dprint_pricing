@@ -69,7 +69,7 @@ def load_session() -> None:
         epoch = int(claims.get("ep", 0))            # a session from before epochs existed is epoch 0
     except (jwt.PyJWTError, ValueError, KeyError, TypeError):
         return
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT role, is_owner, session_epoch FROM users WHERE id = %s", (user_id,)).fetchone()
     if row is not None and row["session_epoch"] == epoch:
         g.user_id, g.role, g.is_owner = user_id, row["role"], row["is_owner"]
@@ -228,7 +228,7 @@ def _create_recovery_codes(conn, user_id) -> list[str]:
 
 @bp.get("/status")
 def status():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         onboarded = bool(conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"])
         user = None
         if g.user_id:
@@ -389,7 +389,7 @@ def recovery_redeem():
 @bp.get("/credentials")
 @login_required
 def list_credentials():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = conn.execute(
             "SELECT id, label, created_at, last_used_at FROM webauthn_credentials "
             "WHERE user_id = %s ORDER BY created_at", (g.user_id,)).fetchall()
@@ -441,6 +441,11 @@ def _purpose(action: str, target: str | None) -> str:
         return f"user:{target}:{action.split('-', 1)[1]}"
     if action == "backup-delete" and isinstance(target, str) and re.fullmatch(r"[A-Za-z0-9._-]{1,100}", target):   # bound to the one backup it removes
         return f"backup:{target}:delete"
+    # What lets another application in, or tells one what happens here: making one, and (bound to that one) taking it away or giving it a new key.
+    if action in ("api-key-create", "webhook-create"):
+        return f"{action.rsplit('-', 1)[0]}:create"
+    if action in ("api-key-revoke", "webhook-delete", "webhook-rotate") and isinstance(target, str) and re.fullmatch(r"[0-9a-f-]{36}", target):
+        return f"{action.rsplit('-', 1)[0]}:{target}:{action.rsplit('-', 1)[1]}"
     raise ApiError(400, "auth.unknown_action")
 
 

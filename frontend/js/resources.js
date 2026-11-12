@@ -1,8 +1,10 @@
-import { api } from './api.js';
+import { api, upload } from './api.js';
 import { getLanguage, t } from './i18n.js';
-import { colourOf, spoolIcon, stockTiles } from './filament-ui.js';
+import { colourOf, spoolIcon, stockTile } from './filament-ui.js';
 import { openBulkScan } from './bulk-scan.js';
+import { listView, rowActions } from './listview.js';
 import { scanBarcode } from './scanner.js';
+import { livePanel, serialField } from './haspelsync.js';
 import { spoolmanBar } from './spoolman.js';
 import { askChoice, confirmDialog, enhanceDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
 
@@ -28,8 +30,41 @@ function catalogue(id, path, text) {
     card(item) {
       return { title: item.name, subtitle: item.notes || null, stats: [[t(UNIT_PRICE[item.unit] || UNIT_PRICE.stuks), eur(item.price)]] };
     },
+    search: (item) => [item.name, item.notes],
+    sorts: [byName(), { key: 'price', label: t('sort.price'), value: (item) => Number(item.price) }, { key: 'unit', label: text.unit, value: (item) => unitName(item.unit) }],
+    columns: [nameColumn(),
+      { label: text.unit, sort: 'unit', cell: (item) => unitName(item.unit) },
+      { label: text.price, sort: 'price', cls: 'num strong', cell: (item) => eur(item.price) }],
   };
 }
+
+// What every list of things with a name shares: the order by name, and the first column (the name, with the notes under it).
+const unitName = (unit) => t((UNIT_OPTIONS.find(([value]) => value === unit) || UNIT_OPTIONS[0])[1]);
+const byName = () => ({ key: 'name', label: t('sort.name'), value: (item) => item.name });
+const nameColumn = (badge = () => null, lead = () => null) => ({ label: t('common.name'), sort: 'name', cls: 'main', cell: (item) => h('div', { class: 'cell-main' }, lead(item),
+  h('div', {}, h('span', { class: 'cell-title' }, item.name, badge(item), item.archived ? h('span', { class: 'badge muted' }, t('common.archived')) : null),
+    item.notes ? h('div', { class: 'cell-sub muted' }, item.notes) : null)) });
+/** The picture of an item, small; an item without one gets a quiet placeholder, so a list of both stays aligned. The address carries the
+    version of the picture, so a new one is shown at once. */
+const imageUrl = (path, item) => `${path}/${item.id}?v=${item.image_version}`;
+const thumb = (path, item) => (item.image_version ? h('img', { class: 'item-thumb', src: imageUrl(path, item), alt: '', loading: 'lazy' })
+  : h('span', { class: 'item-thumb placeholder', 'aria-hidden': 'true' }, icon('box')));
+const perKg = (roll) => Number(roll.price) / Number(roll.roll_weight_g) * 1000;
+/** How full a roll is, as a bar. */
+function meter(roll) {
+  const bar = h('div', { class: 'meter', role: 'img', 'aria-label': t('filament.meter', { left: fmt(roll.remaining_g, 0), total: fmt(roll.roll_weight_g, 0) }) }, h('span'));
+  bar.firstChild.style.width = `${Math.max(0, Math.min(100, Number(roll.remaining_g) / Number(roll.roll_weight_g) * 100))}%`;
+  return bar;
+}
+// One kind of filament, as the server groups the stock (`stock.key_of`): the barcode when there is one, else brand, type, material and colour.
+const kindOf = (roll) => (String(roll.barcode || '').trim() ? `barcode:${String(roll.barcode).trim()}`
+  : `name:${['brand', 'product_type', 'material', 'colour'].map((key) => norm(roll[key])).join('|')}`);
+// The filters of both parts of the filament page: by material, brand and type, each narrowing what the next one offers.
+const filamentFilters = () => [
+  { key: 'material', label: t('filter.material'), all: t('filter.all_materials'), value: (row) => row.material },
+  { key: 'brand', label: t('filter.brand'), all: t('filter.all_brands'), value: (row) => row.brand },
+  { key: 'product_type', label: t('filter.type'), all: t('filter.all_types'), value: (row) => row.product_type }];
+const filamentText = (row) => [row.brand, row.product_type, row.colour, row.material, row.barcode];
 
 // Built on every call, so the labels follow the language of the screen.
 function resources() {
@@ -57,32 +92,52 @@ function resources() {
       { key: 'add_to_library', label: t('library.also_add'), type: 'checkbox', hint: t('library.also_add_hint'), newOnly: true },
     ],
     card(item) {
-      const perKg = Number(item.price) / Number(item.roll_weight_g) * 1000;
-      const pct = Math.max(0, Math.min(100, Number(item.remaining_g) / Number(item.roll_weight_g) * 100));
-      const bar = h('div', { class: 'meter', role: 'img',
-        'aria-label': t('filament.meter', { left: fmt(item.remaining_g, 0), total: fmt(item.roll_weight_g, 0) }) }, h('span'));
-      bar.firstChild.style.width = `${pct}%`;
       return {
         icon: spoolIcon(colourOf(item), 34),
         title: spoolName(item, ' · '), badge: item.spoolman_id ? t('spoolman.badge') : null,
         subtitle: [item.material, t('filament.per_roll_price', { price: eur(item.price) })].filter(Boolean).join(' · '),
-        stats: [[t('filament.per_kg'), eur(perKg)], [t('filament.left'), `${fmt(item.remaining_g, 0)} g`], [t('filament.diameter_short'), `${fmt(item.diameter_mm)} mm`],
+        stats: [[t('filament.per_kg'), eur(perKg(item))], [t('filament.left'), `${fmt(item.remaining_g, 0)} g`], [t('filament.diameter_short'), `${fmt(item.diameter_mm)} mm`],
           ...(item.print_temp_c != null ? [[t('filament.print_temp_short'), `${item.print_temp_c} °C`]] : []),
           ...(item.bed_temp_c != null ? [[t('filament.bed_temp_short'), `${item.bed_temp_c} °C`]] : [])],
-        extra: bar,
+        extra: meter(item),
         footnote: [item.barcode ? t('filament.barcode_note', { code: item.barcode }) : null, item.spoolman_id ? t('spoolman.note') : null].filter(Boolean).join(' · ') || null,
       };
     },
+    name: (item) => spoolName(item, ' · '),
+    search: filamentText,
+    filters: filamentFilters(),
+    // Tapping the active order reverses it. Equal rolls are in the order of their name.
+    sorts: [
+      { key: 'name', label: t('sort.name'), value: (r) => spoolName(r, ' ') },
+      { key: 'material', label: t('sort.material'), value: (r) => norm(r.material) || '~' },
+      { key: 'left', label: t('sort.left'), value: (r) => Number(r.remaining_g) },
+      { key: 'per_kg', label: t('sort.per_kg'), value: (r) => perKg(r) },
+      { key: 'newest', label: t('sort.newest'), value: (r) => String(r.created_at || ''), desc: true }],
+    // The rolls of one kind together (three rolls of Bambu Lab Basic red, told apart from another red by the barcode). Inside a group the rolls keep the
+    // chosen order, and the groups are in the order of their first roll: sorted on what is left, the kind with the emptiest roll comes first.
+    group: { label: t('filament.group'), key: kindOf, head: (rolls) => ({
+      icon: spoolIcon(colourOf(rolls[0]), 26), title: [spoolName(rolls[0], ' · '), rolls[0].material].filter(Boolean).join(' · '),
+      meta: [t('filament.group_left', { grams: fmt(rolls.reduce((sum, r) => sum + Number(r.remaining_g), 0), 0) }),
+        rolls[0].barcode ? t('filament.barcode_note', { code: rolls[0].barcode }) : null].filter(Boolean).join(' · ') }) },
+    columns: [
+      { label: t('filament.roll'), sort: 'name', cls: 'main', cell: (item) => h('div', { class: 'cell-main' }, spoolIcon(colourOf(item), 28),
+        h('div', {}, h('span', { class: 'cell-title' }, spoolName(item, ' · '), item.spoolman_id ? h('span', { class: 'badge' }, t('spoolman.badge')) : null,
+          item.archived ? h('span', { class: 'badge muted' }, t('common.archived')) : null),
+        item.notes ? h('div', { class: 'cell-sub muted' }, item.notes) : null)) },
+      { label: t('sort.material'), sort: 'material', cell: (item) => item.material || '—' },
+      { label: t('sort.left'), sort: 'left', cls: 'meter-cell', cell: (item) => h('div', { class: 'cell-meter' }, h('span', { class: 'num' }, `${fmt(item.remaining_g, 0)} g`), meter(item)) },
+      { label: t('sort.per_kg'), sort: 'per_kg', cls: 'num', cell: (item) => eur(perKg(item)) },
+      { label: t('filament.roll_price'), cls: 'num', wide: true, cell: (item) => eur(item.price) },
+      { label: t('filament.barcode'), cls: 'nowrap', wide: true, cell: (item) => item.barcode || '—' }],
     // A roll typed in here can be duplicated: the roll form, filled in with this roll, makes one or more new ones.
     // A roll from Spoolman is Spoolman's to change (the server refuses it), and a new one is made there: all that is left here is the low-stock alert.
     actions(item, reload) {
       if (!item.spoolman_id) {
-        return [h('button', { class: 'btn small', type: 'button', 'aria-label': t('filament.duplicate_named', { name: spoolName(item, ' · ') }),
-          onclick: () => openForm(this, null, reload, { copyOf: item }) }, icon('copy'), h('span', {}, t('filament.duplicate')))];
+        return [{ icon: 'copy', label: t('filament.duplicate_named', { name: spoolName(item, ' · ') }), onclick: () => openForm(this, null, reload, { copyOf: item }) }];
       }
-      return [h('button', { class: 'btn small', type: 'button', onclick: async () => {
+      return [{ icon: 'bell', label: item.notify_low ? t('spoolman.notify_off') : t('spoolman.notify_on'), pressed: !!item.notify_low, onclick: async () => {
         try { await api('PATCH', `${this.path}/${item.id}`, { notify_low: !item.notify_low }); reload(); } catch (e) { toast(e.message, 'error'); }
-      } }, item.notify_low ? t('spoolman.notify_off') : t('spoolman.notify_on'))];
+      } }];
     },
   },
   verpakking: {
@@ -94,9 +149,14 @@ function resources() {
       { key: 'price', label: t('packaging.price'), type: 'number', required: true, hint: t('packaging.price_hint') },
       { key: 'notes', label: t('common.notes'), type: 'textarea' },
     ],
+    // An item can have a picture (a photo of the box or bag, or its logo): shown in the tile and the list, chosen in the form.
+    image: '/api/packaging-images',
     card(item) {
-      return { title: item.name, subtitle: item.notes || null, stats: [[t('packaging.per_piece'), eur(item.price)]] };
+      return { icon: thumb(this.image, item), title: item.name, subtitle: item.notes || null, stats: [[t('packaging.per_piece'), eur(item.price)]] };
     },
+    search: (item) => [item.name, item.notes],
+    sorts: [byName(), { key: 'price', label: t('sort.price'), value: (item) => Number(item.price) }],
+    columns: [nameColumn(() => null, (item) => thumb('/api/packaging-images', item)), { label: t('packaging.per_piece'), sort: 'price', cls: 'num strong', cell: (item) => eur(item.price) }],
   },
   onderdelen: catalogue('parts', '/api/parts', {
     title: t('parts.title'), empty: t('parts.empty'), intro: t('parts.intro'), name_ph: t('parts.name_ph'), unit: t('parts.unit'),
@@ -107,12 +167,13 @@ function resources() {
   printers: {
     id: 'printer', title: t('printers.title'), path: '/api/printers', empty: t('printers.empty'), archivable: true,
     intro: t('printers.intro'),
-    defaults: { name: '', purchase_price: '', lifetime_hours: '3000', power_kw: '0.15', notes: '' },
+    defaults: { name: '', purchase_price: '', lifetime_hours: '3000', power_kw: '0.15', notes: '', haspelsync_serial: '' },
     fields: [
       { key: 'name', label: t('common.name'), type: 'text', required: true, placeholder: t('printers.name_ph') },
       { key: 'purchase_price', label: t('printers.purchase_price'), type: 'number', required: true },
       { key: 'lifetime_hours', label: t('printers.lifetime'), type: 'number', required: true },
       { key: 'power_kw', label: t('printers.power'), type: 'number', hint: t('printers.power_hint') },
+      { key: 'haspelsync_serial', label: t('haspelsync.field'), type: 'haspelsync', hint: t('haspelsync.field_hint') },
       { key: 'notes', label: t('common.notes'), type: 'textarea' },
     ],
     card(item) {
@@ -123,6 +184,14 @@ function resources() {
         stats: [[t('printers.depreciation'), t('printers.per_hour', { price: eur(perHour) })], [t('printers.power_short'), `${fmt(item.power_kw, 3)} kW`]],
       };
     },
+    search: (item) => [item.name, item.notes],
+    sorts: [byName(), { key: 'price', label: t('printers.purchase_price'), value: (item) => Number(item.purchase_price) },
+      { key: 'per_hour', label: t('printers.depreciation'), value: (item) => Number(item.purchase_price) / Number(item.lifetime_hours) }],
+    columns: [nameColumn(),
+      { label: t('printers.purchase_price'), sort: 'price', cls: 'num', cell: (item) => eur(item.purchase_price) },
+      { label: t('printers.lifetime'), cls: 'num', wide: true, cell: (item) => fmt(item.lifetime_hours, 0) },
+      { label: t('printers.depreciation'), sort: 'per_hour', cls: 'num strong', cell: (item) => t('printers.per_hour', { price: eur(Number(item.purchase_price) / Number(item.lifetime_hours)) }) },
+      { label: t('printers.power_short'), cls: 'num', wide: true, cell: (item) => `${fmt(item.power_kw, 3)} kW` }],
   },
   energie: {
     id: 'tariff', title: t('energy.title'), path: '/api/tariffs', empty: t('energy.empty'), archivable: false,
@@ -138,12 +207,16 @@ function resources() {
         stats: [[t('energy.price_short'), t('energy.per_kwh', { price: eur(item.price_per_kwh) })]],
       };
     },
+    search: (item) => [item.name],
+    sorts: [byName(), { key: 'price', label: t('energy.price_short'), value: (item) => Number(item.price_per_kwh) }],
+    columns: [nameColumn((item) => (item.is_default ? h('span', { class: 'badge' }, t('energy.default')) : null)),
+      { label: t('energy.price_short'), sort: 'price', cls: 'num strong', cell: (item) => t('energy.per_kwh', { price: eur(item.price_per_kwh) }) }],
     actions(item, reload) {
       if (item.is_default) return [];
-      return [h('button', { class: 'btn small', type: 'button', onclick: async () => {
+      return [{ icon: 'star', label: t('energy.make_default'), onclick: async () => {
         await api('PATCH', `${this.path}/${item.id}`, { is_default: true });
         reload();
-      } }, t('energy.make_default'))];
+      } }];
     },
   },
   };
@@ -178,108 +251,7 @@ export function libraryConfig() {
   };
 }
 
-// What is left per kind of filament: the rolls you still have (with what is on each) and the total,
-// plus a total per material.
-function stockPanel() {
-  const body = h('div', { class: 'stack' });
-  const panel = h('section', { class: 'stack', 'aria-labelledby': 'stock-title', hidden: true },
-    h('h2', { id: 'stock-title', class: 'sr-only' }, t('stock.title')), body);
-  let data = null;
-  let match = () => true;
-  const plural = (n) => t('stock.rolls', { n });
-
-  function draw() {
-    panel.hidden = !data || !data.groups.length;
-    if (panel.hidden) return;
-    const groups = data.groups.filter(match);
-    if (!groups.length) { body.replaceChildren(h('p', { class: 'muted' }, t('stock.none_match'))); return; }
-    const materials = new Map();                     // totals follow the filter, so they always match what is listed
-    for (const g of groups) {
-      const name = String(g.material || t('stock.unknown_material')).trim();
-      const k = name.toLowerCase();                  // "PLA" and "pla" are one material
-      const m = materials.get(k) || { name, rolls: 0, grams: 0 };
-      m.rolls += g.roll_count;
-      m.grams += Number(g.remaining_g);
-      materials.set(k, m);
-    }
-    body.replaceChildren(
-      h('p', { class: 'muted stock-materials' }, [...materials.values()].map((m) => `${m.name}: ${plural(m.rolls)}, ${fmt(m.grams, 0)} g`).join(' · ')),
-      stockTiles(groups));
-  }
-
-  async function refresh() {
-    try { data = await api('GET', '/api/spools/stock'); } catch { data = null; }      // a convenience: the list below still works
-    draw();
-  }
-  return { panel, refresh, setFilter(fn) { match = fn; draw(); } };
-}
-
-// The search field above both parts of the filament page. It filters while you type: every word has to be in the name (brand, type,
-// colour), the barcode or the material of a roll or kind, ignoring case and accents. What was typed is kept while switching between the parts.
-let filamentSearch = '';
-const folded = (v) => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-
-function searchBar(onChange) {
-  const words = () => folded(filamentSearch).split(/\s+/).filter(Boolean);
-  const set = (value) => { filamentSearch = value; input.value = value; onChange(); };
-  const input = h('input', { type: 'search', id: 'filament-search', value: filamentSearch, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
-    enterkeyhint: 'search', placeholder: t('filament.search_ph'), 'aria-label': t('filament.search'),
-    oninput: (e) => { filamentSearch = e.target.value; onChange(); },
-    onkeydown: (e) => { if (e.key === 'Escape' && input.value) { e.preventDefault(); set(''); } } });
-  // On a phone a barcode is scanned rather than typed.
-  const scan = h('button', { class: 'btn', type: 'button', 'aria-label': t('filament.search_scan'), onclick: async () => {
-    const code = await scanBarcode();
-    if (code) set(code.trim());
-  } }, icon('scan'));
-  const bar = h('div', { class: 'search-bar', role: 'search' }, h('div', { class: 'search-field' }, icon('search'), input), scan);
-  return {
-    bar,
-    active: () => words().length > 0,
-    matches(row) {
-      const text = folded([row.brand, row.product_type, row.colour, row.material, row.barcode].join(' '));
-      return words().every((w) => text.includes(w));
-    },
-  };
-}
-
-// Filters for the filament list: by material ("soort"), brand and type. Options come from what you have,
-// each one narrows to what the earlier choices leave, and both the list and the stock overview follow.
 const norm = (v) => String(v || '').trim().toLowerCase();
-const FILTERS = [['material', 'filter.material', 'filter.all_materials'], ['brand', 'filter.brand', 'filter.all_brands'], ['product_type', 'filter.type', 'filter.all_types']];
-
-function filterBar(onChange) {
-  const state = Object.fromEntries(FILTERS.map(([key]) => [key, '']));
-  const selects = Object.fromEntries(FILTERS.map(([key, label]) => [key, h('select', { id: `filter-${key}`, 'aria-label': t('filter.by', { name: t(label).toLowerCase() }) })]));
-  let lastItems = [];
-  const clear = h('button', { class: 'btn small', type: 'button', hidden: true, onclick: () => {
-    for (const [key] of FILTERS) state[key] = '';
-    update(lastItems); onChange();
-  } }, t('filter.clear'));
-
-  const distinct = (rows, key) => {
-    const seen = new Map();
-    for (const r of rows) if (norm(r[key]) && !seen.has(norm(r[key]))) seen.set(norm(r[key]), String(r[key]).trim());
-    return [...seen].sort((a, b) => a[1].localeCompare(b[1], getLanguage()));
-  };
-  const matches = (row, upTo = FILTERS.length) => FILTERS.slice(0, upTo).every(([key]) => !state[key] || norm(row[key]) === state[key]);
-
-  function update(items) {
-    lastItems = items;
-    FILTERS.forEach(([key, , all], i) => {
-      const options = distinct(items.filter((row) => matches(row, i)), key);   // narrowed by the filters before this one
-      const select = selects[key];
-      select.replaceChildren(h('option', { value: '' }, t(all)), ...options.map(([value, label]) => h('option', { value }, label)));
-      select.value = options.some(([value]) => value === state[key]) ? state[key] : '';
-      state[key] = select.value;
-    });
-    clear.hidden = !FILTERS.some(([key]) => state[key]);
-  }
-  for (const [key] of FILTERS) selects[key].addEventListener('change', () => { state[key] = selects[key].value; update(lastItems); onChange(); });
-
-  const bar = h('div', { class: 'filters', role: 'group', 'aria-label': t('filter.group') },
-    ...FILTERS.flatMap(([key, label]) => [h('label', { for: `filter-${key}` }, t(label)), selects[key]]), clear);
-  return { bar, update, matches: (row) => matches(row), active: () => FILTERS.some(([key]) => state[key]) };
-}
 
 function toPayload(config, values) {
   const out = {};
@@ -530,10 +502,44 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
     return box;
   }
 
+  // The picture of an item (packaging): pick a file (on a phone: take a photo), see it, or take the present one away. It is sent after the item
+  // itself is saved, because a new item has no address yet.
+  const picture = { file: null, remove: false };
+  function pictureField() {
+    const preview = h('img', { class: 'image-preview', alt: t('packaging.image_alt'), hidden: true });
+    const mark = () => { values.image = picture.file ? `${picture.file.name}:${picture.file.size}` : (picture.remove ? 'removed' : ''); dirty.add('image'); };
+    const show = () => {
+      const kept = item && item.image_version && !picture.remove;
+      clear.hidden = !picture.file && !kept;
+      if (picture.file) {
+        const reader = new FileReader();                             // a data: address; the page may not show a blob: one
+        reader.onload = () => { preview.src = reader.result; preview.hidden = false; };
+        reader.readAsDataURL(picture.file);
+      } else if (kept) { preview.src = imageUrl(config.image, item); preview.hidden = false; } else { preview.removeAttribute('src'); preview.hidden = true; }
+    };
+    const input = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', onchange: (e) => {
+      picture.file = e.target.files[0] || null;
+      picture.remove = false;
+      mark(); show();
+    } });
+    const clear = h('button', { class: 'btn tool', type: 'button', hidden: true, onclick: () => {
+      picture.file = null;
+      picture.remove = true;
+      input.value = '';
+      mark(); show();
+    } }, icon('trash'), h('span', {}, t('packaging.image_remove')));
+    show();
+    return h('div', { class: 'stack' }, field(t('packaging.image'), input, t('packaging.image_hint')), h('div', { class: 'row' }, preview, clear));
+  }
+  let savedId = item ? item.id : null;       // once a new item is made, a second try (the picture was refused) changes it instead of making another
+
   const inputs = config.fields.map((f) => {
     if (f.type === 'barcode') return barcodeField(f);
     if (f.type === 'brand') return brandField(f);
     if (f.type === 'color') return colourField(f);
+    if (f.type === 'haspelsync') {
+      return serialField({ label: f.label, hint: f.hint, value: values[f.key] || '', onchange: (serial) => { values[f.key] = serial; dirty.add(f.key); } });
+    }
     if (f.type === 'checkbox') {
       const box = h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: !!values[f.key],
         onchange: (e) => { values[f.key] = e.target.checked; dirty.add(f.key); } });
@@ -596,7 +602,15 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
           passOn = await askToPassOn(config, item, payload);
           if (passOn === null) return;                                     // closed the question: back to the form
           await api('PATCH', `${config.path}/${item.id}`, payload);
-        } else await api('POST', config.path, copyOf ? { ...payload, count: values.count } : payload);
+        } else if (savedId) await api('PATCH', `${config.path}/${savedId}`, payload);
+        else savedId = (await api('POST', config.path, copyOf ? { ...payload, count: values.count } : payload))?.id || null;
+        if (config.image && savedId) {
+          if (picture.file) {
+            const form = new FormData();
+            form.append('file', picture.file);
+            await upload(`${config.image}/${savedId}`, form, 'PUT');
+          } else if (picture.remove && item?.image_version) await api('DELETE', `${config.image}/${savedId}`);
+        }
         let others = 0;
         if (passOn.length) others = (await api('POST', `${config.path}/${item.id}/propagate`, { fields: passOn })).updated;
         dialog.close();
@@ -609,7 +623,7 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
     copyOf ? h('p', { class: 'hint' }, t('filament.duplicate_intro', { name: spoolName(copyOf, ' · ') })) : null,
     countField,
     fresh ? libraryPicker() : null,
-    ...inputs, ...datalists, error,
+    ...inputs, config.image ? pictureField() : null, ...datalists, error,
     h('div', { class: 'row end' },
       h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
       submit))), { dirty: changed });
@@ -619,105 +633,127 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
   return dialog;
 }
 
-// How the rolls can be ordered: [key, label key, sort value]. Tapping the active one reverses it.
-const SORTS = [['name', 'sort.name'], ['material', 'sort.material'], ['left', 'sort.left'], ['per_kg', 'sort.per_kg'], ['newest', 'sort.newest']];
-const sortValue = {
-  name: (r) => spoolName(r, ' ').toLowerCase(),
-  material: (r) => `${norm(r.material) || '~'} ${spoolName(r, ' ').toLowerCase()}`,
-  left: (r) => Number(r.remaining_g),
-  per_kg: (r) => Number(r.price) / Number(r.roll_weight_g),
-  newest: (r) => String(r.created_at || ''),
-};
-let rollSort = { by: 'name', dir: 1 };                         // kept while switching between the two parts of the filament page
+// What was typed and filtered on the filament page is kept while switching between its two parts.
+const filamentMemory = {};
+
+/** The barcode scanner next to a search field: on a phone a barcode is scanned rather than typed. */
+const scanButton = (onCode) => h('button', { class: 'btn tool icon-only', type: 'button', 'aria-label': t('filament.search_scan'), title: t('filament.search_scan'), onclick: async () => {
+  const code = await scanBarcode();
+  if (code) onCode(code.trim());
+} }, icon('scan'));
+
+// The stock: what is left per kind of filament (the rolls of a kind together), with a total per material above it.
+function stockView(reloadRolls) {
+  const plural = (n) => t('stock.rolls', { n });
+  const name = (g) => spoolName(g, ' · ');
+  const state = (g) => (!g.roll_count ? h('span', { class: 'badge muted' }, t('stock.sold_out_short')) : (g.notify_low && g.low ? h('span', { class: 'badge danger' }, t('stock.low_badge')) : null));
+  const view = listView({
+    id: 'stock', memory: filamentMemory, tilesClass: 'stock-grid',
+    search: { label: t('filament.search'), placeholder: t('filament.search_ph'), text: filamentText, extra: scanButton((code) => view.setQuery(code)) },
+    filters: filamentFilters(),
+    sorts: [
+      { key: 'name', label: t('sort.name'), value: (g) => spoolName(g, ' ') },
+      { key: 'material', label: t('sort.material'), value: (g) => norm(g.material) || '~' },
+      { key: 'left', label: t('sort.left'), value: (g) => Number(g.remaining_g) },
+      { key: 'rolls', label: t('sort.rolls'), value: (g) => Number(g.roll_count), desc: true }],
+    tie: (g) => spoolName(g, ' '),
+    rowClass: (g) => (g.roll_count ? '' : 'archived'),
+    columns: [
+      { label: t('nav.filament'), sort: 'name', cls: 'main', cell: (g) => h('div', { class: 'cell-main' }, spoolIcon(colourOf(g), 28),
+        h('div', {}, h('span', { class: 'cell-title' }, name(g), state(g)), g.barcode ? h('div', { class: 'cell-sub muted' }, t('filament.barcode_note', { code: g.barcode })) : null)) },
+      { label: t('sort.material'), sort: 'material', cell: (g) => g.material || '—' },
+      { label: t('sort.rolls'), sort: 'rolls', cls: 'num', cell: (g) => String(g.roll_count) },
+      { label: t('stock.per_roll_short'), wide: true, cls: 'muted', cell: (g) => (g.roll_count ? g.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ') : '—') },
+      { label: t('sort.left'), sort: 'left', cls: 'num strong', cell: (g) => `${fmt(g.remaining_g, 0)} g` }],
+    tile: stockTile,
+    // Totals per material, of what is listed: they follow the search and the filters.
+    summary(groups) {
+      const materials = new Map();
+      for (const g of groups) {
+        const material = String(g.material || t('stock.unknown_material')).trim();
+        const m = materials.get(material.toLowerCase()) || { name: material, rolls: 0, grams: 0 };         // "PLA" and "pla" are one material
+        m.rolls += g.roll_count;
+        m.grams += Number(g.remaining_g);
+        materials.set(material.toLowerCase(), m);
+      }
+      return h('ul', { class: 'stat-chips', 'aria-label': t('stock.title') }, [...materials.values()].map((m) => h('li', {}, h('strong', {}, m.name),
+        h('span', { class: 'muted' }, `${plural(m.rolls)} · ${fmt(m.grams, 0)} g`))));
+    },
+    empty: `${t('filament.empty')} ${t('common.add_first')}`, noMatch: t('stock.none_match'),
+  });
+  async function load() {
+    try { view.setItems((await api('GET', '/api/spools/stock')).groups); } catch (e) { toast(e.message, 'error'); }
+    reloadRolls?.();
+  }
+  return { el: view.el, load };
+}
 
 export function resourceView(key, sub) {
   const config = resources()[key];
   const part = key === 'filament' ? (sub === 'rollen' ? 'rollen' : 'voorraad') : null;
-  const list = h('div', { class: 'cards' });
   let showArchived = false;
   let items = [];
+  const nameOf = (item) => (config.name ? config.name(item) : item.name);
 
-  const render = () => {
-    const visible = items.filter((i) => (showArchived || !i.archived) && matches(i));
-    if (!visible.length) {
-      list.replaceChildren(h('p', { class: 'empty glass card' },
-        (filters?.active() || search?.active()) && items.length ? t('filament.no_match') : `${config.empty} ${t('common.add_first')}`));
-      return;
-    }
-    if (part === 'rollen') {
-      const value = sortValue[rollSort.by];
-      visible.sort((a, b) => {
-        const x = value(a), y = value(b);
-        const order = typeof x === 'string' ? x.localeCompare(y, getLanguage(), { numeric: true }) : x - y;
-        return order * rollSort.dir || spoolName(a).localeCompare(spoolName(b), getLanguage());
-      });
-    }
-    list.replaceChildren(...visible.map((item) => {
-      const c = config.card(item);
-      const extraActions = config.actions ? config.actions.call(config, item, load) : [];
-      return h('article', { class: `glass card item${item.archived ? ' archived' : ''}` },
-        h('div', { class: 'item-head' },
-          c.icon || null,
-          h('div', { class: 'grow' }, h('h3', {}, c.title, c.badge ? h('span', { class: 'badge' }, c.badge) : null,
-            item.archived ? h('span', { class: 'badge muted' }, t('common.archived')) : null),
-          c.subtitle ? h('p', { class: 'muted' }, c.subtitle) : null)),
-        h('dl', { class: 'stats' }, c.stats.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v)))),
-        c.extra || null,
-        c.footnote ? h('p', { class: 'muted footnote' }, c.footnote) : null,
-        h('div', { class: 'row' },
-          item.spoolman_id ? null : h('button', { class: 'btn small', type: 'button', onclick: () => openForm(config, item, load) }, t('common.edit')),
-          ...extraActions,
-          config.archivable && !item.spoolman_id ? h('button', { class: 'btn small', type: 'button', onclick: async () => {
-            await api('PATCH', `${config.path}/${item.id}`, { archived: !item.archived });
-            load();
-          } }, item.archived ? t('common.restore') : t('common.archive')) : null,
-          item.spoolman_id ? null : h('button', { class: 'btn small danger', type: 'button', 'aria-label': t('common.delete_named', { name: c.title }),
-            onclick: async () => {
-              if (await confirmDialog(t('common.delete_confirm', { name: c.title }))) {
-                await api('DELETE', `${config.path}/${item.id}`);
-                load();
-              }
-            } }, icon('trash'))));
-    }));
+  const actionsOf = (item) => rowActions([
+    item.spoolman_id ? null : { icon: 'edit', label: t('common.edit_named', { name: nameOf(item) }), onclick: () => openForm(config, item, load) },
+    ...(config.actions ? config.actions.call(config, item, load) : []),
+    config.archivable && !item.spoolman_id ? { icon: item.archived ? 'restore' : 'archive', label: item.archived ? t('common.restore') : t('common.archive'), onclick: async () => {
+      await api('PATCH', `${config.path}/${item.id}`, { archived: !item.archived });
+      load();
+    } } : null,
+    item.spoolman_id ? null : { icon: 'trash', danger: true, label: t('common.delete_named', { name: nameOf(item) }), onclick: async () => {
+      if (await confirmDialog(t('common.delete_confirm', { name: nameOf(item) }))) {
+        await api('DELETE', `${config.path}/${item.id}`);
+        load();
+      }
+    } }]);
+
+  const tile = (item) => {
+    const c = config.card(item);
+    return h('article', { class: `glass card item${item.archived ? ' archived' : ''}` },
+      h('div', { class: 'item-head' },
+        c.icon || null,
+        h('div', { class: 'grow' }, h('h3', {}, c.title, c.badge ? h('span', { class: 'badge' }, c.badge) : null,
+          item.archived ? h('span', { class: 'badge muted' }, t('common.archived')) : null),
+        c.subtitle ? h('p', { class: 'muted' }, c.subtitle) : null)),
+      h('dl', { class: 'stats' }, c.stats.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v)))),
+      c.extra || null,
+      c.footnote ? h('p', { class: 'muted footnote' }, c.footnote) : null,
+      actionsOf(item));
   };
 
-  const stock = part === 'voorraad' ? stockPanel() : null;
-  const narrowed = () => {
-    render();
-    stock?.setFilter(matches);                         // stock groups carry brand, type, colour, material and barcode too
-  };
-  const search = key === 'filament' ? searchBar(narrowed) : null;
-  const filters = key === 'filament' ? filterBar(narrowed) : null;
-  const matches = (row) => (!search || search.matches(row)) && (!filters || filters.matches(row));
-  stock?.setFilter(matches);                           // a search typed on the other part still holds
-
-  // The sort buttons at the top of the rolls: tap one to order by it, tap it again to reverse.
-  const sortBar = part === 'rollen' ? h('div', { class: 'sortbar', role: 'group', 'aria-label': t('sort.label') }) : null;
-  function drawSort() {
-    sortBar.replaceChildren(h('span', { class: 'muted' }, t('sort.label')), ...SORTS.map(([by, label]) => {
-      const active = rollSort.by === by;
-      return h('button', { class: 'seg', type: 'button', 'aria-pressed': String(active),
-        'aria-label': active ? `${t(label)}, ${t(rollSort.dir > 0 ? 'sort.asc' : 'sort.desc')}` : t(label),
-        onclick: () => { rollSort = active ? { by, dir: -rollSort.dir } : { by, dir: by === 'newest' || by === 'left' ? -1 : 1 }; drawSort(); render(); } },
-      t(label), active ? h('span', { 'aria-hidden': 'true' }, rollSort.dir > 0 ? ' ↑' : ' ↓') : null);
-    }));
-  }
-  if (sortBar) drawSort();
-
-  async function load() {
-    try {
-      items = await api('GET', config.path);
-      filters?.update(items.filter((i) => showArchived || !i.archived));
-      render();
-      stock?.refresh();
-    } catch (e) { toast(e.message, 'error'); }
-  }
-
+  const show = () => view?.setItems(items.filter((i) => showArchived || !i.archived));
   const archiveToggle = config.archivable
-    ? h('label', { class: 'check' },
-      h('input', { type: 'checkbox', class: 'toggle', role: 'switch', onchange: (e) => { showArchived = e.target.checked; filters?.update(items.filter((i) => showArchived || !i.archived)); render(); } }),
+    ? h('label', { class: 'check tool-check' },
+      h('input', { type: 'checkbox', class: 'toggle', role: 'switch', onchange: (e) => { showArchived = e.target.checked; show(); } }),
       t('common.show_archived'))
     : null;
+
+  // The stock is a list of its own (kinds, not rolls); every other page lists its own things.
+  const stock = part === 'voorraad' ? stockView() : null;
+  const view = stock ? null : listView({
+    id: part === 'rollen' ? 'rolls' : config.id, memory: key === 'filament' ? filamentMemory : undefined,
+    search: { label: key === 'filament' ? t('filament.search') : t('list.search'), placeholder: key === 'filament' ? t('filament.search_ph') : t('list.search_ph'),
+      text: config.search, extra: key === 'filament' ? scanButton((code) => view.setQuery(code)) : null },
+    filters: config.filters, sorts: config.sorts, tie: nameOf, group: config.group,
+    rowClass: (item) => (item.archived ? 'archived' : ''),
+    columns: [...config.columns, { label: t('list.actions'), cls: 'actions', cell: actionsOf }],
+    tile, toggles: [archiveToggle],
+    empty: `${config.empty} ${t('common.add_first')}`, noMatch: key === 'filament' ? t('filament.no_match') : t('list.no_match'),
+  });
+
+  async function load() {
+    if (stock) { stock.load(); return; }
+    try {
+      items = await api('GET', config.path);
+      if (config.image) {                                              // which items have a picture, in one question
+        const { images } = await api('GET', config.image).catch(() => ({ images: {} }));
+        for (const item of items) item.image_version = images[item.id] || '';
+      }
+      show();
+    } catch (e) { toast(e.message, 'error'); }
+  }
 
   load();
   return h('section', { class: 'page' },
@@ -731,11 +767,12 @@ export function resourceView(key, sub) {
         h('button', { class: 'btn primary', type: 'button', onclick: () => openForm(config, null, load) },
           icon('plus'), h('span', {}, t(`${config.id}.new`))))),
     h('p', { class: 'muted page-intro' }, config.intro),
+    key === 'printers' ? livePanel() : null,                         // what each printer is doing now: hidden without HaspelSync
     key === 'filament' ? h('div', { class: 'subbar' },
       h('nav', { class: 'subnav', 'aria-label': t('filament.parts') },
         ...[['voorraad', 'filament.part_stock'], ['rollen', 'filament.part_rolls']].map(([to, label]) => h('a', { href: `#/filament/${to}`, 'aria-current': part === to ? 'page' : null }, t(label)))),
       spoolmanBar(load)) : null,
     key === 'onderdelen' || key === 'accessoires' ? h('nav', { class: 'subnav', 'aria-label': t('parts.tabs') },
       ...[['onderdelen', 'parts.title'], ['accessoires', 'accessories.title']].map(([to, label]) => h('a', { href: `#/onderdelen${to === 'accessoires' ? '/accessoires' : ''}`, 'aria-current': key === to ? 'page' : null }, t(label)))) : null,
-    search?.bar || null, sortBar, filters ? h('details', { class: 'filters-details', open: filters.active() }, h('summary', {}, t('filter.title')), filters.bar) : null, stock?.panel || null, part === 'rollen' || !part ? archiveToggle : null, part === 'voorraad' ? null : list);
+    stock ? stock.el : view.el);
 }

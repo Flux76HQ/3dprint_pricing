@@ -18,9 +18,16 @@ function flag(code) {
   return svg;
 }
 
-/** One button per language: a flag, named for screen readers, the current one marked. */
-export function langSwitch(onChoose) {
-  return h('div', { class: 'lang-switch', role: 'group', 'aria-label': t('lang.label') },
-    LANGUAGES.map((l) => h('button', { type: 'button', class: 'flag-btn', lang: l.code, title: l.name, 'aria-label': l.name,
-      'aria-pressed': String(getLanguage() === l.code), onclick: () => onChoose(l.code) }, flag(l.code))));
+/** The language in one click: one button with the flag of the other language, the one a click gives (with Dutch on the screen it shows the
+    English flag). `all` shows a button per language with the current one marked instead, for the place where the language is a setting. */
+export function langSwitch(onChoose, { all = false } = {}) {
+  if (all) {
+    return h('div', { class: 'lang-switch', role: 'group', 'aria-label': t('lang.label') },
+      LANGUAGES.map((l) => h('button', { type: 'button', class: 'flag-btn', lang: l.code, title: l.name, 'aria-label': l.name,
+        'aria-pressed': String(getLanguage() === l.code), onclick: () => onChoose(l.code) }, flag(l.code))));
+  }
+  const next = LANGUAGES[(LANGUAGES.findIndex((l) => l.code === getLanguage()) + 1) % LANGUAGES.length];
+  const label = t('lang.switch_to', { name: next.name });
+  return h('div', { class: 'lang-switch' },
+    h('button', { type: 'button', class: 'flag-btn', title: label, 'aria-label': label, onclick: () => onChoose(next.code) }, flag(next.code)));
 }

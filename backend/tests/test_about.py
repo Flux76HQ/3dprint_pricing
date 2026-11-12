@@ -82,18 +82,21 @@ def test_the_file_system_comes_from_the_mount_table(tmp_path):
     assert about.filesystem_of("/nonexistent/place/db.sqlite3") is not None            # the root file system
 
 
+EVERY_MIGRATION = sorted(p.name for p in db.MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql"))
+
+
 def test_a_database_that_is_behind_its_migrations_is_an_error(owner, app):
     with app.extensions["pool"].connection() as conn:
         conn.execute("DELETE FROM schema_migrations")
     body = get(owner)
     assert states(body)["schema"] == "error" and body["health"]["state"] == "error"
-    assert body["database"]["migrations"]["pending"] == ["0001_init.sql"]
+    assert body["database"]["migrations"]["pending"] == EVERY_MIGRATION
 
 
 def test_a_migration_that_changed_after_it_was_applied_is_an_error(owner, app):
     with app.extensions["pool"].connection() as conn:
         conn.execute("UPDATE schema_migrations SET checksum = 'edited'")
-    assert get(owner)["database"]["migrations"]["changed"] == ["0001_init.sql"] and states(get(owner))["schema"] == "error"
+    assert get(owner)["database"]["migrations"]["changed"] == EVERY_MIGRATION and states(get(owner))["schema"] == "error"
 
 
 def test_a_migration_of_a_newer_release_is_a_warning(owner, app):

@@ -57,6 +57,7 @@ def fill(owner):
     payload["data"]["parts"] = [{"group": "verpakking", "packaging_id": box["id"], "label": "Doos", "quantity": 1, "unit": "stuks", "unit_price": "0.45"},
                                 {"group": "onderdeel", "part_id": part["id"], "label": "JST-connector", "quantity": 2, "unit": "stuks", "unit_price": "0.12"},
                                 {"group": "oplader", "accessory_id": cable["id"], "label": "USB-C-kabel", "quantity": 1.5, "unit": "m", "unit_price": "1.80"}]
+    payload["links"] = [{"kind": "model", "label": "", "url": "https://makerworld.com/en/models/1"}]     # one, to the model: all the database before SQLite could hold
     project = make(owner, "/api/projects", payload)
     owner.put("/api/preferences", json={"theme": "dark", "language": "en", "vat_pct": "9", "blur_costs": True}, headers=H)
     return {"printer": printer, "tariff": tariff, "box": box, "part": part, "cable": cable, "spool": spool, "project": project}
@@ -143,6 +144,24 @@ def test_the_download_is_a_json_attachment_with_every_section(owner):
     assert doc["preferences"]["theme"] == "dark" and doc["includes_files"] is False and "files" not in doc
 
 
+def test_the_backup_is_written_row_by_row_and_reads_the_same(owner, monkeypatch):
+    """One `json.dumps` of the whole document holds Python's interpreter lock until it is done, and with pictures in it that is most of a
+    second in which the worker answers nobody (docs/performance.md). The text is the one `json.dumps` writes, so a backup reads as before."""
+    from app import backup as module
+    fill(owner)
+    owner.post("/api/customers", json={"number": "", "name": "Zoë 't Hoekje \u00e9\u20ac \"quoted\" \\ back", "notes": "regel 1\nregel 2\ttab"}, headers=H)
+    doc = backup(owner).get_json()
+    assert module.dumps(doc) == json.dumps(doc, ensure_ascii=False).encode("utf-8")
+    for odd in ({}, {"a": []}, {"a": [], "b": {}, "c": None, "d": [1, "twee", None, {"x": [1, 2]}], "e": "één"}):
+        assert module.dumps(odd) == json.dumps(odd, ensure_ascii=False).encode("utf-8")
+    encoded, real = [], json.dumps
+    monkeypatch.setattr(module.json, "dumps", lambda value, **options: encoded.append(value) or real(value, **options))
+    module.dumps(doc)
+    lists = [value for value in doc.values() if isinstance(value, list) and value]
+    assert lists and not any(value is doc or any(value is whole for whole in lists) for value in encoded)        # never the document or a whole list in one call
+    assert sum(1 for value in encoded if isinstance(value, dict) and "purchase_price" in value) == len(doc["printers"])
+
+
 def test_nothing_that_unlocks_the_app_is_in_a_backup(owner, app):
     fill(owner)
     owner.post("/api/push/subscribe", json={"endpoint": "https://push.example.test/x", "keys": {"p256dh": "a", "auth": "b"}}, headers=H)
@@ -166,6 +185,25 @@ def test_restoring_brings_back_exactly_what_was_backed_up_including_the_links_be
     full = owner.get(f"/api/projects/{project['id']}").get_json()
     assert full["data"]["filament"][0]["spool_id"] == before["spools"][0]["id"] or full["data"]["filament"][0]["spool_id"] in {s["id"] for s in before["spools"]}
     assert Decimal(full["totals"]["cost_price"]) > 0
+
+
+def test_the_links_of_a_model_come_back_with_their_kind_and_name(owner):
+    project = fill(owner)["project"]
+    links = [{"kind": "model", "label": "", "url": "https://makerworld.com/en/models/1"},
+             {"kind": "marktplaats", "label": "Zwart", "url": "https://www.marktplaats.nl/v/a1"},
+             {"kind": "bol", "label": "", "url": "https://www.bol.com/nl/nl/p/x/9300000000000000/"}]
+    body = {key: project[key] for key in ("name", "notes", "margin_pct", "vat_pct", "price_rounding", "data")}
+    assert owner.put(f"/api/projects/{project['id']}", json={**body, "links": links}, headers=H).status_code == 200
+    doc = backup(owner).get_json()
+    assert doc["projects"][0]["links"] == links
+    wipe(owner)
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    assert owner.get("/api/projects").get_json()[0]["links"] == links
+    # A backup from before there were several links holds only `source_url`: it becomes the link to the model.
+    del doc["projects"][0]["links"]
+    wipe(owner)
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    assert owner.get("/api/projects").get_json()[0]["links"] == links[:1]
 
 
 def test_restoring_replaces_what_is_there_now(owner):
@@ -499,12 +537,14 @@ def test_without_files_a_calculation_keeps_its_file_only_if_that_file_is_still_h
     assert "files" not in doc
     post(owner, "/api/backup/restore", doc)
     assert owner.get(f"/api/projects/{project['id']}").get_json()["file_id"] == meta["id"]       # still on the server
+    assert owner.get(f"/api/projects/{project['id']}").get_json()["calc_files"] == [meta["id"]]
     owner.delete(f"/api/projects/{project['id']}", headers=H)
     with connect(owner.application.config["APP_CONFIG"].database_path) as conn:
         conn.execute("DELETE FROM print_files")
         conn.commit()
     post(owner, "/api/backup/restore", doc)
     assert owner.get(f"/api/projects/{project['id']}").get_json()["file_id"] is None               # gone: let go, not an error
+    assert owner.get(f"/api/projects/{project['id']}").get_json()["calc_files"] == []
 
 
 def test_a_damaged_or_edited_print_file_is_refused_in_the_json_form(owner, app):

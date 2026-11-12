@@ -2,15 +2,26 @@
 // bytes and browsers notice an update.
 const APP_VERSION = 'dev';
 
-// Offline shell: static files are cached, the API never is (prices must be live).
-// Network first, cache only as the offline fallback: a new release must show up on the very next
-// load, not the one after (stale-while-revalidate served the old interface once more).
-const CACHE = 'pp-shell-v2';
-const SHELL = ['/', '/css/app.css', '/js/main.js', '/js/api.js', '/js/ui.js', '/js/auth-views.js',
-  '/js/resources.js', '/js/projects.js', '/js/orders.js', '/js/customers.js', '/js/filament-ui.js', '/js/filament-library.js', '/js/spoolman.js', '/js/mdi.js', '/js/settings.js', '/js/pwa.js', '/js/scanner.js', '/js/bulk-scan.js', '/js/theme-boot.js', '/js/i18n.js', '/js/langswitch.js', '/lang/nl.json', '/lang/en.json', '/icons/icon.svg'];
+// The release as it is written in the URLs of this release's files (`?v=<version>-<commit>`, see backend/app/static_files.py);
+// null for a development build, whose files change under the same name and are therefore never answered from the cache.
+const RELEASE = /^(\S+) \((\w+)\)$/.exec(APP_VERSION);
+const TOKEN = RELEASE && RELEASE[2] !== 'dev' ? `${RELEASE[1]}-${RELEASE[2]}` : null;
+
+// Offline shell: the app's own files are cached, the API never is (prices must be live).
+// One cache per release: activating a new worker removes the caches of the releases before it, so nothing old is kept or served.
+const CACHE = `pp-shell-${TOKEN || 'dev'}`;
+// The page, and the files of this release that every screen needs. Every module under /js is listed (a test compares the folder
+// with this list), so the installed app starts without the network after its first visit.
+const PAGE = '/';
+const SHELL = ['/css/app.css', '/js/main.js', '/js/ai-images.js', '/js/api.js', '/js/auth-views.js', '/js/build.js', '/js/bulk-scan.js', '/js/customers.js',
+  '/js/filament-library.js', '/js/filament-ui.js', '/js/haspelsync.js', '/js/i18n.js', '/js/install.js', '/js/langswitch.js', '/js/listview.js', '/js/integrations.js', '/js/listing.js', '/js/mdi.js', '/js/model-viewer.js', '/js/orders.js',
+  '/js/password.js', '/js/projects.js', '/js/push.js', '/js/pwa.js', '/js/release.js', '/js/resources.js', '/js/scanner.js', '/js/settings.js', '/js/spoolman.js',
+  '/js/theme-boot.js', '/js/ui.js', '/js/updates.js', '/js/users.js', '/lang/nl.json', '/lang/en.json'];
+const versioned = (path) => (TOKEN ? `${path}?v=${TOKEN}` : path);
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // The same URLs the page asks for, so the browser's own cache answers what the page has just loaded.
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll([PAGE, '/icons/icon.svg', ...SHELL.map(versioned)])).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -26,10 +37,22 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET' || url.origin !== location.origin) return;
   if (url.pathname.startsWith('/api/') || url.pathname === '/healthz' || url.pathname === '/readyz') return;
 
+  // The page itself always comes from the network: a new release must show up on the very next load, not the one after
+  // (stale-while-revalidate served the old interface once more). The cached page is only the offline fallback.
   if (req.mode === 'navigate') {
-    event.respondWith(fetch(req).catch(() => caches.match('/', { ignoreSearch: true })));
+    event.respondWith(fetch(req).catch(() => caches.match(PAGE, { ignoreSearch: true })));
     return;
   }
+  // A file of this release never changes under its URL: answer it from the cache, and ask the server only for what is not there yet.
+  // A URL of another release (a page that was open during an update) is not this worker's to answer from memory.
+  if (TOKEN && url.searchParams.get('v') === TOKEN) {
+    event.respondWith(caches.open(CACHE).then((c) => c.match(req, { ignoreVary: true }).then((hit) => hit || fetch(req).then((res) => {
+      if (res.ok) c.put(req, res.clone());
+      return res;
+    }))));
+    return;
+  }
+  // Everything else (icons, the manifest, a development build): network first, the cache only as the offline fallback.
   event.respondWith(fetch(req).then((res) => {
     if (res.ok) {
       const copy = res.clone();
