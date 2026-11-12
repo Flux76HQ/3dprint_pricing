@@ -187,6 +187,7 @@ Set in `.env`; [`.env.example`](.env.example) documents every value. Never commi
 | `SPOOLMAN_URL` | ❌ | empty (type it in the app) | The address of your [Spoolman](https://github.com/Donkie/Spoolman) as the app's container reaches it, e.g. `http://spoolman:8000` (no login). With it, *Settings → Filaments → Sync* reads the rolls and what is left on them from Spoolman (a roll you already had here is linked, so it does not appear twice), Spoolman keeps track of what is used (booking it out from a 3D Model is then off), and the library and your own rolls can be pushed to it. Leave it empty to type the address in the app instead (administrators, *Settings → Filaments*); when it is set here, it wins and the app shows it read-only |
 | `PROXY_HOPS` | ❌ | `0` | Number of reverse proxies in front of the app |
 | `WEB_CONCURRENCY` | ❌ | `2` | Number of Gunicorn workers |
+| `WEB_THREADS` | ❌ | `4` | Threads per worker; workers x threads requests are handled at once, so one long request (a large 3MF, an invoice, a backup) does not hold up the rest |
 | `PRINTPRICING_UPDATE_CHECK` | ❌ | `true` | The update check: the app asks GitHub whether a newer stable release exists and tells the owner with a banner and under *Settings → Administration → About → Update check*. It sends nothing about your installation and never updates anything. `false` (also `0`, `no`, `off`) switches it off, for an installation that must not call out. A beta build only sees stable releases |
 
 ## Running it

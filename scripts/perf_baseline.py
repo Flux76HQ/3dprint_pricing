@@ -16,7 +16,8 @@ What is measured:
 * the browser (Chromium through Playwright, service worker allowed): opening the app on the model list with an empty cache and
   again with a filled one, and opening the model editor. Requests and bytes are counted in Gunicorn's access log, so a request
   made by the service worker counts like one made by the page;
-* the server under load: several clients at once, and a small read while backups are being downloaded.
+* the server under load: several clients at once, and a small read while long requests run (backups being downloaded, which
+  compute all the time, and uploads that arrive slowly, which mostly wait).
 
 It needs what `generate_screenshots.py` needs (`playwright`, `pillow`; `CHROMIUM_PATH` if the browser is elsewhere) and the
 packages of `backend/requirements.txt`. It never touches a real installation. Timings are those of the machine it runs on:
@@ -317,21 +318,39 @@ def measure_load(server: Server, token: str, clients: int = 8, seconds: float = 
     return {"clients": clients, "requests_per_second": round(len(took) / seconds, 1), **spread(took)}
 
 
-def measure_while_busy(server: Server, token: str, downloads: int) -> dict:
-    """How long a small read (`GET /api/printers`) takes while `downloads` backups are being read: the long request this app has
-    that needs no other service."""
+def slow_upload(port: int, token: str, seconds: float) -> None:
+    """A request whose body arrives slowly, as an upload over a poor connection does when no proxy in front collects it first."""
+    body = json.dumps({"data": {}, "padding": "x" * 200_000}).encode()
+    head = (f"POST /api/calculate HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nCookie: pp_session={token}\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n").encode()
+    with socket.create_connection(("127.0.0.1", port), timeout=30) as sock:
+        sock.sendall(head)
+        step = len(body) // 20
+        for n in range(20):
+            sock.sendall(body[n * step:(n + 1) * step] if n < 19 else body[19 * step:])
+            time.sleep(seconds / 20)
+        while sock.recv(65536):
+            pass
+
+
+def measure_while_busy(server: Server, token: str, count: int, kind: str) -> dict:
+    """How long a small read (`GET /api/printers`) takes while `count` long requests run. `backup`: a backup download, which reads every
+    picture and is computing all the time. `upload`: a request that is mostly waiting, for its own body to arrive."""
     lengths, waits = [], []
 
-    def download():
+    def long_request():
         began = time.perf_counter()
-        Client(server.port, token).get("/api/backup")
+        if kind == "backup":
+            Client(server.port, token).get("/api/backup")
+        else:
+            slow_upload(server.port, token, 1.5)
         lengths.append((time.perf_counter() - began) * 1000)
 
     for _ in range(3):
-        threads = [threading.Thread(target=download) for _ in range(downloads)]
+        threads = [threading.Thread(target=long_request) for _ in range(count)]
         for t in threads:
             t.start()
-        time.sleep(0.05)                                 # the downloads are under way
+        time.sleep(0.05)                                 # the long requests are under way
         client = Client(server.port, token)
         while True:
             waits.append(client.get("/api/printers")[2])
@@ -340,7 +359,7 @@ def measure_while_busy(server: Server, token: str, downloads: int) -> dict:
             time.sleep(0.02)
         for t in threads:
             t.join()
-    return {"downloads_at_once": downloads, "download_ms": round(statistics.median(lengths)), "reads": len(waits),
+    return {"kind": kind, "at_once": count, "long_ms": round(statistics.median(lengths)), "reads": len(waits),
             "median_ms": round(statistics.median(waits), 1), "slowest_ms": round(max(waits), 1)}
 
 
@@ -374,7 +393,8 @@ def report(r: dict) -> str:
     load = m["load"]
     lines.append(f"| {load['clients']} clients asking for `/api/projects` at once | {load['requests_per_second']} requests/s, median {load['median_ms']} ms, p95 {load['p95_ms']} ms |")
     for busy in m["while_busy"]:
-        lines.append(f"| `GET /api/printers` while {busy['downloads_at_once']} backup download(s) of {busy['download_ms']} ms run | "
+        what = "backup download(s)" if busy["kind"] == "backup" else "slow upload(s)"
+        lines.append(f"| `GET /api/printers` while {busy['at_once']} {what} of {busy['long_ms']} ms run | "
                      f"median {busy['median_ms']} ms, slowest {busy['slowest_ms']} ms ({busy['reads']} reads) |")
     return "\n".join(lines)
 
@@ -406,7 +426,7 @@ def main():
         measured["browser"] = measure_browser(server, built["token"], built["model_id"])
         measured["editor_data"] = measure_editor_data(server, built["token"], measured["browser"].pop("editor_paths"))
         measured["load"] = measure_load(server, built["token"])
-        measured["while_busy"] = [measure_while_busy(server, built["token"], n) for n in (1, 2)]
+        measured["while_busy"] = [measure_while_busy(server, built["token"], n, kind) for kind in ("backup", "upload") for n in (1, 2)]
         commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip() or "unknown"
         result = {"date": datetime.now(timezone.utc).date().isoformat(), "commit": commit,
                   "machine": f"{os.cpu_count()} CPUs, Python {platform.python_version()}, SQLite {sqlite3.sqlite_version}, {platform.system()} {platform.machine()}",

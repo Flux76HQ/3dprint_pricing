@@ -125,7 +125,7 @@ def create_app(config: Config | None = None, pool=None) -> Flask:
     @app.get("/readyz")
     def readyz():
         try:
-            with app.extensions["pool"].connection() as conn:
+            with app.extensions["pool"].read() as conn:
                 conn.execute("SELECT 1")
         except Exception:
             return jsonify({"status": "database unavailable"}), 503

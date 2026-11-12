@@ -4,6 +4,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -60,6 +61,24 @@ def test_a_date_is_a_date_and_a_timestamp_compares_as_text(database):
         conn.execute("INSERT INTO invitations (token_hash, kind, expires_at) VALUES (%s, 'new', %s)", (b"a" * 32, datetime.now(timezone.utc) + timedelta(hours=1)))
         conn.execute("INSERT INTO invitations (token_hash, kind, expires_at) VALUES (%s, 'new', %s)", (b"b" * 32, datetime.now(timezone.utc) - timedelta(hours=1)))
         assert conn.execute("SELECT count(*) AS n FROM invitations WHERE expires_at > now()").fetchone()["n"] == 1
+
+
+def test_a_stored_moment_is_read_in_every_form_it_was_ever_written_and_without_strptime(monkeypatch):
+    """`strptime` was the largest single cost of reading a list (docs/performance.md); what it read must still read the same."""
+    import _strptime
+    monkeypatch.setattr(_strptime, "_strptime_datetime", lambda *args, **kwargs: pytest.fail("strptime is seven times slower than fromisoformat"))
+    utc = timezone.utc
+    for text, moment in (("2026-11-11 22:53:48.123", datetime(2026, 11, 11, 22, 53, 48, 123000, tzinfo=utc)),          # what `now()` and db._utc_text write
+                         ("2026-11-11 22:53:48", datetime(2026, 11, 11, 22, 53, 48, tzinfo=utc)),
+                         ("2026-11-11 22:53:48.123456", datetime(2026, 11, 11, 22, 53, 48, 123456, tzinfo=utc)),
+                         ("2026-11-11T22:53:48.123", datetime(2026, 11, 11, 22, 53, 48, 123000, tzinfo=utc)),
+                         ("2026-11-12 00:53:48.123+02:00", datetime(2026, 11, 11, 22, 53, 48, 123000, tzinfo=utc)),     # an imported value with its own offset
+                         ("2026-11-11 17:53:48-05:00", datetime(2026, 11, 11, 22, 53, 48, tzinfo=utc)),
+                         ("2026-11-11", datetime(2026, 11, 11, tzinfo=utc))):
+        read = db._parse_time(text.encode())
+        assert read == moment and read.utcoffset() == timedelta(0), text
+    now = datetime.now(timezone(timedelta(hours=2)))
+    assert db._parse_time(db._utc_text(now).encode()) == now.replace(microsecond=now.microsecond // 1000 * 1000)       # what is written is what is read back
 
 
 def test_the_rewrites_of_postgres_spellings():
@@ -229,3 +248,142 @@ def test_the_outbox_claim_hands_each_row_to_one_worker(database):
     [t.start() for t in threads]
     [t.join() for t in threads]
     assert len(claimed) == 10 and len(set(claimed)) == 10
+
+
+# --- blocks that only read, and the connections a thread keeps (docs/performance.md) ------------------------------------------------
+
+def held_write_lock(path):
+    """Another connection in the middle of a write: what every other writer waits for."""
+    raw = sqlite3.connect(path, isolation_level=None)
+    raw.execute("BEGIN IMMEDIATE")
+    raw.execute("INSERT INTO packaging_items (name, price) VALUES ('not committed', 1)")
+    return raw
+
+
+def test_a_read_does_not_wait_for_a_writer_and_sees_what_was_committed(database, fresh_db, monkeypatch):
+    with database.connection() as conn:
+        conn.execute("INSERT INTO packaging_items (name, price) VALUES ('doos', 1)")
+    writer = held_write_lock(fresh_db)
+    try:
+        began = time.monotonic()
+        with database.read() as conn:
+            names = [row["name"] for row in conn.execute("SELECT name FROM packaging_items").fetchall()]
+        assert names == ["doos"] and time.monotonic() - began < 0.5                    # at once, and without the other's unfinished row
+        monkeypatch.setattr(db, "BUSY_MS", 300)                                        # (a new connection waits this long; kept short for the test)
+        database.close()
+        with pytest.raises(sqlite3.OperationalError, match="locked"):                  # the same question in a block that may write does wait
+            with database.connection():
+                pass
+    finally:
+        writer.execute("ROLLBACK")
+        writer.close()
+
+
+def test_a_long_read_does_not_hold_up_a_writer_and_keeps_its_own_picture(database):
+    with database.connection() as conn:
+        conn.execute("INSERT INTO packaging_items (name, price) VALUES ('doos', 1)")
+    with database.read() as reader:
+        count = lambda: reader.execute("SELECT count(*) AS n FROM packaging_items").fetchone()["n"]
+        assert count() == 1
+        began = time.monotonic()
+        with database.connection() as conn:                                            # a save while the read is still going
+            conn.execute("INSERT INTO packaging_items (name, price) VALUES ('folie', 1)")
+        assert time.monotonic() - began < 0.5
+        assert count() == 1                                                            # one consistent snapshot until the block ends
+    with database.read() as reader:
+        assert reader.execute("SELECT count(*) AS n FROM packaging_items").fetchone()["n"] == 2
+
+
+def test_a_block_that_only_reads_cannot_write(database):
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        with database.read() as conn:
+            conn.execute("INSERT INTO packaging_items (name, price) VALUES ('doos', 1)")
+    for statement in ("UPDATE users SET display_name = 'x'", "DELETE FROM users", "CREATE TABLE t (a)"):
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            with database.read() as conn:
+                conn.execute(statement)
+    with database.read() as conn:                                                      # and the next block is none the worse for it
+        assert conn.read_only and conn.execute("SELECT count(*) AS n FROM packaging_items").fetchone()["n"] == 0
+    with database.connection() as conn:
+        assert not conn.read_only and conn.execute("PRAGMA query_only").fetchone()["query_only"] == 0
+
+
+def test_a_thread_keeps_its_connections_between_blocks(database):
+    """A new connection parses the whole schema before its first statement; a request has at least two blocks."""
+    seen = {"write": [], "read": []}
+    for _ in range(3):
+        with database.connection() as conn:
+            seen["write"].append(conn.raw)
+            assert conn.raw.in_transaction
+        with database.read() as conn:
+            seen["read"].append(conn.raw)
+    assert len(set(map(id, seen["write"]))) == 1 and len(set(map(id, seen["read"]))) == 1 and seen["write"][0] is not seen["read"][0]
+    assert not seen["write"][0].in_transaction and not seen["read"][0].in_transaction     # nothing is held between blocks
+
+    other = []
+    def elsewhere():
+        with database.connection() as conn:
+            other.append(conn.raw)
+    thread = threading.Thread(target=elsewhere)
+    thread.start()
+    thread.join()
+    assert other[0] is not seen["write"][0]                                               # never shared between threads
+
+
+def test_a_block_inside_a_block_gets_a_connection_of_its_own(database):
+    with database.read() as outer:
+        with database.read() as inner:
+            assert inner.raw is not outer.raw and inner.execute("SELECT 1 AS n").fetchone()["n"] == 1
+        assert outer.execute("SELECT 1 AS n").fetchone()["n"] == 1                        # the outer block is undisturbed
+    with database.read() as again:
+        assert again.raw is outer.raw
+
+
+def test_a_kept_connection_is_clean_after_a_failed_block_and_gone_after_a_broken_one(database):
+    with pytest.raises(RuntimeError):
+        with database.connection() as conn:
+            kept = conn.raw
+            conn.execute("INSERT INTO packaging_items (name, price) VALUES ('doos', 1)")
+            raise RuntimeError("the handler failed")
+    with database.connection() as conn:
+        assert conn.raw is kept and conn.execute("SELECT count(*) AS n FROM packaging_items").fetchone()["n"] == 0      # rolled back, and usable
+    with pytest.raises(UniqueViolation):
+        with database.connection() as conn:
+            conn.execute("INSERT INTO counters (name, last) VALUES ('x', 1)")
+            conn.execute("INSERT INTO counters (name, last) VALUES ('x', 1)")
+    with database.connection() as conn:
+        assert conn.raw is kept                                                           # a refused row is the app's business, not the connection's
+    with pytest.raises(sqlite3.OperationalError):
+        with database.connection() as conn:
+            conn.execute("SELECT * FROM no_such_table")
+    with database.connection() as conn:
+        assert conn.raw is not kept                                                       # anything else: start again on a new one
+
+
+def test_a_kept_connection_sees_what_others_wrote_and_closing_lets_go_of_all(database, fresh_db):
+    with database.read() as conn:
+        first = conn.raw
+        assert conn.execute("SELECT count(*) AS n FROM packaging_items").fetchone()["n"] == 0
+    other = sqlite3.connect(fresh_db)                                                     # another worker
+    other.execute("INSERT INTO packaging_items (id, name, price) VALUES ('00000000-0000-4000-8000-000000000001', 'doos', 1)")
+    other.commit()
+    other.close()
+    with database.read() as conn:
+        assert conn.raw is first and conn.execute("SELECT count(*) AS n FROM packaging_items").fetchone()["n"] == 1
+    database.close()
+    with pytest.raises(sqlite3.ProgrammingError):
+        first.execute("SELECT 1")                                                         # closed
+    with database.read() as conn:
+        assert conn.raw is not first and conn.execute("SELECT count(*) AS n FROM packaging_items").fetchone()["n"] == 1
+
+
+def test_the_settings_of_a_connection_are_the_ones_chosen(database):
+    """Durable commits (an invoice number that was printed must survive a power cut), SQLite's default cache and no memory mapping
+    (db._open says why). Changing one is a decision: measure it and write it down in docs/performance.md."""
+    for block in (database.connection, database.read):
+        with block() as conn:
+            setting = lambda name: next(iter(conn.execute(f"PRAGMA {name}").fetchone().values()))
+            assert setting("journal_mode") == "wal" and setting("synchronous") == 2 and setting("foreign_keys") == 1
+            assert setting("cache_size") == -2000 and setting("mmap_size") == 0
+            assert setting("busy_timeout") == db.BUSY_MS
+            assert setting("query_only") == (1 if conn.read_only else 0)

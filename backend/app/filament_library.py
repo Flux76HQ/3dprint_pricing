@@ -223,7 +223,7 @@ def _app_version() -> str:
 
 @bp.get("/export")
 def export():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = conn.execute(f"SELECT {', '.join(FIELDS)} FROM {TABLE} ORDER BY lower(brand), lower(material), lower(product_type), lower(colour), sku").fetchall()
     doc = {"format": FORMAT, "format_version": FORMAT_VERSION, "app_version": _app_version(),
            "created_at": datetime.now(timezone.utc).isoformat(),

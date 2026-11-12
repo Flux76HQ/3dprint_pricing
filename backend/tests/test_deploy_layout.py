@@ -53,6 +53,18 @@ def test_the_uploads_are_where_the_app_looks_for_them():
     assert Config.__dataclass_fields__["upload_dir"].default == "/data/uploads"      # DATA_PATH/uploads on the host
 
 
+def test_the_server_runs_with_threads_so_one_long_request_does_not_hold_up_the_rest():
+    """One request per worker meant two long requests (a large 3MF, an invoice through LibreOffice, a backup) stopped the app for everybody
+    (measured: docs/performance.md). The numbers are settings, documented where every other one is."""
+    entry = (ROOT / "deploy" / "entrypoint.sh").read_text(encoding="utf-8")
+    command = entry[entry.index("exec gunicorn"):].replace("\\\n", " ")
+    assert '--worker-class gthread' in command and '--threads "${WEB_THREADS:-4}"' in command and '--workers "${WEB_CONCURRENCY:-2}"' in command
+    assert "--timeout 120" in command and command.rstrip().endswith("wsgi:app")
+    assert "WEB_THREADS=4" in (ROOT / ".env.example").read_text(encoding="utf-8")
+    for doc in ("README.md", "README.nl.md", "docs/handleiding.md"):
+        assert "`WEB_THREADS`" in (ROOT / doc).read_text(encoding="utf-8"), doc
+
+
 def test_the_automatic_backups_are_in_data_path_backups_auto_and_the_app_may_write_there():
     """DATA_PATH/backups/auto: on the host, outside UPLOAD_DIR (a factory reset leaves them), next to the copies of scripts/update.sh, which stay root's."""
     from app.config import Config

@@ -72,7 +72,7 @@ def address() -> str:
     if getattr(g, "spoolman_address", None) is None:
         found = config().spoolman_url
         if not found:
-            with pool().connection() as conn:
+            with pool().read() as conn:
                 row = conn.execute("SELECT url FROM spoolman_settings").fetchone()
             found = row["url"] if row else ""
         g.spoolman_address = found
@@ -488,7 +488,7 @@ def status():
     if not enabled():
         return jsonify({"enabled": False, "can_sync": admin, "url": "" if admin else None, "from_env": False})
     parts = urlparse(address())
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rolls = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE spoolman_id IS NOT NULL").fetchone()["n"]
         latest = conn.execute("SELECT spoolman_synced_at AS at FROM filament_spools WHERE spoolman_id IS NOT NULL "
                               "ORDER BY spoolman_synced_at DESC LIMIT 1").fetchone()

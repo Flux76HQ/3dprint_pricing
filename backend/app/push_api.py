@@ -23,7 +23,7 @@ def _require_configured():
 @bp.get("/config")
 def get_config():
     cfg = config()
-    with pool().connection() as conn:
+    with pool().read() as conn:
         devices = conn.execute("SELECT count(*) AS n FROM push_subscriptions WHERE user_id = %s", (g.user_id,)).fetchone()["n"]
     return jsonify({"configured": cfg.push_configured, "public_key": cfg.vapid_public_key if cfg.push_configured else None,
                     "devices": devices, "ttl_hours": push.TTL_SECONDS // 3600})
@@ -38,7 +38,7 @@ def _reason_text(stored):
 def devices():
     """The owner's devices that receive notifications. `fingerprint` lets a device recognise itself
     (it hashes its own endpoint) without the endpoint, which is a secret, ever coming back."""
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = conn.execute("SELECT id, endpoint, user_agent, created_at, last_ok_at, last_error, last_error_at "
                             "FROM push_subscriptions WHERE user_id = %s ORDER BY created_at", (g.user_id,)).fetchall()
     return jsonify({"devices": [{

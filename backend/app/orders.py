@@ -237,7 +237,7 @@ def list_orders():
         where.append("(customer_name ILIKE %s OR customer_number ILIKE %s OR city ILIKE %s OR CAST(number AS TEXT) = %s OR invoice_number ILIKE %s)")
         params += [like, like, like, query.lstrip("#"), like]
     sql = "SELECT * FROM orders" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY order_date DESC, number DESC"
-    with pool().connection() as conn:
+    with pool().read() as conn:
         orders = conn.execute(sql, params).fetchall()
         lines = _lines_of(conn, [o["id"] for o in orders])
     out = []
@@ -290,7 +290,7 @@ def create_order():
 
 @bp.get("/<uuid:order_id>")
 def get_order(order_id):
-    with pool().connection() as conn:
+    with pool().read() as conn:
         order, lines = _fetch(conn, order_id)
         presented = _with_pdf_flag(conn, order, _present(order, lines))
     return jsonify(presented)
@@ -394,7 +394,7 @@ def _pdf_response(number: str, content: bytes) -> Response:
 @bp.get("/<uuid:order_id>/invoice")
 def get_invoice(order_id):
     """The invoice as it was made (the PDF kept when it was made), without making it again."""
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT invoice_number, content FROM invoice_pdfs WHERE order_id = %s", (order_id,)).fetchone()
     if row is None:
         raise ApiError(404, "invoice.err_no_pdf")

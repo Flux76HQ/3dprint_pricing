@@ -1,5 +1,6 @@
 """Small shared HTTP helpers: errors, the login guard and a tiny rate limiter."""
 import gzip
+import threading
 import time
 from collections import defaultdict, deque
 from functools import wraps
@@ -105,15 +106,17 @@ class RateLimiter:
     def __init__(self, limit: int, window_seconds: int):
         self.limit, self.window = limit, window_seconds
         self.hits: dict[str, deque] = defaultdict(deque)
+        self._lock = threading.Lock()                # a worker's threads share it: without the lock two attempts at once could both be let through
 
     def check(self, key: str) -> None:
         now = time.monotonic()
-        hits = self.hits[key]
-        while hits and now - hits[0] > self.window:
-            hits.popleft()
-        if len(hits) >= self.limit:
-            raise ApiError(429, "err.rate_limited")
-        hits.append(now)
+        with self._lock:
+            hits = self.hits[key]
+            while hits and now - hits[0] > self.window:
+                hits.popleft()
+            if len(hits) >= self.limit:
+                raise ApiError(429, "err.rate_limited")
+            hits.append(now)
 
 
 def error_response(error: ApiError):

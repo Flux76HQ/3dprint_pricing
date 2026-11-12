@@ -89,7 +89,7 @@ def upload():
 
 
 def _get(file_id):
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT * FROM print_files WHERE id = %s", (file_id,)).fetchone()
     if row is None:
         raise ApiError(404, "files.not_found")

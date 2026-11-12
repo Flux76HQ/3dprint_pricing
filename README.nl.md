@@ -187,6 +187,7 @@ In `.env`; [`.env.example`](.env.example) beschrijft elke waarde. Commit `.env` 
 | `SPOOLMAN_URL` | ❌ | leeg (vul het in de app in) | Het adres van je [Spoolman](https://github.com/Donkie/Spoolman) zoals de container van de app het bereikt, bijvoorbeeld `http://spoolman:8000` (zonder inlog). Daarmee leest *Instellingen → Filamenten → Synchroniseren* de rollen en wat er nog op zit uit Spoolman (een rol die je hier al had, wordt gekoppeld en verschijnt niet dubbel), houdt Spoolman het verbruik bij (afboeken vanuit een 3D Model staat dan uit) en kunnen de bibliotheek en je eigen rollen erheen worden gezet. Laat het leeg om het adres in de app in te vullen (beheerders, *Instellingen → Filamenten*); staat het hier, dan gaat dat voor en toont de app het alleen-lezen |
 | `PROXY_HOPS` | ❌ | `0` | Aantal reverse proxies voor de app |
 | `WEB_CONCURRENCY` | ❌ | `2` | Aantal Gunicorn-workers |
+| `WEB_THREADS` | ❌ | `4` | Threads per worker; workers x threads verzoeken worden tegelijk afgehandeld, zodat één lang verzoek (een groot 3MF, een factuur, een back-up) de rest niet ophoudt |
 | `PRINTPRICING_UPDATE_CHECK` | ❌ | `true` | De updatecontrole: de app vraagt aan GitHub of er een nieuwere stabiele release is en meldt dat aan de eigenaar met een melding en onder *Instellingen → Beheer → Over → Updatecontrole*. Er wordt niets over jouw installatie meegestuurd en er wordt nooit iets bijgewerkt. `false` (ook `0`, `no`, `off`) zet het uit, voor een installatie die niet naar buiten mag bellen. Een beta-build ziet alleen stabiele releases |
 
 ## Beheer

@@ -69,7 +69,7 @@ def load_session() -> None:
         epoch = int(claims.get("ep", 0))            # a session from before epochs existed is epoch 0
     except (jwt.PyJWTError, ValueError, KeyError, TypeError):
         return
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT role, is_owner, session_epoch FROM users WHERE id = %s", (user_id,)).fetchone()
     if row is not None and row["session_epoch"] == epoch:
         g.user_id, g.role, g.is_owner = user_id, row["role"], row["is_owner"]
@@ -228,7 +228,7 @@ def _create_recovery_codes(conn, user_id) -> list[str]:
 
 @bp.get("/status")
 def status():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         onboarded = bool(conn.execute("SELECT EXISTS (SELECT 1 FROM users) AS e").fetchone()["e"])
         user = None
         if g.user_id:
@@ -389,7 +389,7 @@ def recovery_redeem():
 @bp.get("/credentials")
 @login_required
 def list_credentials():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = conn.execute(
             "SELECT id, label, created_at, last_used_at FROM webauthn_credentials "
             "WHERE user_id = %s ORDER BY created_at", (g.user_id,)).fetchall()

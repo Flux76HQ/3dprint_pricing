@@ -217,7 +217,7 @@ def _refuse_mirrored(conn, spool_id, *, allowed: bool) -> None:
 
 def _register(path, table, fields, order):
     def list_all():
-        with pool().connection() as conn:
+        with pool().read() as conn:
             rows = conn.execute(f"SELECT * FROM {table} ORDER BY archived, {order}"
                                 if "archived" in fields else f"SELECT * FROM {table} ORDER BY {order}").fetchall()
         return jsonify([_serialise(r) for r in rows])
@@ -307,7 +307,7 @@ for _path, (_table, _fields, _order) in RESOURCES.items():
 def spool_stock():
     """What is left, per kind of filament and per material. A kind with the notification on says at what weight it is
     announced and whether it is under that now."""
-    with pool().connection() as conn:
+    with pool().read() as conn:
         groups = stock.groups(stock.fetch(conn))
         limits = lowstock.settings(preferences.shared(conn))
     materials: dict[str, dict] = {}
@@ -330,7 +330,7 @@ def lookup_spool():
     barcode = (request.args.get("barcode") or "").strip()
     if not barcode:
         return jsonify({"spool": None, "stock": None})
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT * FROM filament_spools WHERE barcode = %s ORDER BY created_at DESC LIMIT 1",
                            (barcode,)).fetchone()
         found = stock.groups(stock.fetch(conn, barcode)) if row else []
@@ -352,7 +352,7 @@ def _barcode_of(conn, spool_id) -> str:
 @bp.get("/spools/<uuid:spool_id>/siblings")
 def spool_siblings(spool_id):
     """How many other rolls have the same barcode (none when this roll has no barcode)."""
-    with pool().connection() as conn:
+    with pool().read() as conn:
         barcode = _barcode_of(conn, spool_id)
         count = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL",
                              (barcode, spool_id)).fetchone()["n"] if barcode else 0
@@ -409,7 +409,7 @@ def spool_from_barcode():
     barcode = (request.args.get("barcode") or "").strip()
     found, stock_now = None, []
     if barcode:
-        with pool().connection() as conn:
+        with pool().read() as conn:
             found = _from_barcode(conn, barcode)
             stock_now = stock.groups(stock.fetch(conn, barcode)) if found else []
     return jsonify({"barcode": barcode, "source": found[0] if found else None, "roll": _serialise(found[1]) if found else None,
@@ -469,7 +469,7 @@ HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 @bp.get("/preferences")
 def get_preferences():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         return jsonify(preferences.load(conn, g.user_id))
 
 
@@ -622,7 +622,7 @@ def _project_row(row):
 
 @bp.get("/projects")
 def list_projects():
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = conn.execute("SELECT id, number, name, margin_pct, vat_pct, price_rounding, totals, links, stock_booked_at, created_at, updated_at, "
                             "(SELECT i.id FROM project_images i WHERE i.project_id = projects.id AND i.is_cover) AS cover_image_id , "
                             "EXISTS (SELECT 1 FROM ai_image_jobs j WHERE j.project_id = projects.id AND j.status IN ('queued', 'running')) AS ai_busy "
@@ -632,7 +632,7 @@ def list_projects():
 
 @bp.get("/projects/<uuid:project_id>")
 def get_project(project_id):
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT * FROM projects WHERE id = %s", (project_id,)).fetchone()
     if row is None:
         raise ApiError(404, "err.calc_not_found")
@@ -676,7 +676,7 @@ def _project_fields(body):
             file_id = uuid.UUID(str(file_id))
         except ValueError:
             raise ApiError(400, "err.bad_file") from None
-        with pool().connection() as conn:
+        with pool().read() as conn:
             if conn.execute("SELECT 1 FROM print_files WHERE id = %s", (file_id,)).fetchone() is None:
                 raise ApiError(400, "err.file_gone")
     notes = text("f.notes", required=False, max_len=2000)(body.get("notes"))

@@ -125,6 +125,7 @@ verwijderen of nieuwe herstelcodes vraagt een verse bevestiging (een passkey, of
 | `AI_IMAGES_ENABLED` | `TRUE` toont de optionele functie *AI-afbeeldingen* (zie [AI-afbeeldingen](#ai-afbeeldingen-optioneel)); alles anders, of leeg, laat haar uit. Standaard `FALSE` |
 | `PROXY_HOPS` | Aantal reverse proxies ervoor (vertrouwt `X-Forwarded-*`) |
 | `WEB_CONCURRENCY` | Aantal Gunicorn-workers (standaard 2) |
+| `WEB_THREADS` | Threads per worker (standaard 4); workers x threads verzoeken worden tegelijk afgehandeld |
 | `PRINTPRICING_UPDATE_CHECK` | De updatecontrole (zie *Meldingen en updates*). Standaard aan; `false` (ook `0`, `no`, `off`) zet hem uit, voor een installatie die niet naar buiten mag bellen |
 | `PRINTPRICING_TAG` | Welke build draait: `latest` (stabiel, standaard), `beta` of een versienummer als `0.26.15`; vervangt `APP_IMAGE`. Dezelfde waarde gaat naar de app, die op `beta` een beta-label toont |
 
@@ -394,7 +395,7 @@ Alles wat een verzoek onderweg naar de app kan weigeren, met de waarde die de ap
 | Limiet | Waarde die de app nodig heeft | Beperkt |
 |---|---|---|
 | Maximale request-body (proxy/CDN) | ≥ `MAX_UPLOAD_MB` + 1 MB (standaard 51 MB); voor het herstellen van een back-up met printbestanden zo groot als die back-up | uploadlimiet van de app; Cloudflare Free stopt bij 100 MB, nginx staat standaard op 1 MB (`client_max_body_size`) |
-| Request-timeout (proxy/CDN) | ≥ 120 s | Gunicorn `--timeout 120` in `deploy/entrypoint.sh` (een groot 3MF uitlezen duurt even) |
+| Request-timeout (proxy/CDN) | ≥ 120 s | een groot 3MF uitlezen of een factuur maken duurt even. Gunicorn zelf breekt een lang verzoek niet meer af: met threads (`--worker-class gthread` in `deploy/entrypoint.sh`) is `--timeout 120` de tijd dat een worker mag zwijgen voor hij vervangen wordt, niet de duur van één verzoek |
 | `Origin`-header op schrijvende verzoeken doorgeven | verplicht ongewijzigd | origin-check tegen `RP_ORIGINS` |
 | `X-Forwarded-For/-Proto/-Host` doorgeven | aantal proxies = `PROXY_HOPS` | rate-limit op de setupcode per client-IP |
 | TLS | verplicht (behalve `localhost`) | WebAuthn, installeren, camera en push werken alleen in een secure context |

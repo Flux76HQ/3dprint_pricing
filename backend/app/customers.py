@@ -72,14 +72,14 @@ def list_customers():
         sql += " WHERE c.name ILIKE %s OR c.number ILIKE %s OR c.city ILIKE %s OR c.email ILIKE %s"
         params = [like] * 4
     sql += " ORDER BY lower(c.name), c.number LIMIT 500"
-    with pool().connection() as conn:
+    with pool().read() as conn:
         rows = conn.execute(sql, params).fetchall()
     return jsonify([_present({k: v for k, v in r.items() if k != "orders_count"}, r["orders_count"]) for r in rows])
 
 
 @bp.get("/<uuid:customer_id>")
 def get_customer(customer_id):
-    with pool().connection() as conn:
+    with pool().read() as conn:
         row = conn.execute("SELECT * FROM customers WHERE id = %s", (customer_id,)).fetchone()
         count = conn.execute("SELECT count(*) AS n FROM orders WHERE customer_id = %s", (customer_id,)).fetchone()["n"] if row else 0
     if row is None:
