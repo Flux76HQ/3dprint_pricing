@@ -3,7 +3,7 @@ import { formatDateTime, t } from './i18n.js';
 import { fill, fmt, foldHead, h, icon, toast } from './ui.js';
 
 // SpoolmanDB (https://github.com/Donkie/SpoolmanDB, MIT) in the fields of a new roll's form, not next to them: its brands are in the brand pull-down, the
-// materials of the brand are suggested in the material field, the colours of the brand and material in the colour field, and choosing a colour fills in the
+// materials of the brand in the material pull-down, the colours of the brand and material in the colour pull-down, and choosing a colour fills in the
 // rest (weight, diameter, colour code, temperatures). That is what makes a scanned roll the app does not know yet quick: the barcode is already in the form,
 // brand, material and colour are chosen from lists, and only the price is left. What a choice fills in is decided by the server (`fill` in each row: a filament
 // the installation already has keeps the spelling it has, so a Dutch "Geel" is not added again as "Yellow"); this only hands the rows to the form and picks
@@ -29,19 +29,9 @@ export function spoolmanDbCatalogue() {
   };
 }
 
-/** The options of the colour field's list: one per name the installation would use (a filament it has keeps its own name), with in the label what else is known:
-    SpoolmanDB's own name when that differs, and the weights and diameters it comes in. */
-export function colourOptions(rows) {
-  const byName = new Map();
-  for (const row of rows) {
-    const name = row.fill.colour;
-    const entry = byName.get(norm(name)) || { value: name, others: new Set(), variants: new Set() };
-    if (norm(row.name) !== norm(name)) entry.others.add(row.name);
-    entry.variants.add(`${fmt(row.weight / 1000)} kg · ${fmt(row.diameter)} mm`);
-    byName.set(norm(name), entry);
-  }
-  return [...byName.values()].map((e) => ({ value: e.value, label: [...e.others, [...e.variants].join(' / ')].filter(Boolean).join(' · ') }));
-}
+/** The label of one filament in the colour pull-down: the name the installation uses (a filament it has keeps its own: "Geel"), SpoolmanDB's own name after it when
+    that differs ("Geel (Yellow)"), and the weight and diameter that row comes in (one row per variant, so a choice says exactly which one is meant). */
+export const colourLabel = (row) => `${row.known && norm(row.name) !== norm(row.fill.colour) ? `${row.fill.colour} (${row.name})` : row.fill.colour} · ${fmt(row.weight / 1000)} kg · ${fmt(row.diameter)} mm`;
 
 /** The row a typed colour stands for, by the name the installation uses or by SpoolmanDB's own, in the weight and diameter the form has now, else the first
     one it comes in (the rows are sorted by name, weight, diameter). `null` when the colour is not one of them: it is then just text. */
