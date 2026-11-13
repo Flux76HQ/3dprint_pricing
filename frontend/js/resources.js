@@ -78,7 +78,9 @@ function resources() {
     fields: [
       { key: 'barcode', label: t('filament.barcode'), type: 'barcode', hint: t('filament.barcode_hint') },
       { key: 'brand', label: t('filament.brand'), type: 'brand', required: true },
-      { key: 'product_type', label: t('filament.type'), type: 'text', placeholder: t('filament.type_ph'), hint: t('filament.type_hint') },
+      // Not a field of this form any more (SpoolmanDB and Spoolman put the product line in the name of the colour), but it stays here: `toPayload` sends what the form
+      // holds, so a type that comes with a library entry or a known roll goes with the new roll, and editing a roll never clears the one it has. The library form keeps it.
+      { key: 'product_type', label: t('filament.type'), type: 'text', hidden: true },
       { key: 'material', label: t('filament.material'), type: 'text', placeholder: t('filament.material_ph') },
       { key: 'colour', label: t('filament.colour'), type: 'text', placeholder: t('filament.colour_ph') },
       { key: 'colour_hex', label: t('filament.colour_hex'), type: 'color', hint: t('filament.colour_hex_hint') },
@@ -628,6 +630,7 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
   let savedId = item ? item.id : null;       // once a new item is made, a second try (the picture was refused) changes it instead of making another
 
   const inputs = config.fields.map((f) => {
+    if (f.hidden) return null;                                       // part of what is saved, not of what is shown
     if (f.type === 'barcode') return barcodeField(f);
     if (f.type === 'brand') return brandField(f);
     if (f.type === 'color') return colourField(f);
