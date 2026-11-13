@@ -4,7 +4,7 @@
 material, weight, diameter, colour, density, empty-spool weight, temperatures). `LICENSE` is its licence, copied verbatim: SpoolmanDB is
 **MIT**, `Copyright (c) 2024 Donkie`, and that licence asks for the notice and the text to travel with every copy.
 
-It is used by `backend/app/spoolmandb.py`: the brand, material and colour fields of a new roll's form offer its rows and fill in the form from one, and
+It is used by `backend/app/spoolmandb.py`: the brand, material and colour pull-downs of a new roll's form offer its rows and fill in the form from one, and
 `backend/app/spoolman.py` sends the density and the empty-spool weight, with the row's id as `external_id`, when a roll or library entry that
 came from here is pushed to Spoolman. The screen that offers it names the source and links to it.
 

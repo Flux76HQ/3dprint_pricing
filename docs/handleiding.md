@@ -788,7 +788,9 @@ Vijf manieren om de bibliotheek te vullen of te delen zonder te typen:
 - **Bambu Lab-factuur importeren.** Kies de PDF-factuur uit de Bambu Lab-webshop. De app leest hem (alleen met `pypdf`, met een grens aan grootte en aantal
   pagina’s) en laat eerst zien wat erin staat: per filamentregel het merk, materiaal en type (*PLA* + *Basic*), de kleur, het filament-ID (het nummer tussen
   haakjes achter de kleur), de SKU, het gewicht en de diameter (uit de SKU), of het een bijvulling is (SKU eindigt op `FREE`), de **richtprijs** (de lijstprijs; op de
-  factuur staat hij incl. btw, de app rekent om naar excl. btw; een korting is een actie en geen prijs) en de barcode. Per regel kies je of het filament in de bibliotheek komt. **De voorraad verandert
+  factuur staat hij incl. btw, de app rekent om naar excl. btw; een korting is een actie en geen prijs) en de barcode. Per regel kies je of het filament in de bibliotheek komt. **De kleuren worden naar het Engels vertaald** (woord voor woord, in dezelfde volgorde: *Bamboegroen* wordt *Bamboo Green*, *Lila paars* wordt *Lilac Purple*; wat al Engels is
+  of wat de app niet kent blijft zoals het is), zoals SpoolmanDB ze noemt, en een filament dat al in de bibliotheek staat, onder een Nederlandse of een Engelse naam, wordt herkend: het krijgt de nieuwe richtprijs en wat het mist en houdt zijn
+  eigen naam, er komt geen tweede bij (een bijvulling en een rol met spoel blijven twee filamenten). **De voorraad verandert
   hier nooit**: de bibliotheek is een losstaande lijst van de filamenten die bestaan, geen lijst van wat je hebt. Een filament dat er al staat krijgt de nieuwe richtprijs en
   wat het nog mist (SKU, filament-ID, barcode), maar zijn eigen gegevens worden nooit overschreven. Regels die geen filament zijn worden overgeslagen en genoemd; kloppen de regels niet met het factuurtotaal, dan staat er een waarschuwing. Andere webshops dan Bambu Lab worden niet herkend.
 
@@ -822,11 +824,10 @@ hebben hetzelfde ID, dus tellen die apart), of merk, materiaal, type, kleur, gew
 synchroniseren, de factuur, een nieuwe rol en het terugzetten van een back-up gaan er allemaal doorheen: een kopie wordt geweigerd (*Dit filament staat al in de bibliotheek*), en schrijven
 gebeurt onder een slot, zodat twee verzoeken tegelijk er niet toch twee van maken. Twee dubbele vermeldingen die er al stonden (uit een oudere versie) blijven bewerkbaar; alleen een *nieuwe* overeenkomst wordt geweigerd.
 
-**Merk kiezen en Bambu Lab-kleuren.** Bij een nieuwe rol is *Merk* een keuzelijst met de merken die er al zijn (op rollen en in de bibliotheek, plus altijd Bambu Lab); staat een merk er nog niet bij, dan kies je
-*Nieuw merk…* en typ je de naam. Kies je **Bambu Lab**, dan verschijnt eronder een paneel waar je de **soort** (PLA Basic, PLA Matte, PETG HF, …; een vaste lijst in de code, `bambu_store.CATALOG`) en daarna de **kleur** kiest. De
-kleuren worden door de server uit de Bambu Lab-webshop gehaald (`GET /api/bambu/products/<soort>`; dezelfde EU-webshop en voorzorgen als bij de factuur, een soort die niet in de lijst staat wordt nooit opgevraagd) en een keuze vult
-het formulier in: type, materiaal, kleur, gewicht (1 kg, 0,5 kg, …), diameter (1,75 mm) en als **barcode** het winkel-ID van die kleur (bijvulling en met spoel hebben elk een eigen ID). De webshop noemt **geen temperaturen en geen prijs**; die komen uit
-de bibliotheek als die dit filament kent, anders uit een eerdere rol met dezelfde barcode, anders vul je ze zelf in. Is de webshop niet bereikbaar, dan staat er een melding en vul je het formulier gewoon met de hand in. Het filament-ID en of het een bijvulling is gaan mee naar de bibliotheek als je *Ook aan de bibliotheek toevoegen* laat aanstaan.
+**Merk, materiaal en kleur kiezen.** Bij een nieuwe rol zijn *Merk*, *Materiaal* en *Kleur* keuzelijsten (zie *SpoolmanDB in de velden van een nieuwe rol* hieronder). *Merk* toont de merken die er al zijn (op rollen en in de
+bibliotheek) en die van SpoolmanDB; staat een merk er nog niet bij, dan kies je *Nieuw merk…* en typ je de naam. **Er is geen apart paneel voor Bambu Lab meer:** ook Bambu Lab zit in die lijsten. Wat dat paneel uit de webshop
+haalde, het winkel-ID van een kleur als **barcode**, het **filament-ID** en of het een **bijvulling** is, komt via de **factuurimport** (hierboven) in de bibliotheek en niet meer uit dit formulier. (De routes
+`GET /api/bambu/products[/<soort>]` bestaan nog, maar het formulier gebruikt ze niet.)
 
 **Een rol met de hand toevoegen.** Onder *Filament → Nieuwe rol* staat de keuze *Ook aan de bibliotheek toevoegen* (standaard aan, alleen bij een nieuwe rol). Staat het filament er nog niet in, dan komt het erin met wat de rol
 over het filament zegt (merk, type, materiaal, kleur, kleurcode, barcode, gewicht, diameter, temperaturen; niet de prijs of wat er nog over is). Staat het er al in, dan krijgt dat filament wat het nog mist (een barcode, een kleurcode,
@@ -840,11 +841,12 @@ In het formulier van een **nieuwe rol** (ook als je een onbekende barcode scant)
 velden zelf, niet in een blok ernaast. SpoolmanDB is een lijst van filamenten van ruim tachtig merken, bijgehouden door een gemeenschap.
 
 - Het **merkveld** (de keuzelijst) toont naast de merken van je eigen rollen en bibliotheek ook die van SpoolmanDB.
-- Kies je een merk, dan stelt het veld **Materiaal** de materialen van dat merk voor (die van SpoolmanDB en wat je er zelf al van hebt); je kunt ook gewoon iets anders typen.
-- Staat het materiaal erin, dan stelt het veld **Kleur** de kleuren van dat merk en materiaal voor (met erbij in welk gewicht en welke diameter ze er zijn). Typ om de lijst
-  te beperken. Kies of typ je een kleur uit de lijst, dan worden gewicht, diameter, kleurcode, temperaturen en *Nog over* ingevuld (in het gewicht en de diameter die het
-  formulier al heeft, anders de eerste die er is) en staat er onder het veld wat er is ingevuld, ook het gewicht van een lege spoel. Een kleur die er niet in staat, blijft tekst
-  en verandert niets. Wat je zelf nog invult is de **prijs**, want die kent SpoolmanDB niet, en de **barcode** is die van je scan. Alles blijft aanpasbaar.
+- **Materiaal** is ook een keuzelijst, met de materialen van het gekozen merk (die van SpoolmanDB en wat je er zelf al van hebt). Kent niemand het merk, dan staan alle materialen erin, de gangbare
+  (PLA, PETG, ABS, …) eerst. Staat het jouwe er niet bij, kies dan *Ander materiaal…* en typ het.
+- **Kleur** wordt een keuzelijst met de kleuren van dat merk en materiaal zodra het materiaal er een van SpoolmanDB is; tot dan is het het tekstveld dat het was, met een regel die zegt dat je eerst
+  een materiaal kiest. Er staat één regel per gewicht en diameter, zodat een keuze precies zegt welke bedoeld is. Een kleur kiezen vult gewicht, diameter, kleurcode, temperaturen en *Nog over* in en zet
+  onder het veld wat er is ingevuld, ook het gewicht van een lege spoel. Staat jouw kleur er niet bij, kies dan *Andere kleur…* en typ hem; die verandert niets anders. Wat je zelf nog invult is de **prijs**,
+  want die kent SpoolmanDB niet, en de **barcode** is die van je scan. Alles blijft aanpasbaar.
 
 - **Geen barcodes.** SpoolmanDB kent geen barcodes, dus een gescande barcode kun je er niet in opzoeken; je koppelt hem één keer aan een filament uit de
   lijst, en daarna werkt scannen gewoon via je eigen rollen en bibliotheek.

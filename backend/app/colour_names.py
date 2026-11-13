@@ -45,12 +45,8 @@ def _fold(text) -> str:
     return unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode().lower()
 
 
-def _word(word: str) -> list[str]:
-    """One word as English words: itself, or what a Dutch word or compound stands for."""
-    if word in NOISE:
-        return []
-    if word in SAME:
-        return [SAME[word]]
+def _dutch(word: str) -> "list[str] | None":
+    """The English words a Dutch colour word or compound stands for ("pompoenoranje": pumpkin, orange), None when it is not one."""
     if word in COLOURS:
         return COLOURS[word].split()
     for base in _BASES:
@@ -60,7 +56,30 @@ def _word(word: str) -> list[str]:
                 return [MODIFIERS[head], *COLOURS[base].split()]
             if head in COLOURS:                             # "blauwgrijs"
                 return [*COLOURS[head].split(), *COLOURS[base].split()]
-    return [word]
+    return None
+
+
+def _word(word: str) -> list[str]:
+    """One word as English words, for comparing: itself, or what a Dutch word or compound stands for."""
+    if word in NOISE:
+        return []
+    if word in SAME:
+        return [SAME[word]]
+    return _dutch(word) or [word]
+
+
+_LETTERS = re.compile(r"[^\W\d_]+")                              # a run of letters, accented ones too
+
+
+def to_english(text) -> str:
+    """A Dutch colour name in English, word by word and in the same order, with capitals: "Bamboegroen" is "Bamboo Green", "Lila paars" is "Lilac Purple",
+    "Matte Pruim" is "Matte Plum". What is already English, and every word that is not a known Dutch one, stays exactly as it is (so an unknown Dutch name is
+    kept, never guessed, and translating twice changes nothing). It is what is *stored* when an invoice is imported; `same_name` and `loose_kind` are what
+    *recognise* a filament that is already there under a name in either language."""
+    def one(found):
+        english = _dutch(_fold(found.group(0)))
+        return " ".join(w.capitalize() for w in english) if english else found.group(0)
+    return _LETTERS.sub(one, str(text or ""))
 
 
 def words(*parts) -> tuple[str, ...]:

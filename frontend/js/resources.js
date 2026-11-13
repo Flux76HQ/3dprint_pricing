@@ -6,7 +6,7 @@ import { listView, rowActions } from './listview.js';
 import { scanBarcode } from './scanner.js';
 import { livePanel, serialField } from './haspelsync.js';
 import { spoolmanBar } from './spoolman.js';
-import { colourOptions, filledText, rowFor, spoolmanDbCatalogue } from './spoolmandb.js';
+import { colourLabel, filledText, rowFor, spoolmanDbCatalogue } from './spoolmandb.js';
 import { askChoice, confirmDialog, enhanceDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
 
 // Declarative config for the three inventory/rate screens. Money and quantities are
@@ -79,8 +79,8 @@ function resources() {
       { key: 'barcode', label: t('filament.barcode'), type: 'barcode', hint: t('filament.barcode_hint') },
       { key: 'brand', label: t('filament.brand'), type: 'brand', required: true },
       { key: 'product_type', label: t('filament.type'), type: 'text', placeholder: t('filament.type_ph'), hint: t('filament.type_hint') },
-      { key: 'material', label: t('filament.material'), type: 'text', placeholder: t('filament.material_ph'), list: [] },
-      { key: 'colour', label: t('filament.colour'), type: 'text', placeholder: t('filament.colour_ph'), list: [] },
+      { key: 'material', label: t('filament.material'), type: 'text', placeholder: t('filament.material_ph') },
+      { key: 'colour', label: t('filament.colour'), type: 'text', placeholder: t('filament.colour_ph') },
       { key: 'colour_hex', label: t('filament.colour_hex'), type: 'color', hint: t('filament.colour_hex_hint') },
       { key: 'roll_weight_g', label: t('filament.roll_weight'), type: 'number', required: true },
       { key: 'price', label: t('filament.roll_price'), type: 'number', required: true },
@@ -382,7 +382,7 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
   };
   const fresh = config.id === 'filament' && !item && !copyOf;          // a roll from scratch: the library and the Bambu Lab shop can fill it in
   const libraryRows = fresh ? api('GET', '/api/filament-library').catch(() => []) : Promise.resolve([]);   // a convenience: the form works without it
-  const fromShop = { filament_id: '', refill: null };          // what the Bambu Lab shop says about the filament that a roll does not hold
+  const fromShop = { filament_id: '', refill: null };          // what the library knows about the filament that a roll does not hold (its supplier's filament ID, refill or spool)
 
   // The SpoolmanDB filament the form was filled from (picked here, or a library entry that came from there) and what the form said then. The id is
   // the reference to the source and goes to Spoolman with the roll: when brand, material, colour, weight or diameter are changed afterwards it is
@@ -392,44 +392,60 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
   let from = null;
   const sourceId = () => (from ? (from.identity === identity() ? from.id : '') : String(values.spoolmandb_id || ''));
 
-  // SpoolmanDB feeds the fields of a new roll's form (`spoolmandb.js`), not a block next to them: its brands join the brand pull-down, the materials of the brand
-  // are suggested in the material field and the colours of the brand and material in the colour field, and a colour that is one of them fills in the rest. A
-  // filament that is already here keeps its own spelling (the server's `fill`), the id of the SpoolmanDB filament is kept as the reference to the source, and
-  // without a list the form is as it always was.
+  // SpoolmanDB feeds the fields of a new roll's form (`spoolmandb.js`), not a block next to them: its brands join the brand pull-down, the material pull-down offers the
+  // materials of the brand, the colour pull-down the colours of the brand and material, and choosing a colour fills in the rest. Each has "Other…" to type something
+  // that is not in the list. A filament that is already here keeps its own spelling (the server's `fill`), the id of the SpoolmanDB filament is kept as the reference
+  // to the source, and without a list the form is as it always was.
   const catalogue = fresh ? spoolmanDbCatalogue() : null;
+  const OTHER = '__other__';                                                   // "Other material / colour…": the pull-down hands over to a text field
+  const COMMON_MATERIALS = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'PA', 'PC'];    // when there is no list at all
   const note = h('p', { class: 'hint', hidden: true });                         // the source, under the brand field
   const status = h('p', { class: 'hint', role: 'status', hidden: true });       // what choosing a colour did, or how to get the colours, under the colour field
   let smdbBrands = [];                                                         // [{ name, materials }] of the list in use; empty without one
-  let ownRows = [];                                                            // the rolls and library entries here: their materials are suggested too
+  let ownRows = [];                                                            // the rolls and library entries here: their materials are offered too
   let smdbRows = [];                                                           // the filaments of the brand and material in the form
-  let suggested = '';                                                          // what the lists were last made for: filling in a roll does not make them again
+  let pickedRow = null;                                                        // the row the form was last filled from: it stays the chosen one when another variant has the same name
+  let lastBrand = null;                                                        // what the pull-downs were last made for, so that filling in a roll does not make them again
+  let lastMaterial = null;
   let askedFor = 0;                                                            // a slow answer for a brand that was changed again is not used
-  const setList = (key, options) => datalists.find((d) => d.id === `dl-${key}`)?.replaceChildren(...options.map((o) => h('option', { value: o.value, label: o.label })));
-  async function suggest(force = false) {
+  const ui = {};                                                               // `ui.material.draw()` and `ui.colour.draw()`, set by the two fields
+  const unique = (list) => {
+    const out = new Map();
+    for (const m of list) { const v = String(m || '').trim(); if (v && !out.has(norm(v))) out.set(norm(v), v); }
+    return [...out.values()];
+  };
+  // The materials to offer for the brand in the form: its own (the list's, and the ones used here), else every material there is, the common ones first.
+  function materialChoices() {
+    const brand = norm(values.brand);
+    const known = smdbBrands.find((b) => norm(b.name) === brand);
+    const mine = unique([...(known ? known.materials : []), ...ownRows.filter((r) => norm(r.brand) === brand).map((r) => r.material)]);
+    if (mine.length) return mine.sort((a, b) => a.localeCompare(b, getLanguage()));
+    const seen = new Map();
+    for (const b of smdbBrands) for (const m of b.materials) seen.set(m, (seen.get(m) || 0) + 1);
+    const common = [...seen.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([m]) => m);
+    return unique([...(common.length ? common : COMMON_MATERIALS), ...ownRows.map((r) => r.material)]);
+  }
+  async function suggest(force = false) {                                      // the brand or the material changed (or what is known about them): the pull-downs follow
     if (!catalogue) return;
     const brand = norm(values.brand);
     const known = smdbBrands.find((b) => norm(b.name) === brand);
     const material = known?.materials.find((m) => norm(m) === norm(values.material));
-    const key = `${brand}|${norm(material)}`;
-    if (!force && key === suggested) return;
-    suggested = key;
-    const materials = new Map();
-    for (const m of [...(known ? known.materials : []), ...ownRows.filter((r) => norm(r.brand) === brand).map((r) => String(r.material || '').trim())]) {
-      if (m && !materials.has(norm(m))) materials.set(norm(m), m);
-    }
-    setList('material', [...materials.values()].sort((a, b) => a.localeCompare(b, getLanguage())).map((value) => ({ value })));
+    const brandChanged = force || brand !== lastBrand;
+    if (!brandChanged && norm(material) === lastMaterial) return;
+    lastBrand = brand;
+    lastMaterial = norm(material);
+    if (brandChanged) ui.material?.draw();
     const mine = ++askedFor;
     const rows = known && material ? await catalogue.filaments(known.name, material) : [];
     if (mine !== askedFor) return;
     smdbRows = rows;
-    setList('colour', colourOptions(rows));
-    status.textContent = known && !rows.length ? t('spoolmandb.colour_hint') : '';
+    ui.colour?.draw();
+    status.textContent = known && !material ? t('spoolmandb.colour_hint') : '';
     status.hidden = !status.textContent;
   }
-  // A colour that is one of the list's: the rest of the roll is filled in from it, in the weight and diameter the form has (else the first it comes in).
-  function adopt() {
-    const row = rowFor(smdbRows, values.colour, values.roll_weight_g, values.diameter_mm);
-    if (!row) return;
+  // A colour of the list: the rest of the roll is filled in from it, with the weight and diameter of that very row.
+  function adopt(row) {
+    pickedRow = row;
     for (const [key, value] of Object.entries(row.fill)) if (key !== 'spoolmandb_id') put(key, value == null ? '' : String(value));
     put('remaining_g', String(row.fill.roll_weight_g));            // a new roll starts full
     values.spoolmandb_id = row.fill.spoolmandb_id;
@@ -437,15 +453,73 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
     status.textContent = filledText(row);
     status.hidden = false;
   }
+  // The material: a pull-down like the brand's, with "Other material…" for one that is not in it.
+  function materialField(f) {
+    const select = h('select', { id: 'f-material' });
+    const typed = h('input', { type: 'text', autocomplete: 'off', placeholder: t('filament.material_ph'), 'aria-label': t('material.other'), hidden: true,
+      oninput: (e) => { values[f.key] = e.target.value; dirty.add(f.key); suggest(); } });
+    function draw() {                                                          // the options for the brand in the form; what the form says now stays chosen
+      const list = materialChoices();
+      const current = String(values[f.key] ?? '').trim();
+      const chosen = list.find((m) => norm(m) === norm(current));
+      select.replaceChildren(h('option', { value: '' }, t('material.pick')), ...list.map((m) => h('option', { value: m }, m)), h('option', { value: OTHER }, t('material.other')));
+      select.value = chosen || (current ? OTHER : '');
+      typed.hidden = !(current && !chosen);
+      if (!typed.hidden) typed.value = current;
+    }
+    select.addEventListener('change', () => {
+      dirty.add(f.key);
+      typed.hidden = select.value !== OTHER;
+      values[f.key] = select.value === OTHER ? typed.value : select.value;
+      if (select.value === OTHER) typed.focus();
+      suggest();
+    });
+    select.setValue = () => { draw(); suggest(); };                            // `put` has set the value already
+    ui.material = { draw };
+    els[f.key] = select;
+    draw();
+    return h('div', { class: 'field' }, h('label', { for: 'f-material' }, f.label), select, typed);
+  }
+  // The colour: a pull-down of the colours of the brand and material (one row per weight and diameter) once there are any, else the text field it always was.
+  function colourPick(f) {
+    const label = h('label', { for: 'f-colour' }, f.label);
+    const select = h('select', { id: 'f-colour', hidden: true });
+    const typed = h('input', { type: 'text', id: 'f-colour-text', autocomplete: 'off', placeholder: f.placeholder, value: values[f.key] ?? '',
+      oninput: (e) => { values[f.key] = e.target.value; dirty.add(f.key); },
+      onchange: () => { const row = rowFor(smdbRows, values[f.key], values.roll_weight_g, values.diameter_mm); if (row) adopt(row); } });
+    function draw() {
+      const rows = smdbRows;
+      select.hidden = !rows.length;
+      label.setAttribute('for', rows.length ? 'f-colour' : 'f-colour-text');
+      if (!rows.length) { typed.hidden = false; return; }
+      const current = String(values[f.key] ?? '').trim();
+      const chosen = pickedRow && rows.includes(pickedRow) && norm(pickedRow.fill.colour) === norm(current) ? pickedRow : rowFor(rows, current, values.roll_weight_g, values.diameter_mm);
+      select.replaceChildren(h('option', { value: '' }, t('colour.pick')), ...rows.map((row) => h('option', { value: row.id }, colourLabel(row))), h('option', { value: OTHER }, t('colour.other')));
+      select.value = chosen ? chosen.id : (current ? OTHER : '');
+      typed.hidden = !(current && !chosen);
+      if (!typed.hidden) typed.value = current;
+    }
+    select.addEventListener('change', () => {
+      dirty.add(f.key);
+      if (select.value === OTHER) { typed.hidden = false; values[f.key] = typed.value; typed.focus(); return; }
+      typed.hidden = true;
+      const row = smdbRows.find((r) => r.id === select.value);
+      if (row) adopt(row); else values[f.key] = '';
+    });
+    select.setValue = (value) => { typed.value = value; draw(); };            // `put` has set the value already
+    ui.colour = { draw };
+    els[f.key] = select;
+    draw();
+    return h('div', { class: 'field' }, label, select, typed, status);
+  }
 
-  // The brand: a pull-down of the brands there are (on rolls and in the library), and "New brand..." for one that is not there yet. For Bambu Lab
-  // a new roll can be picked by product and colour from the Bambu Lab web shop, which fills in the rest.
+  // The brand: a pull-down of the brands there are (on rolls and in the library, and the SpoolmanDB list's), and "New brand..." for one that is not there yet.
   function brandField(f) {
     const id = 'f-brand';
     const NEW = '__new__';
     const select = h('select', { id, required: true });
     const typed = h('input', { type: 'text', autocomplete: 'off', placeholder: t('brand.new_ph'), 'aria-label': t('brand.new'), hidden: true,
-      oninput: (e) => { values[f.key] = e.target.value; dirty.add(f.key); showPanel(); suggest(); } });
+      oninput: (e) => { values[f.key] = e.target.value; dirty.add(f.key); suggest(); } });
     const option = (name) => h('option', { value: name }, name);
     const ensure = (name) => {                                      // the option of this brand (any case), added when there is none
       const found = [...select.options].find((o) => o.value !== NEW && norm(o.value) === norm(name));
@@ -478,60 +552,11 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
       typed.hidden = select.value !== NEW;
       values[f.key] = select.value === NEW ? typed.value : select.value;
       if (select.value === NEW) typed.focus();
-      showPanel();
       suggest();
     });
-
-    // Bambu Lab: product, then colour. A colour of the shop brings its store ID (the barcode), filament ID, refill or spool, weight and diameter.
-    const placeholder = (key) => h('option', { value: '' }, t(key));
-    const product = h('select', { id: 'f-bambu-product', 'aria-label': t('bambu.product') }, placeholder('bambu.pick_product'));
-    const colour = h('select', { id: 'f-bambu-colour', 'aria-label': t('bambu.colour'), disabled: true }, placeholder('bambu.pick_colour'));
-    const status = h('p', { class: 'hint', role: 'status' });
-    const panel = h('div', { class: 'notice stack', hidden: true }, h('strong', {}, t('bambu.pick_title')),
-      h('p', { class: 'hint' }, t('bambu.pick_hint')), h('div', { class: 'two even' }, product, colour), status);
-    let colours = [];
-    let loaded = false;
-    async function showPanel() {
-      panel.hidden = !(fresh && norm(values[f.key]) === 'bambu lab');
-      if (panel.hidden || loaded) return;
-      loaded = true;
-      try {
-        product.append(...(await api('GET', '/api/bambu/products')).map((p) => h('option', { value: p.slug }, p.name)));
-      } catch (e) { loaded = false; status.textContent = e.message; }
-    }
-    product.addEventListener('change', async () => {
-      colours = [];
-      colour.replaceChildren(placeholder('bambu.pick_colour'));
-      colour.disabled = true;
-      status.textContent = '';
-      if (!product.value) return;
-      status.textContent = t('bambu.loading');
-      try {
-        colours = (await api('GET', `/api/bambu/products/${encodeURIComponent(product.value)}`)).colours;
-        colour.append(...colours.map((c, i) => h('option', { value: String(i) },
-          `${c.colour} (${c.filament_id}) · ${c.refill ? t('library.refill_short') : t('bambu.spool')} · ${fmt(c.roll_weight_g / 1000)} kg`)));
-        colour.disabled = false;
-        status.textContent = '';
-      } catch (e) { status.textContent = e.message; }          // the shop cannot be reached: the form is filled in by hand
-    });
-    colour.addEventListener('change', async () => {
-      const c = colours[Number(colour.value)];
-      if (!c) return;
-      for (const [key, value] of [['brand', 'Bambu Lab'], ['product_type', c.product_type], ['material', c.material], ['colour', c.colour], ['colour_hex', ''],
-        ['roll_weight_g', String(c.roll_weight_g)], ['remaining_g', String(c.roll_weight_g)], ['diameter_mm', String(c.diameter_mm)], ['barcode', c.id]]) put(key, value);
-      fromShop.filament_id = c.filament_id;
-      fromShop.refill = c.refill;
-      // What the shop does not say (temperatures, price) comes from the library when it knows this filament, then from an earlier roll with this barcode.
-      const same = (e) => norm(e.material) === norm(c.material) && norm(e.product_type) === norm(c.product_type);
-      const entry = (await libraryRows).find((e) => e.barcode === c.id) || (await libraryRows).find((e) => e.filament_id === c.filament_id && e.refill === c.refill && same(e));
-      for (const key of ['print_temp_c', 'bed_temp_c', 'price']) if (entry && entry[key] != null) put(key, entry[key]);
-      await els.barcode?.lookup?.();
-      status.textContent = [t('bambu.filled', { name: `${c.product} · ${c.colour}` }), values.print_temp_c ? '' : t('bambu.no_temps')].filter(Boolean).join(' ');
-    });
-    select.setValue = (name) => { select.value = name ? ensure(name).value : ''; typed.hidden = true; showPanel(); suggest(); };
-    els[f.key] = select;                                             // so `put` (a pick from the library, the shop or SpoolmanDB) shows the brand it fills in: without it the pull-down stayed on "Kies een merk" and its `required` blocked saving
-    showPanel();
-    return h('div', { class: 'field' }, h('label', { for: id }, f.label), select, typed, note, panel);
+    select.setValue = (name) => { select.value = name ? ensure(name).value : ''; typed.hidden = true; suggest(); };
+    els[f.key] = select;                                             // so `put` (a pick from the library, a barcode or SpoolmanDB) shows the brand it fills in: without it the pull-down stayed on "Kies een merk" and its `required` blocked saving
+    return h('div', { class: 'field' }, h('label', { for: id }, f.label), select, typed, note);
   }
 
   // A new roll can start from the filament library: one pick fills in everything the library knows about that filament.
@@ -621,6 +646,8 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
       els[f.key] = select;
       return field(f.label, select, f.hint);
     }
+    if (catalogue && f.key === 'material') return materialField(f);
+    if (catalogue && f.key === 'colour') return colourPick(f);
     let listId = null;
     if (f.list) {
       listId = `dl-${f.key}`;
@@ -632,13 +659,8 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
         required: f.required, placeholder: f.placeholder, value: values[f.key] ?? '', list: listId,
         oninput: (e) => { values[f.key] = e.target.value; dirty.add(f.key); } });
     els[f.key] = input;
-    if (f.key === 'colour' && catalogue) { const box = field(f.label, input, f.hint); box.append(status); return box; }
     return field(f.label, input, f.hint);
   });
-  if (catalogue) {                                                   // the material narrows the colours; a colour from the list fills in the roll
-    els.material?.addEventListener('input', () => suggest());
-    els.colour?.addEventListener('change', adopt);
-  }
   // A copy asks how many rolls it makes (typed, or one less / one more); the button says how many it adds.
   const submit = h('button', { class: 'btn primary', type: 'submit' }, t('common.save'));
   let countField = null;
