@@ -476,6 +476,7 @@ def run_push_library():
         with named_lock(pool(), LOCK_PUSH):
             with pool().connection() as conn:
                 entries = filament_library._rows(conn)
+                spoolmandb.refresh(conn)                       # the list in use, which a sync in another worker may have replaced: its density and spool weight go along
             return jsonify(push_library(entries, dry_run=dry_run))
     except SpoolmanError as exc:
         raise exc.api() from None
@@ -486,6 +487,8 @@ def run_push_rolls():
     if not enabled():
         raise ApiError(400, "spoolman.off")
     dry_run = request.args.get("dry_run") == "1"
+    with pool().read() as conn:
+        spoolmandb.refresh(conn)
     try:
         result = push_rolls(dry_run=dry_run)
     except SpoolmanError as exc:

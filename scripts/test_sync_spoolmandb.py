@@ -59,7 +59,9 @@ class SnapshotTestCase(unittest.TestCase):
         ids = [row[0] for row in doc["rows"]]
         self.assertEqual(ids, sorted(ids))
         self.assertEqual(len(text.splitlines()), len(ids) + 5)
-        self.assertEqual(len(spoolmandb.load()["rows"]), len(ids))                                # and the app accepts every row of it
+        data = spoolmandb.load()
+        self.assertEqual(len(data["rows"]), len(ids))                                             # and the app accepts every row of it
+        self.assertEqual(spoolmandb.document_text([list(r.values()) for r in data["rows"]], data["source"]), text)       # the app's own sync writes exactly this format
         self.assertTrue((DATA / "README.md").is_file())
 
 

@@ -857,10 +857,17 @@ Alles blijft aanpasbaar.
 - **Naar Spoolman.** Zet je zo'n rol of bibliotheekregel naar Spoolman (*Instellingen → Koppelingen*), dan gaan de **echte dichtheid** en het **gewicht van een
   lege spoel** uit SpoolmanDB mee (anders een ruwe dichtheid per materiaal en geen spoelgewicht), en het id als `external_id` van het filament, wat
   Spoolman daarvoor heeft. Een filament dat Spoolman al heeft (zelfde `external_id`, of dezelfde naam in een andere taal) wordt niet nog eens gemaakt.
-- **Offline en vast.** De lijst is een **momentopname** die met de app meekomt (`backend/app/spoolmandb_data/`, met de MIT-licentie ernaast); de app neemt
-  nooit contact op met SpoolmanDB. Verversen doe je met de hand: `python scripts/sync_spoolmandb.py`, wat de gegevens en de licentie ophaalt, elke waarde controleert
-  en de bestanden deterministisch schrijft, zodat de wijziging als pull request leesbaar is. Een filament dat bij een verversing verdwijnt, laat bestaande
-  rollen ongemoeid.
+- **Offline, en zelf te verversen.** Er komt een **momentopname** met de app mee (`backend/app/spoolmandb_data/`, met de MIT-licentie ernaast), dus het
+  werkt vanaf de eerste start en zonder internet. Een nieuwere lijst haal je op onder *Instellingen → Filamenten → SpoolmanDB → Nu synchroniseren*
+  (**alleen beheerders**, en **hooguit één keer per dag**: daarna is de knop uit en staat er vanaf wanneer het weer kan). Dat is het enige moment waarop de app
+  contact opneemt, en alleen met GitHub: de lijst (`donkie.github.io`) en de licentie (`raw.githubusercontent.com`), met een vast adres, zonder redirects en met een
+  grens aan grootte en wachttijd. Elke regel wordt gecontroleerd; er wordt **niets overgenomen** (en de dag telt niet) als de licentie niet meer de MIT-licentie van het
+  project is, als de lijst onbruikbaar is of als er minder dan de helft van de huidige filamenten in zit (een mislukte download). Een mislukte poging gebruikt de dag
+  niet op. Na afloop meldt de app hoeveel filamenten er nieuw zijn en hoeveel zijn vervallen. De gesynchroniseerde lijst staat in de database, is voor iedereen
+  die een rol toevoegt dezelfde, en zit **niet in een back-up** (die is opnieuw op te halen; na een terugzetting geldt de meegeleverde lijst tot de volgende sync).
+  Een filament dat uit de lijst verdwijnt, laat bestaande rollen en bibliotheekregels ongemoeid; alleen de dichtheid en het spoelgewicht die naar Spoolman gaan,
+  kunnen dan niet meer worden opgezocht. De momentopname in de repository ververs je met `python scripts/sync_spoolmandb.py`, wat dezelfde controles doet en de
+  bestanden deterministisch schrijft, zodat de wijziging als pull request leesbaar is.
 
 ## Spoolman (optioneel)
 

@@ -1,6 +1,6 @@
 import { api } from './api.js';
-import { t } from './i18n.js';
-import { fmt, h } from './ui.js';
+import { formatDateTime, t } from './i18n.js';
+import { fill, fmt, foldHead, h, icon, toast } from './ui.js';
 
 // The picker of a new roll's form that offers SpoolmanDB (https://github.com/Donkie/SpoolmanDB, MIT): brand, then material, then the filament,
 // and one pick fills in the rest of the form. It is what makes scanning a roll the app does not know yet quick: the barcode is already in the
@@ -88,4 +88,41 @@ export function spoolmanDbPicker({ onPick }) {
     box.hidden = false;
   }).catch(() => {});
   return box;
+}
+
+/** The card of Settings -> Filaments: which SpoolmanDB list is in use (the one that shipped with the app, or the one an administrator fetched), how big and
+ * from when, the source, and the button that fetches the project's newest list. The server allows it once a day (`next_sync_at`), and only for an
+ * administrator (`can_sync`); the button says when it is possible again. A sync only replaces the list that is offered: no roll and no library entry changes. */
+export function spoolmanDbCard() {
+  const card = h('div', { class: 'glass card stack', hidden: true });
+  const day = (iso) => formatDateTime(`${iso}T12:00:00`, { dateStyle: 'short' });          // a date without a time, read at noon so no time zone moves it
+  const moment = (iso) => formatDateTime(iso, { dateStyle: 'short', timeStyle: 'short' });
+
+  async function draw() {
+    let info;
+    try { info = await api('GET', '/api/spoolmandb'); } catch { card.hidden = true; return; }          // a convenience: Settings works without it
+    const wait = info.next_sync_at && new Date(info.next_sync_at) > new Date() ? info.next_sync_at : null;
+    const counts = { rows: fmt(info.rows, 0), brands: fmt(info.brands.length, 0) };
+    const sync = h('button', { class: 'btn primary', type: 'button', disabled: !!wait, onclick: async (e) => {
+      const button = e.currentTarget;
+      button.disabled = true;
+      try {
+        toast(t('spoolmandb.sync_done', await api('POST', '/api/spoolmandb/sync').then((r) => ({ ...r, rows: fmt(r.rows, 0), brands: fmt(r.brands, 0) }))));
+      } catch (err) { toast(err.message, 'error'); }
+      draw();
+    } }, icon('sync'), h('span', {}, t('spoolmandb.card_sync')));
+    fill(card, foldHead('spoolmandb', t('spoolmandb.card_title'), { open: false }),
+      h('p', { class: 'muted' }, t('spoolmandb.card_intro')),
+      h('p', { class: 'hint breakable', role: 'status' }, info.origin === 'synced'
+        ? t('spoolmandb.card_synced', { ...counts, when: moment(info.synced_at) })
+        : t('spoolmandb.card_shipped', { ...counts, date: day(info.source.fetched) })),
+      info.can_sync ? h('div', { class: 'row' }, sync) : h('p', { class: 'hint' }, t('spoolmandb.card_admin_only')),
+      info.can_sync && wait ? h('p', { class: 'hint' }, t('spoolmandb.card_next', { when: moment(wait) })) : null,
+      h('p', { class: 'hint' }, t('spoolmandb.card_hint')),
+      h('p', { class: 'hint' }, t('spoolmandb.source', { licence: info.source.licence, copyright: info.source.copyright, date: info.source.fetched }), ' ',
+        h('a', { href: info.source.url, target: '_blank', rel: 'noopener noreferrer' }, t('spoolmandb.link'))));
+    card.hidden = false;
+  }
+  draw();
+  return card;
 }

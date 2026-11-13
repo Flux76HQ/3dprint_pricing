@@ -8,9 +8,11 @@ It is used by `backend/app/spoolmandb.py`: the picker of a new roll's form (*Kie
 `backend/app/spoolman.py` sends the density and the empty-spool weight, with the row's id as `external_id`, when a roll or library entry that
 came from here is pushed to Spoolman. The screen that offers it names the source and links to it.
 
-The app never reads the live site: this file is all it knows, so it works offline and nothing it offers has not been reviewed here.
+This file is what the app starts with, so it works offline and from the first start. An administrator can fetch a newer list with the *Sync now*
+button under *Settings → Filaments* (at most once a day, `spoolmandb.run_sync`); that copy is kept in the database (not in a backup) and is used instead of
+this one. The button is the only moment the app contacts the project, at two fixed addresses, and it checks the licence and every row again.
 
-## Refreshing
+## Refreshing the snapshot in the repository
 
 ```bash
 python scripts/sync_spoolmandb.py
