@@ -283,7 +283,7 @@ def dismiss_banners(page):
 
 
 def new_roll_form(page):
-    """The 'Nieuwe rol' form, open on the library pick-list at its top."""
+    """The 'Nieuwe rol' form, open on the SpoolmanDB and library pick-lists at its top."""
     page.get_by_role("button", name="Nieuwe rol").first.click()
     page.wait_for_function("document.querySelector('#f-library')?.options.length > 1")
     page.wait_for_timeout(400)

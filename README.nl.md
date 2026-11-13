@@ -55,6 +55,7 @@ Reken uit wat een print echt kost, houd je filamentvoorraad bij en maak van best
 - [Meewerken](#meewerken)
 - [Privacy en beveiliging](#privacy-en-beveiliging)
 - [Steun 3D Print Pricing](#steun-3d-print-pricing)
+- [Gegevens en code van derden](#gegevens-en-code-van-derden)
 - [Licentie](#licentie)
 
 ## Waarom 3D Print Pricing?
@@ -66,7 +67,7 @@ Wie 3D-prints verkoopt moet weten wat elke print kost: filament per gram, machin
 - **Kostprijs in een paar seconden**: filament, onderdelen, accessoires (kabels, laders), printerafschrijving en energie tellen op tot een kostprijs, met optioneel een marge voor een adviesverkoopprijs. Elke regel wordt eerst op hele centen afgerond, zodat de regels op het scherm optellen tot het totaal, en een opgeslagen berekening bewaart de prijzen van het moment van opslaan, dus een latere prijswijziging van een rol herschrijft je geschiedenis niet.
 - **Rechtstreeks uit de slicer**: koppel een `.3mf`- of `.stl`-bestand. Een gesliced 3MF (Bambu Studio / Orca) geeft de echte gram per filament en de printtijd, die automatisch in de berekening komen; een STL geeft een schatting van het gewicht.
 - **Filamentbibliotheek**: de gegevens van de filamenten die je koopt (merk, type, kleur, filament-ID van de leverancier, gewicht, diameter, temperaturen, richtprijs), zodat een nieuwe rol zichzelf invult. Vul haar zonder te typen (importeer een Bambu Lab-factuur of een JSON-bestand, voeg de rollen uit je filamentlijst toe, synchroniseer de gedeelde bibliotheek met GitHub of draag de jouwe eraan bij) en exporteer haar als JSON; importeren en synchroniseren voegen alleen toe en werken bij, verwijderen nooit, leggen nooit twee keer hetzelfde filament vast en laten je voorraad met rust.
-- **Filamentvoorraad met barcodescanner**: je rollen met prijs, resterend gewicht, kleur en temperaturen, gegroepeerd per soort. Maak een rol aan met de hand, door de barcode te scannen, uit de bibliotheek of, bij Bambu Lab, uit de producten en kleuren van de webshop, dupliceer een rol om er een of meer van hetzelfde bij te zetten, of voeg een hele levering in één keer toe door de rollen na elkaar te scannen; zoek op naam, barcode of materiaal terwijl je typt; krijg een melding als een soort bijna op is en boek het verbruik van een berekening met één klik van de voorraad af.
+- **Filamentvoorraad met barcodescanner**: je rollen met prijs, resterend gewicht, kleur en temperaturen, gegroepeerd per soort. Maak een rol aan met de hand, door de barcode te scannen (een die de app nog niet kent: kies het merk en filament uit [SpoolmanDB](https://github.com/Donkie/SpoolmanDB) en alleen de prijs blijft over), uit de bibliotheek of, bij Bambu Lab, uit de producten en kleuren van de webshop, dupliceer een rol om er een of meer van hetzelfde bij te zetten, of voeg een hele levering in één keer toe door de rollen na elkaar te scannen; zoek op naam, barcode of materiaal terwijl je typt; krijg een melding als een soort bijna op is en boek het verbruik van een berekening met één klik van de voorraad af.
 - **Zakelijk bruikbaar**: btw over de verkoopprijs, een marge en een afronding van de prijs per bestelling (op 5/10/50 cent, hele euro's of eindigend op ,95/,99, met je marge als minimum), en een knop om de kosten te blurren als een klant meekijkt.
 - **Elk overzicht werkt hetzelfde**: 3D-modellen, bestellingen, klanten, filament, verpakking, onderdelen en printers toon je als tegels of als lijst; je zoekt terwijl je typt, filtert, sorteert op een kolom en groepeert rollen per soort. Bij een 3D-model bewaar je meerdere links: de pagina van het model en de plekken waar het te koop staat (Marktplaats, Bol.com, je webshop).
 - **Een model te koop zetten**: bij elk 3D-model leg je een verkoopitem vast: titel en tekst van de advertentie, je vraagprijs (met het advies uit de berekening ernaast), een EAN en de foto's in jouw volgorde, eigen foto's of overgenomen uit de productafbeeldingen. Met één klik staan titel, tekst en foto's klaar om een advertentie op Marktplaats te plaatsen, en een andere applicatie leest wat er te koop is via de API.
@@ -117,11 +118,11 @@ De navigatiebalk over de volle breedte met een pil achter het actieve icoon.
 
 ### Filament: bibliotheek, import en nieuwe rollen
 
-*Instellingen → Filamenten* bevat de filamentbibliotheek: voeg een filament toe, importeer een Bambu Lab-factuur, voeg de rollen uit je filamentlijst toe, importeer of exporteer de bibliotheek als JSON, synchroniseer haar met GitHub, of draag je filamenten bij aan de centrale bibliotheek met een voorgevulde GitHub-issue. Onder *Filament → Nieuwe rol* maak je een rol aan, met de hand, door de barcode te scannen of door een filament uit de bibliotheek te kiezen. *Filament → Scannen* voegt een levering toe: scan elke rol (camera of barcodescanner) en de rollen met een bekende barcode worden in één keer toegevoegd, allemaal vol.
+*Instellingen → Filamenten* bevat de filamentbibliotheek: voeg een filament toe, importeer een Bambu Lab-factuur, voeg de rollen uit je filamentlijst toe, importeer of exporteer de bibliotheek als JSON, synchroniseer haar met GitHub, of draag je filamenten bij aan de centrale bibliotheek met een voorgevulde GitHub-issue. Onder *Filament → Nieuwe rol* maak je een rol aan, met de hand, door de barcode te scannen of door een filament uit de bibliotheek te kiezen. Staat een filament nog niet in de bibliotheek, dan biedt *Kies uit SpoolmanDB* de merken en filamenten van die gemeenschapslijst aan (een lijst die met de app meekomt, dus ook offline; een beheerder haalt een nieuwere op met de knop *Nu synchroniseren* onder *Instellingen → Filamenten*, hooguit één keer per dag): één keuze vult materiaal, kleur, gewicht, diameter en temperaturen in, en alleen de prijs typ je zelf. Heb je een filament al onder een Nederlandse naam (*Geel*), dan wordt het onder die naam aangeboden als je de Engelse (*Yellow*) kiest, zodat het nooit dubbel komt; de dichtheid en het gewicht van een lege spoel gaan mee naar Spoolman als een rol daarvan erheen wordt gezet. *Filament → Scannen* voegt een levering toe: scan elke rol (camera of barcodescanner) en de rollen met een bekende barcode worden in één keer toegevoegd, allemaal vol.
 
 | Bibliotheek: import, export en synchronisatie | Nieuwe rol |
 |:---:|:---:|
-| <img src="docs/assets/desktop-library.png" width="440" alt="Desktop: de filamentbibliotheek met factuurimport, synchroniseren, JSON-export en -import"> | <img src="docs/assets/desktop-new-roll.png" width="440" alt="Desktop: een nieuwe rol aanmaken, met de keuzelijst van de bibliotheek bovenaan"> |
+| <img src="docs/assets/desktop-library.png" width="440" alt="Desktop: de filamentbibliotheek met factuurimport, synchroniseren, JSON-export en -import"> | <img src="docs/assets/desktop-new-roll.png" width="440" alt="Desktop: een nieuwe rol aanmaken, met de keuzelijsten van SpoolmanDB en de bibliotheek bovenaan"> |
 
 | iPhone: bibliotheek | iPhone: nieuwe rol | Android: bibliotheek | Android: nieuwe rol |
 |:---:|:---:|:---:|:---:|
@@ -287,6 +288,11 @@ De schermafbeeldingen hierboven komen uit een demo-installatie: na een wijziging
 
 <a href="https://buymeacoffee.com/flux76"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="40"></a>
 <a href="https://ko-fi.com/flux76"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Steun me op Ko-fi" height="40"></a>
+
+## Gegevens en code van derden
+
+- **[SpoolmanDB](https://github.com/Donkie/SpoolmanDB)** (MIT, Copyright (c) 2024 Donkie): de gemeenschapslijst met filamenten die *Kies uit SpoolmanDB* aanbiedt. Een momentopname komt met de app mee in `backend/app/spoolmandb_data/`, met de licentie ernaast; de app neemt alleen contact op met het project als een beheerder onder *Instellingen → Filamenten* op *Nu synchroniseren* drukt (hooguit één keer per dag). Een rol of bibliotheekregel die ervan is gemaakt bewaart het SpoolmanDB-id van het filament als verwijzing naar de bron. Ververs de momentopname in de repository met `python scripts/sync_spoolmandb.py`.
+- Al het andere dat is meegekopieerd houdt zijn licentie naast zich: de barcodescanner (`frontend/vendor/zxing/`, Apache-2.0), de iconen (`frontend/vendor/mdi/`) en de lettertypen (`backend/app/fonts/`).
 
 ## Licentie
 
