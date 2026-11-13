@@ -45,8 +45,8 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
   de code en drukt op Enter). Elke scan is één rol: scan je dezelfde barcode nog eens, dan komt er een rol bij, en met − en + pas je het aantal
   aan. Wat een rol wordt, komt van de **nieuwste rol met die barcode** (ook de prijs die je toen betaalde), anders van het filament in de
   **bibliotheek** met die barcode (met de richtprijs, als die er is); de prijs per rol kun je in de lijst aanpassen. Een barcode die geen van
-  beide kent, vul je één keer in met het gewone rolformulier (*Gegevens invullen*), waar bovenaan **Kies uit SpoolmanDB** staat: kies merk,
-  materiaal en filament en alleen de prijs blijft over (zie *Filamentbibliotheek*); de andere rollen met die barcode volgen daarna vanzelf.
+  beide kent, vul je één keer in met het gewone rolformulier (*Gegevens invullen*), waarin het merkveld ook de merken van SpoolmanDB toont, het materiaalveld de materialen van
+  het merk voorstelt en het kleurveld de kleuren: kies een kleur en alleen de prijs blijft over (zie *Filamentbibliotheek*); de andere rollen met die barcode volgen daarna vanzelf.
   Met *N rollen toevoegen* komen ze er allemaal tegelijk bij, vol, zonder notities; gaat er iets mis (een onbekende barcode, een ontbrekende
   prijs), dan wordt er geen enkele rol toegevoegd. Hooguit 200 rollen per keer. Op een telefoon start de camera meteen, op een computer pas
   met *Camera gebruiken*. Bovenaan staat de
@@ -834,13 +834,17 @@ temperaturen), zonder iets te overschrijven. Dezelfde barcode is hetzelfde filam
 
 De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg bij herstellen).
 
-### Kies uit SpoolmanDB
+### SpoolmanDB in de velden van een nieuwe rol
 
-Bovenaan het formulier van een **nieuwe rol** (ook als je een onbekende barcode scant) staat **Kies uit SpoolmanDB**. [SpoolmanDB](https://github.com/Donkie/SpoolmanDB)
-is een lijst van filamenten van ruim tachtig merken, bijgehouden door een gemeenschap. Je kiest het **merk**, dan het **materiaal** en dan het **filament**
-(met het zoekveld tussen de kleuren zoek je op naam); het formulier wordt ingevuld met merk, materiaal, kleur en kleurcode, gewicht, diameter en
-temperaturen en de rol begint vol. Wat je zelf nog invult is de **prijs**, want die kent SpoolmanDB niet, en de **barcode** is die van je scan.
-Alles blijft aanpasbaar.
+In het formulier van een **nieuwe rol** (ook als je een onbekende barcode scant) komen de lijsten van [SpoolmanDB](https://github.com/Donkie/SpoolmanDB) in de
+velden zelf, niet in een blok ernaast. SpoolmanDB is een lijst van filamenten van ruim tachtig merken, bijgehouden door een gemeenschap.
+
+- Het **merkveld** (de keuzelijst) toont naast de merken van je eigen rollen en bibliotheek ook die van SpoolmanDB.
+- Kies je een merk, dan stelt het veld **Materiaal** de materialen van dat merk voor (die van SpoolmanDB en wat je er zelf al van hebt); je kunt ook gewoon iets anders typen.
+- Staat het materiaal erin, dan stelt het veld **Kleur** de kleuren van dat merk en materiaal voor (met erbij in welk gewicht en welke diameter ze er zijn). Typ om de lijst
+  te beperken. Kies of typ je een kleur uit de lijst, dan worden gewicht, diameter, kleurcode, temperaturen en *Nog over* ingevuld (in het gewicht en de diameter die het
+  formulier al heeft, anders de eerste die er is) en staat er onder het veld wat er is ingevuld, ook het gewicht van een lege spoel. Een kleur die er niet in staat, blijft tekst
+  en verandert niets. Wat je zelf nog invult is de **prijs**, want die kent SpoolmanDB niet, en de **barcode** is die van je scan. Alles blijft aanpasbaar.
 
 - **Geen barcodes.** SpoolmanDB kent geen barcodes, dus een gescande barcode kun je er niet in opzoeken; je koppelt hem één keer aan een filament uit de
   lijst, en daarna werkt scannen gewoon via je eigen rollen en bibliotheek.
