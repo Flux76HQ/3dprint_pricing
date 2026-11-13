@@ -2,7 +2,7 @@
 offered when a new roll is added, so that only the price still has to be typed. https://github.com/Donkie/SpoolmanDB, MIT licence.
 
 Two copies exist, and the newer one wins. A **snapshot ships with the app** (`spoolmandb_data/snapshot.json`, made by `scripts/sync_spoolmandb.py`
-and reviewed like any other change), so the picker works offline and from the first start. An **administrator can refresh it** from the project's
+and reviewed like any other change), so the suggestions work offline and from the first start. An **administrator can refresh it** from the project's
 published list with the button in Settings -> Filaments, at most once a day (`POST /api/spoolmandb/sync`): that copy is kept in the database
 (`spoolmandb_sync`, one row, not in a backup) and is used instead of the shipped one. The app contacts the project on that button and at no other
 moment, only two fixed addresses (`SYNC_URL`, `LICENSE_URL`: https, no redirect followed, size and time capped, never taken from a request), and what
@@ -194,7 +194,7 @@ def current() -> dict:
 
 def refresh(conn) -> dict:
     """Make the copy of this process the one in the database (one short read of the version; the list itself is only read when it changed), and
-    return it. A synced copy that is not valid is left unused and the shipped snapshot serves instead, so a damaged row never takes the picker down."""
+    return it. A synced copy that is not valid is left unused and the shipped snapshot serves instead, so a damaged row never takes the suggestions down."""
     global _state
     row = conn.execute("SELECT version FROM spoolmandb_sync").fetchone()
     version = row["version"] if row else None
@@ -244,7 +244,7 @@ def _next_sync(synced_at: "datetime | None") -> "datetime | None":
 
 @bp.get("")
 def overview():
-    """Where the list in use comes from and how big it is, the brands with their materials (for the pull-downs of the picker), and for the
+    """Where the list in use comes from and how big it is, the brands with their materials (for the brand pull-down and the suggestions of the form), and for the
     sync button: whether the list is the shipped one or a synced copy, when it was synced and when it may be again."""
     with pool().read() as conn:
         data = _data(conn)
@@ -339,7 +339,7 @@ def run_sync():
         raise ApiError(502, exc.key or "spoolmandb.sync_failed", **exc.params) from None
 
 
-# --- the picker ------------------------------------------------------------------------------------------------------------
+# --- the suggestions of the form ------------------------------------------------------------------------------------------------------------
 
 def _spec(row: dict) -> dict:
     """What a SpoolmanDB row says about a roll's filament, in the words of a roll: its whole name is the colour (SpoolmanDB names carry the
