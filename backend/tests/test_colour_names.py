@@ -43,3 +43,24 @@ def test_loose_kind_reads_type_and_colour_together_in_either_language():
     assert cn.loose_kind(dutch) != cn.loose_kind({**english, "roll_weight_g": 750})
     assert cn.loose_kind(dutch) != cn.loose_kind({**english, "material": "PETG"})
     assert cn.loose_kind(dutch) != cn.loose_kind({**english, "brand": "Sunlu"})
+
+
+@pytest.mark.parametrize("dutch, english", [
+    ("Bamboegroen", "Bamboo Green"), ("Lila paars", "Lilac Purple"), ("Matte Pruim", "Matte Plum"), ("Pompoenoranje", "Pumpkin Orange"),
+    ("Zonnebloemgeel", "Sunflower Yellow"), ("Blauw Grijs", "Blue Gray"), ("Transparant", "Clear"), ("Cyaan", "Cyan"), ("Sakura Roze", "Sakura Pink"),
+    ("Zwart", "Black"), ("Jadewit", "Jade White"), ("Maretakgroen", "Mistletoe Green"), ("Lichtgrijs", "Light Gray"), ("Crème", "Cream"),
+    ("Silk (Blauw)", "Silk (Blue)"),
+])
+def test_a_dutch_colour_is_translated_word_by_word_in_the_same_order(dutch, english):
+    assert cn.to_english(dutch) == english and cn.same_name(dutch, english)                      # what is stored is also recognised as the same colour
+
+
+@pytest.mark.parametrize("name", ["Ivory White", "Charcoal", "Bambu Green", "Zonsondergang", "Matte Charcoal", ""])
+def test_what_is_english_or_not_known_is_kept_as_it_is(name):
+    assert cn.to_english(name) == name                                                          # an unknown Dutch word is never guessed
+
+
+def test_translating_twice_changes_nothing_and_nothing_is_a_problem():
+    for name in ("Bamboegroen", "Lila paars", "Rood", "Light Gray", "Zonsondergang"):
+        assert cn.to_english(cn.to_english(name)) == cn.to_english(name)
+    assert cn.to_english(None) == "" and cn.to_english(5) == "5"

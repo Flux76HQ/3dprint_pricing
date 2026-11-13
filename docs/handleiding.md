@@ -788,7 +788,9 @@ Vijf manieren om de bibliotheek te vullen of te delen zonder te typen:
 - **Bambu Lab-factuur importeren.** Kies de PDF-factuur uit de Bambu Lab-webshop. De app leest hem (alleen met `pypdf`, met een grens aan grootte en aantal
   pagina’s) en laat eerst zien wat erin staat: per filamentregel het merk, materiaal en type (*PLA* + *Basic*), de kleur, het filament-ID (het nummer tussen
   haakjes achter de kleur), de SKU, het gewicht en de diameter (uit de SKU), of het een bijvulling is (SKU eindigt op `FREE`), de **richtprijs** (de lijstprijs; op de
-  factuur staat hij incl. btw, de app rekent om naar excl. btw; een korting is een actie en geen prijs) en de barcode. Per regel kies je of het filament in de bibliotheek komt. **De voorraad verandert
+  factuur staat hij incl. btw, de app rekent om naar excl. btw; een korting is een actie en geen prijs) en de barcode. Per regel kies je of het filament in de bibliotheek komt. **De kleuren worden naar het Engels vertaald** (woord voor woord, in dezelfde volgorde: *Bamboegroen* wordt *Bamboo Green*, *Lila paars* wordt *Lilac Purple*; wat al Engels is
+  of wat de app niet kent blijft zoals het is), zoals SpoolmanDB ze noemt, en een filament dat al in de bibliotheek staat, onder een Nederlandse of een Engelse naam, wordt herkend: het krijgt de nieuwe richtprijs en wat het mist en houdt zijn
+  eigen naam, er komt geen tweede bij (een bijvulling en een rol met spoel blijven twee filamenten). **De voorraad verandert
   hier nooit**: de bibliotheek is een losstaande lijst van de filamenten die bestaan, geen lijst van wat je hebt. Een filament dat er al staat krijgt de nieuwe richtprijs en
   wat het nog mist (SKU, filament-ID, barcode), maar zijn eigen gegevens worden nooit overschreven. Regels die geen filament zijn worden overgeslagen en genoemd; kloppen de regels niet met het factuurtotaal, dan staat er een waarschuwing. Andere webshops dan Bambu Lab worden niet herkend.
 

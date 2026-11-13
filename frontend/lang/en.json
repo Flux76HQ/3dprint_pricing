@@ -828,7 +828,7 @@
  "library.invoice_apply": "Process",
  "library.invoice_barcode": "Barcode {code}",
  "library.invoice_hint": "Pick the PDF invoice from Bambu Lab. You first see what is in it and choose what to add.",
- "library.invoice_hint_library": "Choose which filaments go into the library. Your stock of rolls does not change here.",
+ "library.invoice_hint_library": "Choose which filaments go into the library. The colours are shown in English, as SpoolmanDB names them: a filament you already have, also under a Dutch name, is completed and not added a second time. Your stock of rolls does not change here.",
  "library.invoice_known": "Already in the library",
  "library.invoice_meta": "Order {order} · {date}",
  "library.invoice_no_barcode": "Barcode not found in the web shop",

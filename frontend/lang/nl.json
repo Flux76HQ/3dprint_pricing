@@ -828,7 +828,7 @@
  "library.invoice_apply": "Verwerken",
  "library.invoice_barcode": "Barcode {code}",
  "library.invoice_hint": "Kies de PDF-factuur van Bambu Lab. Je ziet eerst wat erin staat en kiest wat je toevoegt.",
- "library.invoice_hint_library": "Kies welke filamenten in de bibliotheek komen. Je voorraad aan rollen verandert hier niet.",
+ "library.invoice_hint_library": "Kies welke filamenten in de bibliotheek komen. De kleuren staan hier in het Engels, zoals SpoolmanDB ze noemt: een filament dat je al hebt, ook onder een Nederlandse naam, wordt aangevuld en niet dubbel toegevoegd. Je voorraad aan rollen verandert hier niet.",
  "library.invoice_known": "Al in de bibliotheek",
  "library.invoice_meta": "Bestelling {order} · {date}",
  "library.invoice_no_barcode": "Barcode niet gevonden in de webshop",
