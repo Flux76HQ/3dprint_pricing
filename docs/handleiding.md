@@ -45,7 +45,8 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
   de code en drukt op Enter). Elke scan is één rol: scan je dezelfde barcode nog eens, dan komt er een rol bij, en met − en + pas je het aantal
   aan. Wat een rol wordt, komt van de **nieuwste rol met die barcode** (ook de prijs die je toen betaalde), anders van het filament in de
   **bibliotheek** met die barcode (met de richtprijs, als die er is); de prijs per rol kun je in de lijst aanpassen. Een barcode die geen van
-  beide kent, vul je één keer in met het gewone rolformulier (*Gegevens invullen*); de andere rollen met die barcode volgen daarna vanzelf.
+  beide kent, vul je één keer in met het gewone rolformulier (*Gegevens invullen*), waar bovenaan **Kies uit SpoolmanDB** staat: kies merk,
+  materiaal en filament en alleen de prijs blijft over (zie *Filamentbibliotheek*); de andere rollen met die barcode volgen daarna vanzelf.
   Met *N rollen toevoegen* komen ze er allemaal tegelijk bij, vol, zonder notities; gaat er iets mis (een onbekende barcode, een ontbrekende
   prijs), dan wordt er geen enkele rol toegevoegd. Hooguit 200 rollen per keer. Op een telefoon start de camera meteen, op een computer pas
   met *Camera gebruiken*. Bovenaan staat de
@@ -832,6 +833,34 @@ over het filament zegt (merk, type, materiaal, kleur, kleurcode, barcode, gewich
 temperaturen), zonder iets te overschrijven. Dezelfde barcode is hetzelfde filament; zonder barcode dezelfde naam, hetzelfde gewicht en dezelfde diameter. Past de rol bij meer dan één vermelding (bijvulling én met spoel), dan blijft de bibliotheek ongemoeid.
 
 De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg bij herstellen).
+
+### Kies uit SpoolmanDB
+
+Bovenaan het formulier van een **nieuwe rol** (ook als je een onbekende barcode scant) staat **Kies uit SpoolmanDB**. [SpoolmanDB](https://github.com/Donkie/SpoolmanDB)
+is een lijst van filamenten van ruim tachtig merken, bijgehouden door een gemeenschap. Je kiest het **merk**, dan het **materiaal** en dan het **filament**
+(met het zoekveld tussen de kleuren zoek je op naam); het formulier wordt ingevuld met merk, materiaal, kleur en kleurcode, gewicht, diameter en
+temperaturen en de rol begint vol. Wat je zelf nog invult is de **prijs**, want die kent SpoolmanDB niet, en de **barcode** is die van je scan.
+Alles blijft aanpasbaar.
+
+- **Geen barcodes.** SpoolmanDB kent geen barcodes, dus een gescande barcode kun je er niet in opzoeken; je koppelt hem één keer aan een filament uit de
+  lijst, en daarna werkt scannen gewoon via je eigen rollen en bibliotheek.
+- **Nederlandse en Engelse namen.** Heb je het filament al onder een Nederlandse naam (*Basic Geel*) in je bibliotheek of voorraad, dan staat het in de lijst
+  met *✓ al bij jou als Geel* en wordt het onder jouw naam ingevuld, met je richtprijs en je temperaturen: er komt geen tweede *Yellow* naast. Dat herkent de
+  app aan de kleur, in beide talen (`colour_names.py`: *geel/yellow*, *lichtgrijs/light gray*, *pompoenoranje/pumpkin orange*, …), samen met merk,
+  materiaal, gewicht en diameter; *Basic* telt niet mee omdat SpoolmanDB het niet in de naam zet. Een Nederlandse kleurnaam die de app niet kent,
+  wordt niet herkend en dus ook niet per ongeluk gekoppeld. *Ook aan de bibliotheek toevoegen* vult zo een bestaande bibliotheekregel aan (barcode,
+  kleurcode, temperaturen, de verwijzing naar SpoolmanDB) in plaats van een dubbele toe te voegen. Alleen bij **toevoegen** wordt zo losjes vergeleken:
+  de strenge regel waarmee een back-up wordt teruggezet blijft zoals hij was, zodat een back-up met *Geel* én *Yellow* altijd terug kan.
+- **Bron.** Het scherm noemt de bron (SpoolmanDB, MIT-licentie, © Donkie) met een link en de datum van de gegevens. Een rol of bibliotheekregel die zo is
+  gemaakt bewaart het **SpoolmanDB-id** als verwijzing (bij het wijzigen van de rol staat het erbij); wijzig je daarna merk, materiaal, kleur, gewicht of
+  diameter, dan is het een ander filament en vervalt de verwijzing.
+- **Naar Spoolman.** Zet je zo'n rol of bibliotheekregel naar Spoolman (*Instellingen → Koppelingen*), dan gaan de **echte dichtheid** en het **gewicht van een
+  lege spoel** uit SpoolmanDB mee (anders een ruwe dichtheid per materiaal en geen spoelgewicht), en het id als `external_id` van het filament, wat
+  Spoolman daarvoor heeft. Een filament dat Spoolman al heeft (zelfde `external_id`, of dezelfde naam in een andere taal) wordt niet nog eens gemaakt.
+- **Offline en vast.** De lijst is een **momentopname** die met de app meekomt (`backend/app/spoolmandb_data/`, met de MIT-licentie ernaast); de app neemt
+  nooit contact op met SpoolmanDB. Verversen doe je met de hand: `python scripts/sync_spoolmandb.py`, wat de gegevens en de licentie ophaalt, elke waarde controleert
+  en de bestanden deterministisch schrijft, zodat de wijziging als pull request leesbaar is. Een filament dat bij een verversing verdwijnt, laat bestaande
+  rollen ongemoeid.
 
 ## Spoolman (optioneel)
 

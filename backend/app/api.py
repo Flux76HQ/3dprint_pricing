@@ -161,6 +161,7 @@ RESOURCES = {
         "bed_temp_c": optional_int("f.bed_temp", minimum=0, maximum=200),
         "price": optional_number("f.roll_price"),
         "notes": text("f.notes", required=False, max_len=1000),
+        "spoolmandb_id": text("f.spoolmandb_id", required=False, max_len=120),
     }, "lower(brand), lower(material), lower(product_type), lower(colour)"),
     "spools": ("filament_spools", {
         "brand": text("f.brand"),
@@ -178,10 +179,11 @@ RESOURCES = {
         "notes": text("f.notes", required=False, max_len=1000),
         "notify_low": boolean("f.notify_low"),
         "archived": boolean("f.archived"),
+        "spoolmandb_id": text("f.spoolmandb_id", required=False, max_len=120),
     }, "brand, colour"),
 }
 OPTIONAL = {"notes", "archived", "unit", "is_default", "material", "colour", "colour_hex", "product_type", "power_kw", "barcode", "diameter_mm",
-            "print_temp_c", "bed_temp_c", "notify_low", "filament_id", "sku", "refill", "haspelsync_serial"}
+            "print_temp_c", "bed_temp_c", "notify_low", "filament_id", "sku", "refill", "haspelsync_serial", "spoolmandb_id"}
 
 
 def _serialise(row: dict) -> dict:
@@ -426,7 +428,8 @@ def propagate_spool(spool_id):
 # One delivery at a time: a request with more is refused, so one transaction never holds the write lock for long.
 BULK_MAX_ROLLS = 200
 # What a scanned roll takes over from the roll or library entry with its barcode. Notes, what is left and archived are per roll and never copied.
-FROM_BARCODE = ("brand", "product_type", "material", "colour", "colour_hex", "roll_weight_g", "price", "diameter_mm", "print_temp_c", "bed_temp_c")
+FROM_BARCODE = ("brand", "product_type", "material", "colour", "colour_hex", "roll_weight_g", "price", "diameter_mm", "print_temp_c", "bed_temp_c",
+                "spoolmandb_id")
 
 
 def _from_barcode(conn, barcode: str) -> "tuple[str, dict] | None":

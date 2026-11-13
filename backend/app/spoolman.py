@@ -30,8 +30,9 @@ from urllib.parse import urlparse
 import requests
 from flask import Blueprint, g, jsonify, request
 
-from . import filament_library
+from . import filament_library, spoolmandb
 from .api import _serialise, _share_notify, stock_changed
+from .colour_names import same_name
 from .config import ConfigError, check_spoolman_url
 from .db import id_list, named_lock
 from .http import ApiError, config, json_body, login_required, pool
@@ -326,25 +327,36 @@ def _density(material: str) -> float:
 
 def filament_of(entry: dict) -> dict:
     """The Spoolman filament for a library entry: the colour (with the type before it, as SpoolmanDB names them) is the name, the barcode
-    (else the SKU) the article number, and the reference price, excl. VAT as everywhere in this app, the price. The reverse of `to_roll`."""
+    (else the SKU) the article number, and the reference price, excl. VAT as everywhere in this app, the price. The reverse of `to_roll`.
+    An entry or roll that was picked from SpoolmanDB (`spoolmandb_id`) says so (`external_id`, which is what that field of Spoolman is for)
+    and brings what SpoolmanDB measured: the density, and the weight of an empty spool, which Spoolman needs to work out what is left
+    from a weighing; without it the density is a rough value per material and there is no spool weight."""
     name = " ".join(x for x in (entry["product_type"], entry["colour"]) if x)[:64]
     material = entry["material"][:64]
+    source_id = str(entry.get("spoolmandb_id") or "")
+    source = spoolmandb.find(source_id) if source_id else None
     body = {"name": name, "material": material, "price": float(entry["price"]) if entry["price"] is not None else None,
-            "density": _density(material), "diameter": float(entry["diameter_mm"]), "weight": float(entry["roll_weight_g"]),
+            "density": source["density"] if source else _density(material), "diameter": float(entry["diameter_mm"]), "weight": float(entry["roll_weight_g"]),
+            "spool_weight": source["spool_weight"] if source else None, "external_id": source_id,
             "article_number": (entry["barcode"] or entry["sku"])[:64], "settings_extruder_temp": entry["print_temp_c"],
             "settings_bed_temp": entry["bed_temp_c"], "color_hex": entry["colour_hex"].lstrip("#").upper(), "comment": entry["notes"][:1024]}
     return {k: v for k, v in body.items() if v not in (None, "")}
 
 
 def _same(filament: dict, vendor: str, wanted: dict) -> bool:
-    """Whether Spoolman already has this filament: the vendor and the article number, else the vendor, name and material."""
+    """Whether Spoolman already has this filament: the vendor and the SpoolmanDB id (`external_id`) or the article number, else the vendor,
+    name and material, where the name is read in either language ("Geel" is "Yellow", `colour_names`): Spoolman's filaments come from its own
+    copy of SpoolmanDB, in English, and a library in Dutch must not make a second one of each."""
     other = (filament.get("vendor") or {}).get("name") if isinstance(filament.get("vendor"), dict) else None
     if str(other or "").strip().lower() != vendor.lower():
         return False
+    external = wanted.get("external_id")
+    if external and str(filament.get("external_id") or "").strip() == external:
+        return True
     article = wanted.get("article_number")
     if article and str(filament.get("article_number") or "").strip().lower() == article.lower():
         return True
-    return (bool(wanted.get("name")) and str(filament.get("name") or "").strip().lower() == wanted["name"].lower()
+    return (bool(wanted.get("name")) and same_name(filament.get("name"), wanted["name"])
             and str(filament.get("material") or "").strip().lower() == wanted.get("material", "").lower())
 
 

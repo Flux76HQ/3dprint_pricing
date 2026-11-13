@@ -15,6 +15,7 @@ from flask import Blueprint, Response, jsonify, request
 
 from . import bambu_invoice, bambu_store
 from .api import RESOURCES, _validated
+from .colour_names import loose_kind
 from .config import CONTRIBUTE_URL, DEFAULT_LIBRARY_URL
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized, tr
@@ -27,7 +28,7 @@ FORMAT_VERSION = 1
 MAX_ROWS = 5_000
 DEFAULTS = {"roll_weight_g": 1000, "diameter_mm": 1.75}          # an entry in a hand-written file may leave these out
 BLANK = {"product_type": "", "material": "", "colour": "", "colour_hex": "", "filament_id": "", "sku": "", "barcode": "", "refill": False,
-         "print_temp_c": None, "bed_temp_c": None, "price": None, "notes": ""}      # what a validated entry lacks when the input left it out
+         "print_temp_c": None, "bed_temp_c": None, "price": None, "notes": "", "spoolmandb_id": ""}      # what a validated entry lacks when the input left it out
 
 
 @bp.before_request
@@ -36,7 +37,7 @@ def _guard():
     """Every route here needs a session."""
 
 
-FILLABLE = ("sku", "filament_id", "barcode", "colour_hex", "print_temp_c", "bed_temp_c")      # what an entry may be given when it lacks it
+FILLABLE = ("sku", "filament_id", "barcode", "colour_hex", "print_temp_c", "bed_temp_c", "spoolmandb_id")      # what an entry may be given when it lacks it
 
 
 def _n(values: dict, key: str) -> str:
@@ -183,7 +184,10 @@ def complete(conn, index: Index, row: dict, source: dict, *, price=None) -> dict
 def add_roll(conn, roll: dict, extra=None) -> str:
     """A roll typed in by hand may go in the library too: when the filament is not there yet it is added (what the roll says about the
     filament, never what it cost or what is left), and when it is, that entry gets what it was missing. The same barcode is the same
-    filament; without one, the same brand, material, type, colour, weight and diameter, as a refill or not. When that is more than one
+    filament; so is the same SpoolmanDB id (`spoolmandb_id`: its id says weight and diameter too); without either, the same brand, material,
+    type, colour, weight and diameter, as a refill or not, **with the colour read in either language** (`colour_names.loose_kind`: a roll
+    "Yellow" picked from SpoolmanDB is the library's "Geel", which is completed and not added a second time; `keys` stays exact, because
+    a restore refuses what it calls a copy). When that is more than one
     entry (a refill and a roll with spool), it is not clear which one this roll is, so none is touched. `extra` is what the form knows
     about the filament that a roll does not hold: its supplier `filament_id` and whether it is a `refill` (from the Bambu Lab shop); with a
     `refill` the match is exact, so that is no longer unclear. Returns what happened: `added`, `updated`, `unchanged` or `unclear`."""
@@ -192,11 +196,12 @@ def add_roll(conn, roll: dict, extra=None) -> str:
     extra = extra if isinstance(extra, dict) else {}
     refill = extra["refill"] if isinstance(extra.get("refill"), bool) else None
     spec = {**BLANK, **{k: roll[k] for k in ("brand", "product_type", "material", "colour", "colour_hex", "barcode", "roll_weight_g",
-                                              "diameter_mm", "print_temp_c", "bed_temp_c")},
+                                              "diameter_mm", "print_temp_c", "bed_temp_c", "spoolmandb_id")},
             "filament_id": str(extra.get("filament_id") or "").strip()[:20], "refill": bool(refill)}
-    code = _n(spec, "barcode")
+    code, source = _n(spec, "barcode"), spec["spoolmandb_id"]
     found = [r for r in rows if code and _n(r, "barcode") == code] or \
-        [r for r in rows if _kind(r) == _kind(spec) and (refill is None or r["refill"] == refill)]
+        [r for r in rows if source and r["spoolmandb_id"] == source and (refill is None or r["refill"] == refill)] or \
+        [r for r in rows if loose_kind(r) == loose_kind(spec) and (refill is None or r["refill"] == refill)]
     if not found:
         index.add(_insert(conn, {k: v for k, v in spec.items() if k in FIELDS and k not in ("price", "notes", "sku")}))
         return "added"

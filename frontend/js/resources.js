@@ -6,6 +6,7 @@ import { listView, rowActions } from './listview.js';
 import { scanBarcode } from './scanner.js';
 import { livePanel, serialField } from './haspelsync.js';
 import { spoolmanBar } from './spoolman.js';
+import { spoolmanDbPicker } from './spoolmandb.js';
 import { askChoice, confirmDialog, enhanceDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
 
 // Declarative config for the three inventory/rate screens. Money and quantities are
@@ -296,7 +297,7 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
   // A barcode field: type it, use a hardware scanner (it types and presses Enter), or scan with the
   // camera. A known barcode says so, fills in what is known about that filament (never over what was
   // already typed, and only for a new roll) and shows what is in stock of it: confirming is all that is left.
-  const CARRIED = ['brand', 'product_type', 'material', 'colour', 'colour_hex', 'roll_weight_g', 'price', 'diameter_mm', 'print_temp_c', 'bed_temp_c', 'notes'];
+  const CARRIED = ['brand', 'product_type', 'material', 'colour', 'colour_hex', 'roll_weight_g', 'price', 'diameter_mm', 'print_temp_c', 'bed_temp_c', 'notes', 'spoolmandb_id'];
   const dirty = new Set();          // fields the user typed in themselves
   function stockLine(stock) {
     if (!stock || !stock.roll_count) return t('barcode.none_left');
@@ -382,6 +383,20 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
   const libraryRows = fresh ? api('GET', '/api/filament-library').catch(() => []) : Promise.resolve([]);   // a convenience: the form works without it
   const fromShop = { filament_id: '', refill: null };          // what the Bambu Lab shop says about the filament that a roll does not hold
 
+  // The SpoolmanDB filament the form was filled from (picked here, or a library entry that came from there) and what the form said then. The id is
+  // the reference to the source and goes to Spoolman with the roll: when brand, material, colour, weight or diameter are changed afterwards it is
+  // another filament, and the reference is dropped rather than left pointing at the wrong one.
+  const IDENTITY = ['brand', 'material', 'colour', 'roll_weight_g', 'diameter_mm'];
+  const identity = () => IDENTITY.map((key) => norm(String(values[key] ?? '').replace(',', '.'))).join('|');
+  let from = null;
+  const sourceId = () => (from ? (from.identity === identity() ? from.id : '') : String(values.spoolmandb_id || ''));
+  const spoolmanDb = fresh && config.id === 'filament' ? spoolmanDbPicker({ onPick: (row) => {
+    for (const [key, value] of Object.entries(row.fill)) if (key !== 'spoolmandb_id') put(key, value == null ? '' : String(value));
+    put('remaining_g', String(row.fill.roll_weight_g));            // a new roll starts full
+    values.spoolmandb_id = row.fill.spoolmandb_id;
+    from = { id: row.fill.spoolmandb_id, identity: identity() };
+  } }) : null;
+
   // The brand: a pull-down of the brands there are (on rolls and in the library), and "New brand..." for one that is not there yet. For Bambu Lab
   // a new roll can be picked by product and colour from the Bambu Lab web shop, which fills in the rest.
   function brandField(f) {
@@ -463,6 +478,7 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
       status.textContent = [t('bambu.filled', { name: `${c.product} · ${c.colour}` }), values.print_temp_c ? '' : t('bambu.no_temps')].filter(Boolean).join(' ');
     });
     select.setValue = (name) => { select.value = name ? ensure(name).value : ''; typed.hidden = true; showPanel(); };
+    els[f.key] = select;                                             // so `put` (a pick from the library, the shop or SpoolmanDB) shows the brand it fills in: without it the pull-down stayed on "Kies een merk" and its `required` blocked saving
     showPanel();
     return h('div', { class: 'field' }, h('label', { for: id }, f.label), select, typed, panel);
   }
@@ -485,6 +501,8 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
       put('remaining_g', entry.roll_weight_g);                     // a new roll starts full
       fromShop.filament_id = entry.filament_id || '';              // what the library knows about the filament goes back to it with the roll
       fromShop.refill = entry.filament_id ? !!entry.refill : null;
+      values.spoolmandb_id = entry.spoolmandb_id || '';            // an entry that came from SpoolmanDB says so on the roll too
+      from = entry.spoolmandb_id ? { id: entry.spoolmandb_id, identity: identity() } : null;
     });
     libraryRows.then((rows) => {
       entries = rows;
@@ -596,6 +614,7 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
       e.preventDefault();
       try {
         const payload = toPayload(config, values);
+        if (config.id === 'filament' && !item) payload.spoolmandb_id = copyOf ? String(copyOf.spoolmandb_id || '') : sourceId();
         if (fresh && fromShop.filament_id) payload.library = { filament_id: fromShop.filament_id, refill: fromShop.refill };      // for "also add to the library"
         let passOn = [];
         if (item) {
@@ -621,7 +640,9 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
     } },
     h('h2', {}, item ? t(`${config.id}.edit`) : (copyOf ? t('filament.duplicate_title') : t(`${config.id}.new`))),
     copyOf ? h('p', { class: 'hint' }, t('filament.duplicate_intro', { name: spoolName(copyOf, ' · ') })) : null,
+    item?.spoolmandb_id ? h('p', { class: 'hint' }, t('spoolmandb.item_source', { id: item.spoolmandb_id })) : null,
     countField,
+    spoolmanDb,
     fresh ? libraryPicker() : null,
     ...inputs, config.image ? pictureField() : null, ...datalists, error,
     h('div', { class: 'row end' },
