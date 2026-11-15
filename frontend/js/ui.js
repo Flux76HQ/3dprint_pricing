@@ -115,7 +115,7 @@ export function foldHead(key, title, { open = true, extra = null } = {}) {
 
 // How a connection to another application can stand: working, set up but not answering, or not set up (or still being looked at).
 const CONNECTION = { active: ['badge ok', 'connection.active'], offline: ['badge danger', 'connection.offline'], off: ['badge muted', 'connection.off'],
-  checking: ['badge muted', 'connection.checking'] };
+  checking: ['badge muted', 'connection.checking'], resting: ['badge muted', 'connection.resting'] };
 
 /** The state of a connection as it stands in the heading of its card (`foldHead`'s `extra`): **active**, **not connected** (there is a setup and the other side does not answer)
     or **not configured**, with a short `detail` (a count, a host) and, for a connection that does not answer, the reason as a tooltip. It starts as "checking"; `set(state, { detail, message })` changes it. */

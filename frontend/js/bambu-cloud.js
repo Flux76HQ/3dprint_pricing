@@ -13,7 +13,7 @@ export const cloudSignedIn = () => signedIn;
 export async function cloudStatus() {
   try {
     const status = await api('GET', '/api/bambu-cloud');
-    signedIn = !!status.enabled;
+    signedIn = !!status.active;                    // signed in and the chosen source: only then is a roll of the cloud the cloud's
     return status;
   } catch { return null; }
 }
@@ -35,7 +35,7 @@ export function bambuBar({ onState = () => {}, onSynced = () => {} } = {}) {
   async function draw() {
     const status = await cloudStatus();
     onState();
-    if (!status || !status.enabled) { bar.hidden = true; return; }
+    if (!status || !status.active) { bar.hidden = true; return; }
     fill(bar, h('span', { class: 'muted' }, t('bambu.bar', { when: when(status.last_sync) })),
       status.pending ? h('span', { class: 'badge', title: t('bambu.pending', { n: status.pending }) }, t('bambu.pending_short', { n: status.pending })) : null,
       status.can_configure ? h('button', { class: 'btn small', type: 'button', onclick: async (e) => {
@@ -72,11 +72,6 @@ export function bambuCloudCard(onSynced = () => {}) {
       }).catch(() => badge.set('offline'));
     }
     const intro = [h('p', { class: 'muted' }, t('bambu.intro')), h('p', { class: 'hint' }, t('bambu.unofficial'))];
-    if (status.spoolman && !status.enabled) {                       // one source at a time
-      fill(card, head, ...intro, h('p', { class: 'notice', role: 'status' }, t('bambu.spoolman_first')));
-      card.hidden = false;
-      return;
-    }
     const parts = [head, ...intro, problem];
     if (status.enabled) {
       parts.push(h('p', { class: 'hint breakable' }, t('bambu.status', { n: status.rolls, when: when(status.last_sync) })));

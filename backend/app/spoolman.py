@@ -85,7 +85,9 @@ def address() -> str:
 
 
 def enabled() -> bool:
-    return bool(address())
+    """Whether Spoolman is in use: an address, and Spoolman + HaspelSync chosen as the source (`sources.py`). Chosen otherwise, the address rests."""
+    from . import sources                                 # imported here: it is asked by what this module imports
+    return bool(address()) and sources.uses("spoolman")
 
 
 def _call(method: str, path: str, **kwargs):
@@ -528,11 +530,10 @@ def save_settings():
         url = check_spoolman_url(value)
     except ConfigError:
         raise ApiError(400, "spoolman.bad_url") from None
-    from . import bambu_cloud                             # imported here: that module imports this one
-    if url and bambu_cloud.connected():                   # one source of the rolls at a time: sign out of the Bambu cloud first
-        raise ApiError(409, "spoolman.bambu_on")
     with pool().connection() as conn:
         conn.execute("INSERT INTO spoolman_settings (singleton, url) VALUES (true, %s) ON CONFLICT (singleton) DO UPDATE SET url = EXCLUDED.url", (url,))
+    from . import sources                                 # imported here: it is asked by what this module imports
+    sources.clear()                                       # the source may follow from the address while nobody chose one
     g.spoolman_address = url
     return status()
 
