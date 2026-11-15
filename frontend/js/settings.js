@@ -10,6 +10,7 @@ import { currentSubscription, disablePush, enablePush, forgetPush, pushSupport, 
 import { applyNavGlass, confirmDialog, fmt, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast } from './ui.js';
 import { BUILD } from './build.js';
 import { haspelsyncCard } from './haspelsync.js';
+import { bambuCloudCard } from './bambu-cloud.js';
 import { spoolmanCard } from './spoolman.js';
 import { usersCards } from './users.js';
 import { checkRelease, initRelease, releaseStatus } from './release.js';
@@ -1053,7 +1054,7 @@ export function settingsView(ctx, requested) {
     filamenten: () => filamentLibraryCards(),
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
-    koppelingen: () => integrationsCards([spoolmanCard(undefined, { configure: true }), haspelsyncCard()]),
+    koppelingen: () => integrationsCards([spoolmanCard(undefined, { configure: true }), bambuCloudCard(), haspelsyncCard()]),
     ai: () => [aiSettingsCard(), aiUsageCard(), aiLogCard()],
     backup: () => [backupCard()],
     systeem: () => [...aboutCards('systeem'), resetCard()],

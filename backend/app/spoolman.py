@@ -528,6 +528,9 @@ def save_settings():
         url = check_spoolman_url(value)
     except ConfigError:
         raise ApiError(400, "spoolman.bad_url") from None
+    from . import bambu_cloud                             # imported here: that module imports this one
+    if url and bambu_cloud.connected():                   # one source of the rolls at a time: sign out of the Bambu cloud first
+        raise ApiError(409, "spoolman.bambu_on")
     with pool().connection() as conn:
         conn.execute("INSERT INTO spoolman_settings (singleton, url) VALUES (true, %s) ON CONFLICT (singleton) DO UPDATE SET url = EXCLUDED.url", (url,))
     g.spoolman_address = url

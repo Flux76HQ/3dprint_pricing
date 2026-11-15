@@ -910,6 +910,43 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
 - **De bibliotheek blijft.** Spoolman vervangt de bibliotheek niet: zonder `SPOOLMAN_URL` werkt alles als voorheen, en de bibliotheek (GitHub-sync, factuurimport, bijdragen) kan ernaast blijven bestaan.
 - **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft. De wachtrij met eerdere boekingen die nog naar Spoolman moeten zit er niet in (werk in uitvoering).
 
+## Bambu Lab Filament Manager (optioneel)
+
+Gebruik je geen Spoolman, maar wel Bambu Studio of Bambu Handy? Dan kunnen je rollen uit de **Filament Manager van Bambu Lab** komen: de spoelen die je Bambu-account in de Bambu-cloud bijhoudt (Bambu-spoelen met een RFID-chip
+komen er via de AMS vanzelf in, andere voeg je in Studio of Handy toe). De app leest die spoelen en houdt het verbruik dat je afboekt ook daar bij, zodat Studio, Handy en de app hetzelfde laten zien.
+
+> **Let op: dit is geen officiële koppeling.** Bambu Lab biedt hier geen API voor. De app gebruikt dezelfde aanroepen als Bambu Studio (waarvan de broncode openbaar is), en Bambu kan die zonder aankondiging veranderen
+> of afschermen. Gebeurt dat, dan geeft de app een duidelijke foutmelding en blijven je rollen staan zoals ze waren; er wordt nooit een rol verkeerd ingevuld. De aanmelding verloopt na ongeveer **drie maanden** (Bambu biedt geen manier om haar te verlengen):
+> daarna meld je je opnieuw aan.
+
+**Eén bron tegelijk.** Is Spoolman gekoppeld, dan zijn je rollen van Spoolman en kan je je hier niet aanmelden (en ook niet synchroniseren). Ben je hier aangemeld, dan kan je geen adres van Spoolman invullen; meld je eerst af.
+Staat `SPOOLMAN_URL` in `.env`, dan gaat Spoolman altijd voor.
+
+- **Aanmelden** (alleen beheerders): *Instellingen → Koppelingen*, kaart *Filament Manager van Bambu Lab*. Vul het e-mailadres (of telefoonnummer) en het wachtwoord van je Bambu-account in en kies de regio (*Wereldwijd* of *China*).
+  Meestal stuurt Bambu Lab dan een **code per e-mail**; vul die in (hij is ongeveer tien minuten geldig, *Nieuwe code sturen* vraagt een nieuwe). Gebruikt je account een **authenticator-app**, dan vul je de code uit die app in.
+  Het wachtwoord gaat **alleen naar Bambu Lab** en wordt **nooit bewaard of gelogd**. Wat de app bewaart is het toegangsbewijs (token) dat Bambu teruggeeft: **versleuteld**, nooit meer getoond, **niet in een back-up**.
+  Verander je `SESSION_SECRET`, dan is het niet meer te lezen en meld je je opnieuw aan. De kaart laat zien met welk account je bent aangemeld en tot wanneer.
+- **Synchroniseren** (*Instellingen → Koppelingen* en bovenaan *Filament*, alleen voor beheerders; iedereen ziet wanneer het voor het laatst gebeurde). De app leest alle spoelen en maakt er elk een rol van, gekoppeld aan het spoelnummer in de cloud:
+  de volgende keer wordt die rol bijgewerkt, niet nog een keer toegevoegd. Een spoel die uit de cloud is verdwenen wordt hier **gearchiveerd, nooit verwijderd** (opgeslagen berekeningen kunnen ernaar verwijzen); komt hij terug, dan staat hij weer op de plank.
+- **Wat Bambu bijhoudt en wat de app bijhoudt.** De cloud kent het **merk, materiaal, de productlijn** (*Basic*, *HF*, *Matte*), **de kleurcode, het volle gewicht en wat er nog op zit**. Die komen bij elke synchronisatie uit de cloud;
+  zolang je bent aangemeld kan je ze hier niet wijzigen (pas ze aan in Studio of Handy), en een rol uit de cloud kan je hier niet archiveren of verwijderen. De cloud kent **geen kleurnaam, prijs, barcode, diameter of temperaturen**:
+  die vult de app één keer in als de rol hier wordt aangemaakt en zijn daarna van jou: je bewerkt ze zoals bij elke rol, en een synchronisatie laat ze staan. Dat geldt ook voor de **notities** (een notitie uit Studio komt alleen mee bij het aanmaken) en de melding *bijna op*.
+  Waar komt dat eerste invullen vandaan? (1) Een Bambu-spoel met RFID-chip draagt een artikelcode (*A00-K0*); staat er in de [filamentbibliotheek](#filamentbibliotheek) een regel van hetzelfde merk waarvan de SKU daarmee begint, dan komen de **kleurnaam, de richtprijs, de barcode**,
+  de diameter en de temperaturen uit die regel. Een Bambu Lab-factuur importeren is dus de snelste manier om je prijzen goed te hebben. (2) Anders zoekt de app in [SpoolmanDB](#spoolmandb-in-de-velden-van-een-nieuwe-rol) het filament met hetzelfde merk, materiaal en dezelfde kleurcode
+  (de Engelse kleurnaam, de diameter en de temperaturen). (3) Anders wordt de kleurcode de naam (*#FF6A13*), zodat twee kleuren nooit één soort worden. **Een prijs die niet uit de bibliotheek komt is 0**: vul hem in bij de rol, anders telt het filament in een berekening niet mee.
+- **Een rol staat hier één keer.** Stond een rol hier al omdat je hem met de hand invoerde, dan wordt hij aan de spoel **gekoppeld** en komt er geen tweede bij. Dezelfde rol is: hetzelfde merk en materiaal, dezelfde productlijn (of een van beide heeft er geen)
+  en dezelfde kleur: dezelfde kleurcode, of zonder kleurcode dezelfde kleurnaam (*Zwart* is *Black*). Eén rol hoort bij één spoel; bij twee kandidaten gaat de rol met het gewicht dat het dichtst bij dat van de spoel ligt voor. De gekoppelde rol houdt zijn plek in je 3D Modellen,
+  zijn prijs, kleurnaam, notities en melding; merk, materiaal, kleurcode en gewichten komen vanaf dan uit de cloud.
+- **Verbruik afboeken schrijft terug.** Bambu haalt zelf **niets** af van een spoel zonder RFID-chip (en een Bambu-spoel alleen via de AMS, terwijl Studio of Handy draait). Daarom boek je het verbruik van een 3D Model hier af zoals altijd (*Verbruik afboeken*),
+  en zet de app het nieuwe restgewicht van elke rol uit de cloud **ook in de cloud**. Dat gebeurt meteen na het afboeken; neemt de cloud het niet aan (niet bereikbaar, aanmelding verlopen), dan staat het in een wachtrij en stuurt de volgende synchronisatie het eerst door.
+  Tot dan telt de app het af van het gewicht dat de cloud meldt, zodat je voorraad niet terugspringt. Bovenaan *Filament* en op de kaart zie je hoeveel er nog moet worden gemeld. Is een spoel inmiddels uit de cloud verdwenen, of weigert Bambu de wijziging als ongeldig,
+  dan vervalt die melding. Een rol die je hier met de hand invoerde (geen spoel in de cloud) boek je alleen hier af. De cloud rekent in hele grammen.
+- **Afmelden** vergeet het token; je rollen blijven staan en houden hun koppeling, en kan je daarna bewerken zoals elke rol. Meld je je later met hetzelfde account aan, dan worden ze weer bijgewerkt (en gaat wat nog in de wachtrij stond alsnog mee).
+- **Back-up.** Een back-up bevat het spoelnummer van elke rol uit de cloud, zodat een teruggezette rol gekoppeld blijft. Het account, het token en de wachtrij zitten er niet in.
+- **Als het niet werkt.** *Bambu Lab hield het verzoek tegen* is de beveiliging tegen bots van Bambu: probeer het later opnieuw. *De aanmelding bij Bambu Lab is verlopen*: meld je opnieuw aan (je rollen blijven staan).
+  *De Bambu-cloud gaf een antwoord dat deze app niet begrijpt*: Bambu heeft waarschijnlijk iets veranderd; meld het in een issue. De app wacht hoogstens 5 seconden op de verbinding en 20 seconden op een antwoord, volgt geen doorverwijzing
+  en praat alleen met `api.bambulab.com` en `bambulab.com` (of `.cn` voor de regio China). De server moet daarvoor internet hebben.
+
 ## HaspelSync (optioneel)
 
 [HaspelSync](https://github.com/Rdiger-36/HaspelSync) koppelt Bambu Lab-printers aan Spoolman: het leest wat de AMS van een printer bevat en boekt na elke print het verbruik. Met deze koppeling laat de pagina *Printers*

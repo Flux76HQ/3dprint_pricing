@@ -22,6 +22,7 @@ ADMIN_ONLY = (
     ("/api/spoolman", False),           # syncing with Spoolman; the status is for everybody
     ("/api/spoolmandb", False),         # fetching a newer SpoolmanDB list; the list and its status are for everybody (the picker of a new roll)
     ("/api/haspelsync", False),         # the address and the key of HaspelSync, and its test; what it shows (the running print, the filament) is for everybody
+    ("/api/bambu-cloud", False),        # signing in to the Bambu account, signing out and syncing its spools; the status is for everybody
     ("/api/invoice-template", False),   # uploading and removing the invoice template
     ("/api/invoice-logo", False),       # uploading and removing the invoice logo
 )
