@@ -728,6 +728,7 @@ def model_editor():
         raise ApiError(404, "err.calc_not_found") from None
     spoolman_on = spoolman.enabled()                        # asked before this request holds a connection (see `spoolman.address`)
     haspelsync_on = haspelsync.enabled()                    # the same; whether there is one, never what it answers: that is another service, asked after the screen is open
+    bambu_on = _bambu_connected()
     with pool().read() as conn:
         answer = {name: LISTS[name](conn) for name in ("spools", "printers", "tariffs", "packaging", "parts", "accessories")}
         answer["stock"] = _stock(conn)
@@ -735,6 +736,7 @@ def model_editor():
         answer["listing"] = listings.present(conn, project_id) if project_id else None       # what it is offered for sale as (listings.py)
     answer["spoolman"] = {"enabled": spoolman_on}           # only decides what is offered; the server refuses a booking itself
     answer["haspelsync"] = {"enabled": haspelsync_on}       # decides whether the filament choice also offers what is in the printers (the screen asks for that itself, later)
+    answer["bambu_cloud"] = {"enabled": bambu_on}           # the same, read from the Bambu cloud when there is no HaspelSync (bambu_live.py)
     return jsonify(answer)
 
 

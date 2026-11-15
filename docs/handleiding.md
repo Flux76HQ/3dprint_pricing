@@ -943,15 +943,27 @@ Staat `SPOOLMAN_URL` in `.env`, dan gaat Spoolman altijd voor.
   dan vervalt die melding. Een rol die je hier met de hand invoerde (geen spoel in de cloud) boek je alleen hier af. De cloud rekent in hele grammen.
 - **Afmelden** vergeet het token; je rollen blijven staan en houden hun koppeling, en kan je daarna bewerken zoals elke rol. Meld je je later met hetzelfde account aan, dan worden ze weer bijgewerkt (en gaat wat nog in de wachtrij stond alsnog mee).
 - **Back-up.** Een back-up bevat het spoelnummer van elke rol uit de cloud, zodat een teruggezette rol gekoppeld blijft. Het account, het token en de wachtrij zitten er niet in.
+- **Live: wat de printer nu doet.** Ben je aangemeld en is er **geen HaspelSync** ingesteld, dan vult de Bambu-cloud de kaart *Nu in de printer* bovenaan *Printers*: de toestand, de naam van de print, de voortgang met de laag,
+  de resterende tijd en wanneer hij klaar is, en per slot van de AMS (en de externe spoelhouder als daar iets in zit) het materiaal, de kleur en wat erop zit, plus per AMS de luchtvochtigheid, de temperatuur en een lopende droogbeurt.
+  Kies daarvoor bij een printer onder *Printers* welke **Bambu Lab-printer** het is: de lijst komt uit je Bambu-account (alleen naam en serienummer; de toegangscode en het IP-adres van de printer worden niet gelezen). Is HaspelSync wel ingesteld, dan gaat HaspelSync voor.
+  - **Hoe.** Een printer meldt zijn toestand via MQTT, en de Bambu-cloud geeft die meldingen door aan wie met het account is aangemeld; zo lezen ook Bambu Handy en Home Assistant een printer van afstand. De app maakt daarvoor een versleutelde verbinding met
+    `us.mqtt.bambulab.com` (regio China: `cn.mqtt.bambulab.com`) op **poort 8883**, met hetzelfde token; de server moet die poort naar buiten mogen gebruiken. De printer moet met de Bambu-cloud verbonden zijn (in alleen LAN-modus komt er niets binnen).
+  - **Alleen lezen.** De app stuurt de printer nooit een opdracht; het enige bericht is het verzoek om een volledige melding, dat elke app stuurt die meeleest. Ook dit is **geen officiële koppeling**: elk veld wordt gecontroleerd en begrensd, en een melding die niet klopt wordt genegeerd.
+  - **Alleen terwijl je kijkt.** De verbinding gaat open als iemand *Printers* opent en sluit anderhalve minuut nadat niemand meer kijkt; de pagina vraagt elke 5 seconden opnieuw zolang hij open staat. Er wordt niets van bewaard. De eerste seconden zie je *Verbinden … wachten op de printer*.
+  - **Welke rol in een slot zit.** Een Bambu-spoel herkent de app aan zijn **RFID-chip** (bij het synchroniseren bewaart de app daarvan alleen een hash, nooit het nummer van de chip); een andere spoel aan de plek waar de Filament Manager hem het laatst zag, als het materiaal klopt.
+    Dan zie je de naam en het gewicht van **je rol** (met wat je hebt afgeboekt). Nooit op kleur gegokt: is het geen rol uit je Filament Manager, dan zie je wat de AMS zelf meldt, met zijn **schatting** van wat er nog op zit als hij die geeft. In de filamentkeuze van een 3D Model staan
+    de slots ook (*In de printer: naam*); een slot dat een rol is, wordt precies die rol.
+  - **Als het niet werkt.** *De printer heeft nog niets gemeld*: staat hij aan en is hij met de cloud verbonden? *Geen verbinding met de Bambu-cloud (MQTT, poort 8883)*: de server mag die poort niet bereiken. *De aanmelding … is verlopen*: meld je opnieuw aan.
 - **Als het niet werkt.** *Bambu Lab hield het verzoek tegen* is de beveiliging tegen bots van Bambu: probeer het later opnieuw. *De aanmelding bij Bambu Lab is verlopen*: meld je opnieuw aan (je rollen blijven staan).
   *De Bambu-cloud gaf een antwoord dat deze app niet begrijpt*: Bambu heeft waarschijnlijk iets veranderd; meld het in een issue. De app wacht hoogstens 5 seconden op de verbinding en 20 seconden op een antwoord, volgt geen doorverwijzing
-  en praat alleen met `api.bambulab.com` en `bambulab.com` (of `.cn` voor de regio China). De server moet daarvoor internet hebben.
+  en praat alleen met `api.bambulab.com` en `bambulab.com` (of `.cn` voor de regio China), en voor het live overzicht met de MQTT-server van Bambu (zie *Live* hierboven). De server moet daarvoor internet hebben.
 
 ## HaspelSync (optioneel)
 
 [HaspelSync](https://github.com/Rdiger-36/HaspelSync) koppelt Bambu Lab-printers aan Spoolman: het leest wat de AMS van een printer bevat en boekt na elke print het verbruik. Met deze koppeling laat de pagina *Printers*
 zien **wat een printer nu print en welk filament erin zit**. De app **leest alleen** uit HaspelSync; er wordt daar niets door gewijzigd. De koppeling staat los van de [Spoolman-koppeling](#spoolman-optioneel) van deze app: HaspelSync praat zelf met Spoolman,
 en de grammen die je bij een slot ziet zijn wat Spoolman via HaspelSync meldt.
+Gebruik je geen HaspelSync maar ben je wel aangemeld bij de [Filament Manager van Bambu Lab](#bambu-lab-filament-manager-optioneel), dan vult de Bambu-cloud dezelfde kaart (zie daar *Live*). Is HaspelSync ingesteld, dan gaat dat voor.
 
 **Instellen** (alleen beheerders): *Instellingen → Koppelingen*, kaart *HaspelSync*. Zonder adres is er geen HaspelSync en blijft alles zoals het was.
 
