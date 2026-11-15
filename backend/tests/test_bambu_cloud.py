@@ -461,17 +461,17 @@ def test_a_roll_typed_in_here_is_booked_here_only(app, owner, signed_in):
 
 # --- one source at a time ------------------------------------------------------------------------------------------------------
 
-def test_with_a_spoolman_signing_in_and_syncing_are_refused(app, owner, cloud):
-    app.config["APP_CONFIG"] = dataclasses.replace(app.config["APP_CONFIG"], spoolman_url="http://spoolman.test:7912")
-    assert says(sign_in(owner), 409, "bambu.spoolman_on")
-    assert sync(owner).status_code == 409
-    assert owner.get("/api/bambu-cloud").get_json()["spoolman"] is True
-
-
-def test_while_signed_in_a_spoolman_address_is_refused(owner, signed_in):
-    res = owner.put("/api/spoolman/settings", json={"url": "http://spoolman:8000"}, headers=H)
-    assert says(res, 409, "spoolman.bambu_on")
-    assert owner.put("/api/spoolman/settings", json={"url": ""}, headers=H).status_code == 200       # removing one is always fine
+def test_with_spoolman_chosen_the_sign_in_rests(app, owner, signed_in):
+    signed_in.spools = [spool(1)]
+    sync(owner)
+    roll = rolls(owner)[1]
+    assert owner.put("/api/spoolman/settings", json={"url": "http://spoolman:8000"}, headers=H).status_code == 200      # no longer refused
+    status = owner.get("/api/bambu-cloud").get_json()
+    assert (status["enabled"], status["active"]) == (True, False)                     # still signed in, not in use
+    assert says(sync(owner), 409, "bambu.not_chosen")
+    assert owner.get("/api/bambu-cloud/connection").get_json()["state"] == "resting"
+    assert owner.patch(f"/api/spools/{roll['id']}", json={"remaining_g": 10}, headers=H).status_code == 200            # a roll like any other now
+    assert sign_in(owner).status_code == 200                                           # signing in is not refused: it only rests
 
 
 # --- backup -------------------------------------------------------------------------------------------------------------------

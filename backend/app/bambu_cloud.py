@@ -175,8 +175,14 @@ def settings() -> dict:
 
 
 def connected() -> bool:
-    """Whether the app is signed in to a Bambu account, i.e. whether the cloud is the source of the rolls it mirrored."""
+    """Whether the app is signed in to a Bambu account (a token is kept, whether or not the cloud is in use)."""
     return settings()["connected"]
+
+
+def active() -> bool:
+    """Whether the Bambu cloud is in use: signed in, and part of the chosen source of the filament (`sources.uses`). Otherwise the sign-in rests."""
+    from . import sources                                 # imported here: it is asked by what this module imports
+    return connected() and sources.uses("bambu_cloud")
 
 
 def _hosts(region: str) -> tuple[str, str]:
@@ -222,10 +228,10 @@ def _keep_pending(region: str, account: str, step: dict) -> None:
     g.bambu_cloud = None
 
 
-def _refuse_with_spoolman() -> None:
-    from . import spoolman                                    # imported here: that module imports this one
-    if spoolman.enabled():
-        raise ApiError(409, "bambu.spoolman_on")
+def _refuse_unless_chosen() -> None:
+    from . import sources                                 # imported here: it is asked by what this module imports
+    if not sources.uses("bambu_cloud"):
+        raise ApiError(409, "bambu.not_chosen")
 
 
 def _account(body: dict) -> str:
@@ -239,7 +245,6 @@ def _account(body: dict) -> str:
 def login():
     """Sign in with the account and password of Bambu. Either it is done (`step: done`), or Bambu sent a code by e-mail (`step: code`) or wants the code of
     an authenticator app (`step: tfa`), which `POST /login/code` takes. The password goes to Bambu's login route only and is never kept."""
-    _refuse_with_spoolman()
     body = json_body()
     region = body.get("region", "global")
     if not isinstance(region, str) or region not in HOSTS:
@@ -659,9 +664,9 @@ def sync(conn, spools: list, skipped: int) -> dict:
 
 @bp.post("/sync")
 def run_sync():
-    _refuse_with_spoolman()
     if not connected():
         raise ApiError(400, "bambu.off")
+    _refuse_unless_chosen()
     try:
         with named_lock(pool(), LOCK):                    # one sync at a time; no transaction is open while Bambu is called
             spools, skipped = fetch_spools()
@@ -679,13 +684,12 @@ def run_sync():
 def _status() -> dict:
     """Whether the app is signed in, and how the rolls stand. An administrator also gets the account, the region, when the sign-in expires and whether a
     login waits for its code; the token never leaves the server."""
-    from . import spoolman                                # imported here: that module imports this one
     found, admin = settings(), getattr(g, "role", None) == "admin"
     with pool().read() as conn:
         rolls = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE bambu_id IS NOT NULL AND NOT archived").fetchone()["n"]
         latest = conn.execute("SELECT bambu_synced_at AS at FROM filament_spools WHERE bambu_id IS NOT NULL ORDER BY bambu_synced_at DESC LIMIT 1").fetchone()
         pending = conn.execute("SELECT count(*) AS n FROM bambu_cloud_pending_use").fetchone()["n"]
-    answer = {"enabled": found["connected"], "spoolman": spoolman.enabled(), "can_configure": admin, "rolls": rolls,
+    answer = {"enabled": found["connected"], "active": active(), "can_configure": admin, "rolls": rolls,
               "last_sync": latest["at"] if latest else None, "pending": pending}
     if admin:
         expires = found["expires_at"]
@@ -707,6 +711,8 @@ def connection():
     asks). Nothing of what Bambu answered is passed on."""
     if not connected():
         return jsonify({"state": "off", "message": None})
+    if not active():                                      # another source is chosen: the sign-in rests and Bambu is not asked
+        return jsonify({"state": "resting", "message": None})
     try:
         _authed("GET", f"{SPOOLS}?offset=0&limit=1")
     except BambuCloudError as exc:

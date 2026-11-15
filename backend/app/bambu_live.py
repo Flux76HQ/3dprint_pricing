@@ -451,7 +451,7 @@ def fetch_printers() -> list:
 
 @bp.get("/printers")
 def printers():
-    if not bambu_cloud.connected():
+    if not bambu_cloud.active():
         raise ApiError(400, "bambu.off")
     try:
         return jsonify(fetch_printers())
@@ -477,7 +477,7 @@ def live():
     """The running print and the filament of every printer here that names a printer of the account, as reported over the Bambu cloud. A printer that has
     not reported yet, or cannot be, carries `error` and its words; the connection opens with the first call and closes when nobody asks any more."""
     found = bambu_cloud.settings()
-    if not found["connected"]:
+    if not bambu_cloud.active():
         return jsonify({"enabled": False, "printers": []})
     with pool().read() as conn:
         rows = conn.execute("SELECT id, name, haspelsync_serial FROM printers WHERE haspelsync_serial <> '' AND NOT archived ORDER BY name").fetchall()

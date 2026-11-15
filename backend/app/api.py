@@ -226,23 +226,25 @@ def _share_notify(conn, row: dict, *, explicit: bool, creating: bool) -> dict:
     return row
 
 
-def _refuse_mirrored(conn, spool_id, values: "dict | None", *, bambu_on: bool) -> None:
-    """A roll that comes from Spoolman is Spoolman's to change (a sync would put it back); only `notify_low` is the app's own. A roll of the Bambu
-    Filament Manager is the cloud's in what the cloud keeps (`bambu_cloud.OWNED`), while the app is signed in: those fields may be sent as they are
-    (the form sends every field) but not changed, and the roll cannot be deleted. `values` None is a delete."""
+def _refuse_mirrored(conn, spool_id, values: "dict | None", *, spoolman_on: bool, bambu_on: bool) -> None:
+    """A roll that comes from Spoolman is Spoolman's to change while Spoolman is in use (a sync would put it back); only `notify_low` is the app's own. A
+    roll of the Bambu Filament Manager is the cloud's in what the cloud keeps (`bambu_cloud.OWNED`) while the cloud is in use: those fields may be sent as
+    they are (the form sends every field) but not changed, and the roll cannot be deleted. `values` None is a delete. A roll of the source that is not in
+    use (`sources.py`) is a roll like any other until it is chosen again."""
     from . import bambu_cloud                               # imported here: that module imports this one
     row = conn.execute("SELECT * FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
     if row is None:
         return
-    if row["spoolman_id"] is not None and (values is None or not set(values) <= {"notify_low"}):
+    if row["spoolman_id"] is not None and spoolman_on and (values is None or not set(values) <= {"notify_low"}):
         raise ApiError(409, "spoolman.managed")
     if row["bambu_id"] is not None and bambu_on and (values is None or any(k in values and values[k] != row[k] for k in bambu_cloud.OWNED)):
         raise ApiError(409, "bambu.managed")
 
 
-def _bambu_connected() -> bool:
-    from . import bambu_cloud                               # imported here: that module imports this one
-    return bambu_cloud.connected()
+def _sources_in_use() -> tuple[bool, bool]:
+    """(Spoolman in use, the Bambu cloud in use), asked before a request holds a connection (see `spoolman.address`, `bambu_cloud.settings`)."""
+    from . import bambu_cloud, spoolman                     # imported here: those modules import this one
+    return spoolman.enabled(), bambu_cloud.active()
 
 
 def _refuse_taken_serial(conn, printer_id, serial: str) -> None:
@@ -310,10 +312,10 @@ def _register(path, table, fields, order):
         if not values:
             raise ApiError(400, "err.nothing_to_change")
         sets = ", ".join(f"{k} = %s" for k in values)
-        bambu_on = table == "filament_spools" and _bambu_connected()      # asked before this request holds a connection (see `bambu_cloud.settings`)
+        spoolman_on, bambu_on = _sources_in_use() if table == "filament_spools" else (False, False)
         with pool().connection() as conn:
             if table == "filament_spools":
-                _refuse_mirrored(conn, item_id, values, bambu_on=bambu_on)
+                _refuse_mirrored(conn, item_id, values, spoolman_on=spoolman_on, bambu_on=bambu_on)
             if table == "filament_library":
                 from . import filament_library
                 filament_library.before_update(conn, item_id, values)
@@ -332,10 +334,10 @@ def _register(path, table, fields, order):
         return jsonify(_serialise(row))
 
     def delete(item_id):
-        bambu_on = table == "filament_spools" and _bambu_connected()
+        spoolman_on, bambu_on = _sources_in_use() if table == "filament_spools" else (False, False)
         with pool().connection() as conn:
             if table == "filament_spools":
-                _refuse_mirrored(conn, item_id, None, bambu_on=bambu_on)
+                _refuse_mirrored(conn, item_id, None, spoolman_on=spoolman_on, bambu_on=bambu_on)
             row = conn.execute(f"DELETE FROM {table} WHERE id = %s RETURNING id", (item_id,)).fetchone()
         if row is None:
             raise ApiError(404, "err.not_found")
@@ -728,7 +730,7 @@ def model_editor():
         raise ApiError(404, "err.calc_not_found") from None
     spoolman_on = spoolman.enabled()                        # asked before this request holds a connection (see `spoolman.address`)
     haspelsync_on = haspelsync.enabled()                    # the same; whether there is one, never what it answers: that is another service, asked after the screen is open
-    bambu_on = _bambu_connected()
+    bambu_on = _sources_in_use()[1]
     with pool().read() as conn:
         answer = {name: LISTS[name](conn) for name in ("spools", "printers", "tariffs", "packaging", "parts", "accessories")}
         answer["stock"] = _stock(conn)
@@ -892,7 +894,7 @@ def book_stock(project_id):
     from . import bambu_cloud, listings, spoolman           # imported here: those modules import this one
     if spoolman.enabled():                                  # asked before this request holds a connection (see `spoolman.address`)
         raise ApiError(409, "spoolman.no_booking")
-    bambu_on = bambu_cloud.connected()
+    bambu_on = bambu_cloud.active()
     with pool().connection() as conn:
         project = conn.execute("SELECT data, stock_booked_at FROM projects WHERE id = %s",
                                (project_id,)).fetchone()

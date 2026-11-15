@@ -557,8 +557,14 @@ Het menu links is gegroepeerd (*Verkoop*, *Voorraad*, *Productie*), met *Instell
 
 ## Koppelingen: API-sleutels en webhooks
 
-*Instellingen → Beheer → Koppelingen* (alleen beheerders). Op deze pagina staan alle koppelingen met andere applicaties, elk als kaart: [Spoolman](#spoolman-optioneel) en [HaspelSync](#haspelsync-optioneel)
-(die leveren gegevens aan deze app), en daaronder de API-sleutels en de webhooks.
+*Instellingen → Beheer → Koppelingen* (alleen beheerders). Op deze pagina staan alle koppelingen met andere applicaties, elk als kaart.
+
+**Bron van je filament en printers.** Bovenaan kies je waar de app je rollen, wat erop zit en wat je printers doen vandaan haalt: **Spoolman en HaspelSync** ([Spoolman](#spoolman-optioneel) voor de rollen, [HaspelSync](#haspelsync-optioneel)
+voor het live overzicht) of de **Bambu Lab-cloud** (de [Filament Manager van Bambu Lab](#bambu-lab-filament-manager-optioneel), voor beide). Er is één bron tegelijk in gebruik, en daaronder staan alleen de kaarten van die bron; de andere zijn verborgen en worden
+nergens gebruikt (ook niet op *Filament*, *Printers* of in een 3D Model). **Er wordt niets weggegooid**: adressen, de sleutel van HaspelSync en je aanmelding bij Bambu Lab blijven bewaard, dus terugwisselen is één keuze. Heeft nog niemand gekozen, dan neemt de app
+de bron die bij je instellingen past: Spoolman en HaspelSync als er een Spoolman-adres is, anders de Bambu Lab-cloud als je daar bent aangemeld, anders Spoolman en HaspelSync. De keuze staat niet in een back-up (net als de adressen) en alleen een beheerder kan haar wijzigen.
+
+Daaronder staan de API-sleutels en de webhooks.
 
 **Elke kaart klapt dicht, en dicht zie je nog hoe het ervoor staat.** Naast de titel staat de toestand van de koppeling: **Actief** (groen), **Niet verbonden** (rood: er is een koppeling ingesteld, maar de andere kant antwoordt niet of weigert)
 of **Niet geconfigureerd** (grijs), met kort erachter wat erbij hoort (een adres, het aantal printers, sleutels of webhooks). Bij Spoolman en HaspelSync vraagt de pagina dat telkens opnieuw aan de andere kant (zolang dat duurt, staat er *Controleren…*);
@@ -919,8 +925,8 @@ komen er via de AMS vanzelf in, andere voeg je in Studio of Handy toe). De app l
 > of afschermen. Gebeurt dat, dan geeft de app een duidelijke foutmelding en blijven je rollen staan zoals ze waren; er wordt nooit een rol verkeerd ingevuld. De aanmelding verloopt na ongeveer **drie maanden** (Bambu biedt geen manier om haar te verlengen):
 > daarna meld je je opnieuw aan.
 
-**Eén bron tegelijk.** Is Spoolman gekoppeld, dan zijn je rollen van Spoolman en kan je je hier niet aanmelden (en ook niet synchroniseren). Ben je hier aangemeld, dan kan je geen adres van Spoolman invullen; meld je eerst af.
-Staat `SPOOLMAN_URL` in `.env`, dan gaat Spoolman altijd voor.
+**Eén bron tegelijk.** De Filament Manager wordt alleen gebruikt als bovenaan *Instellingen → Koppelingen* de bron **Bambu Lab-cloud** is gekozen (zie [Koppelingen](#koppelingen-api-sleutels-en-webhooks)).
+Is daar *Spoolman en HaspelSync* gekozen, dan blijft je aanmelding bewaard maar wordt ze niet gebruikt: er wordt niet gesynchroniseerd, niets teruggeschreven en een rol uit de cloud is dan een rol zoals elke andere.
 
 - **Aanmelden** (alleen beheerders): *Instellingen → Koppelingen*, kaart *Filament Manager van Bambu Lab*. Vul het e-mailadres (of telefoonnummer) en het wachtwoord van je Bambu-account in en kies de regio (*Wereldwijd* of *China*).
   Meestal stuurt Bambu Lab dan een **code per e-mail**; vul die in (hij is ongeveer tien minuten geldig, *Nieuwe code sturen* vraagt een nieuwe). Gebruikt je account een **authenticator-app**, dan vul je de code uit die app in.
@@ -943,7 +949,7 @@ Staat `SPOOLMAN_URL` in `.env`, dan gaat Spoolman altijd voor.
   dan vervalt die melding. Een rol die je hier met de hand invoerde (geen spoel in de cloud) boek je alleen hier af. De cloud rekent in hele grammen.
 - **Afmelden** vergeet het token; je rollen blijven staan en houden hun koppeling, en kan je daarna bewerken zoals elke rol. Meld je je later met hetzelfde account aan, dan worden ze weer bijgewerkt (en gaat wat nog in de wachtrij stond alsnog mee).
 - **Back-up.** Een back-up bevat het spoelnummer van elke rol uit de cloud, zodat een teruggezette rol gekoppeld blijft. Het account, het token en de wachtrij zitten er niet in.
-- **Live: wat de printer nu doet.** Ben je aangemeld en is er **geen HaspelSync** ingesteld, dan vult de Bambu-cloud de kaart *Nu in de printer* bovenaan *Printers*: de toestand, de naam van de print, de voortgang met de laag,
+- **Live: wat de printer nu doet.** Is de Bambu Lab-cloud de gekozen bron en ben je aangemeld, dan vult de Bambu-cloud de kaart *Nu in de printer* bovenaan *Printers*: de toestand, de naam van de print, de voortgang met de laag,
   de resterende tijd en wanneer hij klaar is, en per slot van de AMS (en de externe spoelhouder als daar iets in zit) het materiaal, de kleur en wat erop zit, plus per AMS de luchtvochtigheid, de temperatuur en een lopende droogbeurt.
   Kies daarvoor bij een printer onder *Printers* welke **Bambu Lab-printer** het is: de lijst komt uit je Bambu-account (alleen naam en serienummer; de toegangscode en het IP-adres van de printer worden niet gelezen). Is HaspelSync wel ingesteld, dan gaat HaspelSync voor.
   - **Hoe.** Een printer meldt zijn toestand via MQTT, en de Bambu-cloud geeft die meldingen door aan wie met het account is aangemeld; zo lezen ook Bambu Handy en Home Assistant een printer van afstand. De app maakt daarvoor een versleutelde verbinding met
@@ -963,7 +969,8 @@ Staat `SPOOLMAN_URL` in `.env`, dan gaat Spoolman altijd voor.
 [HaspelSync](https://github.com/Rdiger-36/HaspelSync) koppelt Bambu Lab-printers aan Spoolman: het leest wat de AMS van een printer bevat en boekt na elke print het verbruik. Met deze koppeling laat de pagina *Printers*
 zien **wat een printer nu print en welk filament erin zit**. De app **leest alleen** uit HaspelSync; er wordt daar niets door gewijzigd. De koppeling staat los van de [Spoolman-koppeling](#spoolman-optioneel) van deze app: HaspelSync praat zelf met Spoolman,
 en de grammen die je bij een slot ziet zijn wat Spoolman via HaspelSync meldt.
-Gebruik je geen HaspelSync maar ben je wel aangemeld bij de [Filament Manager van Bambu Lab](#bambu-lab-filament-manager-optioneel), dan vult de Bambu-cloud dezelfde kaart (zie daar *Live*). Is HaspelSync ingesteld, dan gaat dat voor.
+HaspelSync wordt alleen gebruikt als bovenaan *Instellingen → Koppelingen* de bron **Spoolman en HaspelSync** is gekozen. Is daar de **Bambu Lab-cloud** gekozen, dan blijven adres en sleutel bewaard maar wordt HaspelSync niet gevraagd,
+en vult de [Filament Manager van Bambu Lab](#bambu-lab-filament-manager-optioneel) dezelfde kaart (zie daar *Live*).
 
 **Instellen** (alleen beheerders): *Instellingen → Koppelingen*, kaart *HaspelSync*. Zonder adres is er geen HaspelSync en blijft alles zoals het was.
 
