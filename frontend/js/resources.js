@@ -5,6 +5,7 @@ import { openBulkScan } from './bulk-scan.js';
 import { listView, rowActions } from './listview.js';
 import { scanBarcode } from './scanner.js';
 import { livePanel, serialField } from './haspelsync.js';
+import { bambuBar, cloudSignedIn } from './bambu-cloud.js';
 import { spoolmanBar } from './spoolman.js';
 import { colourLabel, filledText, rowFor, spoolmanDbCatalogue } from './spoolmandb.js';
 import { askChoice, confirmDialog, enhanceDialog, eur, field, fmt, h, icon, spoolName, toast } from './ui.js';
@@ -97,13 +98,14 @@ function resources() {
     card(item) {
       return {
         icon: spoolIcon(colourOf(item), 34),
-        title: spoolName(item, ' · '), badge: item.spoolman_id ? t('spoolman.badge') : null,
+        title: spoolName(item, ' · '), badge: item.spoolman_id ? t('spoolman.badge') : (item.bambu_id ? t('bambu.badge') : null),
         subtitle: [item.material, t('filament.per_roll_price', { price: eur(item.price) })].filter(Boolean).join(' · '),
         stats: [[t('filament.per_kg'), eur(perKg(item))], [t('filament.left'), `${fmt(item.remaining_g, 0)} g`], [t('filament.diameter_short'), `${fmt(item.diameter_mm)} mm`],
           ...(item.print_temp_c != null ? [[t('filament.print_temp_short'), `${item.print_temp_c} °C`]] : []),
           ...(item.bed_temp_c != null ? [[t('filament.bed_temp_short'), `${item.bed_temp_c} °C`]] : [])],
         extra: meter(item),
-        footnote: [item.barcode ? t('filament.barcode_note', { code: item.barcode }) : null, item.spoolman_id ? t('spoolman.note') : null].filter(Boolean).join(' · ') || null,
+        footnote: [item.barcode ? t('filament.barcode_note', { code: item.barcode }) : null, item.spoolman_id ? t('spoolman.note') : null,
+          item.bambu_id ? t('bambu.note') : null].filter(Boolean).join(' · ') || null,
       };
     },
     name: (item) => spoolName(item, ' · '),
@@ -125,6 +127,7 @@ function resources() {
     columns: [
       { label: t('filament.roll'), sort: 'name', cls: 'main', cell: (item) => h('div', { class: 'cell-main' }, spoolIcon(colourOf(item), 28),
         h('div', {}, h('span', { class: 'cell-title' }, spoolName(item, ' · '), item.spoolman_id ? h('span', { class: 'badge' }, t('spoolman.badge')) : null,
+          item.bambu_id ? h('span', { class: 'badge' }, t('bambu.badge')) : null,
           item.archived ? h('span', { class: 'badge muted' }, t('common.archived')) : null),
         item.notes ? h('div', { class: 'cell-sub muted' }, item.notes) : null)) },
       { label: t('sort.material'), sort: 'material', cell: (item) => item.material || '—' },
@@ -134,7 +137,9 @@ function resources() {
       { label: t('filament.barcode'), cls: 'nowrap', wide: true, cell: (item) => item.barcode || '—' }],
     // A roll typed in here can be duplicated: the roll form, filled in with this roll, makes one or more new ones.
     // A roll from Spoolman is Spoolman's to change (the server refuses it), and a new one is made there: all that is left here is the low-stock alert.
+    // A roll of the Bambu Filament Manager is edited (what the cloud does not keep), never duplicated: a new spool is added in Bambu Studio or Handy.
     actions(item, reload) {
+      if (cloudManaged(item)) return [];
       if (!item.spoolman_id) {
         return [{ icon: 'copy', label: t('filament.duplicate_named', { name: spoolName(item, ' · ') }), onclick: () => openForm(this, null, reload, { copyOf: item }) }];
       }
@@ -290,6 +295,8 @@ async function askToPassOn(config, item, payload) {
     (what is left is per roll), and asks how many: they are all added at once. */
 export function openForm(config, item, reload, { copyOf = null } = {}) {
   if (item || copyOf) config = { ...config, fields: config.fields.filter((f) => !f.newOnly) };     // an option of making a new one from scratch, not of editing or copying
+  const cloud = config.id === 'filament' && cloudManaged(item);
+  if (cloud) config = { ...config, fields: config.fields.filter((f) => !CLOUD_KEEPS.includes(f.key)) };      // the cloud's to change: not shown, not sent
   const copied = copyOf ? { ...Object.fromEntries(config.fields.map((f) => [f.key, copyOf[f.key] ?? ''])), remaining_g: copyOf.roll_weight_g, count: '1' } : null;
   const values = { ...(item || copied || config.defaults) };
   const error = h('p', { class: 'error', role: 'alert', hidden: true });
@@ -722,6 +729,7 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
     h('h2', {}, item ? t(`${config.id}.edit`) : (copyOf ? t('filament.duplicate_title') : t(`${config.id}.new`))),
     copyOf ? h('p', { class: 'hint' }, t('filament.duplicate_intro', { name: spoolName(copyOf, ' · ') })) : null,
     item?.spoolmandb_id ? h('p', { class: 'hint' }, t('spoolmandb.item_source', { id: item.spoolmandb_id })) : null,
+    cloud ? h('p', { class: 'notice', role: 'status' }, t('bambu.form_note', { name: spoolName(item, ' · '), left: fmt(item.remaining_g, 0), weight: fmt(item.roll_weight_g, 0) })) : null,
     countField,
     fresh ? libraryPicker() : null,
     ...inputs, config.image ? pictureField() : null, ...datalists, error,
@@ -733,6 +741,11 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
   dialog.showModal();
   return dialog;
 }
+
+// What the Bambu Filament Manager keeps of a roll (bambu_cloud.OWNED on the server): while the app is signed in, the cloud changes it and the server refuses
+// to; the form leaves those fields out, so it sends only what the app keeps (price, colour name, notes, ...).
+const CLOUD_KEEPS = ['brand', 'product_type', 'material', 'colour_hex', 'roll_weight_g', 'remaining_g', 'archived'];
+const cloudManaged = (item) => !!(item && item.bambu_id && cloudSignedIn());
 
 // What was typed and filtered on the filament page is kept while switching between its two parts.
 const filamentMemory = {};
@@ -799,11 +812,11 @@ export function resourceView(key, sub) {
   const actionsOf = (item) => rowActions([
     item.spoolman_id ? null : { icon: 'edit', label: t('common.edit_named', { name: nameOf(item) }), onclick: () => openForm(config, item, load) },
     ...(config.actions ? config.actions.call(config, item, load) : []),
-    config.archivable && !item.spoolman_id ? { icon: item.archived ? 'restore' : 'archive', label: item.archived ? t('common.restore') : t('common.archive'), onclick: async () => {
+    config.archivable && !item.spoolman_id && !cloudManaged(item) ? { icon: item.archived ? 'restore' : 'archive', label: item.archived ? t('common.restore') : t('common.archive'), onclick: async () => {
       await api('PATCH', `${config.path}/${item.id}`, { archived: !item.archived });
       load();
     } } : null,
-    item.spoolman_id ? null : { icon: 'trash', danger: true, label: t('common.delete_named', { name: nameOf(item) }), onclick: async () => {
+    item.spoolman_id || cloudManaged(item) ? null : { icon: 'trash', danger: true, label: t('common.delete_named', { name: nameOf(item) }), onclick: async () => {
       if (await confirmDialog(t('common.delete_confirm', { name: nameOf(item) }))) {
         await api('DELETE', `${config.path}/${item.id}`);
         load();
@@ -872,7 +885,7 @@ export function resourceView(key, sub) {
     key === 'filament' ? h('div', { class: 'subbar' },
       h('nav', { class: 'subnav', 'aria-label': t('filament.parts') },
         ...[['voorraad', 'filament.part_stock'], ['rollen', 'filament.part_rolls']].map(([to, label]) => h('a', { href: `#/filament/${to}`, 'aria-current': part === to ? 'page' : null }, t(label)))),
-      spoolmanBar(load)) : null,
+      spoolmanBar(load), bambuBar({ onState: () => { if (!stock && items.length) show(); }, onSynced: load })) : null,
     key === 'onderdelen' || key === 'accessoires' ? h('nav', { class: 'subnav', 'aria-label': t('parts.tabs') },
       ...[['onderdelen', 'parts.title'], ['accessoires', 'accessories.title']].map(([to, label]) => h('a', { href: `#/onderdelen${to === 'accessoires' ? '/accessoires' : ''}`, 'aria-current': key === to ? 'page' : null }, t(label)))) : null,
     stock ? stock.el : view.el);

@@ -121,6 +121,8 @@ ADMIN_ONLY_CALLS = [
     ("POST", "/api/spoolman/sync"), ("POST", "/api/spoolman/push-library"), ("PUT", "/api/spoolman/settings"), ("POST", "/api/spoolman/test"), ("POST", "/api/spoolman/push-rolls"), ("POST", "/api/spoolmandb/sync"), ("POST", "/api/invoice-template"), ("DELETE", "/api/invoice-template"),
     ("POST", "/api/invoice-logo"), ("DELETE", "/api/invoice-logo"),
     ("PUT", "/api/haspelsync/settings"), ("POST", "/api/haspelsync/test"),
+    ("POST", "/api/bambu-cloud/login"), ("POST", "/api/bambu-cloud/login/code"), ("POST", "/api/bambu-cloud/login/resend"), ("DELETE", "/api/bambu-cloud/login"),
+    ("POST", "/api/bambu-cloud/sync"),
     ("GET", "/api/integrations/keys"), ("POST", "/api/integrations/keys"), ("DELETE", f"/api/integrations/keys/{uuid.uuid4()}"),
     ("GET", "/api/integrations/webhooks"), ("POST", "/api/integrations/webhooks"), ("PATCH", f"/api/integrations/webhooks/{uuid.uuid4()}"),
     ("DELETE", f"/api/integrations/webhooks/{uuid.uuid4()}"), ("POST", f"/api/integrations/webhooks/{uuid.uuid4()}/rotate"),

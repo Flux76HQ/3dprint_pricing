@@ -466,6 +466,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     try {
       const res = await api('POST', `/api/projects/${state.id}/book-stock`);
       toast(res.short.length ? t('calc.booked_short', { items: res.short.join(', ') }) : t('calc.stock_booked'), res.short.length ? 'error' : 'info');
+      if (res.cloud_waiting) toast(t('bambu.booked_waiting', { n: res.cloud_waiting }));      // the cloud did not take it yet: the next sync sends it
       navigate(`#/berekeningen/${state.id}`, true);
     } catch (e) { toast(e.message, 'error'); }
   }

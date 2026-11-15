@@ -110,7 +110,7 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
     doc["preferences"] = preferences.load(conn, user_id)        # the person's own, and the business's on top
     for key, resource in SECTIONS:
         table, fields, _order = (*RESOURCES[resource][:2], None)
-        columns = ["id", *fields, *(["spoolman_id"] if key == "spools" else []), "created_at"]         # the number keeps a restored roll linked to its spool in Spoolman
+        columns = ["id", *fields, *(["spoolman_id", "bambu_id"] if key == "spools" else []), "created_at"]   # the numbers keep a restored roll linked to its spool in Spoolman or the Bambu cloud
         rows = conn.execute(f"SELECT {', '.join(columns)} FROM {table} ORDER BY created_at, id").fetchall()
         doc[key] = [_serialise(r) for r in rows]
     rows = conn.execute(f"SELECT {', '.join(PROJECT_COLUMNS)} FROM projects ORDER BY created_at, id").fetchall()
@@ -267,6 +267,15 @@ def _spoolman_id(value, taken: set):
     return value
 
 
+def _bambu_id(value, taken: set):
+    """The spool number in the Bambu cloud (a 64-bit number there), or None for a roll that is not from it. Two rolls cannot share one."""
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or not 0 < value < 2 ** 63 or value in taken:
+        raise Localized("backup.bad_bambu_id")
+    return value
+
+
 def _row_error(key: str, n: int, error) -> ApiError:
     reason = error.msg if hasattr(error, "msg") else str(error)
     return ApiError(400, "backup.bad_row", section=L(f"backup.s.{key}"), n=n, reason=reason)
@@ -309,6 +318,7 @@ def _parse(doc, archive=None, progress=None) -> dict:
                 values = _validated(fields, row, partial=False)
                 if key == "spools":
                     values["spoolman_id"] = _spoolman_id(row.get("spoolman_id"), {p["values"]["spoolman_id"] for p in parsed})
+                    values["bambu_id"] = _bambu_id(row.get("bambu_id"), {p["values"]["bambu_id"] for p in parsed})
                 parsed.append({"id": _uuid(row.get("id") or uuid.uuid4(), key), "values": values,
                                "created_at": _when(row.get("created_at"))})
             except (ApiError, Localized) as exc:
