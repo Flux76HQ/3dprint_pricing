@@ -29,3 +29,5 @@ standardwebhooks==1.1.0
 # the Bambu Lab Filament Manager (bambu_cloud.py): Bambu's cloud refuses a plain HTTP client at its login (bot protection); curl_cffi is libcurl
 # that presents itself as a browser. Wheels for amd64 and arm64; it needs cffi and certifi, which cryptography and requests already pull in
 curl_cffi==0.16.3
+# the live view of a Bambu Lab printer through the Bambu cloud (bambu_live.py): MQTT over TLS; pure Python, no dependencies
+paho-mqtt==2.1.0

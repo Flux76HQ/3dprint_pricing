@@ -31,6 +31,7 @@ the booking and first in every sync. Until a use is sent, a sync subtracts it fr
 **One source at a time.** While a Spoolman is set, the rolls are Spoolman's: signing in here is refused, and so is a sync. Typing a Spoolman address
 while signed in here is refused by `spoolman.save_settings`.
 """
+import hashlib
 import json
 import logging
 import re
@@ -334,6 +335,8 @@ def logout():
     with pool().connection() as conn:
         _save(conn, token_enc=None, expires_at=None, pending_enc=None, pending_until=None)
     g.bambu_cloud = None
+    from . import bambu_live                              # imported here: that module imports this one
+    bambu_live.close()                                    # this worker's live connection; another worker's closes when nobody asks for it
     return jsonify(_status())
 
 
@@ -409,6 +412,33 @@ def to_roll(spool: dict) -> dict:
     return {"brand": _text(spool.get("filamentVendor"), 100) or "Bambu Lab", "product_type": line[:60], "material": material, "colour_hex": _hex(spool),
             "roll_weight_g": min(total, TOP_WEIGHT) if total and total > 0 else Decimal("1000.0"),
             "remaining_g": min(max(left or Decimal(0), Decimal(0)), TOP_WEIGHT), "archived": False}
+
+
+RFID = re.compile(r"^[0-9A-F]{8,32}$")
+SERIAL = re.compile(r"^[0-9A-Z]{6,32}$")
+
+
+def tag_of(rfid) -> str:
+    """The trace of an RFID chip that this app keeps: its SHA-256, never the chip's number. "" for no chip (Bambu writes zeros for a spool without one)."""
+    chip = rfid.strip().upper() if isinstance(rfid, str) else ""
+    return hashlib.sha256(chip.encode()).hexdigest() if RFID.fullmatch(chip) and chip.strip("0") else ""
+
+
+def _slot_number(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    return value if isinstance(value, int) and 0 <= value <= 255 else None
+
+
+def trace(spool: dict) -> dict:
+    """Where the cloud says a spool is, for the live view (`bambu_live`): the trace of its chip, and the printer, AMS and slot the Filament Manager last saw
+    it in ("<serial>/<AMS>/<slot>"), or "" when it is not in a printer or a part of that does not read as one."""
+    serial = spool.get("devId").strip().upper() if isinstance(spool.get("devId"), str) else ""
+    ams, slot = _slot_number(spool.get("amsId")), _slot_number(spool.get("slotId"))
+    place = f"{serial}/{ams}/{slot}" if spool.get("inPrinter") is True and SERIAL.fullmatch(serial) and ams is not None and slot is not None else ""
+    return {"bambu_tag": tag_of(spool.get("RFID")), "bambu_slot": place}
 
 
 def _article(spool: dict) -> str:
@@ -498,10 +528,10 @@ def _twins(spools: list, typed: list, described: dict) -> dict:
     return twins
 
 
-def _link(conn, roll: dict, spool_id: int, owned: dict, extra: dict) -> None:
+def _link(conn, roll: dict, spool_id: int, owned: dict, extra: dict, traces: dict) -> None:
     """A roll typed in here turns out to be this spool: it is that spool's roll from now on, with the cloud's details. It keeps its id (calculations point
     at it), its notes and alert, and of `EXTRA` whatever it already had; only what it lacked is filled in."""
-    values = {**owned, **{k: v for k, v in extra.items() if roll[k] in ("", None) or (k == "price" and roll[k] == 0)}}
+    values = {**owned, **traces, **{k: v for k, v in extra.items() if roll[k] in ("", None) or (k == "price" and roll[k] == 0)}}
     conn.execute(f"UPDATE filament_spools SET bambu_id = %s, bambu_synced_at = now(), {', '.join(f'{k} = %s' for k in values)} WHERE id = %s",
                  (spool_id, *values.values(), roll["id"]))
 
@@ -605,10 +635,10 @@ def sync(conn, spools: list, skipped: int) -> dict:
         if row is None:
             twin = twins.pop(spool["id"], None)
             if twin is not None:                         # typed in here before it was read from the cloud: the same roll, so not a second row
-                _link(conn, twin, spool["id"], owned, extra)
+                _link(conn, twin, spool["id"], owned, extra, trace(spool))
                 linked += 1
                 continue
-            values = {**owned, **extra, "notes": _text(spool.get("note"), 1000)}
+            values = {**owned, **extra, **trace(spool), "notes": _text(spool.get("note"), 1000)}
             row = conn.execute(f"INSERT INTO filament_spools (bambu_id, bambu_synced_at, {', '.join(values)}) "
                                f"VALUES (%s, now(), {', '.join(['%s'] * len(values))}) RETURNING *", (spool["id"], *values.values())).fetchone()
             _share_notify(conn, row, explicit=False, creating=True)      # a new roll of a kind that is watched is watched too
@@ -617,10 +647,13 @@ def sync(conn, spools: list, skipped: int) -> dict:
         if any(row[k] != v for k, v in owned.items()):
             conn.execute(f"UPDATE filament_spools SET {', '.join(f'{k} = %s' for k in owned)} WHERE id = %s", (*owned.values(), row["id"]))
             updated += 1
+        traces = trace(spool)                             # where it is: not a change of the roll, so not counted as one
+        if any(row[k] != v for k, v in traces.items()):
+            conn.execute("UPDATE filament_spools SET bambu_tag = %s, bambu_slot = %s WHERE id = %s", (traces["bambu_tag"], traces["bambu_slot"], row["id"]))
         conn.execute("UPDATE filament_spools SET bambu_synced_at = now() WHERE id = %s", (row["id"],))
     gone = [r["id"] for r in have.values() if not r["archived"]]
     if gone:
-        conn.execute("UPDATE filament_spools SET archived = true WHERE id IN (SELECT value FROM json_each(%s))", (id_list(gone),))
+        conn.execute("UPDATE filament_spools SET archived = true, bambu_slot = '' WHERE id IN (SELECT value FROM json_each(%s))", (id_list(gone),))
     return {"created": created, "linked": linked, "updated": updated, "archived": len(gone), "skipped": skipped, "total": len(spools)}
 
 
