@@ -1,9 +1,9 @@
 flask==3.1.3
-gunicorn==26.2.0
-psycopg[binary]==3.3.8
+gunicorn==27.0.1
+psycopg[binary]==3.3.9
 # WebAuthn / passkeys (app/webauthn.py); the next five are what it pulls in, pinned like the rest
 webauthn==3.0.1
-cbor2==6.2.0.post2
+cbor2==6.2.1
 cryptography==50.0.2
 pyasn1==0.6.5
 pyasn1_modules==0.4.2
@@ -16,7 +16,7 @@ argon2-cffi==25.1.0
 segno==1.6.6
 python-docx==1.2.0
 reportlab==5.1.0
-pypdf==7.0.0
+pypdf==7.1.0
 # pulled in by python-docx and reportlab; pinned so the image is built from what was tested
 lxml==6.1.3
 typing_extensions==4.16.0
@@ -28,6 +28,6 @@ requests==2.34.2
 standardwebhooks==1.1.0
 # the Bambu Lab Filament Manager (bambu_cloud.py): Bambu's cloud refuses a plain HTTP client at its login (bot protection); curl_cffi is libcurl
 # that presents itself as a browser. Wheels for amd64 and arm64; it needs cffi and certifi, which cryptography and requests already pull in
-curl_cffi==0.16.3
+curl_cffi==0.17.0
 # the live view of a Bambu Lab printer through the Bambu cloud (bambu_live.py): MQTT over TLS; pure Python, no dependencies
-paho-mqtt==2.1.0
+paho-mqtt==2.2.0
