@@ -63,6 +63,45 @@ def test_gcode_header_is_a_fallback_for_slicer_data(tmp_path):
     assert out["exact"] is True and plate["grams"] == 35.3 and plate["hours"] == pytest.approx(3.05, abs=0.01)
 
 
+def test_the_gcode_of_a_plate_gives_the_size_of_the_object_only(tmp_path):
+    out = run(tmp_path, pf.sliced_with_gcode(), ".3mf")
+    first, second = out["plates"]
+    # the walls span 20 x 30; the arc on top bulges to y = 135; purge line, brim, filament change, prime tower, support and end G-code do not count
+    assert first["size_mm"] == [20.0, 35.0, 12.0]
+    assert second["size_mm"] is None        # no G-code for plate 2
+    assert out["volume_cm3"] is None and out["bbox_mm"] is None
+
+
+def test_the_gcode_size_reads_prusaslicer_too():
+    import io
+    assert printfile.gcode_size(io.BytesIO(pf.PRUSA_GCODE.encode())) == [20.0, 30.0, 8.4]
+
+
+@pytest.mark.parametrize("gcode", [b"", b"G28\nG1 X10 Y10 E5\n", b"; FEATURE: Outer wall\nG1 X10 Y10\nG1 X20 Y10 E-1\n",
+                                   b"; FEATURE: Outer wall\nG1 X1e9 Y0 E1\n", b"; FEATURE: Outer wall\nG1 Xnan Y0 E1\nG1 Xabc\n"])
+def test_gcode_without_an_object_has_no_size(gcode):
+    import io
+    assert printfile.gcode_size(io.BytesIO(gcode)) is None
+
+
+def test_a_full_circle_is_measured_across(tmp_path):
+    import io
+    gcode = b"M83\n; FEATURE: Outer wall\nG1 X50 Y50\nG1 Z2\nG2 X50 Y50 I10 J0 E3\n"
+    assert printfile.gcode_size(io.BytesIO(gcode)) == [20.0, 20.0, 2.0]
+
+
+def test_positions_follow_g91_and_g92():
+    import io
+    gcode = b"M83\n; FEATURE: Outer wall\nG1 X50 Y50 Z1\nG92 X0 Y0\nG1 X10 E1\nG91\nG1 Y5 E1\nG1 Z1\nG90\nG1 X0 E1\n"
+    assert printfile.gcode_size(io.BytesIO(gcode)) == [10.0, 5.0, 2.0]
+
+
+def test_a_huge_gcode_gets_no_size(monkeypatch):
+    import io
+    monkeypatch.setattr(printfile, "MAX_GCODE_BYTES", 100)
+    assert printfile.gcode_size(io.BytesIO(pf.PLATE_GCODE.encode())) is None
+
+
 def test_a_broken_model_does_not_hide_the_slicer_numbers(tmp_path):
     data = pf.zip_bytes({"3D/3dmodel.model": "<model><nope", "Metadata/slice_info.config": pf.SLICE_INFO})
     out = run(tmp_path, data, ".3mf")

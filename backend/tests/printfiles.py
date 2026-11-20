@@ -80,6 +80,73 @@ GCODE_HEADER = """; HEADER_BLOCK_START
 G28
 """
 
+# The G-code of one plate as Bambu Studio writes it, cut down: the purge line of the start G-code (no feature yet), a brim, a filament
+# change that purges beside the plate (M620..M621), a prime tower and support, none of which is the object; the object is a block of
+# 20 x 30 mm from (100, 100), 12 mm high (relative E, the layer height on a line of its own; the wipe at the end of a wall retracts,
+# which is no extrusion), and an arc on top that bulges 5 mm past its ends to y = 135. After the end G-code begins, nothing counts.
+PLATE_GCODE = GCODE_HEADER.replace("G28\n", "") + """; EXECUTABLE_BLOCK_START
+M83
+G90
+G1 X18 Y1 E10 F1000
+G1 X240 Y1 E20
+G1 Z.2
+; FEATURE: Brim
+G1 X95 Y95
+G1 X125 Y95 E1.5
+; FEATURE: Prime tower
+G1 X200 Y200
+G1 X230 Y230 E3
+; FEATURE: Outer wall
+G1 X100 Y100
+G1 X120 Y100 E.8 ; a wipe would go beyond:
+G1 X126 Y100 E-.4
+G1 X120 Y100
+G1 E.4
+G1 X120 Y130 E1.2 ; a comment on the line
+G1 X100 Y130 E.8
+G1 X100 Y100 E1.2
+G1 X108 Y100 E-.8
+M620 S1A
+G1 X-38 Y200 E50
+M621 S1A
+; FEATURE: Support
+G1 X60 Y60
+G1 X60 Y160 E2
+G1 Z12 F600
+; FEATURE: Top surface
+G1 X105 Y130
+G2 X115 Y130 I5 J0 E.5
+G3 X105 Y130 I-5 J0 E.5
+; MACHINE_END_GCODE_START
+G1 X0 Y250 E5
+"""
+
+# The same block as PrusaSlicer writes it: `;TYPE:`, absolute E reset by G92, a skirt.
+PRUSA_GCODE = """M82
+G92 E0
+;TYPE:Custom
+G1 X0 Y-3 E8
+G92 E0
+G1 Z.2
+;TYPE:Skirt/Brim
+G1 X90 Y90
+G1 X130 Y90 E1
+;TYPE:External perimeter
+G1 X10 Y20
+G1 X30 Y20 E2
+G1 X30 Y50 E3
+G1 Z8.4
+G1 X10 Y50 E4
+G1 X12 Y50 E3.5
+;TYPE:Wipe tower
+G1 X150 Y150 E6
+"""
+
+
+def sliced_with_gcode(gcode: str = PLATE_GCODE) -> bytes:
+    """A `.gcode.3mf`: the slicer's numbers and the G-code of plate 1, no model; plate 2 has no G-code."""
+    return zip_bytes({"Metadata/slice_info.config": SLICE_INFO, "Metadata/plate_1.gcode": gcode})
+
 
 def zip_bytes(files: dict) -> bytes:
     buf = io.BytesIO()
