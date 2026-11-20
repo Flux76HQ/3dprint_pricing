@@ -669,21 +669,33 @@ zie je in de app niets. De server beslist, niet de browser.
    **Kleur van het item**: standaard blijft het item zoals op de foto of in het 3D-bestand. Kies *Eigen kleur kiezen* en een kleur, dan krijgt het item die kleur op de
    afbeeldingen (ook als de foto een andere kleur laat zien) en in de 3D-weergave. De kleur wordt bij de berekening bewaard.
 
+   **Kleur van tekst en balken**: in hetzelfde vlak kies je de kleuren van de poster (zie *Teksten op de afbeelding* hieronder). *Automatisch, passend bij de foto*
+   volgt de foto en de stijl van je keuze. Met *Eigen kleuren kiezen* stel je de kleur van de **tekst** in en die van de **balken en het label** (het accentstreepje
+   boven de naam, de opsommingstekens en het label met de extra tekst); *Balken in de kleur van het item* neemt de kleur van het item over, zodat alles bij elkaar past.
+   Ook met eigen kleuren blijft de poster leesbaar: de app kiest zelf of de tekst op een donkere of een lichte waas staat (en maakt die sterker als dat tegen de foto
+   in gaat), en het label krijgt witte of donkere letters, wat het best leest op de gekozen kleur.
+
+   **Vorm van het label met de extra tekst**: *Schuin label (rustig)* is de standaard. Wil je dat de extra tekst er meer uit springt, kies dan *Afgeronde knop*, *Lint*
+   (met ingekeepte uiteinden), *Ster-sticker* (rond en gekarteld, naast de specs als daar ruimte is; een te lange tekst krijgt de afgeronde knop) of *Blok met harde
+   schaduw*. Die vormen zijn groter en komen met een schaduw los van de foto. Naast deze keuzes staat een **voorbeeld** van de poster in de gekozen kleuren en vorm; het is
+   getekend, geen echte afbeelding. Kleuren en vorm worden bij de berekening bewaard en zitten in de back-up.
+
    **Setting (extra aanwijzing)**: optioneel beschrijf je in je eigen woorden de omgeving waarin het item te zien moet zijn (bijvoorbeeld “op een houten
    bureau naast een laptop, in zacht ochtendlicht”). Dat komt boven op de *Omschrijving van het object* in de opdracht voor het model; de studiofoto houdt zijn
    neutrale achtergrond. Het wordt bij de berekening bewaard.
 
    **Teksten op de afbeelding**: *Productnaam*, *Korte specs* (een per regel, hooguit 5) en *Extra tekst*. Zijn alle drie ingevuld, dan wordt de **eerste**
    van de vier een reclameposter: de teksten liggen als overlay over de foto (geen vlak of kader, de foto loopt er zacht in over), met de naam als grote kop
-   in een posterlettertype, de specs puntsgewijs eronder en de extra tekst op een schuin label. Elke keuze heeft een eigen lettertype en accentkleur
-   (Marktplaats: Bebas Neue met oranje, sociale media: Anton met geel, webshop: DM Serif Display met blauw). De tekstkleur volgt de foto: wit op een donkere of
+   in een posterlettertype, de specs puntsgewijs eronder en de extra tekst op een label (standaard schuin; zie *Vorm van het label* hierboven). Elke keuze heeft een eigen lettertype en accentkleur
+   (Marktplaats: Bebas Neue met oranje, sociale media: Anton met geel, webshop: DM Serif Display met blauw). Zonder eigen kleuren volgt de tekstkleur de foto: wit op een donkere of
    drukke foto, donker op een lichte (studio)foto, zodat de tekst leesbaar blijft. De andere drie blijven foto's zonder tekst. De app zet de teksten er zelf op
    (het model krijgt alleen de opdracht ruimte vrij te houden), dus ze staan er precies zoals getypt. Ontbreekt een van de drie velden, dan worden alle vier
    zonder tekst gemaakt. De schakelaar *Logo linksboven op de afbeelding* zet het logo van de factuur op alle vier; hij werkt alleen als *Zakelijk* aan staat
    (Instellingen → Algemeen) en er een logo is geüpload. De keuze en de teksten worden bij de berekening bewaard zodra je een veld verlaat, en zitten in de back-up.
 
-   Kies *Afbeeldingen maken*: de app toont eerst een **waarschuwing** met wat er gemaakt gaat worden (voor welke keuze, met of zonder teksten en logo) en dat
-   elke afbeelding API-tegoed bij OpenAI kost; met *Annuleren* breek je daar nog af. Verder begrenst de app het aantal per uur en bewaart er hooguit 12 per
+   Kies *Afbeeldingen maken*: de app vraagt eerst in een venster **welke afbeeldingen** je wilt. Elk van de vier staat er met een getekend voorbeeld (de vorm, de
+   opzet, en bij de eerste de poster in jouw kleuren en labelvorm) en een vinkje; alleen wat aangevinkt is wordt gemaakt en betaald. Het venster zegt ook of er
+   teksten en een logo op komen en dat elke afbeelding API-tegoed bij OpenAI kost; met *Annuleren* breek je daar nog af. Vink je de eerste uit, dan komt er geen poster. Verder begrenst de app het aantal per uur en bewaart er hooguit 12 per
    berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met berekeningen) of verwijderen.
 4. **Op de achtergrond**: het maken gebeurt op de server, niet in je browser. Een draaiende cirkel en grijze plekhouders in de vorm van de komende afbeelding laten de
    voortgang zien (“1 van 4 klaar”); je kunt de pagina verlaten of de browser sluiten, het maken gaat door. In de lijst met berekeningen staat intussen een
