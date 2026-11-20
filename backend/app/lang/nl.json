@@ -7,6 +7,7 @@
  "ai.err_key_format": "Dit lijkt geen geldige API-sleutel (20 tot 300 tekens, zonder spaties).",
  "ai.err_key_invalid": "OpenAI weigert de API-sleutel. Controleer de sleutel onder Instellingen.",
  "ai.err_key_unreadable": "De opgeslagen API-sleutel is niet meer leesbaar (SESSION_SECRET is gewijzigd). Voer de sleutel opnieuw in.",
+ "ai.err_label_style": "Onbekende vorm voor het label van de extra tekst.",
  "ai.err_model_name": "Ongeldige modelnaam.",
  "ai.err_model_unknown": "OpenAI kent dit model niet, of je sleutel heeft er geen toegang toe. Controleer de modelnaam.",
  "ai.err_no_key": "Er is nog geen OpenAI API-sleutel ingesteld. Doe dat onder Instellingen, AI-afbeeldingen.",

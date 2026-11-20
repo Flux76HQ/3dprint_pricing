@@ -7,6 +7,7 @@
  "ai.err_key_format": "This does not look like a valid API key (20 to 300 characters, no spaces).",
  "ai.err_key_invalid": "OpenAI refuses the API key. Check the key under Settings.",
  "ai.err_key_unreadable": "The stored API key can no longer be read (SESSION_SECRET changed). Enter the key again.",
+ "ai.err_label_style": "Unknown shape for the label of the extra text.",
  "ai.err_model_name": "Invalid model name.",
  "ai.err_model_unknown": "OpenAI does not know this model, or your key has no access to it. Check the model name.",
  "ai.err_no_key": "No OpenAI API key has been set yet. Set it under Settings, AI images.",
