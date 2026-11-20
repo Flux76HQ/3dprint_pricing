@@ -222,9 +222,11 @@ def _line(value) -> str:
 
 
 def image_text(value) -> dict:
-    """The purpose and the texts of a calculation's pictures, checked: {purpose, colour, scene, product_name, specs, extra_text, logo}.
-    `scene` is the owner's own description of the setting the object is shown in; it is added to the prompt. The
-    colour is the item's own (`#rrggbb`), or empty to leave it as it is in the photo. The
+    """The purpose and the texts of a calculation's pictures, checked: {purpose, colour, text_colour, accent_colour, label_style, scene,
+    product_name, specs, extra_text, logo}. `scene` is the owner's own description of the setting the object is shown in; it is added to the
+    prompt. The colour is the item's own (`#rrggbb`), or empty to leave it as it is in the photo. `text_colour` and `accent_colour` are the
+    colours of the poster's texts and of its bar, bullets and label (`#rrggbb`, or empty: the template's, following the photo), and
+    `label_style` the shape the extra text stands on (`image_overlay.LABEL_STYLES`). The
     specifications are a list of short lines (a text is split on its lines, and a typed bullet is dropped)."""
     if value in (None, ""):
         value = {}
@@ -242,10 +244,15 @@ def image_text(value) -> dict:
     specs = [s for s in specs if s]
     if len(specs) > SPECS_MAX:
         raise ApiError(400, "ai.err_specs_many", max=SPECS_MAX)
-    colour = str(value.get("colour") or "").strip().lower()
-    if colour and not COLOUR.match(colour):
-        raise ApiError(400, "ai.err_colour")
-    return {"purpose": purpose, "colour": colour,
+    colours = {}
+    for key in ("colour", "text_colour", "accent_colour"):
+        colours[key] = str(value.get(key) or "").strip().lower()
+        if colours[key] and not COLOUR.match(colours[key]):
+            raise ApiError(400, "ai.err_colour")
+    label_style = value.get("label_style") or image_overlay.LABEL_STYLES[0]
+    if label_style not in image_overlay.LABEL_STYLES:
+        raise ApiError(400, "ai.err_label_style")
+    return {"purpose": purpose, **colours, "label_style": label_style,
             "scene": text("ai.f_scene", required=False, max_len=SCENE_MAX)(_line(value.get("scene"))),
             "product_name": text("ai.f_product_name", required=False, max_len=NAME_MAX)(_line(value.get("product_name"))),
             "specs": specs,
@@ -599,8 +606,9 @@ def list_images(project_id):
     return jsonify({"images": [_serialise(r) for r in rows], "jobs": [_job_json(j) for j in jobs], "warnings": _warnings(jobs),
                     "text": _stored_text(project),
                     "logo_available": has_logo, "purposes": {name: list(made) for name, (made, _style) in PURPOSES.items()},
+                    "poster": image_overlay.palette(),                         # what the screen draws its examples of the pictures with
                     "sent": [str(r["id"]) for r in sent],
-                    "limits": {"selected": MAX_SELECTED, "product_name": NAME_MAX, "spec": SPEC_MAX, "specs": SPECS_MAX, "extra_text": EXTRA_MAX, "scene": SCENE_MAX}})
+                    "limits": {"selected": MAX_SELECTED, "generated": MAX_GENERATED, "product_name": NAME_MAX, "spec": SPEC_MAX, "specs": SPECS_MAX, "extra_text": EXTRA_MAX, "scene": SCENE_MAX}})
 
 
 @bp.delete("/projects/<uuid:project_id>/images/jobs")
@@ -693,7 +701,8 @@ def _enqueue(project_id, body: dict) -> "tuple[uuid.UUID, list]":
                          "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                          (project_id, batch, position, variant, description, purpose,
                           json.dumps({"text": poster if variant == PURPOSES[purpose][0][0] else None, "logo": logo, "warnings": warnings,
-                                      "colour": settings["colour"], "scene": settings["scene"]})))
+                                      "colour": settings["colour"], "scene": settings["scene"],
+                                      "look": {k: settings[k] for k in ("text_colour", "accent_colour", "label_style")}})))
         _log(conn, "info", "ai.log_queued", project=project, n=len(variants))
         for key in warnings:
             _log(conn, "info", key, project=project)
@@ -798,7 +807,8 @@ def _run_next(project_id, batch) -> bool:
                                                   text=bool(overlay.get("text")), logo=logo is not None, colour=overlay.get("colour") or "",
                                                   scene=overlay.get("scene") or "")
         if job["purpose"] and (overlay.get("text") or logo):
-            content = image_overlay.compose(content, job["purpose"], job["variant"], text=overlay.get("text"), logo=logo["content"] if logo else None)
+            content = image_overlay.compose(content, job["purpose"], job["variant"], text=overlay.get("text"), logo=logo["content"] if logo else None,
+                                            look=overlay.get("look"))
     except ApiError as exc:
         return _failed(project_id, batch, job, project, exc)
     except Exception:

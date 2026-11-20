@@ -66,7 +66,9 @@ def test_the_screen_of_a_calculation_gets_what_it_opens_with_in_one_answer(owner
     assert answer["listing"] == owner.get(f"/api/projects/{project['id']}/listing").get_json() == {"listing": None, "photos": [], "max_photos": 12}
     assert answer["spoolman"] == {"enabled": owner.get("/api/spoolman").get_json()["enabled"]} == {"enabled": False}
     assert answer["haspelsync"] == {"enabled": owner.get("/api/haspelsync").get_json()["enabled"]} == {"enabled": False}
-    assert set(answer) == {"spools", "printers", "tariffs", "packaging", "parts", "accessories", "stock", "project", "listing", "spoolman", "haspelsync"}
+    assert answer["bambu_cloud"] == {"enabled": owner.get("/api/bambu-cloud").get_json()["enabled"]} == {"enabled": False}
+    assert set(answer) == {"spools", "printers", "tariffs", "packaging", "parts", "accessories", "stock", "project", "listing", "spoolman", "haspelsync",
+                           "bambu_cloud"}
     assert any(roll["archived"] for roll in answer["spools"])                            # the lists are whole; the screen leaves out what is archived
 
     new = owner.get("/api/model-editor").get_json()                                      # a new calculation: the lists, and no calculation

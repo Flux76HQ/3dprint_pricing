@@ -45,12 +45,13 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
   de code en drukt op Enter). Elke scan is één rol: scan je dezelfde barcode nog eens, dan komt er een rol bij, en met − en + pas je het aantal
   aan. Wat een rol wordt, komt van de **nieuwste rol met die barcode** (ook de prijs die je toen betaalde), anders van het filament in de
   **bibliotheek** met die barcode (met de richtprijs, als die er is); de prijs per rol kun je in de lijst aanpassen. Een barcode die geen van
-  beide kent, vul je één keer in met het gewone rolformulier (*Gegevens invullen*); de andere rollen met die barcode volgen daarna vanzelf.
+  beide kent, vul je één keer in met het gewone rolformulier (*Gegevens invullen*), waarin het merkveld ook de merken van SpoolmanDB toont, het materiaalveld de materialen van
+  het merk voorstelt en het kleurveld de kleuren: kies een kleur en alleen de prijs blijft over (zie *Filamentbibliotheek*); de andere rollen met die barcode volgen daarna vanzelf.
   Met *N rollen toevoegen* komen ze er allemaal tegelijk bij, vol, zonder notities; gaat er iets mis (een onbekende barcode, een ontbrekende
   prijs), dan wordt er geen enkele rol toegevoegd. Hooguit 200 rollen per keer. Op een telefoon start de camera meteen, op een computer pas
   met *Camera gebruiken*. Bovenaan staat de
   **voorraad per soort**: de rollen die je nog hebt met hun gewicht, het totaal per soort en per materiaal (een soort is
-  één barcode, of merk + materiaal + kleur). Merk (bijvoorbeeld *Bambu Lab*) en **type** (*Matte*, *Basic*, *Silk*) zijn aparte velden; een bestaande rol houdt wat in het merkveld stond en het type is leeg tot je het invult. Pas je bij een rol met barcode merk, type, materiaal, kleur, gewicht, diameter of temperaturen aan, dan vraagt de app bij het opslaan of de andere rollen met dezelfde barcode ook bijgewerkt moeten worden (alleen wat je veranderde; prijs, wat er nog over is en notities zijn per rol en blijven staan). Bovenaan *Voorraad* en *Rollen* staat een **zoekveld** dat filtert terwijl je typt: op naam (merk, type, kleur), barcode en materiaal, zonder op hoofdletters of accenten te letten; met meer woorden (*bambu zwart*) moet elk woord passen. Met de scanknop ernaast zoek je op een gescande barcode, en wat je typte blijft staan als je tussen *Voorraad* en *Rollen* wisselt. Daarnaast kun je de lijst en de voorraad filteren op **soort** (materiaal), **merk** en **type**; elke keuzelijst past zich aan de vorige keuzes aan. **Dupliceren** (op een rol onder *Rollen*) opent het rolformulier, ingevuld met die rol, met bovenaan *Aantal rollen*: zo voeg je een of meer rollen van hetzelfde filament toe. De nieuwe rollen beginnen vol en zijn niet gearchiveerd; pas aan wat anders is (de prijs, bijvoorbeeld) en ze komen er in één keer bij (alles of niets, hooguit 200). Een rol uit Spoolman dupliceer je in Spoolman. Verbruik van een berekening kun je met één klik van de voorraad afboeken.
+  één barcode, of merk + materiaal + kleur). Merk (bijvoorbeeld *Bambu Lab*) en **type** (*Matte*, *Basic*, *Silk*) zijn aparte gegevens, maar het **rolformulier heeft geen veld Type meer**: de productlijn zit in de naam van de kleur (*Matte Black*, zoals SpoolmanDB en Spoolman hem noemen). Een bestaande rol houdt zijn type (te zien in de naam en in het filter *Type*), een nieuwe rol krijgt er alleen een als het uit een bestaande regel wordt overgenomen (de bibliotheek, een bekende barcode), en bij het wijzigen van een rol blijft het staan. Het veld *Type* van een bibliotheekregel (*Instellingen → Filamenten*) is er nog wel. Pas je bij een rol met barcode merk, type, materiaal, kleur, gewicht, diameter of temperaturen aan, dan vraagt de app bij het opslaan of de andere rollen met dezelfde barcode ook bijgewerkt moeten worden (alleen wat je veranderde; prijs, wat er nog over is en notities zijn per rol en blijven staan). Bovenaan *Voorraad* en *Rollen* staat een **zoekveld** dat filtert terwijl je typt: op naam (merk, type, kleur), barcode en materiaal, zonder op hoofdletters of accenten te letten; met meer woorden (*bambu zwart*) moet elk woord passen. Met de scanknop ernaast zoek je op een gescande barcode, en wat je typte blijft staan als je tussen *Voorraad* en *Rollen* wisselt. Daarnaast kun je de lijst en de voorraad filteren op **soort** (materiaal), **merk** en **type**; elke keuzelijst past zich aan de vorige keuzes aan. **Dupliceren** (op een rol onder *Rollen*) opent het rolformulier, ingevuld met die rol, met bovenaan *Aantal rollen*: zo voeg je een of meer rollen van hetzelfde filament toe. De nieuwe rollen beginnen vol en zijn niet gearchiveerd; pas aan wat anders is (de prijs, bijvoorbeeld) en ze komen er in één keer bij (alles of niets, hooguit 200). Een rol uit Spoolman dupliceer je in Spoolman. Verbruik van een berekening kun je met één klik van de voorraad afboeken.
   Het menu *Filament* heeft twee onderdelen: **Voorraad** (de soorten, met een spoel-icoon in de kleur van de rol en bovenaan het totaal per materiaal) en **Rollen** (elke rol afzonderlijk). Beide werken als elk ander overzicht (zie *Overzichten*): tegels of lijst, zoeken, filteren op soort, merk en type, en sorteren. Bij *Rollen* zet de schakelaar *Groepeer per soort* de rollen van één soort bij elkaar (drie rollen Bambu Lab Basic Rood onder één kop, met de barcode erbij, zodat twee tinten rood uit elkaar blijven). Binnen een groep staan de rollen in de gekozen volgorde en de groepen staan op volgorde van hun eerste rol: gesorteerd op *Resterend* staat de soort met de leegste rol bovenaan, met die rol als eerste. Zet je de schakelaar uit, dan is het één lijst op die volgorde, en bij gelijk gewicht op naam. De kleur kies je per rol (*Kleur van de rol*); kies je niets, dan wordt hij uit de naam geraden (*zwart*, *Red*, …). Het icoon is in de stijl van de Material Design-iconen getekend, want die hebben geen filamentspoel.
 - **Verpakking** — je soorten dozen en ander verpakkingsmateriaal met prijs per stuk, elk met optioneel een **afbeelding** (een foto van de doos of zak, of het logo): kies in het formulier een JPEG, PNG of WebP (op een telefoon kun je meteen een foto maken); hij staat daarna klein in de tegel en in de lijst, en met *Afbeelding weghalen* haal je hem er weer af. De app bewaart een verkleinde kopie (hooguit 800 pixels breed of hoog) zonder de gegevens die een telefoon in een foto zet, in de database; hij zit in de back-up en verdwijnt met de verpakking. Verpakking hoort bij de **bestelling**, niet bij het model: met
   *Verpakking toevoegen* in de bestelling kies je er een uit de lijst (zie *Verpakking op een bestelling*). Een berekening die al verpakking bevatte, houdt die
@@ -556,8 +557,14 @@ Het menu links is gegroepeerd (*Verkoop*, *Voorraad*, *Productie*), met *Instell
 
 ## Koppelingen: API-sleutels en webhooks
 
-*Instellingen → Beheer → Koppelingen* (alleen beheerders). Op deze pagina staan alle koppelingen met andere applicaties, elk als kaart: [Spoolman](#spoolman-optioneel) en [HaspelSync](#haspelsync-optioneel)
-(die leveren gegevens aan deze app), en daaronder de API-sleutels en de webhooks.
+*Instellingen → Beheer → Koppelingen* (alleen beheerders). Op deze pagina staan alle koppelingen met andere applicaties, elk als kaart.
+
+**Bron van je filament en printers.** Bovenaan kies je waar de app je rollen, wat erop zit en wat je printers doen vandaan haalt: **Spoolman en HaspelSync** ([Spoolman](#spoolman-optioneel) voor de rollen, [HaspelSync](#haspelsync-optioneel)
+voor het live overzicht) of de **Bambu Lab-cloud** (de [Filament Manager van Bambu Lab](#bambu-lab-filament-manager-optioneel), voor beide). Er is één bron tegelijk in gebruik, en daaronder staan alleen de kaarten van die bron; de andere zijn verborgen en worden
+nergens gebruikt (ook niet op *Filament*, *Printers* of in een 3D Model). **Er wordt niets weggegooid**: adressen, de sleutel van HaspelSync en je aanmelding bij Bambu Lab blijven bewaard, dus terugwisselen is één keuze. Heeft nog niemand gekozen, dan neemt de app
+de bron die bij je instellingen past: Spoolman en HaspelSync als er een Spoolman-adres is, anders de Bambu Lab-cloud als je daar bent aangemeld, anders Spoolman en HaspelSync. De keuze staat niet in een back-up (net als de adressen) en alleen een beheerder kan haar wijzigen.
+
+Daaronder staan de API-sleutels en de webhooks.
 
 **Elke kaart klapt dicht, en dicht zie je nog hoe het ervoor staat.** Naast de titel staat de toestand van de koppeling: **Actief** (groen), **Niet verbonden** (rood: er is een koppeling ingesteld, maar de andere kant antwoordt niet of weigert)
 of **Niet geconfigureerd** (grijs), met kort erachter wat erbij hoort (een adres, het aantal printers, sleutels of webhooks). Bij Spoolman en HaspelSync vraagt de pagina dat telkens opnieuw aan de andere kant (zolang dat duurt, staat er *Controleren…*);
@@ -662,21 +669,33 @@ zie je in de app niets. De server beslist, niet de browser.
    **Kleur van het item**: standaard blijft het item zoals op de foto of in het 3D-bestand. Kies *Eigen kleur kiezen* en een kleur, dan krijgt het item die kleur op de
    afbeeldingen (ook als de foto een andere kleur laat zien) en in de 3D-weergave. De kleur wordt bij de berekening bewaard.
 
+   **Kleur van tekst en balken**: in hetzelfde vlak kies je de kleuren van de poster (zie *Teksten op de afbeelding* hieronder). *Automatisch, passend bij de foto*
+   volgt de foto en de stijl van je keuze. Met *Eigen kleuren kiezen* stel je de kleur van de **tekst** in en die van de **balken en het label** (het accentstreepje
+   boven de naam, de opsommingstekens en het label met de extra tekst); *Balken in de kleur van het item* neemt de kleur van het item over, zodat alles bij elkaar past.
+   Ook met eigen kleuren blijft de poster leesbaar: de app kiest zelf of de tekst op een donkere of een lichte waas staat (en maakt die sterker als dat tegen de foto
+   in gaat), en het label krijgt witte of donkere letters, wat het best leest op de gekozen kleur.
+
+   **Vorm van het label met de extra tekst**: *Schuin label (rustig)* is de standaard. Wil je dat de extra tekst er meer uit springt, kies dan *Afgeronde knop*, *Lint*
+   (met ingekeepte uiteinden), *Ster-sticker* (rond en gekarteld, naast de specs als daar ruimte is; een te lange tekst krijgt de afgeronde knop) of *Blok met harde
+   schaduw*. Die vormen zijn groter en komen met een schaduw los van de foto. Naast deze keuzes staat een **voorbeeld** van de poster in de gekozen kleuren en vorm; het is
+   getekend, geen echte afbeelding. Kleuren en vorm worden bij de berekening bewaard en zitten in de back-up.
+
    **Setting (extra aanwijzing)**: optioneel beschrijf je in je eigen woorden de omgeving waarin het item te zien moet zijn (bijvoorbeeld “op een houten
    bureau naast een laptop, in zacht ochtendlicht”). Dat komt boven op de *Omschrijving van het object* in de opdracht voor het model; de studiofoto houdt zijn
    neutrale achtergrond. Het wordt bij de berekening bewaard.
 
    **Teksten op de afbeelding**: *Productnaam*, *Korte specs* (een per regel, hooguit 5) en *Extra tekst*. Zijn alle drie ingevuld, dan wordt de **eerste**
    van de vier een reclameposter: de teksten liggen als overlay over de foto (geen vlak of kader, de foto loopt er zacht in over), met de naam als grote kop
-   in een posterlettertype, de specs puntsgewijs eronder en de extra tekst op een schuin label. Elke keuze heeft een eigen lettertype en accentkleur
-   (Marktplaats: Bebas Neue met oranje, sociale media: Anton met geel, webshop: DM Serif Display met blauw). De tekstkleur volgt de foto: wit op een donkere of
+   in een posterlettertype, de specs puntsgewijs eronder en de extra tekst op een label (standaard schuin; zie *Vorm van het label* hierboven). Elke keuze heeft een eigen lettertype en accentkleur
+   (Marktplaats: Bebas Neue met oranje, sociale media: Anton met geel, webshop: DM Serif Display met blauw). Zonder eigen kleuren volgt de tekstkleur de foto: wit op een donkere of
    drukke foto, donker op een lichte (studio)foto, zodat de tekst leesbaar blijft. De andere drie blijven foto's zonder tekst. De app zet de teksten er zelf op
    (het model krijgt alleen de opdracht ruimte vrij te houden), dus ze staan er precies zoals getypt. Ontbreekt een van de drie velden, dan worden alle vier
    zonder tekst gemaakt. De schakelaar *Logo linksboven op de afbeelding* zet het logo van de factuur op alle vier; hij werkt alleen als *Zakelijk* aan staat
    (Instellingen → Algemeen) en er een logo is geüpload. De keuze en de teksten worden bij de berekening bewaard zodra je een veld verlaat, en zitten in de back-up.
 
-   Kies *Afbeeldingen maken*: de app toont eerst een **waarschuwing** met wat er gemaakt gaat worden (voor welke keuze, met of zonder teksten en logo) en dat
-   elke afbeelding API-tegoed bij OpenAI kost; met *Annuleren* breek je daar nog af. Verder begrenst de app het aantal per uur en bewaart er hooguit 12 per
+   Kies *Afbeeldingen maken*: de app vraagt eerst in een venster **welke afbeeldingen** je wilt. Elk van de vier staat er met een getekend voorbeeld (de vorm, de
+   opzet, en bij de eerste de poster in jouw kleuren en labelvorm) en een vinkje; alleen wat aangevinkt is wordt gemaakt en betaald. Het venster zegt ook of er
+   teksten en een logo op komen en dat elke afbeelding API-tegoed bij OpenAI kost; met *Annuleren* breek je daar nog af. Vink je de eerste uit, dan komt er geen poster. Verder begrenst de app het aantal per uur en bewaart er hooguit 12 per
    berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met berekeningen) of verwijderen.
 4. **Op de achtergrond**: het maken gebeurt op de server, niet in je browser. Een draaiende cirkel en grijze plekhouders in de vorm van de komende afbeelding laten de
    voortgang zien (“1 van 4 klaar”); je kunt de pagina verlaten of de browser sluiten, het maken gaat door. In de lijst met berekeningen staat intussen een
@@ -787,7 +806,9 @@ Vijf manieren om de bibliotheek te vullen of te delen zonder te typen:
 - **Bambu Lab-factuur importeren.** Kies de PDF-factuur uit de Bambu Lab-webshop. De app leest hem (alleen met `pypdf`, met een grens aan grootte en aantal
   pagina’s) en laat eerst zien wat erin staat: per filamentregel het merk, materiaal en type (*PLA* + *Basic*), de kleur, het filament-ID (het nummer tussen
   haakjes achter de kleur), de SKU, het gewicht en de diameter (uit de SKU), of het een bijvulling is (SKU eindigt op `FREE`), de **richtprijs** (de lijstprijs; op de
-  factuur staat hij incl. btw, de app rekent om naar excl. btw; een korting is een actie en geen prijs) en de barcode. Per regel kies je of het filament in de bibliotheek komt. **De voorraad verandert
+  factuur staat hij incl. btw, de app rekent om naar excl. btw; een korting is een actie en geen prijs) en de barcode. Per regel kies je of het filament in de bibliotheek komt. **De kleuren worden naar het Engels vertaald** (woord voor woord, in dezelfde volgorde: *Bamboegroen* wordt *Bamboo Green*, *Lila paars* wordt *Lilac Purple*; wat al Engels is
+  of wat de app niet kent blijft zoals het is), zoals SpoolmanDB ze noemt, en een filament dat al in de bibliotheek staat, onder een Nederlandse of een Engelse naam, wordt herkend: het krijgt de nieuwe richtprijs en wat het mist en houdt zijn
+  eigen naam, er komt geen tweede bij (een bijvulling en een rol met spoel blijven twee filamenten). **De voorraad verandert
   hier nooit**: de bibliotheek is een losstaande lijst van de filamenten die bestaan, geen lijst van wat je hebt. Een filament dat er al staat krijgt de nieuwe richtprijs en
   wat het nog mist (SKU, filament-ID, barcode), maar zijn eigen gegevens worden nooit overschreven. Regels die geen filament zijn worden overgeslagen en genoemd; kloppen de regels niet met het factuurtotaal, dan staat er een waarschuwing. Andere webshops dan Bambu Lab worden niet herkend.
 
@@ -821,17 +842,56 @@ hebben hetzelfde ID, dus tellen die apart), of merk, materiaal, type, kleur, gew
 synchroniseren, de factuur, een nieuwe rol en het terugzetten van een back-up gaan er allemaal doorheen: een kopie wordt geweigerd (*Dit filament staat al in de bibliotheek*), en schrijven
 gebeurt onder een slot, zodat twee verzoeken tegelijk er niet toch twee van maken. Twee dubbele vermeldingen die er al stonden (uit een oudere versie) blijven bewerkbaar; alleen een *nieuwe* overeenkomst wordt geweigerd.
 
-**Merk kiezen en Bambu Lab-kleuren.** Bij een nieuwe rol is *Merk* een keuzelijst met de merken die er al zijn (op rollen en in de bibliotheek, plus altijd Bambu Lab); staat een merk er nog niet bij, dan kies je
-*Nieuw merk…* en typ je de naam. Kies je **Bambu Lab**, dan verschijnt eronder een paneel waar je de **soort** (PLA Basic, PLA Matte, PETG HF, …; een vaste lijst in de code, `bambu_store.CATALOG`) en daarna de **kleur** kiest. De
-kleuren worden door de server uit de Bambu Lab-webshop gehaald (`GET /api/bambu/products/<soort>`; dezelfde EU-webshop en voorzorgen als bij de factuur, een soort die niet in de lijst staat wordt nooit opgevraagd) en een keuze vult
-het formulier in: type, materiaal, kleur, gewicht (1 kg, 0,5 kg, …), diameter (1,75 mm) en als **barcode** het winkel-ID van die kleur (bijvulling en met spoel hebben elk een eigen ID). De webshop noemt **geen temperaturen en geen prijs**; die komen uit
-de bibliotheek als die dit filament kent, anders uit een eerdere rol met dezelfde barcode, anders vul je ze zelf in. Is de webshop niet bereikbaar, dan staat er een melding en vul je het formulier gewoon met de hand in. Het filament-ID en of het een bijvulling is gaan mee naar de bibliotheek als je *Ook aan de bibliotheek toevoegen* laat aanstaan.
+**Merk, materiaal en kleur kiezen.** Bij een nieuwe rol zijn *Merk*, *Materiaal* en *Kleur* keuzelijsten (zie *SpoolmanDB in de velden van een nieuwe rol* hieronder). *Merk* toont de merken die er al zijn (op rollen en in de
+bibliotheek) en die van SpoolmanDB; staat een merk er nog niet bij, dan kies je *Nieuw merk…* en typ je de naam. **Er is geen apart paneel voor Bambu Lab meer:** ook Bambu Lab zit in die lijsten. Wat dat paneel uit de webshop
+haalde, het winkel-ID van een kleur als **barcode**, het **filament-ID** en of het een **bijvulling** is, komt via de **factuurimport** (hierboven) in de bibliotheek en niet meer uit dit formulier. (De routes
+`GET /api/bambu/products[/<soort>]` bestaan nog, maar het formulier gebruikt ze niet.)
 
 **Een rol met de hand toevoegen.** Onder *Filament → Nieuwe rol* staat de keuze *Ook aan de bibliotheek toevoegen* (standaard aan, alleen bij een nieuwe rol). Staat het filament er nog niet in, dan komt het erin met wat de rol
 over het filament zegt (merk, type, materiaal, kleur, kleurcode, barcode, gewicht, diameter, temperaturen; niet de prijs of wat er nog over is). Staat het er al in, dan krijgt dat filament wat het nog mist (een barcode, een kleurcode,
 temperaturen), zonder iets te overschrijven. Dezelfde barcode is hetzelfde filament; zonder barcode dezelfde naam, hetzelfde gewicht en dezelfde diameter. Past de rol bij meer dan één vermelding (bijvulling én met spoel), dan blijft de bibliotheek ongemoeid.
 
 De bibliotheek zit in de back-up (formaat 5; een oudere back-up laat haar leeg bij herstellen).
+
+### SpoolmanDB in de velden van een nieuwe rol
+
+In het formulier van een **nieuwe rol** (ook als je een onbekende barcode scant) komen de lijsten van [SpoolmanDB](https://github.com/Donkie/SpoolmanDB) in de
+velden zelf, niet in een blok ernaast. SpoolmanDB is een lijst van filamenten van ruim tachtig merken, bijgehouden door een gemeenschap.
+
+- Het **merkveld** (de keuzelijst) toont naast de merken van je eigen rollen en bibliotheek ook die van SpoolmanDB.
+- **Materiaal** is ook een keuzelijst, met de materialen van het gekozen merk (die van SpoolmanDB en wat je er zelf al van hebt). Kent niemand het merk, dan staan alle materialen erin, de gangbare
+  (PLA, PETG, ABS, …) eerst. Staat het jouwe er niet bij, kies dan *Ander materiaal…* en typ het.
+- **Kleur** wordt een keuzelijst met de kleuren van dat merk en materiaal zodra het materiaal er een van SpoolmanDB is; tot dan is het het tekstveld dat het was, met een regel die zegt dat je eerst
+  een materiaal kiest. Er staat één regel per gewicht en diameter, zodat een keuze precies zegt welke bedoeld is. Een kleur kiezen vult gewicht, diameter, kleurcode, temperaturen en *Nog over* in en zet
+  onder het veld wat er is ingevuld, ook het gewicht van een lege spoel. Staat jouw kleur er niet bij, kies dan *Andere kleur…* en typ hem; die verandert niets anders. Wat je zelf nog invult is de **prijs**,
+  want die kent SpoolmanDB niet, en de **barcode** is die van je scan. Alles blijft aanpasbaar.
+
+- **Geen barcodes.** SpoolmanDB kent geen barcodes, dus een gescande barcode kun je er niet in opzoeken; je koppelt hem één keer aan een filament uit de
+  lijst, en daarna werkt scannen gewoon via je eigen rollen en bibliotheek.
+- **Nederlandse en Engelse namen.** Heb je het filament al onder een Nederlandse naam (*Basic Geel*) in je bibliotheek of voorraad, dan staat het in de lijst
+  met *✓ al bij jou als Geel* en wordt het onder jouw naam ingevuld, met je richtprijs en je temperaturen: er komt geen tweede *Yellow* naast. Dat herkent de
+  app aan de kleur, in beide talen (`colour_names.py`: *geel/yellow*, *lichtgrijs/light gray*, *pompoenoranje/pumpkin orange*, …), samen met merk,
+  materiaal, gewicht en diameter; *Basic* telt niet mee omdat SpoolmanDB het niet in de naam zet. Een Nederlandse kleurnaam die de app niet kent,
+  wordt niet herkend en dus ook niet per ongeluk gekoppeld. *Ook aan de bibliotheek toevoegen* vult zo een bestaande bibliotheekregel aan (barcode,
+  kleurcode, temperaturen, de verwijzing naar SpoolmanDB) in plaats van een dubbele toe te voegen. Alleen bij **toevoegen** wordt zo losjes vergeleken:
+  de strenge regel waarmee een back-up wordt teruggezet blijft zoals hij was, zodat een back-up met *Geel* én *Yellow* altijd terug kan.
+- **Bron.** Het scherm noemt de bron (SpoolmanDB, MIT-licentie, © Donkie) met een link en de datum van de gegevens. Een rol of bibliotheekregel die zo is
+  gemaakt bewaart het **SpoolmanDB-id** als verwijzing (bij het wijzigen van de rol staat het erbij); wijzig je daarna merk, materiaal, kleur, gewicht of
+  diameter, dan is het een ander filament en vervalt de verwijzing.
+- **Naar Spoolman.** Zet je zo'n rol of bibliotheekregel naar Spoolman (*Instellingen → Koppelingen*), dan gaan de **echte dichtheid** en het **gewicht van een
+  lege spoel** uit SpoolmanDB mee (anders een ruwe dichtheid per materiaal en geen spoelgewicht), en het id als `external_id` van het filament, wat
+  Spoolman daarvoor heeft. Een filament dat Spoolman al heeft (zelfde `external_id`, of dezelfde naam in een andere taal) wordt niet nog eens gemaakt.
+- **Offline, en zelf te verversen.** Er komt een **momentopname** met de app mee (`backend/app/spoolmandb_data/`, met de MIT-licentie ernaast), dus het
+  werkt vanaf de eerste start en zonder internet. Een nieuwere lijst haal je op onder *Instellingen → Filamenten → SpoolmanDB → Nu synchroniseren*
+  (**alleen beheerders**, en **hooguit één keer per dag**: daarna is de knop uit en staat er vanaf wanneer het weer kan). Dat is het enige moment waarop de app
+  contact opneemt, en alleen met GitHub: de lijst (`donkie.github.io`) en de licentie (`raw.githubusercontent.com`), met een vast adres, zonder redirects en met een
+  grens aan grootte en wachttijd. Elke regel wordt gecontroleerd; er wordt **niets overgenomen** (en de dag telt niet) als de licentie niet meer de MIT-licentie van het
+  project is, als de lijst onbruikbaar is of als er minder dan de helft van de huidige filamenten in zit (een mislukte download). Een mislukte poging gebruikt de dag
+  niet op. Na afloop meldt de app hoeveel filamenten er nieuw zijn en hoeveel zijn vervallen. De gesynchroniseerde lijst staat in de database, is voor iedereen
+  die een rol toevoegt dezelfde, en zit **niet in een back-up** (die is opnieuw op te halen; na een terugzetting geldt de meegeleverde lijst tot de volgende sync).
+  Een filament dat uit de lijst verdwijnt, laat bestaande rollen en bibliotheekregels ongemoeid; alleen de dichtheid en het spoelgewicht die naar Spoolman gaan,
+  kunnen dan niet meer worden opgezocht. De momentopname in de repository ververs je met `python scripts/sync_spoolmandb.py`, wat dezelfde controles doet en de
+  bestanden deterministisch schrijft, zodat de wijziging als pull request leesbaar is.
 
 ## Spoolman (optioneel)
 
@@ -868,11 +928,61 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
 - **De bibliotheek blijft.** Spoolman vervangt de bibliotheek niet: zonder `SPOOLMAN_URL` werkt alles als voorheen, en de bibliotheek (GitHub-sync, factuurimport, bijdragen) kan ernaast blijven bestaan.
 - **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft. De wachtrij met eerdere boekingen die nog naar Spoolman moeten zit er niet in (werk in uitvoering).
 
+## Bambu Lab Filament Manager (optioneel)
+
+Gebruik je geen Spoolman, maar wel Bambu Studio of Bambu Handy? Dan kunnen je rollen uit de **Filament Manager van Bambu Lab** komen: de spoelen die je Bambu-account in de Bambu-cloud bijhoudt (Bambu-spoelen met een RFID-chip
+komen er via de AMS vanzelf in, andere voeg je in Studio of Handy toe). De app leest die spoelen en houdt het verbruik dat je afboekt ook daar bij, zodat Studio, Handy en de app hetzelfde laten zien.
+
+> **Let op: dit is geen officiële koppeling.** Bambu Lab biedt hier geen API voor. De app gebruikt dezelfde aanroepen als Bambu Studio (waarvan de broncode openbaar is), en Bambu kan die zonder aankondiging veranderen
+> of afschermen. Gebeurt dat, dan geeft de app een duidelijke foutmelding en blijven je rollen staan zoals ze waren; er wordt nooit een rol verkeerd ingevuld. De aanmelding verloopt na ongeveer **drie maanden** (Bambu biedt geen manier om haar te verlengen):
+> daarna meld je je opnieuw aan.
+
+**Eén bron tegelijk.** De Filament Manager wordt alleen gebruikt als bovenaan *Instellingen → Koppelingen* de bron **Bambu Lab-cloud** is gekozen (zie [Koppelingen](#koppelingen-api-sleutels-en-webhooks)).
+Is daar *Spoolman en HaspelSync* gekozen, dan blijft je aanmelding bewaard maar wordt ze niet gebruikt: er wordt niet gesynchroniseerd, niets teruggeschreven en een rol uit de cloud is dan een rol zoals elke andere.
+
+- **Aanmelden** (alleen beheerders): *Instellingen → Koppelingen*, kaart *Filament Manager van Bambu Lab*. Vul het e-mailadres (of telefoonnummer) en het wachtwoord van je Bambu-account in en kies de regio (*Wereldwijd* of *China*).
+  Meestal stuurt Bambu Lab dan een **code per e-mail**; vul die in (hij is ongeveer tien minuten geldig, *Nieuwe code sturen* vraagt een nieuwe). Gebruikt je account een **authenticator-app**, dan vul je de code uit die app in.
+  Het wachtwoord gaat **alleen naar Bambu Lab** en wordt **nooit bewaard of gelogd**. Wat de app bewaart is het toegangsbewijs (token) dat Bambu teruggeeft: **versleuteld**, nooit meer getoond, **niet in een back-up**.
+  Verander je `SESSION_SECRET`, dan is het niet meer te lezen en meld je je opnieuw aan. De kaart laat zien met welk account je bent aangemeld en tot wanneer.
+- **Synchroniseren** (*Instellingen → Koppelingen* en bovenaan *Filament*, alleen voor beheerders; iedereen ziet wanneer het voor het laatst gebeurde). De app leest alle spoelen en maakt er elk een rol van, gekoppeld aan het spoelnummer in de cloud:
+  de volgende keer wordt die rol bijgewerkt, niet nog een keer toegevoegd. Een spoel die uit de cloud is verdwenen wordt hier **gearchiveerd, nooit verwijderd** (opgeslagen berekeningen kunnen ernaar verwijzen); komt hij terug, dan staat hij weer op de plank.
+- **Wat Bambu bijhoudt en wat de app bijhoudt.** De cloud kent het **merk, materiaal, de productlijn** (*Basic*, *HF*, *Matte*), **de kleurcode, het volle gewicht en wat er nog op zit**. Die komen bij elke synchronisatie uit de cloud;
+  zolang je bent aangemeld kan je ze hier niet wijzigen (pas ze aan in Studio of Handy), en een rol uit de cloud kan je hier niet archiveren of verwijderen. De cloud kent **geen kleurnaam, prijs, barcode, diameter of temperaturen**:
+  die vult de app één keer in als de rol hier wordt aangemaakt en zijn daarna van jou: je bewerkt ze zoals bij elke rol, en een synchronisatie laat ze staan. Dat geldt ook voor de **notities** (een notitie uit Studio komt alleen mee bij het aanmaken) en de melding *bijna op*.
+  Waar komt dat eerste invullen vandaan? (1) Een Bambu-spoel met RFID-chip draagt een artikelcode (*A00-K0*); staat er in de [filamentbibliotheek](#filamentbibliotheek) een regel van hetzelfde merk waarvan de SKU daarmee begint, dan komen de **kleurnaam, de richtprijs, de barcode**,
+  de diameter en de temperaturen uit die regel. Een Bambu Lab-factuur importeren is dus de snelste manier om je prijzen goed te hebben. (2) Anders zoekt de app in [SpoolmanDB](#spoolmandb-in-de-velden-van-een-nieuwe-rol) het filament met hetzelfde merk, materiaal en dezelfde kleurcode
+  (de Engelse kleurnaam, de diameter en de temperaturen). (3) Anders wordt de kleurcode de naam (*#FF6A13*), zodat twee kleuren nooit één soort worden. **Een prijs die niet uit de bibliotheek komt is 0**: vul hem in bij de rol, anders telt het filament in een berekening niet mee.
+- **Een rol staat hier één keer.** Stond een rol hier al omdat je hem met de hand invoerde, dan wordt hij aan de spoel **gekoppeld** en komt er geen tweede bij. Dezelfde rol is: hetzelfde merk en materiaal, dezelfde productlijn (of een van beide heeft er geen)
+  en dezelfde kleur: dezelfde kleurcode, of zonder kleurcode dezelfde kleurnaam (*Zwart* is *Black*). Eén rol hoort bij één spoel; bij twee kandidaten gaat de rol met het gewicht dat het dichtst bij dat van de spoel ligt voor. De gekoppelde rol houdt zijn plek in je 3D Modellen,
+  zijn prijs, kleurnaam, notities en melding; merk, materiaal, kleurcode en gewichten komen vanaf dan uit de cloud.
+- **Verbruik afboeken schrijft terug.** Bambu haalt zelf **niets** af van een spoel zonder RFID-chip (en een Bambu-spoel alleen via de AMS, terwijl Studio of Handy draait). Daarom boek je het verbruik van een 3D Model hier af zoals altijd (*Verbruik afboeken*),
+  en zet de app het nieuwe restgewicht van elke rol uit de cloud **ook in de cloud**. Dat gebeurt meteen na het afboeken; neemt de cloud het niet aan (niet bereikbaar, aanmelding verlopen), dan staat het in een wachtrij en stuurt de volgende synchronisatie het eerst door.
+  Tot dan telt de app het af van het gewicht dat de cloud meldt, zodat je voorraad niet terugspringt. Bovenaan *Filament* en op de kaart zie je hoeveel er nog moet worden gemeld. Is een spoel inmiddels uit de cloud verdwenen, of weigert Bambu de wijziging als ongeldig,
+  dan vervalt die melding. Een rol die je hier met de hand invoerde (geen spoel in de cloud) boek je alleen hier af. De cloud rekent in hele grammen.
+- **Afmelden** vergeet het token; je rollen blijven staan en houden hun koppeling, en kan je daarna bewerken zoals elke rol. Meld je je later met hetzelfde account aan, dan worden ze weer bijgewerkt (en gaat wat nog in de wachtrij stond alsnog mee).
+- **Back-up.** Een back-up bevat het spoelnummer van elke rol uit de cloud, zodat een teruggezette rol gekoppeld blijft. Het account, het token en de wachtrij zitten er niet in.
+- **Live: wat de printer nu doet.** Is de Bambu Lab-cloud de gekozen bron en ben je aangemeld, dan vult de Bambu-cloud de kaart *Nu in de printer* bovenaan *Printers*: de toestand, de naam van de print, de voortgang met de laag,
+  de resterende tijd en wanneer hij klaar is, en per slot van de AMS (en de externe spoelhouder als daar iets in zit) het materiaal, de kleur en wat erop zit, plus per AMS de luchtvochtigheid, de temperatuur en een lopende droogbeurt.
+  Kies daarvoor bij een printer onder *Printers* welke **Bambu Lab-printer** het is: de lijst komt uit je Bambu-account (alleen naam en serienummer; de toegangscode en het IP-adres van de printer worden niet gelezen). Is HaspelSync wel ingesteld, dan gaat HaspelSync voor.
+  - **Hoe.** Een printer meldt zijn toestand via MQTT, en de Bambu-cloud geeft die meldingen door aan wie met het account is aangemeld; zo lezen ook Bambu Handy en Home Assistant een printer van afstand. De app maakt daarvoor een versleutelde verbinding met
+    `us.mqtt.bambulab.com` (regio China: `cn.mqtt.bambulab.com`) op **poort 8883**, met hetzelfde token; de server moet die poort naar buiten mogen gebruiken. De printer moet met de Bambu-cloud verbonden zijn (in alleen LAN-modus komt er niets binnen).
+  - **Alleen lezen.** De app stuurt de printer nooit een opdracht; het enige bericht is het verzoek om een volledige melding, dat elke app stuurt die meeleest. Ook dit is **geen officiële koppeling**: elk veld wordt gecontroleerd en begrensd, en een melding die niet klopt wordt genegeerd.
+  - **Alleen terwijl je kijkt.** De verbinding gaat open als iemand *Printers* opent en sluit anderhalve minuut nadat niemand meer kijkt; de pagina vraagt elke 5 seconden opnieuw zolang hij open staat. Er wordt niets van bewaard. De eerste seconden zie je *Verbinden … wachten op de printer*.
+  - **Welke rol in een slot zit.** Een Bambu-spoel herkent de app aan zijn **RFID-chip** (bij het synchroniseren bewaart de app daarvan alleen een hash, nooit het nummer van de chip); een andere spoel aan de plek waar de Filament Manager hem het laatst zag, als het materiaal klopt.
+    Dan zie je de naam en het gewicht van **je rol** (met wat je hebt afgeboekt). Nooit op kleur gegokt: is het geen rol uit je Filament Manager, dan zie je wat de AMS zelf meldt, met zijn **schatting** van wat er nog op zit als hij die geeft. In de filamentkeuze van een 3D Model staan
+    de slots ook (*In de printer: naam*); een slot dat een rol is, wordt precies die rol.
+  - **Als het niet werkt.** *De printer heeft nog niets gemeld*: staat hij aan en is hij met de cloud verbonden? *Geen verbinding met de Bambu-cloud (MQTT, poort 8883)*: de server mag die poort niet bereiken. *De aanmelding … is verlopen*: meld je opnieuw aan.
+- **Als het niet werkt.** *Bambu Lab hield het verzoek tegen* is de beveiliging tegen bots van Bambu: probeer het later opnieuw. *De aanmelding bij Bambu Lab is verlopen*: meld je opnieuw aan (je rollen blijven staan).
+  *De Bambu-cloud gaf een antwoord dat deze app niet begrijpt*: Bambu heeft waarschijnlijk iets veranderd; meld het in een issue. De app wacht hoogstens 5 seconden op de verbinding en 20 seconden op een antwoord, volgt geen doorverwijzing
+  en praat alleen met `api.bambulab.com` en `bambulab.com` (of `.cn` voor de regio China), en voor het live overzicht met de MQTT-server van Bambu (zie *Live* hierboven). De server moet daarvoor internet hebben.
+
 ## HaspelSync (optioneel)
 
 [HaspelSync](https://github.com/Rdiger-36/HaspelSync) koppelt Bambu Lab-printers aan Spoolman: het leest wat de AMS van een printer bevat en boekt na elke print het verbruik. Met deze koppeling laat de pagina *Printers*
 zien **wat een printer nu print en welk filament erin zit**. De app **leest alleen** uit HaspelSync; er wordt daar niets door gewijzigd. De koppeling staat los van de [Spoolman-koppeling](#spoolman-optioneel) van deze app: HaspelSync praat zelf met Spoolman,
 en de grammen die je bij een slot ziet zijn wat Spoolman via HaspelSync meldt.
+HaspelSync wordt alleen gebruikt als bovenaan *Instellingen → Koppelingen* de bron **Spoolman en HaspelSync** is gekozen. Is daar de **Bambu Lab-cloud** gekozen, dan blijven adres en sleutel bewaard maar wordt HaspelSync niet gevraagd,
+en vult de [Filament Manager van Bambu Lab](#bambu-lab-filament-manager-optioneel) dezelfde kaart (zie daar *Live*).
 
 **Instellen** (alleen beheerders): *Instellingen → Koppelingen*, kaart *HaspelSync*. Zonder adres is er geen HaspelSync en blijft alles zoals het was.
 

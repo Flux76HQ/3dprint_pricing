@@ -9,8 +9,7 @@ import { confirmIdentity, passwordCard } from './password.js';
 import { currentSubscription, disablePush, enablePush, forgetPush, pushSupport, thisDeviceFingerprint } from './push.js';
 import { applyNavGlass, confirmDialog, fmt, ROUNDINGS, field, fill, h, icon, navStyle, numberInput, saveBlob, switchRow, toast } from './ui.js';
 import { BUILD } from './build.js';
-import { haspelsyncCard } from './haspelsync.js';
-import { spoolmanCard } from './spoolman.js';
+import { sourceCards } from './sources.js';
 import { usersCards } from './users.js';
 import { checkRelease, initRelease, releaseStatus } from './release.js';
 import { checkForUpdate, loadedVersion } from './updates.js';
@@ -1053,7 +1052,7 @@ export function settingsView(ctx, requested) {
     filamenten: () => filamentLibraryCards(),
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
-    koppelingen: () => integrationsCards([spoolmanCard(undefined, { configure: true }), haspelsyncCard()]),
+    koppelingen: () => integrationsCards([sourceCards()]),
     ai: () => [aiSettingsCard(), aiUsageCard(), aiLogCard()],
     backup: () => [backupCard()],
     systeem: () => [...aboutCards('systeem'), resetCard()],

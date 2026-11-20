@@ -161,6 +161,7 @@ RESOURCES = {
         "bed_temp_c": optional_int("f.bed_temp", minimum=0, maximum=200),
         "price": optional_number("f.roll_price"),
         "notes": text("f.notes", required=False, max_len=1000),
+        "spoolmandb_id": text("f.spoolmandb_id", required=False, max_len=120),
     }, "lower(brand), lower(material), lower(product_type), lower(colour)"),
     "spools": ("filament_spools", {
         "brand": text("f.brand"),
@@ -178,10 +179,11 @@ RESOURCES = {
         "notes": text("f.notes", required=False, max_len=1000),
         "notify_low": boolean("f.notify_low"),
         "archived": boolean("f.archived"),
+        "spoolmandb_id": text("f.spoolmandb_id", required=False, max_len=120),
     }, "brand, colour"),
 }
 OPTIONAL = {"notes", "archived", "unit", "is_default", "material", "colour", "colour_hex", "product_type", "power_kw", "barcode", "diameter_mm",
-            "print_temp_c", "bed_temp_c", "notify_low", "filament_id", "sku", "refill", "haspelsync_serial"}
+            "print_temp_c", "bed_temp_c", "notify_low", "filament_id", "sku", "refill", "haspelsync_serial", "spoolmandb_id"}
 
 
 def _serialise(row: dict) -> dict:
@@ -224,10 +226,25 @@ def _share_notify(conn, row: dict, *, explicit: bool, creating: bool) -> dict:
     return row
 
 
-def _refuse_mirrored(conn, spool_id, *, allowed: bool) -> None:
-    """A roll that comes from Spoolman is Spoolman's to change (a sync would put it back); only `notify_low` is the app's own."""
-    if not allowed and conn.execute("SELECT 1 FROM filament_spools WHERE id = %s AND spoolman_id IS NOT NULL", (spool_id,)).fetchone():
+def _refuse_mirrored(conn, spool_id, values: "dict | None", *, spoolman_on: bool, bambu_on: bool) -> None:
+    """A roll that comes from Spoolman is Spoolman's to change while Spoolman is in use (a sync would put it back); only `notify_low` is the app's own. A
+    roll of the Bambu Filament Manager is the cloud's in what the cloud keeps (`bambu_cloud.OWNED`) while the cloud is in use: those fields may be sent as
+    they are (the form sends every field) but not changed, and the roll cannot be deleted. `values` None is a delete. A roll of the source that is not in
+    use (`sources.py`) is a roll like any other until it is chosen again."""
+    from . import bambu_cloud                               # imported here: that module imports this one
+    row = conn.execute("SELECT * FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
+    if row is None:
+        return
+    if row["spoolman_id"] is not None and spoolman_on and (values is None or not set(values) <= {"notify_low"}):
         raise ApiError(409, "spoolman.managed")
+    if row["bambu_id"] is not None and bambu_on and (values is None or any(k in values and values[k] != row[k] for k in bambu_cloud.OWNED)):
+        raise ApiError(409, "bambu.managed")
+
+
+def _sources_in_use() -> tuple[bool, bool]:
+    """(Spoolman in use, the Bambu cloud in use), asked before a request holds a connection (see `spoolman.address`, `bambu_cloud.settings`)."""
+    from . import bambu_cloud, spoolman                     # imported here: those modules import this one
+    return spoolman.enabled(), bambu_cloud.active()
 
 
 def _refuse_taken_serial(conn, printer_id, serial: str) -> None:
@@ -295,9 +312,10 @@ def _register(path, table, fields, order):
         if not values:
             raise ApiError(400, "err.nothing_to_change")
         sets = ", ".join(f"{k} = %s" for k in values)
+        spoolman_on, bambu_on = _sources_in_use() if table == "filament_spools" else (False, False)
         with pool().connection() as conn:
             if table == "filament_spools":
-                _refuse_mirrored(conn, item_id, allowed=set(values) <= {"notify_low"})
+                _refuse_mirrored(conn, item_id, values, spoolman_on=spoolman_on, bambu_on=bambu_on)
             if table == "filament_library":
                 from . import filament_library
                 filament_library.before_update(conn, item_id, values)
@@ -316,9 +334,10 @@ def _register(path, table, fields, order):
         return jsonify(_serialise(row))
 
     def delete(item_id):
+        spoolman_on, bambu_on = _sources_in_use() if table == "filament_spools" else (False, False)
         with pool().connection() as conn:
             if table == "filament_spools":
-                _refuse_mirrored(conn, item_id, allowed=False)
+                _refuse_mirrored(conn, item_id, None, spoolman_on=spoolman_on, bambu_on=bambu_on)
             row = conn.execute(f"DELETE FROM {table} WHERE id = %s RETURNING id", (item_id,)).fetchone()
         if row is None:
             raise ApiError(404, "err.not_found")
@@ -396,7 +415,7 @@ def spool_siblings(spool_id):
     """How many other rolls have the same barcode (none when this roll has no barcode)."""
     with pool().read() as conn:
         barcode = _barcode_of(conn, spool_id)
-        count = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL",
+        count = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL AND bambu_id IS NULL",
                              (barcode, spool_id)).fetchone()["n"] if barcode else 0
     return jsonify({"count": count})
 
@@ -414,7 +433,7 @@ def propagate_spool(spool_id):
             return jsonify({"updated": 0})
         row = conn.execute(f"SELECT {', '.join(fields)} FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
         sets = ", ".join(f"{name} = %s" for name in fields)
-        done = conn.execute(f"UPDATE filament_spools SET {sets} WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL RETURNING id",
+        done = conn.execute(f"UPDATE filament_spools SET {sets} WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL AND bambu_id IS NULL RETURNING id",
                             (*[row[name] for name in fields], barcode, spool_id)).fetchall()
     if "material" in fields:                                        # the rolls moved to another material's total
         stock_changed()
@@ -426,7 +445,8 @@ def propagate_spool(spool_id):
 # One delivery at a time: a request with more is refused, so one transaction never holds the write lock for long.
 BULK_MAX_ROLLS = 200
 # What a scanned roll takes over from the roll or library entry with its barcode. Notes, what is left and archived are per roll and never copied.
-FROM_BARCODE = ("brand", "product_type", "material", "colour", "colour_hex", "roll_weight_g", "price", "diameter_mm", "print_temp_c", "bed_temp_c")
+FROM_BARCODE = ("brand", "product_type", "material", "colour", "colour_hex", "roll_weight_g", "price", "diameter_mm", "print_temp_c", "bed_temp_c",
+                "spoolmandb_id")
 
 
 def _from_barcode(conn, barcode: str) -> "tuple[str, dict] | None":
@@ -710,6 +730,7 @@ def model_editor():
         raise ApiError(404, "err.calc_not_found") from None
     spoolman_on = spoolman.enabled()                        # asked before this request holds a connection (see `spoolman.address`)
     haspelsync_on = haspelsync.enabled()                    # the same; whether there is one, never what it answers: that is another service, asked after the screen is open
+    bambu_on = _sources_in_use()[1]
     with pool().read() as conn:
         answer = {name: LISTS[name](conn) for name in ("spools", "printers", "tariffs", "packaging", "parts", "accessories")}
         answer["stock"] = _stock(conn)
@@ -717,6 +738,7 @@ def model_editor():
         answer["listing"] = listings.present(conn, project_id) if project_id else None       # what it is offered for sale as (listings.py)
     answer["spoolman"] = {"enabled": spoolman_on}           # only decides what is offered; the server refuses a booking itself
     answer["haspelsync"] = {"enabled": haspelsync_on}       # decides whether the filament choice also offers what is in the printers (the screen asks for that itself, later)
+    answer["bambu_cloud"] = {"enabled": bambu_on}           # the same, read from the Bambu cloud when there is no HaspelSync (bambu_live.py)
     return jsonify(answer)
 
 
@@ -866,10 +888,13 @@ def delete_project(project_id):
 @bp.post("/projects/<uuid:project_id>/book-stock")
 def book_stock(project_id):
     """Subtract the project's filament grams from the spools it used, once. Not with a Spoolman: what is used is kept there (the printer
-    reports it), so a booking here would take the same grams off a second time. That goes for every roll, also one typed in by hand."""
-    from . import listings, spoolman                        # imported here: those modules import this one
+    reports it), so a booking here would take the same grams off a second time. That goes for every roll, also one typed in by hand.
+    With the Bambu Filament Manager it is booked here, and what a roll of the cloud lost is queued in the same transaction and written back
+    to the cloud right after (`bambu_cloud.write_back`): the cloud itself never takes off what a print used of a spool without an RFID chip."""
+    from . import bambu_cloud, listings, spoolman           # imported here: those modules import this one
     if spoolman.enabled():                                  # asked before this request holds a connection (see `spoolman.address`)
         raise ApiError(409, "spoolman.no_booking")
+    bambu_on = bambu_cloud.active()
     with pool().connection() as conn:
         project = conn.execute("SELECT data, stock_booked_at FROM projects WHERE id = %s",
                                (project_id,)).fetchone()
@@ -886,10 +911,10 @@ def book_stock(project_id):
         # that kind (the ones nearest to empty first), and it is only short when all of them together are.
         shelf = {str(r["id"]): r for r in stock.fetch(conn)}
         left = {roll_id: r["remaining_g"] for roll_id, r in shelf.items()}
-        short = []
+        short, queued = [], False
         for spool_id, grams in used.items():
             row = shelf.get(str(spool_id)) or conn.execute(
-                "SELECT id, brand, product_type, material, colour, barcode, remaining_g FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
+                "SELECT id, brand, product_type, material, colour, barcode, remaining_g, bambu_id FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
             if row is None:
                 continue  # spool was deleted since; nothing to subtract from
             left.setdefault(str(row["id"]), row["remaining_g"])
@@ -903,8 +928,13 @@ def book_stock(project_id):
                     left[roll_id] -= take
                     need -= take
                     conn.execute("UPDATE filament_spools SET remaining_g = round(max(remaining_g - %s, 0), 1) WHERE id = %s", (take, roll_id))
+                    cloud = (shelf.get(roll_id) or row)["bambu_id"]
+                    if bambu_on and cloud is not None:
+                        conn.execute("INSERT INTO bambu_cloud_pending_use (bambu_id, grams) VALUES (%s, %s)", (cloud, take))
+                        queued = True
             if need > 0:
                 short.append(tr("book.short_item", name=" ".join(x for x in (row["brand"], row["product_type"]) if x), left=have, need=grams))
         conn.execute("UPDATE projects SET stock_booked_at = now() WHERE id = %s", (project_id,))
     stock_changed()
-    return jsonify({"ok": True, "spools_updated": len(used), "short": short})
+    waiting = bambu_cloud.write_back() if queued else 0     # after the transaction: never hold one while another service is called
+    return jsonify({"ok": True, "spools_updated": len(used), "short": short, "cloud_waiting": waiting})

@@ -55,6 +55,7 @@ Work out what a print really costs, keep track of your filament stock, and turn 
 - [Contributing](#contributing)
 - [Privacy and security](#privacy-and-security)
 - [Support 3D Print Pricing](#support-3d-print-pricing)
+- [Third-party data and code](#third-party-data-and-code)
 - [License](#license)
 
 ## Why 3D Print Pricing?
@@ -66,7 +67,8 @@ Selling 3D prints means knowing what each one costs: filament by the gram, machi
 - **Cost price in seconds**: filament, parts, accessories (cables, chargers), printer depreciation and energy add up to a cost price, with an optional margin for a recommended selling price. Every line is rounded to the cent first, so the lines on screen add up to the total, and a saved calculation keeps the prices of the moment you saved it, so changing a roll price later never rewrites your history.
 - **Straight from the slicer**: attach a `.3mf` or `.stl` file. A sliced 3MF (Bambu Studio / Orca) gives the real grams per filament and the print time, which go into the calculation automatically, and the dimensions of what each plate prints (read from its G-code); an STL gives a weight estimate.
 - **Filament library**: the specs of the filaments you buy (brand, type, colour, supplier filament ID, weight, diameter, temperatures, indicative price), so a new roll fills itself in. Fill it without typing (import a Bambu Lab invoice or a JSON file, add the rolls of your filament list, sync the shared library from GitHub, or contribute yours to it) and export it as JSON; an import or sync only adds and updates, never deletes, never holds the same filament twice, and leaves your stock alone.
-- **Filament stock with barcode scanning**: your rolls with price, remaining weight, colour and temperatures, grouped per kind. Create a roll by hand, by scanning its barcode, from the library or, for Bambu Lab, from the web shop's products and colours, duplicate a roll to add one or more of the same, or add a whole delivery at once by scanning the rolls one after the other; search by name, barcode or material as you type; get a notification when a kind is nearly out, and book the usage of a calculation off the stock with one click.
+- **Filament stock with barcode scanning**: your rolls with price, remaining weight, colour and temperatures, grouped per kind. Create a roll by hand, by scanning its barcode (one the app does not know yet: the brand, material and colour lists of the form offer the filaments of [SpoolmanDB](https://github.com/Donkie/SpoolmanDB) and only the price is left), from the library, duplicate a roll to add one or more of the same, or add a whole delivery at once by scanning the rolls one after the other; search by name, barcode or material as you type; get a notification when a kind is nearly out, and book the usage of a calculation off the stock with one click.
+- **Your rolls from Spoolman or from Bambu Studio**: if you use [Spoolman](https://github.com/Donkie/Spoolman), your rolls and what is left on them come from there. Without Spoolman they can come from the **Bambu Lab Filament Manager** (the spools Bambu Studio and Bambu Handy keep, through your Bambu account): the app reads them in and writes what you book out back there, so Studio, Handy and the app show the same; the *Printers* page then also shows live what each printer is printing and which roll is in each slot of the AMS. You choose the source at the top of *Settings → Integrations*; the settings of the other are kept. Bambu Lab offers no official interface for this; see the [guide](docs/handleiding.md#bambu-lab-filament-manager-optioneel).
 - **Business-ready**: VAT on the selling price, a margin and a price rounding per order (to 5/10/50 cents, whole euros, or ending in ,95/,99, with your margin as the minimum), and a button to blur the costs when a customer looks over your shoulder.
 - **Every overview works the same**: 3D models, orders, customers, filament, packaging, parts and printers are shown as tiles or as a list; you search while you type, filter, sort on a column and group rolls per kind. A 3D model keeps several links: the page of the model and the places where it is for sale (Marktplaats, Bol.com, your web shop).
 - **Put a model up for sale**: every 3D model can have a listing: the title and text of the advertisement, your asking price (with the price the calculation advises next to it), an EAN and the photos in your order, your own or taken over from the product pictures. One click puts the title, the text and the photos ready to place an advertisement on Marktplaats, and another application reads what is for sale through the API.
@@ -117,11 +119,11 @@ The full-width navigation bar with a pill behind the active icon.
 
 ### Filament: library, import and new rolls
 
-*Settings → Filaments* holds the filament library: add a filament, import a Bambu Lab invoice, add the rolls of your filament list, import or export the library as JSON, sync it from GitHub, or contribute your filaments to the central library through a pre-filled GitHub issue. Under *Filament → New roll* you create a roll, either by hand, by scanning its barcode or by picking a filament from the library. *Filament → Scan* adds a delivery: scan every roll (camera or barcode scanner), and the rolls with a known barcode are added in one go, each starting full.
+*Settings → Filaments* holds the filament library: add a filament, import a Bambu Lab invoice, add the rolls of your filament list, import or export the library as JSON, sync it from GitHub, or contribute your filaments to the central library through a pre-filled GitHub issue. Under *Filament → New roll* you create a roll, either by hand, by scanning its barcode or by picking a filament from the library. The brand pull-down of that form also lists the brands of [SpoolmanDB](https://github.com/Donkie/SpoolmanDB) (a community list of filaments that ships with the app, so it works offline; an administrator fetches a newer one with *Sync now* under *Settings → Filaments*, at most once a day), the Material and Colour pull-downs list the brand's materials and the colours of that brand and material (each with *Other…* to type your own): choosing a colour fills in the weight, diameter, colour code and temperatures, and what you type is the price. There is no separate menu for Bambu Lab: it is in the same lists as every other brand. A filament you already have under a Dutch name (*Geel*) is offered under that name when you pick its English twin (*Yellow*), so it is never added twice; the density and the empty-spool weight go to Spoolman when a roll made from it is pushed there. *Filament → Scan* adds a delivery: scan every roll (camera or barcode scanner), and the rolls with a known barcode are added in one go, each starting full.
 
 | Library: import, export and sync | New roll |
 |:---:|:---:|
-| <img src="docs/assets/desktop-library.png" width="440" alt="Desktop: the filament library with invoice import, sync, JSON export and import"> | <img src="docs/assets/desktop-new-roll.png" width="440" alt="Desktop: creating a new roll, with the pick-list of the library on top"> |
+| <img src="docs/assets/desktop-library.png" width="440" alt="Desktop: the filament library with invoice import, sync, JSON export and import"> | <img src="docs/assets/desktop-new-roll.png" width="440" alt="Desktop: creating a new roll, with the SpoolmanDB and library pick-lists on top"> |
 
 | iPhone: library | iPhone: new roll | Android: library | Android: new roll |
 |:---:|:---:|:---:|:---:|
@@ -279,6 +281,7 @@ The screenshots above are generated from a demo instance: after a change that al
 - Everything is stored on your own server: there is no account with us, no analytics and no tracking.
 - Signing in uses passkeys or, where a passkey cannot work, a password (hashed with argon2id), optionally with two-step verification.
 - A backup from the app never contains credentials (passkeys, recovery codes, passwords, push subscriptions) or invitations. An invitation link is shown once and only its hash is stored.
+- When you sign the app in to the Bambu Lab Filament Manager, the password of your Bambu account goes to Bambu Lab only and is never stored; the access token Bambu returns is kept encrypted and is not in a backup.
 - Report a vulnerability privately, through a [private security advisory](https://github.com/Flux76HQ/3dprint_pricing/security/advisories/new) or to the maintainers ([@Flux76HQ](https://github.com/Flux76HQ)) directly, never in a public issue.
 
 ## Support 3D Print Pricing
@@ -287,6 +290,11 @@ The screenshots above are generated from a demo instance: after a change that al
 
 <a href="https://buymeacoffee.com/flux76"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="40"></a>
 <a href="https://ko-fi.com/flux76"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support me on Ko-fi" height="40"></a>
+
+## Third-party data and code
+
+- **[SpoolmanDB](https://github.com/Donkie/SpoolmanDB)** (MIT, Copyright (c) 2024 Donkie): the community list of filaments that the brand, material and colour fields of a new roll offer. A snapshot ships with the app in `backend/app/spoolmandb_data/`, with its licence next to it; the app contacts the project only when an administrator presses *Sync now* under *Settings → Filaments* (at most once a day). A roll or library entry made from it keeps the filament's SpoolmanDB id as the reference to the source. Refresh the snapshot in the repository with `python scripts/sync_spoolmandb.py`.
+- Everything else that is copied in keeps its licence next to it: the barcode scanner (`frontend/vendor/zxing/`, Apache-2.0), the icons (`frontend/vendor/mdi/`) and the typefaces (`backend/app/fonts/`).
 
 ## License
 

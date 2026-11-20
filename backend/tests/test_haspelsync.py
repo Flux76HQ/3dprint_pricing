@@ -194,7 +194,7 @@ def test_the_address_of_spoolman_is_still_checked_the_way_it_was(monkeypatch):
 # --- the address and the key, typed in the app ---------------------------------------------------------------------
 
 def test_without_an_address_there_is_no_haspelsync_and_nothing_is_asked(owner, stand_in):
-    assert status(owner) == {"enabled": False, "ready": False, "can_configure": True, "host": None, "url": "", "url_from_env": False, "key_set": False,
+    assert status(owner) == {"enabled": False, "configured": False, "ready": False, "can_configure": True, "host": None, "url": "", "url_from_env": False, "key_set": False,
                              "key_readable": True, "key_from_env": False}
     printer(owner)
     assert live(owner) == {"enabled": False, "printers": []}
@@ -270,7 +270,7 @@ def test_an_address_from_env_takes_a_key_typed_in_the_app_and_never_the_other_wa
 def test_a_regular_user_sees_what_it_shows_but_not_where_it_is_or_whether_there_is_a_key(app, owner, typed):
     member = join_with_passkey(app, owner)
     answer = status(member)
-    assert answer == {"enabled": True, "ready": True, "can_configure": False, "host": "haspelsync.test:4000"}
+    assert answer == {"enabled": True, "configured": True, "ready": True, "can_configure": False, "host": "haspelsync.test:4000"}
     assert member.put("/api/haspelsync/settings", json={"url": URL}, headers=H).status_code == 403
     assert member.post("/api/haspelsync/test", json={}, headers=H).status_code == 403
     assert member.get("/api/haspelsync/live").status_code == 200 and member.get("/api/haspelsync/printers").status_code == 200
