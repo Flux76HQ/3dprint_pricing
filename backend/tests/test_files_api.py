@@ -33,6 +33,20 @@ def test_upload_reads_the_file_and_stores_it(owner, app):
     assert again["filename"] == "USW rack-mount.gcode.3mf"
 
 
+def test_a_sliced_file_says_how_big_each_plate_is(owner, app):
+    from tests.conftest import connect
+    body = upload(owner, pf.sliced_with_gcode(), "block.gcode.3mf").get_json()
+    assert [p["size_mm"] for p in body["analysis"]["plates"]] == [[20.0, 35.0, 12.0], None]
+    # a file stored before the sizes were read gets them when it is next asked for, and keeps them
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
+        conn.execute("UPDATE print_files SET analysis = json_remove(json_remove(analysis, '$.plates[0].size_mm'), '$.plates[1].size_mm')")
+        assert "size_mm" not in conn.execute("SELECT analysis FROM print_files").fetchone()[0]
+    again = owner.get(f"/api/print-files/{body['id']}").get_json()
+    assert [p["size_mm"] for p in again["analysis"]["plates"]] == [[20.0, 35.0, 12.0], None]
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
+        assert conn.execute("SELECT json_extract(analysis, '$.plates[0].size_mm[2]') FROM print_files").fetchone()[0] == 12.0
+
+
 def test_download_returns_the_original_bytes(owner):
     data = pf.stl_binary()
     fid = upload(owner, data).get_json()["id"]

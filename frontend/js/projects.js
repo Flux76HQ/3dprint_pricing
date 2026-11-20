@@ -653,7 +653,9 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         }
         parts.push(h('dl', { class: 'stats' },
           h('div', {}, h('dt', {}, t('file.print_time')), h('dd', {}, plate.hours ? t('file.hours', { n: fmt(plate.hours, 2) }) : '—')),
-          h('div', {}, h('dt', {}, t('file.filament_total')), h('dd', {}, plate.grams ? `${fmt(plate.grams, 1)} g` : '—'))),
+          h('div', {}, h('dt', {}, t('file.filament_total')), h('dd', {}, plate.grams ? `${fmt(plate.grams, 1)} g` : '—')),
+          // what the plate prints, read from its G-code (width × depth × height); all plates together have no one size
+          plate.size_mm ? h('div', {}, h('dt', {}, t('file.dimensions')), h('dd', {}, `${plate.size_mm.map((v) => fmt(v, 0)).join(' × ')} mm`)) : null),
         h('ul', { class: 'plain-list' }, plate.filaments.map((fl) => {
           const dot = h('span', { class: 'dot', 'aria-hidden': 'true' });
           if (colourCode(fl.color)) dot.style.background = colourCode(fl.color);
