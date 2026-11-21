@@ -19,7 +19,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": 19.32,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -36,7 +37,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": 21.84,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -53,7 +55,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": 19.32,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -70,7 +73,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": 19.32,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -87,7 +91,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": 19.32,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -104,7 +109,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": 19.32,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -121,7 +127,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": 19.32,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -138,7 +145,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": 21.84,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -155,7 +163,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": 21.84,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -172,7 +181,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": 19.32,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -189,7 +199,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -206,7 +217,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -223,7 +235,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -240,7 +253,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -257,7 +271,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -274,7 +289,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -291,7 +307,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -308,7 +325,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -325,7 +343,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -342,7 +361,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -359,7 +379,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -376,7 +397,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -393,7 +415,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Sunli",
@@ -410,7 +433,8 @@
    "print_temp_c": 210,
    "bed_temp_c": 50,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Sunlu",
@@ -427,7 +451,8 @@
    "print_temp_c": 210,
    "bed_temp_c": 20,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Sunlu",
@@ -444,7 +469,8 @@
    "print_temp_c": 205,
    "bed_temp_c": 60,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -461,7 +487,8 @@
    "print_temp_c": 210,
    "bed_temp_c": 50,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Eryone",
@@ -478,7 +505,8 @@
    "print_temp_c": 210,
    "bed_temp_c": 50,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -495,7 +523,8 @@
    "print_temp_c": 210,
    "bed_temp_c": 20,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Sunlu",
@@ -512,7 +541,8 @@
    "print_temp_c": 240,
    "bed_temp_c": 70,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -529,7 +559,8 @@
    "print_temp_c": 210,
    "bed_temp_c": 20,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -546,7 +577,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -563,7 +595,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -580,7 +613,8 @@
    "print_temp_c": 210,
    "bed_temp_c": 50,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -597,7 +631,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -614,7 +649,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -631,7 +667,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -648,7 +685,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -665,7 +703,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -682,7 +721,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -699,7 +739,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -716,7 +757,8 @@
    "print_temp_c": null,
    "bed_temp_c": null,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -733,7 +775,8 @@
    "print_temp_c": 220,
    "bed_temp_c": 60,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   },
   {
    "brand": "Bambu Lab",
@@ -750,7 +793,8 @@
    "print_temp_c": 220,
    "bed_temp_c": 60,
    "price": null,
-   "notes": ""
+   "notes": "",
+   "spoolmandb_id": ""
   }
  ]
 }

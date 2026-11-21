@@ -628,6 +628,186 @@ def _plates_from_gcode_headers(zf):
     return plates
 
 
+# --- the size of what a plate prints ----------------------------------------------------
+#
+# A sliced file (`.gcode.3mf`) holds only the print job, no model, so its size is read from the G-code itself: the extent of the
+# extrusion moves (G1, and G2/G3 arcs with I/J, where an arc bulges past its ends) of the object, in millimetres. Extrusion that is
+# not the object is skipped: what comes before the first feature comment (the printer's start G-code, the purge line), the
+# features the slicer adds around or under it (`NOT_THE_OBJECT`, Bambu Studio / OrcaSlicer `; FEATURE:`, PrusaSlicer `;TYPE:`), and a
+# filament change (Bambu Studio's `M620`..`M621`, the `; CP TOOLCHANGE` block), which purges beside the plate. The paths are the
+# centres of the lines, so the size is a few tenths of a millimetre under the printed one; the height is the highest layer.
+
+MAX_GCODE_BYTES = 256 * 1024 * 1024    # of one plate's G-code that is read for its size; a larger one gets none rather than a part
+MAX_SIZE_MM = 10_000.0                  # a size beyond this is not a print, but a file that says something odd
+NOT_THE_OBJECT = ("brim", "skirt", "prime tower", "wipe tower", "support", "custom")   # features, by how their names start
+_FEATURE = re.compile(rb";\s*(?:FEATURE|TYPE)\s*:\s*([^\r\n]*)", re.I)
+
+
+class _Extent:
+    __slots__ = ("lo_x", "hi_x", "lo_y", "hi_y", "top")
+
+    def __init__(self):
+        self.lo_x = self.lo_y = math.inf
+        self.hi_x = self.hi_y = self.top = -math.inf
+
+    def add(self, x, y, z):
+        if x < self.lo_x: self.lo_x = x
+        if x > self.hi_x: self.hi_x = x
+        if y < self.lo_y: self.lo_y = y
+        if y > self.hi_y: self.hi_y = y
+        if z > self.top: self.top = z
+
+    def size(self) -> "list | None":
+        if self.lo_x == math.inf:
+            return None
+        size = [self.hi_x - self.lo_x, self.hi_y - self.lo_y, self.top]
+        if not _finite(size) or not all(0 < v <= MAX_SIZE_MM for v in size):
+            return None
+        return [round(v, 1) for v in size]
+
+
+def _arc(extent, x0, y0, x1, y1, i, j, z, clockwise):
+    """The points of an arc from (x0, y0) to (x1, y1) round the centre (x0 + i, y0 + j) that can be its extremes: both ends and
+    every quarter (east, north, west, south) that it passes."""
+    extent.add(x1, y1, z)
+    cx, cy = x0 + i, y0 + j
+    r = math.hypot(i, j)
+    if not r:
+        return
+    start = math.atan2(y0 - cy, x0 - cx)
+    end = math.atan2(y1 - cy, x1 - cx)
+    sweep = (start - end) if clockwise else (end - start)
+    sweep %= 2 * math.pi
+    if sweep == 0:                      # the same point at both ends: a full circle
+        sweep = 2 * math.pi
+    for q in range(4):
+        angle = q * math.pi / 2
+        passed = ((start - angle) if clockwise else (angle - start)) % (2 * math.pi)
+        if passed <= sweep:
+            extent.add(cx + r * math.cos(angle), cy + r * math.sin(angle), z)
+
+
+def gcode_size(stream) -> "list | None":
+    """[width, depth, height] in mm of the object one G-code prints, or None when it shows no object."""
+    extent = _Extent()
+    x = y = z = 0.0
+    e = 0.0
+    relative_xyz = False
+    relative_e = False
+    feature = None                      # the feature being printed; None before the first, and during a filament change
+    changing = False
+    read = 0
+    for line in stream:
+        read += len(line)
+        if read > MAX_GCODE_BYTES:
+            return None
+        first = line[:1]
+        if first == b";":
+            m = _FEATURE.match(line)
+            if m:
+                name = m.group(1).strip().lower().decode("ascii", "ignore")
+                feature = None if changing or name.startswith(NOT_THE_OBJECT) else name
+            elif line.startswith((b"; CP TOOLCHANGE START", b";CP TOOLCHANGE START")):
+                changing, feature = True, None
+            elif line.startswith((b"; CP TOOLCHANGE END", b";CP TOOLCHANGE END")):
+                changing = False
+            elif line.startswith((b"; MACHINE_END_GCODE_START", b"; EXECUTABLE_BLOCK_END")):
+                break
+            continue
+        if first != b"G" and first != b"M":
+            continue
+        words = line.split(b";", 1)[0].split()
+        if not words:
+            continue
+        code = words[0]
+        if code in (b"G0", b"G1", b"G2", b"G3", b"G00", b"G01", b"G02", b"G03"):
+            values = {}
+            try:
+                for w in words[1:]:
+                    values[w[:1].upper()] = float(w[1:])
+            except ValueError:
+                continue
+            if not _finite(values.values()):
+                continue
+            nx, ny, nz = values.get(b"X"), values.get(b"Y"), values.get(b"Z")
+            if relative_xyz:
+                nx = x + nx if nx is not None else x
+                ny = y + ny if ny is not None else y
+                nz = z + nz if nz is not None else z
+            else:
+                nx = x if nx is None else nx
+                ny = y if ny is None else ny
+                nz = z if nz is None else nz
+            extruded = False
+            if b"E" in values:
+                step = values[b"E"] if relative_e else values[b"E"] - e
+                e = e + values[b"E"] if relative_e else values[b"E"]
+                extruded = step > 0
+            arc = code in (b"G2", b"G3", b"G02", b"G03") and (b"I" in values or b"J" in values)
+            if extruded and feature is not None and not changing and (arc or nx != x or ny != y):
+                extent.add(x, y, nz)
+                if arc:
+                    _arc(extent, x, y, nx, ny, values.get(b"I", 0.0), values.get(b"J", 0.0), nz, code in (b"G2", b"G02"))
+                else:
+                    extent.add(nx, ny, nz)
+            x, y, z = nx, ny, nz
+        elif code == b"G90":
+            relative_xyz = False
+        elif code == b"G91":
+            relative_xyz = True
+        elif code == b"M82":
+            relative_e = False
+        elif code == b"M83":
+            relative_e = True
+        elif code == b"G92":
+            for w in words[1:]:
+                try:
+                    value = float(w[1:])
+                except ValueError:
+                    continue
+                letter = w[:1].upper()
+                if letter == b"E":
+                    e = value
+                elif letter == b"X":
+                    x = value
+                elif letter == b"Y":
+                    y = value
+                elif letter == b"Z":
+                    z = value
+        elif code == b"M620" and any(w[:1] in (b"S", b"s") for w in words[1:]):
+            changing, feature = True, None
+        elif code == b"M621" and any(w[:1] in (b"S", b"s") for w in words[1:]):
+            changing = False
+    return extent.size()
+
+
+def _plate_sizes(zf) -> dict:
+    """{plate number: [width, depth, height]} of every `Metadata/plate_N.gcode` in a sliced 3MF that shows an object."""
+    sizes = {}
+    names = sorted(n for n in zf.namelist() if re.fullmatch(r"Metadata/plate_\d{1,3}\.gcode", n))
+    for name in names[:MAX_PLATES]:
+        if zf.getinfo(name).file_size > MAX_GCODE_BYTES:
+            continue
+        with zf.open(name) as fh:
+            size = gcode_size(fh)
+        if size:
+            sizes[int(re.search(r"plate_(\d+)", name).group(1))] = size
+    return sizes
+
+
+def plate_sizes(path: Path, extension: str) -> dict:
+    """The same, for a stored file; nothing for an STL or a file that cannot be opened."""
+    if extension.lower().lstrip(".") != "3mf":
+        return {}
+    try:
+        with zipfile.ZipFile(path) as zf:
+            if sum(i.file_size for i in zf.infolist()) > MAX_UNZIPPED_BYTES:
+                return {}
+            return _plate_sizes(zf)
+    except (zipfile.BadZipFile, OSError):
+        return {}
+
+
 # --- entry point ----------------------------------------------------------------------
 
 def analyze(path: Path, extension: str) -> dict:
@@ -650,6 +830,9 @@ def analyze(path: Path, extension: str) -> dict:
             plates = _plates_from_slice_info(zf) or _plates_from_gcode_headers(zf)
         except (ET.ParseError, DefusedXmlException):
             plates = []
+        sizes = _plate_sizes(zf) if plates else {}
+        for plate in plates:
+            plate["size_mm"] = sizes.get(plate["index"])
         try:
             geometry = threemf_geometry(zf)
         except (PrintFileError, ET.ParseError, DefusedXmlException) as exc:

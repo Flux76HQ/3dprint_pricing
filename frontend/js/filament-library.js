@@ -3,6 +3,7 @@ import { formatDate, getLanguage, t } from './i18n.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
 import { libraryConfig, libraryName, openForm } from './resources.js';
 import { confirmDialog, enhanceDialog, eur, fill, fmt, foldHead, h, icon, saveBlob, toast } from './ui.js';
+import { spoolmanDbCard } from './spoolmandb.js';
 
 const norm = (v) => String(v || '').trim().toLowerCase();
 
@@ -261,7 +262,7 @@ export function filamentLibraryCards() {
   state.reload = async () => {
     try { state.items = await api('GET', '/api/filament-library'); state.draw(); } catch (e) { toast(e.message, 'error'); }
   };
-  const cards = [shareCard(state), listCard(state)];
+  const cards = [shareCard(state), spoolmanDbCard(), listCard(state)];
   state.reload();
   return cards;
 }

@@ -138,11 +138,11 @@ function fromSaved(project) {
 export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: async () => {} }) {
   const root = h('section', { class: 'page' }, h('p', { class: 'muted' }, t('common.loading')));
   // One request for the calculation and the lists it chooses from (it used to be nine): the server reads them in one go.
-  api('GET', `/api/model-editor${id ? `?project=${id}` : ''}`).then(({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listing, spoolman, haspelsync }) => {
+  api('GET', `/api/model-editor${id ? `?project=${id}` : ''}`).then(({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listing, spoolman, haspelsync, bambu_cloud: bambuCloud }) => {
     root.replaceChildren(buildEditor({
       spools: spools.filter((s) => !s.archived), stock: stock.groups, printers: printers.filter((p) => !p.archived), tariffs,
       packaging: packaging.filter((p) => !p.archived), parts: parts.filter((p) => !p.archived),
-      accessories: accessories.filter((p) => !p.archived), project, listed: listing, navigate, ctx, spoolman: !!spoolman.enabled, haspelsync: !!haspelsync.enabled,
+      accessories: accessories.filter((p) => !p.archived), project, listed: listing, navigate, ctx, spoolman: !!spoolman.enabled, haspelsync: !!haspelsync.enabled || !!bambuCloud?.enabled,
     }));
   }).catch((e) => root.replaceChildren(h('p', { class: 'error', role: 'alert' }, e.message)));
   return root;
@@ -303,11 +303,11 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         g.slots.map((s) => h('option', { value: `${PRINTER}${g.printer_id}|${s.label}` }, slotText(s))))));
   }
 
-  /** A filament that is in a printer becomes the line: the roll it is when it is a spool of Spoolman that this app mirrored (then it is that roll, with its price), else the kind in stock that
+  /** A filament that is in a printer becomes the line: the roll it is when it is a spool of Spoolman that this app mirrored, or the roll the Bambu cloud says is in that slot (then it is that roll, with its price), else the kind in stock that
    *  has its material and the nearest colour (`stockFor`, as for a sliced file). With neither the line stays manual, with the name and the colour the printer reports and no price: never a guess. */
   function fromPrinter(r, slot) {
     const colour = colourCode(slot.colours?.[0]);
-    const named = slot.spoolman_id ? spools.find((s) => s.spoolman_id === slot.spoolman_id) : null;
+    const named = slot.roll_id ? spools.find((s) => s.id === slot.roll_id) : (slot.spoolman_id ? spools.find((s) => s.spoolman_id === slot.spoolman_id) : null);
     const kindInStock = named ? null : stockFor(slot.material, colour);
     const roll = named || (kindInStock ? rollOf(kindInStock) : null);
     if (roll) { r.spool_id = roll.id; r.label = spoolName(roll); r.price_per_kg = perKg(roll); return; }
@@ -466,6 +466,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     try {
       const res = await api('POST', `/api/projects/${state.id}/book-stock`);
       toast(res.short.length ? t('calc.booked_short', { items: res.short.join(', ') }) : t('calc.stock_booked'), res.short.length ? 'error' : 'info');
+      if (res.cloud_waiting) toast(t('bambu.booked_waiting', { n: res.cloud_waiting }));      // the cloud did not take it yet: the next sync sends it
       navigate(`#/berekeningen/${state.id}`, true);
     } catch (e) { toast(e.message, 'error'); }
   }
@@ -653,7 +654,9 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         }
         parts.push(h('dl', { class: 'stats' },
           h('div', {}, h('dt', {}, t('file.print_time')), h('dd', {}, plate.hours ? t('file.hours', { n: fmt(plate.hours, 2) }) : '—')),
-          h('div', {}, h('dt', {}, t('file.filament_total')), h('dd', {}, plate.grams ? `${fmt(plate.grams, 1)} g` : '—'))),
+          h('div', {}, h('dt', {}, t('file.filament_total')), h('dd', {}, plate.grams ? `${fmt(plate.grams, 1)} g` : '—')),
+          // what the plate prints, read from its G-code (width × depth × height); all plates together have no one size
+          plate.size_mm ? h('div', {}, h('dt', {}, t('file.dimensions')), h('dd', {}, `${plate.size_mm.map((v) => fmt(v, 0)).join(' × ')} mm`)) : null),
         h('ul', { class: 'plain-list' }, plate.filaments.map((fl) => {
           const dot = h('span', { class: 'dot', 'aria-hidden': 'true' });
           if (colourCode(fl.color)) dot.style.background = colourCode(fl.color);

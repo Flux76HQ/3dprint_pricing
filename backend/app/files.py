@@ -100,9 +100,24 @@ def _get(file_id):
     return row
 
 
+def _with_sizes(row):
+    """A sliced file stored by a release that did not read the size of its plates yet gets it now, once: read from the stored file
+    and written back (`size_mm` is then on every plate, None where the G-code shows no object, so it is not read again)."""
+    analysis = row["analysis"]
+    plates = analysis.get("plates") or []
+    if not plates or all("size_mm" in p for p in plates):
+        return row
+    sizes = printfile.plate_sizes(_dir() / row["stored_name"], "." + row["kind"])
+    analysis = {**analysis, "plates": [{**p, "size_mm": sizes.get(p.get("index"))} for p in plates]}
+    with pool().connection() as conn:
+        updated = conn.execute("UPDATE print_files SET analysis = %s WHERE id = %s RETURNING *",
+                               (json.dumps(analysis), row["id"])).fetchone()
+    return updated or row
+
+
 @bp.get("/<uuid:file_id>")
 def metadata(file_id):
-    return jsonify(serialise(_get(file_id)))
+    return jsonify(serialise(_with_sizes(_get(file_id))))
 
 
 @bp.get("/<uuid:file_id>/download")

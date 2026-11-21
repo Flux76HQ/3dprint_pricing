@@ -189,7 +189,7 @@ function hooksCard() {
       h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, icon('plus'), h('span', {}, t('hooks.add'))))));
 }
 
-/** The cards of the page: its introduction, the cards of connections made elsewhere (`first`: Spoolman and HaspelSync), then API keys and webhooks. */
+/** The cards of the page: its introduction, the cards of connections made elsewhere (`first`: the choice of the source and its cards, sources.js), then API keys and webhooks. */
 export function integrationsCards(first = []) {
   return [
     h('p', { class: 'muted page-intro' }, t('integrations.intro')),
