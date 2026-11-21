@@ -33,6 +33,9 @@ function remembered(id) {
  *   views     ['tiles', 'list'] (the first is what a first visit gets); one of them leaves the switch out
  *   summary   (rows) => node or text above the rows (totals of what is listed)
  *   toggles   nodes shown with the filters (show archived)
+ *   select    { id: (row) => text, can: (row) => whether it may be chosen, cannot: why not (a tooltip), label: (row) => its name, actions: [{ icon, label, primary,
+ *             run: async (rows) => true when it is done }] }: a *Select* switch that gives every row a checkbox (a click on the row does the same) and a bar with
+ *             what can be done with the chosen rows at once. Only rows that are shown can be chosen: a row that a search or a filter hides is let go
  *   empty     the text of an overview with nothing in it; `noMatch` the text when the search or the filters leave nothing
  */
 export function listView(config) {
@@ -52,6 +55,11 @@ export function listView(config) {
   };
   let items = [];
   let loaded = false;
+  const select = config.select || null;
+  let selecting = false;
+  const chosen = new Set();                                         // the ids of the rows that are ticked
+  const idOf = (row) => String(select.id(row));
+  const canChoose = (row) => !select.can || !!select.can(row);
 
   const remember = () => {
     try { localStorage.setItem(`pp-list-${config.id}`, JSON.stringify({ view: state.view, by: state.by, dir: state.dir, grouped: state.grouped })); } catch { /* not remembered */ }
@@ -162,6 +170,14 @@ export function listView(config) {
     views.map((view) => h('button', { type: 'button', class: 'seg', 'data-view': view, title: t(VIEW_LABELS[view]), 'aria-label': t(VIEW_LABELS[view]),
       onclick: () => { state.view = view; remember(); draw(); } }, icon(view === 'list' ? 'view-list' : 'view-tiles')))) : null;
 
+  const selectButton = select ? h('button', { type: 'button', class: 'btn tool', 'aria-pressed': 'false', title: t('list.select'), 'aria-label': t('list.select'),
+    onclick: () => setSelecting(!selecting) }, icon('checklist'), h('span', {}, t('list.select'))) : null;
+  function setSelecting(on) {
+    selecting = on;
+    if (!on) chosen.clear();
+    draw();
+  }
+
   const count = h('p', { class: 'list-count muted', role: 'status' });
   const body = h('div', { class: 'list-body' }, h('p', { class: 'muted' }, t('common.loading')));
   const summary = h('div', { class: 'list-summary', hidden: true });
@@ -170,11 +186,57 @@ export function listView(config) {
     h('div', { class: 'list-tools-row' },
       input ? h('div', { class: 'search-bar', role: 'search' }, h('div', { class: 'search-field' }, icon('search'), input), config.search.extra || null) : null,
       h('div', { class: 'list-controls' },
+        selectButton,
         filterButton,
         sortSelect ? h('div', { class: 'sort-control', role: 'group', 'aria-label': t('sort.label') }, sortSelect, dirButton) : null,
         viewButtons)),
     filterRow,
     h('div', { class: 'list-tools-row sub' }, chips, groupSwitch, ...(config.toggles || []), h('span', { class: 'grow' }), count, clearButton));
+
+  // --- choosing rows ---------------------------------------------------------------
+  const bulk = select ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': t('list.selection'), hidden: true }) : null;
+  let shown = [];                                                   // the rows that are listed now
+  const chosenRows = () => shown.filter((row) => chosen.has(idOf(row)));
+
+  function drawBulk() {
+    if (!bulk) return;
+    bulk.hidden = !selecting;
+    if (!selecting) return;
+    const rows = chosenRows();
+    const choosable = shown.filter(canChoose);
+    const all = choosable.length > 0 && choosable.every((row) => chosen.has(idOf(row)));
+    fill(bulk,
+      h('span', { class: 'bulk-count', role: 'status' }, t('list.selected_n', { n: rows.length })),
+      h('button', { class: 'btn tool', type: 'button', disabled: all || !choosable.length, onclick: () => {
+        for (const row of choosable) chosen.add(idOf(row));
+        draw();
+      } }, t('list.select_all')),
+      h('button', { class: 'btn tool bulk-none', type: 'button', disabled: !rows.length, onclick: () => { chosen.clear(); draw(); } }, t('list.select_none')),
+      h('span', { class: 'grow' }),
+      select.actions.map((action) => h('button', { class: `btn tool${action.primary ? ' primary' : ''}`, type: 'button', disabled: !rows.length, onclick: async () => {
+        const done = await action.run(chosenRows());
+        if (done) { chosen.clear(); draw(); }
+      } }, action.icon ? icon(action.icon) : null, h('span', {}, action.label))),
+      h('button', { class: 'btn tool bulk-done', type: 'button', onclick: () => setSelecting(false) }, t('list.select_done')));
+  }
+
+  const box = (row) => {
+    const ok = canChoose(row);
+    const input = h('input', { type: 'checkbox', class: 'select-box', checked: chosen.has(idOf(row)), disabled: !ok, title: ok ? null : select.cannot || null,
+      'aria-label': t('list.select_row', { name: select.label(row) }),
+      onchange: () => {
+        if (input.checked) chosen.add(idOf(row)); else chosen.delete(idOf(row));
+        input.closest('tr, .selectable')?.toggleAttribute('data-selected', input.checked);
+        drawBulk();
+      } });
+    return input;
+  };
+  // While choosing, a click anywhere on a row or tile ticks it (a link or a button on it is inert then, css), so a finger has more than the box to hit.
+  const tick = (e) => {
+    if (e.target.closest('input, a, button, select')) return;
+    const input = e.currentTarget.querySelector('.select-box');
+    if (input && !input.disabled) input.click();
+  };
 
   // --- the rows ------------------------------------------------------------------
   function groupsOf(rows) {
@@ -195,7 +257,9 @@ export function listView(config) {
   };
 
   function tiles(rows) {
-    const grid = (list) => h('div', { class: config.tilesClass || 'cards' }, list.map((row) => config.tile(row)));
+    const one = (row) => (!selecting ? config.tile(row) : h('div', { class: `selectable${canChoose(row) ? '' : ' locked'}`, 'data-selected': chosen.has(idOf(row)) ? '' : null, onclick: tick },
+      h('div', { class: 'select-cell' }, box(row)), config.tile(row)));
+    const grid = (list) => h('div', { class: config.tilesClass || 'cards' }, list.map(one));
     const groups = groupsOf(rows);
     if (!groups) return grid(rows);
     return h('div', { class: 'stack groups' }, groups.map((list) => h('section', { class: 'group' }, h('h2', { class: 'group-head' }, groupHead(list)), grid(list))));
@@ -217,13 +281,15 @@ export function listView(config) {
         h('button', { type: 'button', class: 'th-sort', onclick: () => setSort(col.sort, active ? -state.dir : (sorts.find((s) => s.key === col.sort)?.desc ? -1 : 1)) },
           h('span', {}, col.label), icon(active && state.dir < 0 ? 'sort-down' : 'sort-up')));
     };
-    const line = (row) => h('tr', { class: [config.href ? 'opens' : '', config.rowClass ? config.rowClass(row) : ''].filter(Boolean).join(' ') || null, onclick: config.href ? open(row) : null },
-      columns.map((col, i) => h(i === 0 ? 'th' : 'td', { scope: i === 0 ? 'row' : null, class: [col.cls, col.wide ? 'wide' : ''].filter(Boolean).join(' ') || null }, col.cell(row))));
+    const line = (row) => h('tr', { class: [config.href || selecting ? 'opens' : '', selecting && !canChoose(row) ? 'locked' : '', config.rowClass ? config.rowClass(row) : ''].filter(Boolean).join(' ') || null,
+      'data-selected': selecting && chosen.has(idOf(row)) ? '' : null, onclick: selecting ? tick : (config.href ? open(row) : null) },
+    selecting ? h('td', { class: 'select-cell' }, box(row)) : null,
+    columns.map((col, i) => h(i === 0 ? 'th' : 'td', { scope: i === 0 ? 'row' : null, class: [col.cls, col.wide ? 'wide' : ''].filter(Boolean).join(' ') || null }, col.cell(row))));
     const groups = groupsOf(rows);
     return h('div', { class: 'table-wrap glass card' }, h('table', { class: 'data-table' },
-      h('thead', {}, h('tr', {}, columns.map(headCell))),
+      h('thead', {}, h('tr', {}, selecting ? h('th', { scope: 'col', class: 'select-cell' }, h('span', { class: 'sr-only' }, t('list.selection'))) : null, columns.map(headCell))),
       groups
-        ? groups.map((list) => h('tbody', {}, h('tr', { class: 'group-row' }, h('th', { colspan: columns.length, scope: 'rowgroup' }, h('div', { class: 'group-head' }, groupHead(list)))), list.map(line)))
+        ? groups.map((list) => h('tbody', {}, h('tr', { class: 'group-row' }, h('th', { colspan: columns.length + (selecting ? 1 : 0), scope: 'rowgroup' }, h('div', { class: 'group-head' }, groupHead(list)))), list.map(line)))
         : h('tbody', {}, rows.map(line))));
   }
 
@@ -234,8 +300,13 @@ export function listView(config) {
     viewButtons?.querySelectorAll('.seg').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === state.view)));
     if (groupSwitch) groupSwitch.hidden = !items.length;
     clearButton.hidden = !narrowed();
+    selectButton?.setAttribute('aria-pressed', String(selecting));
+    root.classList.toggle('selecting', selecting);
     if (!loaded) return;
     const rows = ordered(items.filter((row) => searched(row) && passes(row) && chipped(row)));
+    shown = rows;
+    for (const id of [...chosen]) if (!rows.some((row) => idOf(row) === id && canChoose(row))) chosen.delete(id);       // what is not listed (any more) is not chosen
+    drawBulk();
     count.textContent = !items.length ? '' : (rows.length === items.length ? t('list.count', { n: rows.length }) : t('list.count_of', { n: rows.length, total: items.length }));
     const extra = rows.length && config.summary ? config.summary(rows) : null;
     summary.hidden = !extra;
@@ -249,11 +320,14 @@ export function listView(config) {
     fill(body, state.view === 'list' && config.columns ? table(rows) : tiles(rows));
   }
 
+  const root = h('div', { class: 'list-view' }, tools, summary, body, bulk);
   draw();
   return {
-    el: h('div', { class: 'list-view' }, tools, summary, body),
+    el: root,
     setItems(rows) { items = rows; loaded = true; draw(); },
     setQuery,
+    /** Narrows the overview to what one of its filters offers (`value` is what the filter's `value` gives; one that is not among the rows is let go). */
+    setFilter(key, value) { memory.filters[key] = norm(value); draw(); },
     refresh: draw,
     get query() { return memory.query; },
   };

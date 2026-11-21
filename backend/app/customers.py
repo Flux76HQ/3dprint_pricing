@@ -8,6 +8,7 @@ from flask import Blueprint, jsonify, request
 from .api import _serialise, text
 from .db import UniqueViolation
 from .http import ApiError, json_body, login_required, pool
+from .i18n import tr
 
 bp = Blueprint("customers", __name__, url_prefix="/api/customers")
 
@@ -115,6 +116,21 @@ def update_customer(customer_id):
                      "WHERE customer_id = %s AND invoice_number IS NULL", (*copy.values(), customer_id))
         count = conn.execute("SELECT count(*) AS n FROM orders WHERE customer_id = %s", (customer_id,)).fetchone()["n"]
     return jsonify(_present(row, count))
+
+
+@bp.post("/<uuid:customer_id>/duplicate")
+def duplicate_customer(customer_id):
+    """A new customer with everything this one has (name, address, contact details, note) and the next free klantnummer, which is nobody's twice. The name
+    gets "(kopie)" after it, so the copy is not taken for the original in a list or on an invoice before it is renamed. The orders stay with the customer
+    they were made for: a copy of a person does not take over their history."""
+    with pool().connection() as conn:
+        row = conn.execute("SELECT * FROM customers WHERE id = %s", (customer_id,)).fetchone()
+        if row is None:
+            raise ApiError(404, "err.customer_not_found")
+        room = 120 - len(tr("customers.copy_name", name=""))                  # the name is cut, never the "(kopie)", to stay within the limit of a name
+        values = {**{f: row[f] for f in FIELDS}, "number": "", "name": tr("customers.copy_name", name=row["name"][:room].rstrip())}
+        copy = insert(conn, values)
+    return jsonify(_present(copy)), 201
 
 
 @bp.delete("/<uuid:customer_id>")

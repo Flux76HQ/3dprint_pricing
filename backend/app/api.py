@@ -848,16 +848,44 @@ def _project_fields(body, *, known_files=None):
             "totals": totals, "source_url": source_url, "links": links, "file_id": file_id, "calc_files": calc_files, "models": models}
 
 
+def _copy_pictures(conn, source, target) -> None:
+    """What a copy of a model takes along from the model it is a copy of, besides what the screen sends: the choices of the product pictures
+    (`image_text`: purpose, colour, setting, texts) and every picture that is kept with it (`project_images`: the uploaded photos, the saved views of
+    the 3D model with the model and plate they show, the pictures that were made, which of them go to the image model, the cover), as copies with
+    the same time, so they come in the same order (pictures are made one after the other, seconds apart) and nobody has to make or choose them again. The bytes are copied by the database; nothing is read
+    into Python and nothing is written again, so a picture is the very same picture. The 3D models themselves (`models`, `calc_files`) are not copied:
+    a file is kept while any calculation names it (`files._purge_orphans`), and a saved view names its model by file id, so both stay valid.
+    Not copied: what it cost to make them (`ai_image_usage` belongs to the money spent on the original), the jobs and the log, and what the model is for sale as."""
+    conn.execute("UPDATE projects SET image_text = (SELECT image_text FROM projects WHERE id = %s) WHERE id = %s", (source, target))
+    conn.execute("INSERT INTO project_images (project_id, kind, origin, model_ref, selected, variant, purpose, mime, content, width_px, height_px, is_cover, created_at) "
+                 "SELECT %s, kind, origin, model_ref, selected, variant, purpose, mime, content, width_px, height_px, is_cover, created_at "
+                 "FROM project_images WHERE project_id = %s ORDER BY created_at, id", (target, source))
+
+
 @bp.post("/projects")
 def create_project():
-    f = _project_fields(json_body())
+    """A new calculation. With `duplicate_of` (the id of a calculation) it is a copy of that one: the screen sends the fields, and the pictures that belong to the
+    original are copied in the same transaction (`_copy_pictures`), so there is never a copy without them, nor half of them."""
+    body = json_body()
+    f = _project_fields(body)
+    original = None
+    if body.get("duplicate_of") not in (None, ""):
+        try:
+            original = str(uuid.UUID(str(body["duplicate_of"])))
+        except ValueError:
+            raise ApiError(404, "err.calc_not_found") from None
     with pool().connection() as conn:
+        if original is not None and conn.execute("SELECT 1 FROM projects WHERE id = %s", (original,)).fetchone() is None:
+            raise ApiError(404, "err.calc_not_found")
         row = conn.execute(
             "INSERT INTO projects (name, notes, object_description, margin_pct, vat_pct, price_rounding, data, totals, source_url, "
             "links, file_id, calc_files, models, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
              json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], json.dumps(f["calc_files"]),
              json.dumps(f["models"]), next_number(conn, "project"))).fetchone()
+        if original is not None:
+            _copy_pictures(conn, original, row["id"])
+            row = conn.execute("SELECT * FROM projects WHERE id = %s", (row["id"],)).fetchone()          # with the image choices it now has
     return jsonify(_project_row(row)), 201
 
 
