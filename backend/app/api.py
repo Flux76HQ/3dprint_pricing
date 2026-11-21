@@ -770,6 +770,31 @@ def _project_links(body):
     return links, next((link["url"] for link in links if link["kind"] == "model"), "")
 
 
+# Where the files of a 3D model are kept outside this app: a link to a cloud drive or the path of a folder on a network share (a NAS). The place is only remembered and shown, never
+# opened or read by the server. It has to be one of the forms below, so that what the screen turns into a link can never run anything (javascript:, data:): a web address, an
+# smb:// or file:// address, a Windows network path (\\server\share\folder) or a path on a mapped drive (Z:\folder). Paths may hold spaces; a web address may not.
+FILE_KINDS = ("icloud", "gdrive", "onedrive", "dropbox", "nas", "other")
+MAX_FILE_REFS = 12
+PLACE = re.compile(r"^(https?://\S+|smb://\S.*|file://\S.*|\\\\[^\\\s].*|[A-Za-z]:\\.*)$", re.I)
+
+
+def project_file_refs(body):
+    """The places of a 3D model's files: `file_refs`, a list of kind, label and location. None when the body says nothing about them (an update then leaves them as they are)."""
+    given = body.get("file_refs")
+    if given is None:
+        return None
+    if not isinstance(given, list) or len(given) > MAX_FILE_REFS or not all(isinstance(item, dict) for item in given):
+        raise ApiError(400, "err.file_refs", max=MAX_FILE_REFS)
+    refs = []
+    for item in given:
+        location = text("f.file_location", max_len=500)(item.get("location"))
+        if not PLACE.match(location):
+            raise ApiError(400, "err.file_location")
+        refs.append({"kind": choice("f.file_kind", FILE_KINDS)(item.get("kind") or "other"),
+                     "label": text("f.file_label", required=False, max_len=60)(item.get("label")), "location": location})
+    return refs
+
+
 MAX_MODELS = 12
 
 
@@ -833,6 +858,7 @@ def project_calc_files(body, *, known=None) -> list:
 def _project_fields(body, *, known_files=None):
     name = text("f.name")(body.get("name"))
     links, source_url = _project_links(body)
+    file_refs = project_file_refs(body)
     models = project_models(body, known=known_files)
     calc_files = project_calc_files(body, known=known_files)
     file_id = calc_files[0] if calc_files else None
@@ -845,7 +871,7 @@ def _project_fields(body, *, known_files=None):
         raise ApiError(400, "err.rounding")
     data, totals = _calc({"data": body.get("data"), "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding})
     return {"name": name, "notes": notes, "object_description": object_description, "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding, "data": data,
-            "totals": totals, "source_url": source_url, "links": links, "file_id": file_id, "calc_files": calc_files, "models": models}
+            "totals": totals, "source_url": source_url, "links": links, "file_refs": file_refs, "file_id": file_id, "calc_files": calc_files, "models": models}
 
 
 def _copy_pictures(conn, source, target) -> None:
@@ -879,9 +905,9 @@ def create_project():
             raise ApiError(404, "err.calc_not_found")
         row = conn.execute(
             "INSERT INTO projects (name, notes, object_description, margin_pct, vat_pct, price_rounding, data, totals, source_url, "
-            "links, file_id, calc_files, models, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "links, file_refs, file_id, calc_files, models, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
-             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], json.dumps(f["calc_files"]),
+             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), json.dumps(f["file_refs"] or []), f["file_id"], json.dumps(f["calc_files"]),
              json.dumps(f["models"]), next_number(conn, "project"))).fetchone()
         if original is not None:
             _copy_pictures(conn, original, row["id"])
@@ -895,9 +921,9 @@ def update_project(project_id):
     with pool().connection() as conn:
         row = conn.execute(
             "UPDATE projects SET name=%s, notes=%s, object_description=%s, margin_pct=%s, vat_pct=%s, price_rounding=%s, data=%s, "
-            "totals=%s, source_url=%s, links=%s, file_id=%s, calc_files=%s, models=%s, updated_at=now() WHERE id=%s RETURNING *",
+            "totals=%s, source_url=%s, links=%s, file_refs=COALESCE(%s, file_refs), file_id=%s, calc_files=%s, models=%s, updated_at=now() WHERE id=%s RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
-             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], json.dumps(f["calc_files"]),
+             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), None if f["file_refs"] is None else json.dumps(f["file_refs"]), f["file_id"], json.dumps(f["calc_files"]),
              json.dumps(f["models"]), project_id)).fetchone()
     if row is None:
         raise ApiError(404, "err.calc_not_found")

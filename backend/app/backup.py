@@ -51,7 +51,7 @@ STALE_MINUTES = 15                           # a restore that has not moved for 
 SECTIONS = (("printers", "printers"), ("tariffs", "tariffs"), ("packaging", "packaging"), ("parts", "parts"),
             ("accessories", "accessories"), ("filament_library", "filament-library"), ("spools", "spools"))
 PROJECT_COLUMNS = ("id", "number", "name", "notes", "object_description", "image_text", "margin_pct", "vat_pct", "price_rounding", "data", "totals", "source_url",
-                   "links", "file_id", "calc_files", "models", "stock_booked_at", "created_at", "updated_at")
+                   "links", "file_refs", "file_id", "calc_files", "models", "stock_booked_at", "created_at", "updated_at")
 
 
 class _AnyFile:
@@ -1044,7 +1044,8 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                 values = {"id": item["id"], "number": item["number"], "name": f["name"], "notes": f["notes"], "object_description": f["object_description"],
                           "image_text": json.dumps(item["image_text"]), "margin_pct": f["margin_pct"],
                           "vat_pct": f["vat_pct"], "price_rounding": f["price_rounding"], "data": json.dumps(f["data"]),
-                          "totals": json.dumps(f["totals"]), "source_url": f["source_url"], "links": json.dumps(f["links"]), "file_id": file_id, "calc_files": json.dumps(calc_files),
+                          "totals": json.dumps(f["totals"]), "source_url": f["source_url"], "links": json.dumps(f["links"]), "file_refs": json.dumps(f["file_refs"] or []),
+                          "file_id": file_id, "calc_files": json.dumps(calc_files),
                           "models": json.dumps([m for m in f["models"] if m["file_id"] in existing_files]),      # like file_id: a missing file is let go
                           "stock_booked_at": item["stock_booked_at"]}
                 if item["created_at"]:
