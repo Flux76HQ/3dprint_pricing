@@ -878,6 +878,11 @@ dialog.sheet { border: 1px solid var(--lijn-strong); border-radius: 20px; box-sh
 .fold-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
 .connection-state { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: .85rem; font-weight: 400; }
 .fold-toggle .icon { color: var(--text-muted); transition: transform .2s var(--ease), color .15s var(--ease); }
+/* Folded, the heading of a card of links or file locations shows one small icon for each (what it is; the tooltip says its name and address). Open, the rows themselves are there. */
+.fold-icons { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.fold-icons:empty, .fold-toggle[aria-expanded="true"] .fold-icons { display: none; }
+.fold-chip { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--lijn-strong); border-radius: 50%; background: var(--surface-field); }
+.fold-toggle .fold-chip .icon, .fold-toggle:hover .fold-chip .icon { width: 17px; height: 17px; color: var(--text); }
 .fold-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
 .fold-toggle:hover .icon { color: var(--text); }
 .card:has(> .fold-head [aria-expanded="false"]) > :not(.fold-head) { display: none; }

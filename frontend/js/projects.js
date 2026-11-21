@@ -6,7 +6,7 @@ import { formatDate, t } from './i18n.js';
 import { listingCard } from './listing.js';
 import { listView } from './listview.js';
 import { setDirty } from './updates.js';
-import { backLink, blurToggle, confirmDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
+import { backLink, blurToggle, confirmDialog, eur, field, fill, fmt, foldHead, h, headAction, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
 
 // [value sent to the server, label key]
 const UNITS = [['stuks', 'unit.pieces'], ['m', 'unit.meter'], ['g', 'unit.gram']];
@@ -20,6 +20,7 @@ export const LINK_KINDS = [['model', 'link.model'], ['marktplaats', 'link.marktp
 const LINK_LABELS = Object.fromEntries(LINK_KINDS);
 const kindLabel = (kind) => t(LINK_LABELS[kind] || LINK_LABELS.other);
 const linkName = (link) => link.label || kindLabel(link.kind);
+const kindName = (kinds, kind) => t((kinds.find(([value]) => value === kind) || kinds[kinds.length - 1])[1]);
 // The kind a pasted address most likely is, from its host.
 const HOSTS = [[/(^|\.)marktplaats\.nl$/, 'marktplaats'], [/(^|\.)bol\.com$/, 'bol'], [/(^|\.)etsy\.com$/, 'etsy'], [/(^|\.)vinted\.[a-z.]+$/, 'vinted'],
   [/(^|\.)(makerworld\.com|printables\.com|thingiverse\.com|thangs\.com|cults3d\.com|myminifactory\.com)$/, 'model']];
@@ -45,6 +46,13 @@ function kindOfPlace(place) {
 }
 /** What a place can be opened with from a page: a web address, or an smb:// address (the system opens it in its file manager). A network path or a mapped drive cannot be a link: it is copied. */
 const openable = (place) => /^(https?|smb):\/\/\S/i.test(String(place || '').trim());
+// A card of links or of file locations folds away (`foldHead`); folded, its heading shows one small icon for each that was made: what kind it is, and its name and address as the tooltip.
+const LINK_ICONS = { model: 'box', marktplaats: 'cart', bol: 'cart', etsy: 'cart', vinted: 'cart', webshop: 'cart', other: 'link' };
+const PLACE_ICONS = { icloud: 'cloud', gdrive: 'cloud', onedrive: 'cloud', dropbox: 'cloud', nas: 'nas', other: 'folder' };
+function fillChips(target, entries) {
+  fill(target, entries.map((e) => h('span', { class: 'fold-chip', title: e.title }, icon(e.icon))),
+    entries.length ? h('span', { class: 'sr-only' }, entries.map((e) => e.title).join('; ')) : null);       // a screen reader gets the same as a tooltip
+}
 /** The links of a model as small buttons that open in a new tab. */
 const linkChips = (links) => (links && links.length ? h('span', { class: 'link-chips' }, links.map((link) => h('a', { class: 'link-chip', href: link.url,
   target: '_blank', rel: 'noopener noreferrer', title: link.url }, icon('external'), h('span', {}, linkName(link))))) : null);
@@ -589,10 +597,12 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   // The links of the model: where it comes from, and where it is offered for sale. A pasted address says what it is by its host. A card of its own, under the project.
   const MAX_LINKS = 12;
   const linksBox = h('div', { class: 'glass card stack line-group links' });
+  const linkIcons = h('span', { class: 'fold-icons' });          // in the heading, shown while the card is folded; made again when a link changes, so it never lags behind
+  const drawLinkIcons = () => fillChips(linkIcons, state.links.filter((l) => l.url.trim()).map((l) => ({ icon: LINK_ICONS[l.kind] || 'link', title: `${linkName(l)} · ${l.url.trim()}` })));
   function drawLinks() {
     const rows = state.links.map((link, i) => {
       const openLink = h('a', { class: 'btn tool icon-only', target: '_blank', rel: 'noopener noreferrer', title: t('file.open_link'), 'aria-label': t('file.open_link') }, icon('external'));
-      const kind = select(LINK_KINDS.map(([value, label]) => [value, t(label)]), link.kind, (v) => { link.kind = v; link.picked = true; touch(); });
+      const kind = select(LINK_KINDS.map(([value, label]) => [value, t(label)]), link.kind, (v) => { link.kind = v; link.picked = true; touch(); drawLinkIcons(); });
       const mark = () => {
         if (isLink(link.url)) openLink.href = link.url.trim(); else openLink.removeAttribute('href');
         openLink.setAttribute('aria-disabled', String(!isLink(link.url)));
@@ -601,13 +611,13 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         link.url = e.target.value;
         const guess = kindOfUrl(link.url.trim());
         if (guess && !link.picked) { link.kind = guess; kind.value = guess; }       // until a kind was chosen by hand
-        mark(); touch();
+        mark(); touch(); drawLinkIcons();
       } });
       mark();
       return h('div', { class: 'line weblink' },
         field(t('file.link_kind'), kind),
         field(t('file.link_url'), url),
-        field(t('file.link_label'), textInput(link, 'label', { maxlength: 60, placeholder: t('file.link_label_ph') })),
+        field(t('file.link_label'), textInput(link, 'label', { maxlength: 60, placeholder: t('file.link_label_ph'), onchange: drawLinkIcons })),
         h('div', { class: 'row-actions' }, openLink, removeBtn(t('file.link_remove'), () => { state.links.splice(i, 1); touch(); drawLinks(); })));
     });
     const add = () => {
@@ -615,9 +625,11 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       drawLinks();
       linksBox.querySelector('.line:last-child input[type=url]')?.focus();
     };
+    drawLinkIcons();
     fill(linksBox,
-      h('div', { class: 'row between' }, h('h2', {}, t('file.links_title')), state.links.length < MAX_LINKS ? addButton(t('file.link_add'), add) : null),
-      rows.length ? h('div', { class: 'lines' }, rows) : h('p', { class: 'muted line-none' }, t('file.links_hint')));
+      foldHead('model-links', t('file.links_title'), { extra: linkIcons }),
+      rows.length ? h('div', { class: 'lines' }, rows) : h('p', { class: 'muted line-none' }, t('file.links_hint')),
+      state.links.length < MAX_LINKS ? h('div', { class: 'row' }, addButton(t('file.link_add'), add)) : null);
   }
   drawLinks();
 
@@ -625,9 +637,12 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   // \\nas\prints\vaas, Z:\prints\vaas). Only remembered and shown here, never opened or read by the app: a place that is a web address or an smb:// address opens, any other is copied.
   const MAX_PLACES = 12;
   const placesBox = h('div', { class: 'glass card stack line-group places' });
+  const placeIcons = h('span', { class: 'fold-icons' });
+  const drawPlaceIcons = () => fillChips(placeIcons, state.file_refs.filter((r) => r.location.trim()).map((r) => ({ icon: PLACE_ICONS[r.kind] || 'folder',
+    title: `${r.label.trim() || kindName(PLACE_KINDS, r.kind)} · ${r.location.trim()}` })));
   function drawPlaces() {
     const rows = state.file_refs.map((place, i) => {
-      const kind = select(PLACE_KINDS.map(([value, label]) => [value, t(label)]), place.kind, (v) => { place.kind = v; place.picked = true; touch(); });
+      const kind = select(PLACE_KINDS.map(([value, label]) => [value, t(label)]), place.kind, (v) => { place.kind = v; place.picked = true; touch(); drawPlaceIcons(); });
       const open = h('a', { class: 'btn tool icon-only', title: t('place.open'), 'aria-label': t('place.open') }, icon('external'));
       const location = h('input', { type: 'text', value: place.location, maxlength: 500, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', placeholder: t('place.location_ph') });
       const copy = h('button', { class: 'btn tool icon-only', type: 'button', title: t('place.copy'), 'aria-label': t('place.copy'), onclick: async () => {
@@ -647,13 +662,13 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         place.location = location.value;
         const guess = kindOfPlace(place.location.trim());
         if (guess && !place.picked) { place.kind = guess; kind.value = guess; }       // until a kind was chosen by hand
-        mark(); touch();
+        mark(); touch(); drawPlaceIcons();
       });
       mark();
       return h('div', { class: 'line weblink' },
         field(t('place.kind'), kind),
         field(t('place.location'), location),
-        field(t('place.label'), textInput(place, 'label', { maxlength: 60, placeholder: t('place.label_ph') })),
+        field(t('place.label'), textInput(place, 'label', { maxlength: 60, placeholder: t('place.label_ph'), onchange: drawPlaceIcons })),
         h('div', { class: 'row-actions' }, open, copy, removeBtn(t('place.remove'), () => { state.file_refs.splice(i, 1); touch(); drawPlaces(); })));
     });
     const add = () => {
@@ -661,10 +676,12 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       drawPlaces();
       placesBox.querySelector('.line:last-child input[type=text]')?.focus();
     };
+    drawPlaceIcons();
     fill(placesBox,
-      h('div', { class: 'row between' }, h('h2', {}, t('place.title')), state.file_refs.length < MAX_PLACES ? addButton(t('place.add'), add) : null),
+      foldHead('model-places', t('place.title'), { extra: placeIcons }),
       h('p', { class: 'muted' }, t('place.intro')),
-      rows.length ? h('div', { class: 'lines' }, rows) : null);
+      rows.length ? h('div', { class: 'lines' }, rows) : null,
+      state.file_refs.length < MAX_PLACES ? h('div', { class: 'row' }, addButton(t('place.add'), add)) : null);
   }
   drawPlaces();
 
