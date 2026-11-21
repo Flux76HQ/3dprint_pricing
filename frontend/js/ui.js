@@ -37,6 +37,8 @@ const ICONS = {
   expand: '<path d="m9 6 6 6-6 6"/>',
   'chevron-down': '<path d="m6 9 6 6 6-6"/>',
   'chevron-up': '<path d="m6 15 6-6 6 6"/>',
+  'chevron-left': '<path d="m15 6-6 6 6 6"/>',
+  'chevron-right': '<path d="m9 6 6 6-6 6"/>',
   box: '<path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/>',
   more: '<circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/>',
   scan: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M4 12h16"/>',
@@ -111,6 +113,29 @@ export function foldHead(key, title, { open = true, extra = null } = {}) {
     try { localStorage.setItem(store, now ? '1' : '0'); } catch { /* not remembered */ }
   } }, h('span', { class: 'fold-title' }, title, extra), icon('chevron-down'));
   return h('h2', { class: 'fold-head' }, button);
+}
+
+const foldStates = new Map();
+
+/** A part of a card that folds away, under its own heading (`foldHead` folds the whole card): a button with the title, an optional `count`
+    and a chevron, then `children`. The choice is remembered in this browser under `key` and also in memory, so a part that is drawn again
+    (the product pictures card is, every few seconds while pictures are made) comes back as it was left, also where storage is blocked.
+    `open` is what a first visit gets. */
+export function foldSection(key, title, children, { open = true, count = null } = {}) {
+  const store = `pp-fold-${key}`;
+  let isOpen = open;
+  if (foldStates.has(store)) isOpen = foldStates.get(store);
+  else { try { const saved = localStorage.getItem(store); if (saved === '1' || saved === '0') isOpen = saved === '1'; } catch { /* storage blocked: the default */ } }
+  const id = `fs${Math.random().toString(36).slice(2, 9)}`;
+  const body = h('div', { class: 'fold-section-body stack', id, hidden: !isOpen }, children);
+  const button = h('button', { type: 'button', class: 'fold-toggle', 'aria-expanded': String(isOpen), 'aria-controls': id, onclick: () => {
+    const now = button.getAttribute('aria-expanded') !== 'true';
+    button.setAttribute('aria-expanded', String(now));
+    body.hidden = !now;
+    foldStates.set(store, now);
+    try { localStorage.setItem(store, now ? '1' : '0'); } catch { /* not remembered */ }
+  } }, h('span', { class: 'fold-title' }, title, count == null ? null : h('span', { class: 'badge muted' }, String(count))), icon('chevron-down'));
+  return h('section', { class: 'fold-section stack' }, h('h3', { class: 'fold-head' }, button), body);
 }
 
 // How a connection to another application can stand: working, set up but not answering, or not set up (or still being looked at).

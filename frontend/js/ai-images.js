@@ -4,8 +4,9 @@
 // the page (or closing the browser) does not stop anything; the card picks the progress up again when it is shown.
 import { api, downloadFile, upload } from './api.js';
 import { formatDateTime, getLocale, t } from './i18n.js';
+import { openLightbox } from './lightbox.js';
 import { loadMesh, modelViewer } from './model-viewer.js';
-import { confirmDialog, eur, field, fill, fmt, foldHead, h, icon, saveBlob, switchRow, toast } from './ui.js';
+import { confirmDialog, eur, field, fill, fmt, foldHead, foldSection, h, icon, saveBlob, switchRow, toast } from './ui.js';
 
 const VARIANT_LABEL = { square: 'ai.variant_square', landscape: 'ai.variant_landscape', portrait: 'ai.variant_portrait', studio: 'ai.variant_studio', detail: 'ai.variant_detail', context: 'ai.variant_context' };
 // What the pictures are for; the server makes four per purpose and has a template with its own colours for each.
@@ -442,11 +443,14 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     await refresh();
   }
 
+  // Hands a picture to the browser as a file. It says nothing when it fails: the tile tells it with a toast, the pop-up in its own footer
+  // (a toast would be behind a pop-up).
+  async function saveImage(image) {
+    const { blob, name } = await downloadFile(`${imageUrl(image.id)}?download=1`);
+    saveBlob(blob, name);
+  }
   async function download(image) {
-    try {
-      const { blob, name } = await downloadFile(`${imageUrl(image.id)}?download=1`);
-      saveBlob(blob, name);
-    } catch (e) { toast(e.message, 'error'); }
+    try { await saveImage(image); } catch (e) { toast(e.message, 'error'); }
   }
 
   const label = (variant) => t(VARIANT_LABEL[variant]);
@@ -465,9 +469,17 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     }, { danger: true, disabled: locked }));
   const coverBadge = (image) => (image.is_cover ? h('span', { class: 'badge' }, t('ai.cover')) : null);
 
-  function tile(image) {
+  // A made picture opens large in a pop-up, with the other made pictures one chevron (or swipe) away, and can be saved from there.
+  function look(made, image) {
+    const items = made.map((m) => ({ src: imageUrl(m.id), alt: label(m.variant), title: label(m.variant), image: m,
+      badges: [m.purpose && PURPOSE_LABEL[m.purpose] ? t(`${PURPOSE_LABEL[m.purpose]}_short`) : null, m.is_cover ? t('ai.cover') : null].filter(Boolean) }));
+    openLightbox(items, made.indexOf(image), { save: (item) => saveImage(item.image) });
+  }
+
+  function tile(image, made) {
     return h('figure', { class: 'ai-tile' },
-      h('img', { src: imageUrl(image.id), alt: label(image.variant), loading: 'lazy', width: image.width_px, height: image.height_px }),
+      h('button', { class: 'ai-zoom', type: 'button', title: t('ai.open'), 'aria-label': `${t('ai.open')}: ${label(image.variant)}`, onclick: () => look(made, image) },
+        h('img', { src: imageUrl(image.id), alt: '', loading: 'lazy', width: image.width_px, height: image.height_px })),
       h('figcaption', {}, h('strong', {}, label(image.variant)), purposeBadge(image), coverBadge(image)),
       tools(image));
   }
@@ -510,19 +522,30 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', multiple: true, disabled: uploading || working, 'aria-label': t('ai.photo_choose'),
       onchange: () => { if (file.files.length) addPhotos([...file.files]); } });
     const purposeChosen = !!(form && form.values().purpose);
-    fill(body,
-      photos.length || views.length ? h('div', { class: 'stack' },
+    const sourceCount = photos.length + views.length;
+    // Two parts that fold away on their own, so what was uploaded or saved from the 3D model (what the pictures are made *from*) is not mixed up
+    // with the pictures that were made for Marktplaats, social media or a webshop. Each remembers in this browser whether it is open.
+    const sources = foldSection('product-images-sources', t('ai.sources_title'), [
+      h('p', { class: 'muted' }, t('ai.sources_intro')),
+      sourceCount ? h('div', { class: 'stack' },
         h('p', { class: 'hint', role: 'status' }, t('ai.send_count', { n: sent.length, max: maxSent })),
         h('div', { class: 'ai-sources' },
           photos.map((photo, i) => kept(photo, photos.length > 1 ? `${t('ai.photo_caption')} ${i + 1}` : t('ai.photo_caption'), t('ai.photo_alt'))),
           views.map((view) => kept(view, viewName(view), t('ai.view_alt'))))) : h('p', { class: 'muted' }, t('ai.photo_none')),
       field(photos.length ? t('ai.photo_replace') : t('ai.photo_choose'), file, t('ai.photo_hint')),
       uploading ? h('div', { class: 'ai-progress', role: 'status' }, spinner(), h('strong', {}, t('ai.uploading'))) : null,
+    ], { count: sourceCount });
+    const results = foldSection('product-images-made', t('ai.made_title'), [
+      h('p', { class: 'muted' }, t('ai.made_intro')),
+      made.length || coming.length ? h('div', { class: 'ai-grid' }, made.map((image) => tile(image, made)), coming.map(pending)) : h('p', { class: 'muted' }, t('ai.made_none')),
+    ], { count: made.length });
+    fill(body,
+      sources,
       working
         ? h('div', { class: 'ai-progress', role: 'status' }, spinner(),
           h('div', {}, h('strong', {}, t('ai.generating', { done: finished, n: finished + coming.length })), h('p', { class: 'hint' }, t('ai.generating_hint'))))
         : h('div', { class: 'stack' },
-          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !(photos.length || views.length) || uploading || !purposeChosen, onclick: generate }, t('ai.generate'))),
+          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !sourceCount || uploading || !purposeChosen, onclick: generate }, t('ai.generate'))),
           form && !purposeChosen ? h('p', { class: 'hint' }, t('ai.purpose_needed')) : null),
       h('p', { class: 'error', role: 'alert', hidden: !lastError }, lastError),
       // Everything that went wrong or was left out, here on the page and as soon as it is known (also while the rest is still being made).
@@ -536,7 +559,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       failed.length || warnings.length ? h('div', { class: 'row' },
         h('a', { class: 'btn small', href: '#/instellingen/ai' }, t('ai.view_log')),
         working ? null : h('button', { class: 'btn small', type: 'button', onclick: () => act(() => api('DELETE', `/api/projects/${projectId}/images/jobs`)) }, t('ai.failed_dismiss'))) : null,
-      made.length || coming.length ? h('div', { class: 'ai-grid' }, made.map(tile), coming.map(pending)) : null);
+      results);
   }
 
   setTimeout(refresh, 0);

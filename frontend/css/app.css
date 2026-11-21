@@ -321,6 +321,31 @@ dialog.sheet h2 { padding-right: 44px; margin-top: 0; }
 .dialog-x:hover { background: var(--accent-subtle); color: var(--text); }
 .dialog-x .icon { width: 22px; height: 22px; }
 @media (max-width: 480px) { .sheet-body { padding: 16px; } }
+/* The pop-up to look through pictures (`lightbox.js`): as large as the screen allows. The pictures lie in one row that the browser scrolls and snaps,
+   so a swipe (and a trackpad) stops on exactly one; the chevrons and the arrow keys move the same row. */
+dialog.sheet.lightbox { width: min(calc(100vw - 24px), 1100px); height: min(900px, calc(100vh - 24px));
+  height: min(900px, calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))); }
+.lightbox .sheet-body { display: flex; flex-direction: column; gap: 10px; padding: 12px; overflow: hidden; }
+.lightbox-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding-right: 44px; }
+.lightbox-what { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.lightbox-count { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lightbox-stage { position: relative; flex: 1 1 auto; min-height: 0; }
+.lightbox-track { display: flex; width: 100%; height: 100%; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
+  touch-action: pan-x; scrollbar-width: none; border-radius: var(--radius-sm); }
+.lightbox-track::-webkit-scrollbar { display: none; }
+.lightbox-track:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.lightbox-slide { flex: 0 0 100%; width: 100%; height: 100%; margin: 0; scroll-snap-align: center; scroll-snap-stop: always; }
+.lightbox-slide img { display: block; width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none; user-select: none; }
+.lightbox-nav { position: absolute; top: 50%; z-index: 2; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; padding: 0; border: 1px solid var(--rand); border-radius: 50%; color: var(--text); cursor: pointer;
+  background: color-mix(in srgb, var(--surface-solid) 86%, transparent); box-shadow: var(--shadow); }
+.lightbox-nav:hover { border-color: var(--accent); }
+.lightbox-nav:disabled { visibility: hidden; }
+.lightbox-nav.prev { left: 8px; }
+.lightbox-nav.next { right: 8px; }
+.lightbox-nav .icon { width: 24px; height: 24px; }
+.lightbox-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
+.lightbox-error { flex: 1 1 12rem; margin: 0; }
 #toasts { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 28px + env(safe-area-inset-bottom));
   display: flex; flex-direction: column; gap: 8px; width: min(92vw, 420px); }
 @media (min-width: 860px) { #toasts { bottom: 24px; } }
@@ -587,6 +612,11 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .ai-tile { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .ai-tile img { width: 100%; height: auto; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: #fff; }
 .ai-tile figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* A made picture opens large in a pop-up: the picture is a button, so a keyboard gets there too. */
+.ai-zoom { display: block; width: 100%; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font: inherit; cursor: zoom-in; }
+.ai-zoom img { display: block; }
+.ai-zoom:hover img { border-color: var(--accent); }
+.ai-zoom:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 /* Busy: a spinner, and a frame in the shape of the picture to come that pulses */
 .spinner { flex: none; width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 3px solid var(--rand); border-top-color: var(--accent); animation: ai-spin .8s linear infinite; }
 .spinner.small { width: 12px; height: 12px; border-width: 2px; }
@@ -785,6 +815,11 @@ dialog.sheet { border: 1px solid var(--lijn-strong); border-radius: 20px; box-sh
 .fold-toggle:hover .icon { color: var(--text); }
 .card:has(> .fold-head [aria-expanded="false"]) > :not(.fold-head) { display: none; }
 .card:has(> .fold-head [aria-expanded="false"]) { gap: 0; }
+/* A part inside a card (`foldSection`): a framed block of its own, so two of them read as two things and not as one long list. */
+.fold-section { gap: 0; padding: 4px 14px; border: 1px solid var(--lijn); border-radius: var(--radius-sm); }
+.fold-section > .fold-head .fold-toggle { margin: 0; }
+.fold-section-body { padding: 4px 0 14px; }
+.fold-title .badge { font-weight: 600; }
 .list-row > .item-head { flex: 1 1 18rem; min-width: 0; }       /* the text takes what is left and wraps, so the buttons stay on its right while there is room */
 .list-row > .row { flex: none; }
 

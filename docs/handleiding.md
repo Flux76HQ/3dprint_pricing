@@ -678,6 +678,14 @@ zie je in de app niets. De server beslist, niet de browser.
    Kies *Afbeeldingen maken*: de app toont eerst een **waarschuwing** met wat er gemaakt gaat worden (voor welke keuze, met of zonder teksten en logo) en dat
    elke afbeelding API-tegoed bij OpenAI kost; met *Annuleren* breek je daar nog af. Verder begrenst de app het aantal per uur en bewaart er hooguit 12 per
    berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met berekeningen) of verwijderen.
+
+   **Twee delen, die je los van elkaar inklapt.** De kaart houdt uit elkaar wat de afbeeldingen **van** zijn en wat er **gemaakt** is: *Foto's en 3D-beelden* (wat je
+   uploadde of van het 3D-model opsloeg, met het vinkje *Meesturen*) en *Gegenereerde afbeeldingen* (wat het AI-model maakte, bijvoorbeeld voor Marktplaats; het label
+   onder een afbeelding zegt waarvoor). Het getal naast de titel is het aantal. Of een deel open of dicht staat, onthoudt de browser.
+   **Groot bekijken.** Klik op een gegenereerde afbeelding: die opent groot in een venster. Met de pijltjes links en rechts (of de pijltjestoetsen op een toetsenbord)
+   ga je naar de vorige of volgende gegenereerde afbeelding; op een telefoon of tablet veeg je naar links of rechts. Bovenin staat welke afbeelding het is, waarvoor ze
+   is en de plek in de reeks (“2 van 8”). *Opslaan* in het venster bewaart de afbeelding die je ziet als bestand (jpg), net als *Downloaden* onder de afbeelding.
+   Sluiten kan met het kruisje, Escape of een klik naast de afbeelding.
 4. **Op de achtergrond**: het maken gebeurt op de server, niet in je browser. Een draaiende cirkel en grijze plekhouders in de vorm van de komende afbeelding laten de
    voortgang zien (“1 van 4 klaar”); je kunt de pagina verlaten of de browser sluiten, het maken gaat door. In de lijst met berekeningen staat intussen een
    *Afbeeldingen worden gemaakt*-label, en terug in de berekening zie je de voortgang of het resultaat. Per berekening loopt er één reeks tegelijk. Zakt de server
