@@ -9,6 +9,7 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
 - **3D Modellen** (menu; voorheen *Berekeningen*) — de berekening per model: filament, onderdelen, accessoires (kabels/laders), printerafschrijving en
   energie → totale kostprijs, optioneel met marge voor een adviesverkoopprijs. Opgeslagen berekeningen
   bewaren de prijzen van het moment van opslaan.
+- **Bestandslocaties** — het blok *Bestandslocaties* staat bovenaan een 3D-model, direct onder het projectkopje, en onthoudt **waar de bestanden van dit model staan, buiten de app**: plak een link naar *iCloud Drive*, *Google Drive*, *OneDrive* of *Dropbox*, of het pad van een map op je **NAS**: `smb://nas/prints/vaas`, een Windows-netwerkpad `\\nas\prints\vaas`, `file://…` of een pad op een gekoppelde schijf (`Z:\prints\vaas`). De soort herkent de app zelf aan wat je plakt (en je kunt hem aanpassen), en je geeft er eventueel een naam bij (*Slicer-projecten*). Een link of een `smb://`-adres heeft een knop *Openen* (het systeem opent `smb://` in je bestandsbeheer); een netwerkpad of schijfpad kan een webpagina niet openen, dus daar is de knop *Kopiëren* voor (plak het in Verkenner of Finder). Hooguit 12 per model. De app **opent of leest nooit** wat er staat: ze wordt alleen onthouden, zit in de back-up en gaat mee als je het model dupliceert. Er komt alleen toe wat veilig is: een webadres, `smb://`, `file://`, een netwerkpad of een schijfpad; iets als `javascript:` wordt geweigerd. De locaties zijn van jou en staan **niet** in wat andere applicaties via `/api/v1` lezen.
 - **Printbestand koppelen** — een berekening houdt twee soorten bestanden uit elkaar. De **bestanden voor de filamentberekening**: koppel bij
   voorkeur het geslicede bestand (`.gcode.3mf`), want daarin staan de echte grammen per filament en de printtijd van elke plaat. Print je het object in
   meerdere opdrachten (de voor- en de achterkant apart), voeg dan elk gesliced bestand toe en kies per bestand de plaat of *Alle platen*; *Filament van
@@ -25,7 +26,7 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
   meer van een soort dan er op voorraad is, dan staat er een waarschuwing onder de regels. *Verbruik afboeken* (in de titelbalk van het model) haalt het gewicht van de soort af:
   eerst van de aangebroken rol, de rest van de andere rollen van die soort. Bevat het bestand meerdere platen, dan kies je in het menu *Plaat* één plaat of *Alle platen*: dan worden uren en gram van alle platen bij elkaar opgeteld (hetzelfde filament telt als één regel). Uit een **STL** (of een 3MF zonder
   slicer-data) leest de app het volume en **schat** het gewicht (volume × dichtheid × effectieve vulling);
-  de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast bewaar je onder *Links* **meerdere links** per model (hooguit 12):
+  de printtijd is dan onbekend, want die volgt niet uit de vorm. Daarnaast bewaar je in het blok *Links* (onder *Bestandslocaties*, boven *Printbestand*) **meerdere links** per model (hooguit 12):
   de pagina van het model zelf (bijv. MakerWorld) en de plekken waar het te koop staat (*Marktplaats*, *Bol.com*, *Etsy*, *Vinted*, *Webshop*, of *Anders* met een eigen naam).
   Een geplakt adres krijgt zijn soort vanzelf (aan de hand van de website); de pagina's worden niet uitgelezen. In het overzicht van *3D Modellen* staan de links als
   knopjes die in een nieuw tabblad openen, en met *Filteren → Gepubliceerd op* zie je wat waar te koop staat. De soort wordt bij de link bewaard, zodat een latere
@@ -509,7 +510,7 @@ dezelfde knop *Opslaan* als het model. Laat je het blok leeg, dan is het model n
   zoals hij was. Elke foto wordt opnieuw opgeslagen als JPEG zonder de gegevens van de camera (ook geen locatie).
 - **Advertentie plaatsen**: *Kopieer de titel*, *Kopieer de tekst* en *Download foto's* (één ZIP-bestand, `foto-01.jpg`, `foto-02.jpg`… in jouw volgorde) zetten
   alles klaar; *Marktplaats openen* opent het scherm waar je een advertentie plaatst. Plakken en uploaden doe je daar zelf: Marktplaats heeft voor particulieren
-  geen koppeling. Zet daarna het adres van je advertentie bij *Links* (onder *Printbestand en bron*), dan zie je in het overzicht waar het model staat.
+  geen koppeling. Zet daarna het adres van je advertentie bij *Links* (bovenaan het model), dan zie je in het overzicht waar het model staat.
 - **Niet meer te koop** verwijdert het verkoopitem en zijn foto's. Het model, de berekening en de productafbeeldingen blijven.
 
 In het overzicht *3D Modellen* staat bij een model met een verkoopitem *te koop voor € …*, de lijst heeft de kolom *Te koop* (waarop je sorteert), en onder
@@ -695,7 +696,7 @@ zie je in de app niets. De server beslist, niet de browser.
    zonder tekst gemaakt. De schakelaar *Logo linksboven op de afbeelding* zet het logo van de factuur op alle vier; hij werkt alleen als *Zakelijk* aan staat
    (Instellingen → Algemeen) en er een logo is geüpload. De keuze en de teksten worden bij de berekening bewaard zodra je een veld verlaat, en zitten in de back-up.
 
-   Kies *Afbeeldingen maken*: de app vraagt eerst in een venster **welke afbeeldingen** je wilt. Elk van de vier staat er met een getekend voorbeeld (de vorm, de
+   Kies *Afbeeldingen maken* (onderaan het blok *Foto's en 3D-beelden*, want de afbeeldingen worden van die foto's en beelden gemaakt; de knop wacht tot je een doel koos en terwijl er afbeeldingen worden gemaakt): de app vraagt eerst in een venster **welke afbeeldingen** je wilt. Elk van de vier staat er met een getekend voorbeeld (de vorm, de
    opzet, en bij de eerste de poster in jouw kleuren en labelvorm) en een vinkje; alleen wat aangevinkt is wordt gemaakt en betaald. Het venster zegt ook of er
    teksten en een logo op komen en dat elke afbeelding API-tegoed bij OpenAI kost; met *Annuleren* breek je daar nog af. Vink je de eerste uit, dan komt er geen poster. Verder begrenst de app het aantal per uur en bewaart er hooguit 12 per
    berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met berekeningen) of verwijderen.
@@ -711,7 +712,7 @@ zie je in de app niets. De server beslist, niet de browser.
    voortgang zien (“1 van 4 klaar”); je kunt de pagina verlaten of de browser sluiten, het maken gaat door. In de lijst met berekeningen staat intussen een
    *Afbeeldingen worden gemaakt*-label, en terug in de berekening zie je de voortgang of het resultaat. Per berekening loopt er één reeks tegelijk. Zakt de server
    er tussendoor uit (herstart), dan geeft de app een afbeelding die ruim vijf minuten niet verder kwam op als *onderbroken* en kun je het opnieuw proberen. Meldingen
-   staan in de kaart zelf, bij de knop *Afbeeldingen maken*, zodra ze er zijn (ook terwijl de rest nog gemaakt wordt): elke mislukte afbeelding met de reden en wat
+   staan in de kaart zelf, onder het blok *Foto's en 3D-beelden* (ook als dat blok is ingeklapt), zodra ze er zijn (ook terwijl de rest nog gemaakt wordt): elke mislukte afbeelding met de reden en wat
    OpenAI erover zei, en waarschuwingen over wat is weggelaten (geen teksten omdat een veld leeg is, geen logo omdat Zakelijk uit staat of er geen logo is), met een
    knop naar het logboek. Een probleem met sleutel, tegoed of model stopt de rest van de reeks meteen; een time-out of
    inhoudsfilter niet.

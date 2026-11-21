@@ -663,6 +663,10 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
           views.map((view) => kept(view, viewName(view), t('ai.view_alt'))))) : h('p', { class: 'muted' }, t('ai.photo_none')),
       field(photos.length ? t('ai.photo_replace') : t('ai.photo_choose'), file, t('ai.photo_hint')),
       uploading ? h('div', { class: 'ai-progress', role: 'status' }, spinner(), h('strong', {}, t('ai.uploading'))) : null,
+      // What is done with the photos and the views is made from them: the button is here, with them. While pictures are being made it waits (the progress is below, where a folded part does not hide it).
+      h('div', { class: 'stack' },
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !sourceCount || uploading || !purposeChosen || working, onclick: generate }, t('ai.generate'))),
+        form && !purposeChosen ? h('p', { class: 'hint' }, t('ai.purpose_needed')) : null),
     ], { count: sourceCount });
     const results = foldSection('product-images-made', t('ai.made_title'), [
       h('p', { class: 'muted' }, t('ai.made_intro')),
@@ -673,9 +677,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       working
         ? h('div', { class: 'ai-progress', role: 'status' }, spinner(),
           h('div', {}, h('strong', {}, t('ai.generating', { done: finished, n: finished + coming.length })), h('p', { class: 'hint' }, t('ai.generating_hint'))))
-        : h('div', { class: 'stack' },
-          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !sourceCount || uploading || !purposeChosen, onclick: generate }, t('ai.generate'))),
-          form && !purposeChosen ? h('p', { class: 'hint' }, t('ai.purpose_needed')) : null),
+        : null,
       h('p', { class: 'error', role: 'alert', hidden: !lastError }, lastError),
       // Everything that went wrong or was left out, here on the page and as soon as it is known (also while the rest is still being made).
       warnings.length ? h('div', { class: 'notice warn stack', role: 'status' },

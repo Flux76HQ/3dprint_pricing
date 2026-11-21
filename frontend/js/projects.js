@@ -30,6 +30,21 @@ function kindOfUrl(url) {
   } catch { return null; }
 }
 const isLink = (url) => /^https?:\/\/\S+$/i.test(String(url || '').trim());
+
+// Where the files of a model are kept outside this app: [kind kept by the server, label key]. A cloud drive, or a folder on a network share (a NAS).
+export const PLACE_KINDS = [['icloud', 'place.icloud'], ['gdrive', 'place.gdrive'], ['onedrive', 'place.onedrive'], ['dropbox', 'place.dropbox'], ['nas', 'place.nas'], ['other', 'place.other']];
+const PLACE_HOSTS = [[/(^|\.)icloud\.com$/, 'icloud'], [/(^|\.)(drive|docs)\.google\.com$/, 'gdrive'], [/(^|\.)(onedrive\.live\.com|1drv\.ms|onedrive\.com|sharepoint\.com)$/, 'onedrive'],
+  [/(^|\.)(dropbox\.com|db\.tt)$/, 'dropbox']];
+/** The kind a pasted place most likely is: a network path (smb://, \\server\share, Z:\folder, file://) is a NAS, a web address says what it is by its host. */
+function kindOfPlace(place) {
+  if (/^(smb:\/\/|file:\/\/|\\\\|[A-Za-z]:\\)/i.test(place)) return 'nas';
+  try {
+    const host = new URL(place).hostname.toLowerCase();
+    return (PLACE_HOSTS.find(([pattern]) => pattern.test(host)) || [])[1] || null;
+  } catch { return null; }
+}
+/** What a place can be opened with from a page: a web address, or an smb:// address (the system opens it in its file manager). A network path or a mapped drive cannot be a link: it is copied. */
+const openable = (place) => /^(https?|smb):\/\/\S/i.test(String(place || '').trim());
 /** The links of a model as small buttons that open in a new tab. */
 const linkChips = (links) => (links && links.length ? h('span', { class: 'link-chips' }, links.map((link) => h('a', { class: 'link-chip', href: link.url,
   target: '_blank', rel: 'noopener noreferrer', title: link.url }, icon('external'), h('span', {}, linkName(link))))) : null);
@@ -126,6 +141,7 @@ function fromSaved(project) {
       .map((id) => ({ file_id: id, meta: null, plate: 0, material: 'PLA', fill: '40' })),
     models: (project.models || []).map((m) => ({ file_id: m.file_id, label: str(m.label), meta: null })),
     links: (project.links || []).map((l) => ({ kind: l.kind || 'other', label: str(l.label), url: str(l.url) })),
+    file_refs: (project.file_refs || []).map((r) => ({ kind: r.kind || 'other', label: str(r.label), location: str(r.location) })),
     vat_pct: str(project.vat_pct),
     stock_booked_at: project.stock_booked_at,
     filament: (d.filament || []).map((r) => ({ spool_id: r.spool_id || '', colour: colourCode(r.colour), label: str(r.label), grams: str(r.grams), price_per_kg: str(r.price_per_kg) })),
@@ -150,7 +166,7 @@ export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: asy
 
 function buildEditor({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listed, navigate, ctx, spoolman, haspelsync }) {
   const state = project ? fromSaved(project) : {
-    id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, files: [], models: [], links: [],
+    id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, files: [], models: [], links: [], file_refs: [],
     vat_pct: ctx.prefs.vat_pct ?? '21',
     filament: [blankFilament()], parts: [], depreciation: [], energy: [],
   };
@@ -196,6 +212,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     calc_files: state.files.map((f) => f.file_id),
     models: state.models.map((m) => ({ file_id: m.file_id, label: m.label.trim() })),
     links: state.links.filter((l) => l.url.trim()).map((l) => ({ kind: l.kind, label: l.label.trim(), url: l.url.trim() })),
+    file_refs: state.file_refs.filter((r) => r.location.trim()).map((r) => ({ kind: r.kind, label: r.label.trim(), location: r.location.trim() })),
     data: {
       filament: state.filament.map((r) => ({ spool_id: r.spool_id || null, colour: colourCode(r.colour) || null, label: r.label, grams: parseNum(r.grams), price_per_kg: parseNum(r.price_per_kg) })),
       parts: state.parts.map((r) => ({ group: r.group, packaging_id: r.packaging_id || null, part_id: r.part_id || null, accessory_id: r.accessory_id || null, label: r.label, quantity: parseNum(r.quantity), unit: r.unit, unit_price: parseNum(r.unit_price) })),
@@ -569,9 +586,9 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     adoptSliced(combinePlates(sliced), auto, estimated);
   }
 
-  // The links of the model: where it comes from, and where it is offered for sale. A pasted address says what it is by its host.
+  // The links of the model: where it comes from, and where it is offered for sale. A pasted address says what it is by its host. A card of its own, under the project.
   const MAX_LINKS = 12;
-  const linksBox = h('div', { class: 'line-group links' });
+  const linksBox = h('div', { class: 'glass card stack line-group links' });
   function drawLinks() {
     const rows = state.links.map((link, i) => {
       const openLink = h('a', { class: 'btn tool icon-only', target: '_blank', rel: 'noopener noreferrer', title: t('file.open_link'), 'aria-label': t('file.open_link') }, icon('external'));
@@ -599,10 +616,57 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       linksBox.querySelector('.line:last-child input[type=url]')?.focus();
     };
     fill(linksBox,
-      h('div', { class: 'sub-head' }, h('h3', {}, t('file.links_title')), state.links.length < MAX_LINKS ? addButton(t('file.link_add'), add) : null),
+      h('div', { class: 'row between' }, h('h2', {}, t('file.links_title')), state.links.length < MAX_LINKS ? addButton(t('file.link_add'), add) : null),
       rows.length ? h('div', { class: 'lines' }, rows) : h('p', { class: 'muted line-none' }, t('file.links_hint')));
   }
   drawLinks();
+
+  // Where the files of the model are kept outside this app: a link to iCloud Drive, Google Drive, OneDrive or Dropbox, or the path of a folder on a NAS (smb://nas/prints/vaas,
+  // \\nas\prints\vaas, Z:\prints\vaas). Only remembered and shown here, never opened or read by the app: a place that is a web address or an smb:// address opens, any other is copied.
+  const MAX_PLACES = 12;
+  const placesBox = h('div', { class: 'glass card stack line-group places' });
+  function drawPlaces() {
+    const rows = state.file_refs.map((place, i) => {
+      const kind = select(PLACE_KINDS.map(([value, label]) => [value, t(label)]), place.kind, (v) => { place.kind = v; place.picked = true; touch(); });
+      const open = h('a', { class: 'btn tool icon-only', title: t('place.open'), 'aria-label': t('place.open') }, icon('external'));
+      const location = h('input', { type: 'text', value: place.location, maxlength: 500, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', placeholder: t('place.location_ph') });
+      const copy = h('button', { class: 'btn tool icon-only', type: 'button', title: t('place.copy'), 'aria-label': t('place.copy'), onclick: async () => {
+        try { await navigator.clipboard.writeText(place.location.trim()); toast(t('common.copied')); } catch {
+          location.focus(); location.select();                                      // no clipboard here (a page over plain http on the own network): the text is selected to copy by hand
+          toast(t('common.copy_failed'), 'error');
+        }
+      } }, icon('copy'));
+      const mark = () => {
+        const ok = openable(place.location);
+        if (ok) open.href = place.location.trim(); else open.removeAttribute('href');
+        if (ok && /^https?:/i.test(place.location.trim())) { open.target = '_blank'; open.rel = 'noopener noreferrer'; } else { open.removeAttribute('target'); open.removeAttribute('rel'); }
+        open.setAttribute('aria-disabled', String(!ok));
+        copy.disabled = !place.location.trim();
+      };
+      location.addEventListener('input', () => {
+        place.location = location.value;
+        const guess = kindOfPlace(place.location.trim());
+        if (guess && !place.picked) { place.kind = guess; kind.value = guess; }       // until a kind was chosen by hand
+        mark(); touch();
+      });
+      mark();
+      return h('div', { class: 'line weblink' },
+        field(t('place.kind'), kind),
+        field(t('place.location'), location),
+        field(t('place.label'), textInput(place, 'label', { maxlength: 60, placeholder: t('place.label_ph') })),
+        h('div', { class: 'row-actions' }, open, copy, removeBtn(t('place.remove'), () => { state.file_refs.splice(i, 1); touch(); drawPlaces(); })));
+    });
+    const add = () => {
+      state.file_refs.push({ kind: 'other', label: '', location: '' });
+      drawPlaces();
+      placesBox.querySelector('.line:last-child input[type=text]')?.focus();
+    };
+    fill(placesBox,
+      h('div', { class: 'row between' }, h('h2', {}, t('place.title')), state.file_refs.length < MAX_PLACES ? addButton(t('place.add'), add) : null),
+      h('p', { class: 'muted' }, t('place.intro')),
+      rows.length ? h('div', { class: 'lines' }, rows) : null);
+  }
+  drawPlaces();
 
   // The 3D models of the object, one per part: to look at and to make pictures from. They are apart from the file above them,
   // which is the one the filament is worked out from.
@@ -708,7 +772,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       parts.push(h('button', { class: 'btn primary', type: 'button', onclick: () => adoptAll() }, state.files.length > 1 ? t('file.adopt_all') : t('file.adopt')));
     }
     parts.push(autoToggle());
-    fill(fileBox, ...parts, modelsBox(), linksBox);
+    fill(fileBox, ...parts, modelsBox());
   }
 
   // what the linked models are called: asked once, for the list
@@ -798,6 +862,8 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
           h('div', { class: 'two even' },
             field(t('common.notes'), notes),
             field(t('calc.object_description'), objectDescription, t('calc.object_description_hint')))),
+        placesBox,
+        linksBox,
         fileBox,
         imagesCard,
         sections,
