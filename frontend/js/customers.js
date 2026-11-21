@@ -25,6 +25,22 @@ export function customerFields(state, onInput = () => {}) {
   ];
 }
 
+/** A search field and the list of the customers that match it, for a pop-up: choosing one calls `onPick(customer)`. Returns the field (with its label), the list and
+ *  the input, so the caller can lay them out and put the focus there. */
+export function customerPicker(customers, onPick) {
+  const results = h('ul', { class: 'plain-list picker', 'aria-live': 'polite' });
+  const input = h('input', { type: 'text', autocomplete: 'off', placeholder: t('customers.search_ph'), 'aria-label': t('customers.search') });
+  const matches = (c, q) => !q || [c.name, c.number, c.city, c.email].some((v) => String(v || '').toLowerCase().includes(q.toLowerCase()));
+  const draw = () => {
+    const found = customers.filter((c) => matches(c, input.value.trim()));
+    results.replaceChildren(...(found.length ? found.map((c) => h('li', {}, h('button', { class: 'btn picker-item', type: 'button', onclick: () => onPick(c) },
+      h('span', { class: 'badge' }, c.number), h('span', { class: 'grow' }, c.name), h('span', { class: 'muted' }, c.city || '')))) : [h('li', { class: 'muted' }, t('customers.no_match'))]));
+  };
+  input.addEventListener('input', draw);
+  draw();
+  return { field: field(t('customers.search'), input), results, input };
+}
+
 /** The details of a customer as lines of text (address, contact). */
 export function customerLines(c) {
   const place = [c.postal_code, c.city].filter(Boolean).join(' ');
@@ -57,7 +73,7 @@ export function customerListView() {
       { label: t('orders.city'), sort: 'city', cell: (c) => c.city || '—' },
       { label: t('orders.email'), wide: true, cell: mail },
       { label: t('orders.phone'), cls: 'nowrap', wide: true, cell: (c) => c.phone || '—' },
-      { label: t('nav.orders'), sort: 'orders', cls: 'num', cell: (c) => String(c.orders) }],
+      { label: t('nav.orders'), sort: 'orders', cls: 'num', cell: (c) => (Number(c.orders) ? h('a', { href: `#/bestellingen/klant/${c.id}`, title: t('customers.orders_view') }, String(c.orders)) : '0') }],
     tile: (c) => h('article', { class: 'glass card item' },
       h('div', { class: 'item-head' },
         h('div', {}, h('h3', {}, h('a', { href: href(c) }, c.name)),
@@ -102,7 +118,9 @@ export function customerEditorView(id, navigate) {
 function buildEditor(customer, navigate) {
   const state = customer ? { ...emptyCustomer(), ...customer } : emptyCustomer();
   const orderCount = customer ? customer.orders : 0;
-  const notes = h('textarea', { rows: 3, maxlength: 2000, oninput: (e) => { state.notes = e.target.value; setDirty(true); } }, state.notes || '');
+  let dirty = false;
+  const touch = () => { dirty = true; setDirty(true); };
+  const notes = h('textarea', { rows: 3, maxlength: 2000, oninput: (e) => { state.notes = e.target.value; touch(); } }, state.notes || '');
 
   async function save() {
     if (!state.name.trim()) { toast(t('customers.name_required'), 'error'); return; }
@@ -111,9 +129,20 @@ function buildEditor(customer, navigate) {
     try {
       if (customer) await api('PUT', `/api/customers/${customer.id}`, body);
       else await api('POST', '/api/customers', body);
+      dirty = false;
       setDirty(false);
       toast(t('customers.saved'));
       navigate('#/klanten');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  // A new customer with everything of this one and the next klantnummer; its orders stay with this one. Made from what is saved, so what is typed and not saved is asked for first.
+  async function duplicate() {
+    if (dirty) { toast(t('customers.duplicate_save_first'), 'error'); return; }
+    try {
+      const copy = await api('POST', `/api/customers/${customer.id}/duplicate`);
+      toast(t('customers.duplicated', { number: copy.number }));
+      navigate(`#/klanten/${copy.id}`);
     } catch (e) { toast(e.message, 'error'); }
   }
 
@@ -128,11 +157,12 @@ function buildEditor(customer, navigate) {
         h('h1', {}, customer ? customer.name : t('customers.new'))),
       h('div', { class: 'row actions' },
         customer ? h('div', { class: 'btn-group', role: 'group', 'aria-label': t('customers.actions') },
+          headAction('copy', t('customers.duplicate'), duplicate, '', { id: 'duplicate-customer' }),
           headAction('trash', t('common.delete'), remove, ' danger', { id: 'delete-customer', disabled: orderCount > 0, title: orderCount > 0 ? t('customers.delete_blocked') : t('common.delete') })) : null,
         headAction('save', t('common.save'), save, ' primary', { id: 'save-customer' }))),
     h('div', { class: 'glass card stack' },
-      ...customerFields(state, () => setDirty(true)),
+      ...customerFields(state, touch),
       field(t('orders.notes'), notes, t('customers.notes_hint')),
-      customer ? h('p', { class: 'muted' }, t('customers.orders_of', { n: orderCount })) : null,
+      customer ? h('p', { class: 'muted' }, t('customers.orders_of', { n: orderCount }), orderCount > 0 ? [' ', h('a', { href: `#/bestellingen/klant/${customer.id}`, id: 'customer-orders' }, t('customers.orders_view'))] : null) : null,
       customer && orderCount > 0 ? h('p', { class: 'hint' }, t('customers.delete_blocked')) : null));
 }

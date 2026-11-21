@@ -1,6 +1,6 @@
 import { api, downloadFile } from './api.js';
 import { formatDate, t } from './i18n.js';
-import { customerFields, customerLines, emptyCustomer } from './customers.js';
+import { customerFields, customerLines, customerPicker, emptyCustomer } from './customers.js';
 import { listView } from './listview.js';
 import { setDirty } from './updates.js';
 import { ROUNDINGS, backLink, confirmDialog, enhanceDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
@@ -22,8 +22,10 @@ const numberOf = (o) => (o.subject ? t('orders.number', { n: o.number }) : null)
 
 // --- list -----------------------------------------------------------------------
 
-export function orderListView() {
+/** The overview of orders. `customer` (an id) narrows it to the orders of that customer, as the link on a customer does. */
+export function orderListView({ customer = '' } = {}) {
   const href = (o) => `#/bestellingen/${o.id}`;
+  let customers = new Map();                                       // customer id -> how the filter names it, from the rows (the newest order's name comes first)
   // One select on the row sets the stage at once, without opening the order.
   function statusSelect(order) {
     return h('select', { class: 'status', 'data-status': order.status, 'aria-label': t('orders.status_of', { name: order.customer_name }),
@@ -40,6 +42,11 @@ export function orderListView() {
     search: { label: t('orders.search'), placeholder: t('orders.search_ph'),
       text: (o) => [o.subject, o.customer_name, o.customer_number, o.city, o.invoice_number, String(o.number)] },
     chips: { label: t('orders.filter_status'), all: t('orders.all'), options: STATUSES.map((s) => [s, statusLabel(s)]), value: (o) => o.status },
+    // All the orders of one customer: the pull-down offers the customers that have orders here, with their number (two can share a name).
+    filters: [{ key: 'customer', label: t('orders.customer'), all: t('orders.all_customers'), value: (o) => o.customer_id, name: (id) => customers.get(id) || id }],
+    // Orders can be chosen, several at once, to give them to another customer. One that has an invoice cannot be: that invoice went out for the customer it was made for.
+    select: { id: (o) => o.id, can: (o) => !o.invoice_number, cannot: t('orders.locked_by_invoice'), label: (o) => titleOf(o),
+      actions: [{ icon: 'account-group', label: t('orders.assign'), primary: true, run: (rows) => assignDialog(rows) }] },
     sorts: [
       { key: 'date', label: t('orders.date'), value: (o) => `${o.order_date || ''} ${String(o.number).padStart(9, '0')}`, desc: true },
       { key: 'number', label: t('sort.number'), value: (o) => Number(o.number), desc: true },
@@ -74,10 +81,61 @@ export function orderListView() {
 
   // Everything is fetched once; searching, filtering and sorting happen here while typing.
   async function load() {
-    try { view.setItems(await api('GET', '/api/orders')); } catch (e) { toast(e.message, 'error'); }
+    try {
+      const orders = await api('GET', '/api/orders');
+      customers = new Map();
+      for (const o of orders) if (!customers.has(o.customer_id)) customers.set(o.customer_id, [o.customer_name, o.customer_number].filter(Boolean).join(' · '));
+      view.setItems(orders);
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  // Gives the chosen orders to another customer: pick one (the same list as in an order), see what will happen, and do it; the server does all of them or none.
+  // Resolves true when it was done, so that the choice is let go.
+  function assignDialog(rows) {
+    return new Promise((resolve) => {
+      let done = false;
+      const body = h('div', { class: 'stack' });
+      const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' }, body));
+      const failure = h('p', { class: 'error', role: 'alert', hidden: true });
+      const n = rows.length;
+
+      function review(c) {
+        failure.hidden = true;
+        const go = h('button', { class: 'btn primary', type: 'button', id: 'assign-do', onclick: async () => {
+          go.disabled = true;
+          try {
+            const res = await api('POST', '/api/orders/assign-customer', { order_ids: rows.map((o) => o.id), customer_id: c.id });
+            done = true;
+            toast(res.updated ? t('orders.assigned', { n: res.updated, name: c.name }) : t('orders.assigned_none', { name: c.name }));
+            dialog.close();
+            load();
+          } catch (e) { failure.textContent = e.message; failure.hidden = false; go.disabled = false; }
+        } }, t('orders.assign_do'));
+        body.replaceChildren(h('h2', {}, t('orders.assign_title')),
+          h('p', {}, t('orders.assign_confirm', { n, name: c.name })),
+          h('p', { class: 'muted' }, [c.number, c.city].filter(Boolean).join(' · ')),
+          failure,
+          h('div', { class: 'row end' }, h('button', { class: 'btn', type: 'button', onclick: pick }, t('customers.back_to_list')), go));
+      }
+
+      async function pick() {
+        let all;
+        try { all = await api('GET', '/api/customers'); } catch (e) { toast(e.message, 'error'); dialog.close(); return; }
+        const list = customerPicker(all, review);
+        body.replaceChildren(h('h2', {}, t('orders.assign_title')), h('p', { class: 'muted' }, t('orders.assign_hint', { n })), list.field, list.results,
+          h('div', { class: 'row end' }, h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel'))));
+        list.input.focus();
+      }
+
+      dialog.addEventListener('close', () => { dialog.remove(); resolve(done); });
+      document.body.append(dialog);
+      dialog.showModal();
+      pick();
+    });
   }
 
   load();
+  if (customer) view.setFilter('customer', customer);
   return h('section', { class: 'page' },
     h('header', { class: 'page-head' },
       h('div', {}, h('h1', {}, t('nav.orders'))),
@@ -372,21 +430,12 @@ function buildEditor(order, navigate, ctx) {
     }
 
     function drawPick() {
-      const results = h('ul', { class: 'plain-list picker', 'aria-live': 'polite' });
-      const search = h('input', { type: 'text', autocomplete: 'off', placeholder: t('customers.search_ph'), 'aria-label': t('customers.search') });
-      const matches = (c, q) => !q || [c.name, c.number, c.city, c.email].some((v) => String(v || '').toLowerCase().includes(q.toLowerCase()));
-      const draw = () => {
-        const found = customers.filter((c) => matches(c, search.value.trim()));
-        results.replaceChildren(...(found.length ? found.map((c) => h('li', {}, h('button', { class: 'btn picker-item', type: 'button', onclick: () => done(c) },
-          h('span', { class: 'badge' }, c.number), h('span', { class: 'grow' }, c.name), h('span', { class: 'muted' }, c.city || '')))) : [h('li', { class: 'muted' }, t('customers.no_match'))]));
-      };
-      search.addEventListener('input', draw);
-      body.replaceChildren(h('h2', {}, t('customers.pick')), h('p', { class: 'muted' }, t('customers.pick_hint')), field(t('customers.search'), search), results,
+      const list = customerPicker(customers, done);
+      body.replaceChildren(h('h2', {}, t('customers.pick')), h('p', { class: 'muted' }, t('customers.pick_hint')), list.field, list.results,
         h('div', { class: 'row end' },
           h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
           h('button', { class: 'btn primary', type: 'button', id: 'new-customer', onclick: drawCreate }, icon('plus'), h('span', {}, t('customers.create')))));
-      draw();
-      search.focus();
+      list.input.focus();
     }
 
     dialog.addEventListener('close', () => dialog.remove());
@@ -463,6 +512,16 @@ function buildEditor(order, navigate, ctx) {
     fill(invoiceBox, ...parts);
   }
 
+  // A new order for the same customer with the same lines, from what is saved (so unsaved changes are asked for first); the server makes it new and without an invoice.
+  async function duplicate() {
+    if (dirty) { toast(t('orders.duplicate_save_first'), 'error'); return; }
+    try {
+      const copy = await api('POST', `/api/orders/${state.id}/duplicate`);
+      toast(t('orders.duplicated', { n: copy.number }));
+      navigate(`#/bestellingen/${copy.id}`);
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   drawStatus();
   const remove = async () => {
     if (!(await confirmDialog(t('orders.delete_confirm', { name: state.customer_name || t('orders.number', { n: state.number }) })))) return;
@@ -479,7 +538,8 @@ function buildEditor(order, navigate, ctx) {
         h('h1', {}, state.id ? t('orders.title_n', { n: state.number }) : t('orders.new'))),
       // As on every editor: what can be done with it in the title bar, always within reach.
       h('div', { class: 'row actions' },
-        state.id ? h('div', { class: 'btn-group', role: 'group', 'aria-label': t('orders.actions') }, headAction('trash', t('common.delete'), remove, ' danger')) : null,
+        state.id ? h('div', { class: 'btn-group', role: 'group', 'aria-label': t('orders.actions') },
+          headAction('copy', t('orders.duplicate'), duplicate, '', { id: 'duplicate-order' }), headAction('trash', t('common.delete'), remove, ' danger')) : null,
         headAction('save', t('common.save'), save, ' primary', { id: 'save-order' }))),
     h('div', { class: 'editor-grid' },
       h('div', { class: 'stack' },
