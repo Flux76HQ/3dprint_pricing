@@ -303,6 +303,69 @@ def create_order():
     return jsonify(_present(order, lines)), 201
 
 
+@bp.post("/<uuid:order_id>/duplicate")
+def duplicate_order(order_id):
+    """A new order made from this one, for the same customer: what the order itself holds is copied exactly (the subject, the notes, the rounding and every
+    line with its price, cost price, margin, VAT, quantity, calculation and whether it is optional), nothing is typed or chosen again. What belongs to the
+    moment is not: the copy is `nieuw`, dated today, with no delivery date, and it has no invoice (the number and the date are claimed once and never reused,
+    and the PDF is the original's). The customer's details are the ones the customer has now, as when an order is saved, not the copy the original kept."""
+    with pool().connection() as conn:
+        source, _ = _fetch(conn, order_id)
+        customer = conn.execute("SELECT * FROM customers WHERE id = %s", (source["customer_id"],)).fetchone()
+        values = {**{f: source[f] for f in ORDER_FIELDS}, **customers.snapshot(customer), "status": "nieuw", "order_date": date.today(), "delivery_date": None}
+        fields = ("number", *ORDER_FIELDS, "customer_id")
+        order = conn.execute(f"INSERT INTO orders ({', '.join(fields)}) VALUES ({', '.join(['%s'] * len(fields))}) RETURNING *",
+                             (next_number(conn, "order"), *(values[f] for f in ORDER_FIELDS), source["customer_id"])).fetchone()
+        conn.execute("INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional) "
+                     "SELECT %s, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional "
+                     "FROM order_lines WHERE order_id = %s ORDER BY position", (order["id"], order_id))
+        order, lines = _fetch(conn, order["id"])
+        webhooks.emit(conn, "order.created", _event(order, lines))
+    return jsonify(_present(order, lines)), 201
+
+
+MAX_ASSIGN = 500
+
+
+@bp.post("/assign-customer")
+def assign_customer():
+    """Gives these orders to another customer, all of them or none. The orders take the details the customer has now, as when an order is saved. An order that
+    has an invoice is refused: the invoice went out with the details of the customer it was made for, and what an invoice says is never rewritten (the same
+    reason a customer's details are not copied into it again), so the whole request is refused and nothing changes. An order that already has this customer
+    is left as it is."""
+    body = json_body()
+    ids = body.get("order_ids")
+    if not isinstance(ids, list) or not ids or len(ids) > MAX_ASSIGN:
+        raise ApiError(400, "err.order_assign_ids", max=MAX_ASSIGN)
+    try:
+        wanted = list(dict.fromkeys(str(uuid.UUID(str(i))) for i in ids))
+    except ValueError:
+        raise ApiError(400, "err.order_assign_ids", max=MAX_ASSIGN) from None
+    try:
+        customer_id = str(uuid.UUID(str(body.get("customer_id"))))
+    except ValueError:
+        raise ApiError(400, "err.order_customer") from None
+    with pool().connection() as conn:
+        customer = conn.execute("SELECT * FROM customers WHERE id = %s", (customer_id,)).fetchone()
+        if customer is None:
+            raise ApiError(400, "err.order_customer")
+        rows = conn.execute("SELECT id, customer_id, invoice_number FROM orders WHERE id IN (SELECT value FROM json_each(%s))", (id_list(wanted),)).fetchall()
+        if len(rows) != len(wanted):
+            raise ApiError(404, "err.order_not_found")
+        moving = [r for r in rows if str(r["customer_id"]) != customer_id]
+        invoiced = [r for r in moving if r["invoice_number"]]
+        if invoiced:
+            raise ApiError(409, "err.order_assign_invoiced", n=len(invoiced))
+        if moving:
+            copy = customers.snapshot(customer)
+            conn.execute("UPDATE orders SET customer_id = %s, " + ", ".join(f"{f} = %s" for f in copy) + ", updated_at = now() WHERE id IN (SELECT value FROM json_each(%s))",
+                         (customer_id, *copy.values(), id_list([r["id"] for r in moving])))
+            for row in moving:
+                order, lines = _fetch(conn, row["id"])
+                webhooks.emit(conn, "order.updated", _event(order, lines))
+    return jsonify({"ok": True, "updated": len(moving)})
+
+
 @bp.get("/<uuid:order_id>")
 def get_order(order_id):
     with pool().read() as conn:

@@ -97,15 +97,16 @@ function navigate(hash, force = false) {
 
 function currentRoute() {
   const parts = location.hash.replace(/^#\/?/, '').split('/');
-  return { page: parts[0] || 'berekeningen', id: parts[1] };
+  return { page: parts[0] || 'berekeningen', id: parts[1], extra: parts[2] };
 }
 
-function pageContent({ page, id }) {
+function pageContent({ page, id, extra }) {
   switch (page) {
     case 'berekeningen':
       if (id) return projectEditorView(id === 'nieuw' ? null : id, navigate, { get prefs() { return prefs; }, setPrefs, get aiImages() { return session.aiImages; } });
       return projectListView({ get prefs() { return prefs; }, setPrefs, get aiImages() { return session.aiImages; } });
     case 'bestellingen':
+      if (id === 'klant' && extra) return orderListView({ customer: extra });                         // the orders of one customer: #/bestellingen/klant/<id>
       if (id) return orderEditorView(id === 'nieuw' ? null : id, navigate, { get prefs() { return prefs; } });
       return orderListView();
     case 'klanten':

@@ -924,6 +924,28 @@ a.btn[aria-disabled="true"] { opacity: .45; pointer-events: none; }
 .list-filter { display: grid; gap: 4px; flex: 1 1 160px; max-width: 280px; }
 .list-filter label { font-size: .75rem; font-weight: 600; color: var(--text-muted); }
 .list-count { margin: 0; font-size: .85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Choosing rows (`select` of listView): a box in front of every row or tile, a bar with what can be done with the chosen ones. The links, buttons and pull-downs of a row do
+   nothing while choosing, so that a click anywhere on it ticks it instead of opening it or changing it. */
+.select-cell { width: 1%; padding-right: 0; }
+.data-table th.select-cell, .data-table td.select-cell { padding-inline: 12px 0; }
+.select-box { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.select-box:disabled { cursor: not-allowed; }
+.selecting .data-table tbody tr > :not(.select-cell) > *, .selecting .selectable > :not(.select-cell) { pointer-events: none; }
+.selectable { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 6px; cursor: pointer; }
+.selectable > .select-cell { display: grid; place-items: center; width: 40px; height: 44px; padding: 0; }
+.selectable > .card { transition: outline-color .15s var(--ease); outline: 2px solid transparent; outline-offset: 0; }
+.selectable[data-selected] > .card { outline-color: var(--accent); }
+.data-table tr[data-selected] > * { background: var(--accent-subtle); }
+.selectable.locked > .card, .data-table tr.locked > :not(.select-cell) { opacity: .55; }
+.selectable.locked, .data-table tr.locked { cursor: not-allowed; }
+.bulk-bar { position: sticky; z-index: 12; bottom: calc(var(--tabbar-h) + 12px + env(safe-area-inset-bottom)); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 12px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--surface-solid); box-shadow: var(--shadow); }
+.bulk-bar .grow { flex: 1 1 0; }
+.bulk-count { font-weight: 650; font-variant-numeric: tabular-nums; }
+@media (min-width: 860px) { .bulk-bar { bottom: 16px; } }
+.bulk-done { margin-left: auto; }
+/* On a phone the bar is two lines: what is chosen and how to choose more or fewer, then what to do with it and the way out. */
+@media (max-width: 559.98px) { .bulk-bar { gap: 6px; padding: 6px 8px; } .bulk-bar .btn.tool { min-height: 40px; padding-inline: 8px; gap: 4px; font-size: .8rem; } .bulk-count { font-size: .85rem; } .bulk-bar .grow, .bulk-none { display: none; } }          /* "Klaar" lets go of the choice too, so a phone has no room spent on a button for it */
 .tool-check { min-height: var(--control-sm); font-size: .875rem; gap: 8px; }
 .list-summary { margin: 0; }
 .stat-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; }

@@ -448,13 +448,16 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   async function save(asCopy = false) {
     try {
       const body = payload();
-      if (asCopy) body.name = t('calc.copy_name', { name: body.name });
+      if (asCopy) {
+        body.name = t('calc.copy_name', { name: body.name });
+        if (state.id) body.duplicate_of = state.id;                 // the pictures of the original (photos, saved views of the 3D model, the ones that were made) go with the copy
+      }
       const saved = state.id && !asCopy ? await api('PUT', `/api/projects/${state.id}`, body) : await api('POST', '/api/projects', body);
       // What it is offered for sale as is saved by the same button, after the model itself; when that is refused it says why, and stays to be saved.
       if (state.id && !asCopy && listing && !(await listing.save())) return;
       dirty = false;
       setDirty(false);
-      toast(t('common.saved'));
+      toast(asCopy && state.id ? t('calc.copy_saved') : t('common.saved'));
       if (!state.id || asCopy) navigate(`#/berekeningen/${saved.id}`);
       else { state.stock_booked_at = saved.stock_booked_at; }
     } catch (e) { toast(e.message, 'error'); }
