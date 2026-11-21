@@ -1080,3 +1080,22 @@ def test_an_older_backup_restores_with_an_empty_description(ai, project):
     assert post(ai, "/api/backup/restore", doc).status_code == 200
     assert ai.get(f"/api/projects/{project['id']}").get_json()["object_description"] == ""
     assert state(ai, project)["text"]["purpose"] is None
+
+
+def test_the_card_keeps_what_pictures_are_made_from_apart_from_what_was_made_and_a_made_picture_opens_in_a_pop_up():
+    """There is no browser here, so the wiring is checked in the sources (the behaviour itself, swipe included, was checked in Chromium): the card has two parts
+    that fold on their own, only the *made* pictures open large, the pop-up goes to the previous and next one by chevron, arrow key and the browser's own
+    snapping scroll (a swipe), and saves the one in view the way the tile does. A picture's file is never read again for it: the pop-up uses the tile's address."""
+    card = (FRONT / "js/ai-images.js").read_text()
+    pop = (FRONT / "js/lightbox.js").read_text()
+    css = (FRONT / "css/app.css").read_text()
+    assert card.count("foldSection(") == 2 and "'product-images-sources'" in card and "'product-images-made'" in card
+    assert card.index("foldSection('product-images-sources'") < card.index("foldSection('product-images-made'")
+    kept, tile = card[card.index("const kept = "):card.index("const file = h('input'")], card[card.index("function tile("):card.index("// A picture that is still to come")]
+    assert "look(" not in kept and "ai-zoom" not in kept                       # a photo or a saved view of the model is not a made picture
+    assert "onclick: () => look(made, image)" in tile and "openLightbox(items, made.indexOf(image)" in card
+    assert "save: (item) => saveImage(item.image)" in card and "?download=1" in card and card.count("imageUrl(m.id)") == 1
+    ui = (FRONT / "js/ui.js").read_text()
+    assert "ArrowLeft" in pop and "ArrowRight" in pop and "icon(`chevron-${" in pop and "'chevron-left':" in ui and "'chevron-right':" in ui and "lightbox.save" in pop
+    assert "scroll-snap-type: x mandatory" in css and "scroll-snap-stop: always" in css and ".lightbox-nav:disabled" in css
+    assert "/js/lightbox.js" in (FRONT / "sw.js").read_text()
