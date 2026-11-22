@@ -7,7 +7,8 @@ body:
     attributes:
       value: |
         A promotion happens when the owner asks for it. The version number is not
-        chosen here: the `docker` workflow raises `VERSION` after the merge, and the
+        chosen here: every pull request merged into `beta` raised `VERSION` (the
+        `docker-beta` workflow), the promotion releases the number `beta` has, and the
         release notes are generated from the merged pull requests. See
         [AGENTS.md](https://github.com/Flux76HQ/3dprint_pricing/blob/main/AGENTS.md)
         section 5 and the
@@ -22,16 +23,12 @@ body:
     validations:
       required: true
 
-  - type: dropdown
-    id: bump
+  - type: input
+    id: version
     attributes:
-      label: Expected version bump
-      description: Put the matching label on the promotion pull request.
-      options:
-        - Minor (default, protected paths changed: 0.1 higher)
-        - Major (label version:major)
-        - Patch (label version:patch, fixes only)
-        - None (documentation only)
+      label: Version to be released
+      description: "`VERSION` on beta, after the `docker-beta` run of the last merge has finished. The promotion releases this number."
+      placeholder: "2.3.0"
     validations:
       required: true
 
@@ -73,7 +70,7 @@ body:
         - label: Promotion pull request opened from beta to main and merged with a merge commit (never squashed)
         - label: Release vX.Y.Z exists and is marked latest
         - label: The latest and X.Y.Z images were built
-        - label: main was merged back into beta so beta carries the new VERSION
+        - label: main was merged back into beta so beta carries the release commit (the Home Assistant app's version)
 
   - type: checkboxes
     id: after

@@ -36,8 +36,12 @@ class RepositoryTest(unittest.TestCase):
         self.assertRegex(CONFIG["slug"], r"^[A-Za-z0-9_.-]+$")
         self.assertIsInstance(CONFIG["version"], str)              # a number would turn 0.26.20 into something else
 
-    def test_the_version_is_the_version_of_the_image_it_is_built_on(self):
-        self.assertEqual(CONFIG["version"], (ROOT / "VERSION").read_text(encoding="utf-8").strip())
+    def test_the_version_is_the_version_of_an_image_that_has_been_released(self):
+        # beta raises VERSION for every merged pull request, but the image of that number exists only from the promotion on, and `version` names the
+        # image the app is built on. So the `docker` workflow sets it (`bump_version.py --sync-addon`) at a promotion, and until then it is never ahead of VERSION.
+        version = tuple(int(part) for part in (ROOT / "VERSION").read_text(encoding="utf-8").strip().split("."))
+        self.assertRegex(CONFIG["version"], r"^\d+\.\d+\.\d+$")
+        self.assertLessEqual(tuple(int(part) for part in CONFIG["version"].split(".")), version)
 
     def test_only_architectures_the_published_image_is_built_for(self):
         # Home Assistant names the architectures amd64 and aarch64; Docker names the same platforms linux/amd64 and linux/arm64.
