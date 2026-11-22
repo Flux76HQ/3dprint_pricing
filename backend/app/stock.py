@@ -39,7 +39,7 @@ def groups(rows) -> list[dict]:
 
 def fetch(conn, barcode: str | None = None):
     """The rolls that count as stock (not archived), optionally only those with this barcode."""
-    sql = ("SELECT id, brand, product_type, material, colour, colour_hex, barcode, roll_weight_g, remaining_g, notify_low FROM filament_spools "
+    sql = ("SELECT id, brand, product_type, material, colour, colour_hex, barcode, roll_weight_g, remaining_g, notify_low, bambu_id FROM filament_spools "
            "WHERE NOT archived")
     params: tuple = ()
     if barcode is not None:

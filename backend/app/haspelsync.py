@@ -94,7 +94,9 @@ def settings() -> dict:
 
 
 def enabled() -> bool:
-    return bool(settings()["url"])
+    """Whether HaspelSync is in use: an address, and Spoolman + HaspelSync chosen as the source (`sources.py`). Chosen otherwise, address and key rest."""
+    from . import sources                                 # imported here: it is asked by what this module imports
+    return bool(settings()["url"]) and sources.uses("haspelsync")
 
 
 def _get(route: str, serial: "str | None" = None):
@@ -362,7 +364,8 @@ def status():
     """Whether there is a HaspelSync, where it is and whether it has a key. An administrator also gets the whole address and what comes from .env (and
     cannot be changed here); the key itself is never part of an answer."""
     found, admin, cfg = settings(), getattr(g, "role", None) == "admin", config()
-    answer = {"enabled": bool(found["url"]), "ready": bool(found["url"] and found["key"]), "can_configure": admin,
+    in_use = enabled()
+    answer = {"enabled": in_use, "configured": bool(found["url"]), "ready": in_use and bool(found["key"]), "can_configure": admin,
               "host": urlparse(found["url"]).netloc if found["url"] else None}
     if admin:
         answer.update({"url": found["url"], "url_from_env": bool(cfg.haspelsync_url), "key_set": found["key_set"], "key_readable": found["key_readable"],
@@ -421,6 +424,8 @@ def connection():
     found = settings()
     if not found["url"]:
         return jsonify({"state": "off", "message": None, "printers": None})
+    if not enabled():                                     # the Bambu cloud is the chosen source: HaspelSync rests and is not asked
+        return jsonify({"state": "resting", "message": None, "printers": None})
     if not found["key_set"]:
         return jsonify({"state": "off", "message": HaspelSyncError("haspelsync.no_key").words(), "printers": None})
     result = _answer((found["url"], "*"), fetch_printers)
@@ -432,6 +437,8 @@ def connection():
 @bp.post("/test")
 def test_connection():
     """Ask HaspelSync, with the saved address and key, for its printers. Passes on a verdict and how many there are, nothing else of what it answered."""
+    if not enabled():
+        raise ApiError(409, "haspelsync.resting")
     try:
         found = fetch_printers()
     except HaspelSyncError as exc:

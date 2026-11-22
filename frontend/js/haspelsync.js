@@ -6,7 +6,21 @@ import { confirmDialog, connectionBadge, field, fill, fmt, foldHead, h, toast } 
 // HaspelSync (https://github.com/Rdiger-36/HaspelSync) shows what a Bambu Lab printer is doing and what is loaded in it. The server asks it (backend/app/haspelsync.py);
 // everything on screen is what that answers, already validated: nothing here reads HaspelSync itself.
 
-const POLL_MS = 5000;           // the server remembers an answer for 4 seconds, so a screen that asks more often only sees the same thing
+const POLL_MS = 5000;
+
+/** Where the live view comes from: HaspelSync when it is set up, else the Bambu cloud when the app is signed in to the Bambu account (bambu_live.py on the
+ * server, which answers in the same shape), else nowhere (null). Asked once per page; both answers say only whether there is one. */
+let liveSource = null;
+export function liveBase() {
+  liveSource ||= (async () => {
+    try { if ((await api('GET', '/api/haspelsync')).enabled) return '/api/haspelsync'; } catch { /* not there: try the next */ }
+    try { if ((await api('GET', '/api/bambu-cloud')).enabled) return '/api/bambu-cloud'; } catch { /* neither */ }
+    return null;
+  })();
+  const asked = liveSource;
+  asked.then((base) => { if (!base) liveSource = null; });          // nothing yet: ask again next time (it may be set up meanwhile)
+  return asked;
+}           // the server remembers an answer for 4 seconds, so a screen that asks more often only sees the same thing
 const STATE_LABEL = { IDLE: 'haspelsync.state_idle', PREPARE: 'haspelsync.state_prepare', RUNNING: 'haspelsync.state_running', PAUSE: 'haspelsync.state_pause',
   FINISH: 'haspelsync.state_finish', FAILED: 'haspelsync.state_failed', CANCEL: 'haspelsync.state_cancel' };
 const STATE_BADGE = { RUNNING: 'badge', PREPARE: 'badge', PAUSE: 'badge muted', FINISH: 'badge ok', FAILED: 'badge danger', CANCEL: 'badge danger', IDLE: 'badge muted' };
@@ -93,9 +107,9 @@ export function serialField({ label, hint, value, onchange }) {
     note.className = problem ? 'hint error' : 'hint';
     box.hidden = false;
   };
-  api('GET', '/api/haspelsync').then(async (status) => {
-    if (!status.enabled) return;
-    try { draw(await api('GET', '/api/haspelsync/printers')); } catch (err) { draw([], err.message); }
+  liveBase().then(async (base) => {
+    if (!base) return;
+    try { draw(await api('GET', `${base}/printers`)); } catch (err) { draw([], err.message); }
   }).catch(() => {});
   return box;
 }
@@ -107,7 +121,9 @@ export function serialField({ label, hint, value, onchange }) {
  *  after the calculation is open and never waited for, because HaspelSync is another service and may be slow or away: when it does not answer the list is empty and the choice is what it was. */
 export async function printerFilaments() {
   try {
-    const answer = await api('GET', '/api/haspelsync/live');
+    const base = await liveBase();
+    if (!base) return [];
+    const answer = await api('GET', `${base}/live`);
     return (answer.printers || []).filter((p) => p.live)
       .map((p) => ({ printer_id: p.printer_id, name: p.name, connected: p.live.connected, slots: (p.live.slots || []).filter((s) => s.loaded) }))
       .filter((group) => group.slots.length);
@@ -138,10 +154,10 @@ function slotRow(slot, use) {
   const what = [slot.material, slot.name].filter(Boolean).join(' · ');
   const spool = h('span', { class: 'slot-spool', title: colours.length > 1 ? colours.join(', ') : null }, spoolIcon(colours[0] || null, 28));
   let left;
-  if (slot.linked && slot.remaining_g != null) {
+  if (slot.remaining_g != null && (slot.linked || slot.estimate)) {
     const text = slot.remaining_pct != null ? t('haspelsync.slot_left', { grams: fmt(slot.remaining_g, 0), pct: slot.remaining_pct }) : t('haspelsync.slot_left_g', { grams: fmt(slot.remaining_g, 0) });
-    left = [h('span', {}, text), slot.remaining_pct != null ? bar(slot.remaining_pct, t('haspelsync.meter', { left: fmt(slot.remaining_g, 0), total: fmt(slot.initial_g ?? slot.remaining_g, 0) })) : null];
-  } else left = [h('span', { class: 'muted' }, t('haspelsync.slot_unlinked'))];
+    left = [h('span', {}, slot.estimate ? `${text} · ${t('bambu.slot_estimate')}` : text), slot.remaining_pct != null ? bar(slot.remaining_pct, t('haspelsync.meter', { left: fmt(slot.remaining_g, 0), total: fmt(slot.initial_g ?? slot.remaining_g, 0) })) : null];
+  } else left = [h('span', { class: 'muted' }, t(slot.roll_id === undefined ? 'haspelsync.slot_unlinked' : 'bambu.slot_unlinked'))];
   const uses = use ? h('span', { class: 'muted' }, use.used_g != null ? t('haspelsync.slot_use', { used: fmt(use.used_g, 0), needed: fmt(use.needed_g, 0) }) : t('haspelsync.slot_need', { needed: fmt(use.needed_g, 0) })) : null;
   return h('li', { class: `slot${slot.active ? ' active' : ''}` },
     h('span', { class: 'slot-label' }, slot.label), spool,
@@ -176,7 +192,7 @@ function printerCard(entry) {
   const view = entry.live;
   if (!view) {
     return h('article', { class: 'glass card item live-card' }, h('div', { class: 'item-head' }, h('div', { class: 'grow' }, h('h3', {}, entry.name))),
-      h('p', { class: 'notice error', role: 'alert' }, entry.message));
+      h('p', entry.error === 'bambu.live_waiting' ? { class: 'notice', role: 'status' } : { class: 'notice error', role: 'alert' }, entry.message));
   }
   const job = view.job || {};
   const badge = !view.connected ? h('span', { class: 'badge muted' }, t('haspelsync.offline'))
@@ -203,7 +219,9 @@ export function livePanel() {
 
   async function load() {
     let answer;
-    try { answer = await api('GET', '/api/haspelsync/live'); } catch { return; }          // a convenience: the page works without it, and the last picture stays
+    const base = await liveBase();
+    if (!base) { panel.hidden = true; return; }
+    try { answer = await api('GET', `${base}/live`); } catch { return; }          // a convenience: the page works without it, and the last picture stays
     if (!answer.enabled || !answer.printers.length) { panel.hidden = true; return; }
     fill(panel, h('h2', {}, t('haspelsync.live_title')), h('div', { class: 'cards' }, answer.printers.map(printerCard)));
     panel.hidden = false;

@@ -3,7 +3,7 @@
 `filaments.json` is the filament library in the format of *Settings → Filaments → Export (JSON)*. An installation reads it with the
 **Sync** button (the address is `FILAMENT_LIBRARY_URL`, see `.env.example`): filaments that are missing are added, known ones (the same SKU,
 barcode or filament ID, or the same brand/material/type/colour/weight/diameter/refill) get what the file says for the fields it lists, and nothing is
-ever deleted. A `price` is a reference price excl. VAT and optional.
+ever deleted. A `price` is a reference price excl. VAT and optional. `spoolmandb_id` is optional too: the id of the same filament in [SpoolmanDB](https://github.com/Donkie/SpoolmanDB) (MIT), when the entry was picked from there; it is the reference to that source, and an empty one means the entry was typed in.
 
 **Contribute from the app:** *Settings → Filaments → Contribute to the central library* lists the filaments of your library that this file lacks
 (the same SKU, barcode or filament ID, or the same name, weight and diameter counts as the same filament), lets you choose, and opens GitHub with an

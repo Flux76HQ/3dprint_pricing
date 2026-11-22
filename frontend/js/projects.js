@@ -6,7 +6,7 @@ import { formatDate, t } from './i18n.js';
 import { listingCard } from './listing.js';
 import { listView } from './listview.js';
 import { setDirty } from './updates.js';
-import { backLink, blurToggle, confirmDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
+import { backLink, blurToggle, confirmDialog, eur, field, fill, fmt, foldHead, h, headAction, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
 
 // [value sent to the server, label key]
 const UNITS = [['stuks', 'unit.pieces'], ['m', 'unit.meter'], ['g', 'unit.gram']];
@@ -20,6 +20,7 @@ export const LINK_KINDS = [['model', 'link.model'], ['marktplaats', 'link.marktp
 const LINK_LABELS = Object.fromEntries(LINK_KINDS);
 const kindLabel = (kind) => t(LINK_LABELS[kind] || LINK_LABELS.other);
 const linkName = (link) => link.label || kindLabel(link.kind);
+const kindName = (kinds, kind) => t((kinds.find(([value]) => value === kind) || kinds[kinds.length - 1])[1]);
 // The kind a pasted address most likely is, from its host.
 const HOSTS = [[/(^|\.)marktplaats\.nl$/, 'marktplaats'], [/(^|\.)bol\.com$/, 'bol'], [/(^|\.)etsy\.com$/, 'etsy'], [/(^|\.)vinted\.[a-z.]+$/, 'vinted'],
   [/(^|\.)(makerworld\.com|printables\.com|thingiverse\.com|thangs\.com|cults3d\.com|myminifactory\.com)$/, 'model']];
@@ -30,6 +31,28 @@ function kindOfUrl(url) {
   } catch { return null; }
 }
 const isLink = (url) => /^https?:\/\/\S+$/i.test(String(url || '').trim());
+
+// Where the files of a model are kept outside this app: [kind kept by the server, label key]. A cloud drive, or a folder on a network share (a NAS).
+export const PLACE_KINDS = [['icloud', 'place.icloud'], ['gdrive', 'place.gdrive'], ['onedrive', 'place.onedrive'], ['dropbox', 'place.dropbox'], ['nas', 'place.nas'], ['other', 'place.other']];
+const PLACE_HOSTS = [[/(^|\.)icloud\.com$/, 'icloud'], [/(^|\.)(drive|docs)\.google\.com$/, 'gdrive'], [/(^|\.)(onedrive\.live\.com|1drv\.ms|onedrive\.com|sharepoint\.com)$/, 'onedrive'],
+  [/(^|\.)(dropbox\.com|db\.tt)$/, 'dropbox']];
+/** The kind a pasted place most likely is: a network path (smb://, \\server\share, Z:\folder, file://) is a NAS, a web address says what it is by its host. */
+function kindOfPlace(place) {
+  if (/^(smb:\/\/|file:\/\/|\\\\|[A-Za-z]:\\)/i.test(place)) return 'nas';
+  try {
+    const host = new URL(place).hostname.toLowerCase();
+    return (PLACE_HOSTS.find(([pattern]) => pattern.test(host)) || [])[1] || null;
+  } catch { return null; }
+}
+/** What a place can be opened with from a page: a web address, or an smb:// address (the system opens it in its file manager). A network path or a mapped drive cannot be a link: it is copied. */
+const openable = (place) => /^(https?|smb):\/\/\S/i.test(String(place || '').trim());
+// A card of links or of file locations folds away (`foldHead`); folded, its heading shows one small icon for each that was made: what kind it is, and its name and address as the tooltip.
+const LINK_ICONS = { model: 'box', marktplaats: 'cart', bol: 'cart', etsy: 'cart', vinted: 'cart', webshop: 'cart', other: 'link' };
+const PLACE_ICONS = { icloud: 'cloud', gdrive: 'cloud', onedrive: 'cloud', dropbox: 'cloud', nas: 'nas', other: 'folder' };
+function fillChips(target, entries) {
+  fill(target, entries.map((e) => h('span', { class: 'fold-chip', title: e.title }, icon(e.icon))),
+    entries.length ? h('span', { class: 'sr-only' }, entries.map((e) => e.title).join('; ')) : null);       // a screen reader gets the same as a tooltip
+}
 /** The links of a model as small buttons that open in a new tab. */
 const linkChips = (links) => (links && links.length ? h('span', { class: 'link-chips' }, links.map((link) => h('a', { class: 'link-chip', href: link.url,
   target: '_blank', rel: 'noopener noreferrer', title: link.url }, icon('external'), h('span', {}, linkName(link))))) : null);
@@ -126,6 +149,7 @@ function fromSaved(project) {
       .map((id) => ({ file_id: id, meta: null, plate: 0, material: 'PLA', fill: '40' })),
     models: (project.models || []).map((m) => ({ file_id: m.file_id, label: str(m.label), meta: null })),
     links: (project.links || []).map((l) => ({ kind: l.kind || 'other', label: str(l.label), url: str(l.url) })),
+    file_refs: (project.file_refs || []).map((r) => ({ kind: r.kind || 'other', label: str(r.label), location: str(r.location) })),
     vat_pct: str(project.vat_pct),
     stock_booked_at: project.stock_booked_at,
     filament: (d.filament || []).map((r) => ({ spool_id: r.spool_id || '', colour: colourCode(r.colour), label: str(r.label), grams: str(r.grams), price_per_kg: str(r.price_per_kg) })),
@@ -138,11 +162,11 @@ function fromSaved(project) {
 export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: async () => {} }) {
   const root = h('section', { class: 'page' }, h('p', { class: 'muted' }, t('common.loading')));
   // One request for the calculation and the lists it chooses from (it used to be nine): the server reads them in one go.
-  api('GET', `/api/model-editor${id ? `?project=${id}` : ''}`).then(({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listing, spoolman, haspelsync }) => {
+  api('GET', `/api/model-editor${id ? `?project=${id}` : ''}`).then(({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listing, spoolman, haspelsync, bambu_cloud: bambuCloud }) => {
     root.replaceChildren(buildEditor({
       spools: spools.filter((s) => !s.archived), stock: stock.groups, printers: printers.filter((p) => !p.archived), tariffs,
       packaging: packaging.filter((p) => !p.archived), parts: parts.filter((p) => !p.archived),
-      accessories: accessories.filter((p) => !p.archived), project, listed: listing, navigate, ctx, spoolman: !!spoolman.enabled, haspelsync: !!haspelsync.enabled,
+      accessories: accessories.filter((p) => !p.archived), project, listed: listing, navigate, ctx, spoolman: !!spoolman.enabled, haspelsync: !!haspelsync.enabled || !!bambuCloud?.enabled,
     }));
   }).catch((e) => root.replaceChildren(h('p', { class: 'error', role: 'alert' }, e.message)));
   return root;
@@ -150,7 +174,7 @@ export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: asy
 
 function buildEditor({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listed, navigate, ctx, spoolman, haspelsync }) {
   const state = project ? fromSaved(project) : {
-    id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, files: [], models: [], links: [],
+    id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, files: [], models: [], links: [], file_refs: [],
     vat_pct: ctx.prefs.vat_pct ?? '21',
     filament: [blankFilament()], parts: [], depreciation: [], energy: [],
   };
@@ -196,6 +220,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     calc_files: state.files.map((f) => f.file_id),
     models: state.models.map((m) => ({ file_id: m.file_id, label: m.label.trim() })),
     links: state.links.filter((l) => l.url.trim()).map((l) => ({ kind: l.kind, label: l.label.trim(), url: l.url.trim() })),
+    file_refs: state.file_refs.filter((r) => r.location.trim()).map((r) => ({ kind: r.kind, label: r.label.trim(), location: r.location.trim() })),
     data: {
       filament: state.filament.map((r) => ({ spool_id: r.spool_id || null, colour: colourCode(r.colour) || null, label: r.label, grams: parseNum(r.grams), price_per_kg: parseNum(r.price_per_kg) })),
       parts: state.parts.map((r) => ({ group: r.group, packaging_id: r.packaging_id || null, part_id: r.part_id || null, accessory_id: r.accessory_id || null, label: r.label, quantity: parseNum(r.quantity), unit: r.unit, unit_price: parseNum(r.unit_price) })),
@@ -303,11 +328,11 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         g.slots.map((s) => h('option', { value: `${PRINTER}${g.printer_id}|${s.label}` }, slotText(s))))));
   }
 
-  /** A filament that is in a printer becomes the line: the roll it is when it is a spool of Spoolman that this app mirrored (then it is that roll, with its price), else the kind in stock that
+  /** A filament that is in a printer becomes the line: the roll it is when it is a spool of Spoolman that this app mirrored, or the roll the Bambu cloud says is in that slot (then it is that roll, with its price), else the kind in stock that
    *  has its material and the nearest colour (`stockFor`, as for a sliced file). With neither the line stays manual, with the name and the colour the printer reports and no price: never a guess. */
   function fromPrinter(r, slot) {
     const colour = colourCode(slot.colours?.[0]);
-    const named = slot.spoolman_id ? spools.find((s) => s.spoolman_id === slot.spoolman_id) : null;
+    const named = slot.roll_id ? spools.find((s) => s.id === slot.roll_id) : (slot.spoolman_id ? spools.find((s) => s.spoolman_id === slot.spoolman_id) : null);
     const kindInStock = named ? null : stockFor(slot.material, colour);
     const roll = named || (kindInStock ? rollOf(kindInStock) : null);
     if (roll) { r.spool_id = roll.id; r.label = spoolName(roll); r.price_per_kg = perKg(roll); return; }
@@ -448,13 +473,16 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   async function save(asCopy = false) {
     try {
       const body = payload();
-      if (asCopy) body.name = t('calc.copy_name', { name: body.name });
+      if (asCopy) {
+        body.name = t('calc.copy_name', { name: body.name });
+        if (state.id) body.duplicate_of = state.id;                 // the pictures of the original (photos, saved views of the 3D model, the ones that were made) go with the copy
+      }
       const saved = state.id && !asCopy ? await api('PUT', `/api/projects/${state.id}`, body) : await api('POST', '/api/projects', body);
       // What it is offered for sale as is saved by the same button, after the model itself; when that is refused it says why, and stays to be saved.
       if (state.id && !asCopy && listing && !(await listing.save())) return;
       dirty = false;
       setDirty(false);
-      toast(t('common.saved'));
+      toast(asCopy && state.id ? t('calc.copy_saved') : t('common.saved'));
       if (!state.id || asCopy) navigate(`#/berekeningen/${saved.id}`);
       else { state.stock_booked_at = saved.stock_booked_at; }
     } catch (e) { toast(e.message, 'error'); }
@@ -466,6 +494,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     try {
       const res = await api('POST', `/api/projects/${state.id}/book-stock`);
       toast(res.short.length ? t('calc.booked_short', { items: res.short.join(', ') }) : t('calc.stock_booked'), res.short.length ? 'error' : 'info');
+      if (res.cloud_waiting) toast(t('bambu.booked_waiting', { n: res.cloud_waiting }));      // the cloud did not take it yet: the next sync sends it
       navigate(`#/berekeningen/${state.id}`, true);
     } catch (e) { toast(e.message, 'error'); }
   }
@@ -565,13 +594,15 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     adoptSliced(combinePlates(sliced), auto, estimated);
   }
 
-  // The links of the model: where it comes from, and where it is offered for sale. A pasted address says what it is by its host.
+  // The links of the model: where it comes from, and where it is offered for sale. A pasted address says what it is by its host. A card of its own, under the project.
   const MAX_LINKS = 12;
-  const linksBox = h('div', { class: 'line-group links' });
+  const linksBox = h('div', { class: 'glass card stack line-group links' });
+  const linkIcons = h('span', { class: 'fold-icons' });          // in the heading, shown while the card is folded; made again when a link changes, so it never lags behind
+  const drawLinkIcons = () => fillChips(linkIcons, state.links.filter((l) => l.url.trim()).map((l) => ({ icon: LINK_ICONS[l.kind] || 'link', title: `${linkName(l)} · ${l.url.trim()}` })));
   function drawLinks() {
     const rows = state.links.map((link, i) => {
       const openLink = h('a', { class: 'btn tool icon-only', target: '_blank', rel: 'noopener noreferrer', title: t('file.open_link'), 'aria-label': t('file.open_link') }, icon('external'));
-      const kind = select(LINK_KINDS.map(([value, label]) => [value, t(label)]), link.kind, (v) => { link.kind = v; link.picked = true; touch(); });
+      const kind = select(LINK_KINDS.map(([value, label]) => [value, t(label)]), link.kind, (v) => { link.kind = v; link.picked = true; touch(); drawLinkIcons(); });
       const mark = () => {
         if (isLink(link.url)) openLink.href = link.url.trim(); else openLink.removeAttribute('href');
         openLink.setAttribute('aria-disabled', String(!isLink(link.url)));
@@ -580,13 +611,13 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         link.url = e.target.value;
         const guess = kindOfUrl(link.url.trim());
         if (guess && !link.picked) { link.kind = guess; kind.value = guess; }       // until a kind was chosen by hand
-        mark(); touch();
+        mark(); touch(); drawLinkIcons();
       } });
       mark();
       return h('div', { class: 'line weblink' },
         field(t('file.link_kind'), kind),
         field(t('file.link_url'), url),
-        field(t('file.link_label'), textInput(link, 'label', { maxlength: 60, placeholder: t('file.link_label_ph') })),
+        field(t('file.link_label'), textInput(link, 'label', { maxlength: 60, placeholder: t('file.link_label_ph'), onchange: drawLinkIcons })),
         h('div', { class: 'row-actions' }, openLink, removeBtn(t('file.link_remove'), () => { state.links.splice(i, 1); touch(); drawLinks(); })));
     });
     const add = () => {
@@ -594,11 +625,65 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       drawLinks();
       linksBox.querySelector('.line:last-child input[type=url]')?.focus();
     };
+    drawLinkIcons();
     fill(linksBox,
-      h('div', { class: 'sub-head' }, h('h3', {}, t('file.links_title')), state.links.length < MAX_LINKS ? addButton(t('file.link_add'), add) : null),
-      rows.length ? h('div', { class: 'lines' }, rows) : h('p', { class: 'muted line-none' }, t('file.links_hint')));
+      foldHead('model-links', t('file.links_title'), { extra: linkIcons }),
+      rows.length ? h('div', { class: 'lines' }, rows) : h('p', { class: 'muted line-none' }, t('file.links_hint')),
+      state.links.length < MAX_LINKS ? h('div', { class: 'row' }, addButton(t('file.link_add'), add)) : null);
   }
   drawLinks();
+
+  // Where the files of the model are kept outside this app: a link to iCloud Drive, Google Drive, OneDrive or Dropbox, or the path of a folder on a NAS (smb://nas/prints/vaas,
+  // \\nas\prints\vaas, Z:\prints\vaas). Only remembered and shown here, never opened or read by the app: a place that is a web address or an smb:// address opens, any other is copied.
+  const MAX_PLACES = 12;
+  const placesBox = h('div', { class: 'glass card stack line-group places' });
+  const placeIcons = h('span', { class: 'fold-icons' });
+  const drawPlaceIcons = () => fillChips(placeIcons, state.file_refs.filter((r) => r.location.trim()).map((r) => ({ icon: PLACE_ICONS[r.kind] || 'folder',
+    title: `${r.label.trim() || kindName(PLACE_KINDS, r.kind)} · ${r.location.trim()}` })));
+  function drawPlaces() {
+    const rows = state.file_refs.map((place, i) => {
+      const kind = select(PLACE_KINDS.map(([value, label]) => [value, t(label)]), place.kind, (v) => { place.kind = v; place.picked = true; touch(); drawPlaceIcons(); });
+      const open = h('a', { class: 'btn tool icon-only', title: t('place.open'), 'aria-label': t('place.open') }, icon('external'));
+      const location = h('input', { type: 'text', value: place.location, maxlength: 500, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', placeholder: t('place.location_ph') });
+      const copy = h('button', { class: 'btn tool icon-only', type: 'button', title: t('place.copy'), 'aria-label': t('place.copy'), onclick: async () => {
+        try { await navigator.clipboard.writeText(place.location.trim()); toast(t('common.copied')); } catch {
+          location.focus(); location.select();                                      // no clipboard here (a page over plain http on the own network): the text is selected to copy by hand
+          toast(t('common.copy_failed'), 'error');
+        }
+      } }, icon('copy'));
+      const mark = () => {
+        const ok = openable(place.location);
+        if (ok) open.href = place.location.trim(); else open.removeAttribute('href');
+        if (ok && /^https?:/i.test(place.location.trim())) { open.target = '_blank'; open.rel = 'noopener noreferrer'; } else { open.removeAttribute('target'); open.removeAttribute('rel'); }
+        open.setAttribute('aria-disabled', String(!ok));
+        copy.disabled = !place.location.trim();
+      };
+      location.addEventListener('input', () => {
+        place.location = location.value;
+        const guess = kindOfPlace(place.location.trim());
+        if (guess && !place.picked) { place.kind = guess; kind.value = guess; }       // until a kind was chosen by hand
+        mark(); touch(); drawPlaceIcons();
+      });
+      mark();
+      return h('div', { class: 'line weblink' },
+        field(t('place.kind'), kind),
+        field(t('place.location'), location),
+        field(t('place.label'), textInput(place, 'label', { maxlength: 60, placeholder: t('place.label_ph'), onchange: drawPlaceIcons })),
+        h('div', { class: 'row-actions' }, open, copy, removeBtn(t('place.remove'), () => { state.file_refs.splice(i, 1); touch(); drawPlaces(); })));
+    });
+    const add = () => {
+      state.file_refs.push({ kind: 'other', label: '', location: '' });
+      drawPlaces();
+      placesBox.querySelector('.line:last-child input[type=text]')?.focus();
+    };
+    drawPlaceIcons();
+    fill(placesBox,
+      foldHead('model-places', t('place.title'), { extra: placeIcons }),
+      h('p', { class: 'muted' }, t('place.intro')),
+      rows.length ? h('div', { class: 'lines' }, rows) : null,
+      state.file_refs.length < MAX_PLACES ? h('div', { class: 'row' }, addButton(t('place.add'), add)) : null);
+  }
+  drawPlaces();
 
   // The 3D models of the object, one per part: to look at and to make pictures from. They are apart from the file above them,
   // which is the one the filament is worked out from.
@@ -653,7 +738,9 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
         }
         parts.push(h('dl', { class: 'stats' },
           h('div', {}, h('dt', {}, t('file.print_time')), h('dd', {}, plate.hours ? t('file.hours', { n: fmt(plate.hours, 2) }) : '—')),
-          h('div', {}, h('dt', {}, t('file.filament_total')), h('dd', {}, plate.grams ? `${fmt(plate.grams, 1)} g` : '—'))),
+          h('div', {}, h('dt', {}, t('file.filament_total')), h('dd', {}, plate.grams ? `${fmt(plate.grams, 1)} g` : '—')),
+          // what the plate prints, read from its G-code (width × depth × height); all plates together have no one size
+          plate.size_mm ? h('div', {}, h('dt', {}, t('file.dimensions')), h('dd', {}, `${plate.size_mm.map((v) => fmt(v, 0)).join(' × ')} mm`)) : null),
         h('ul', { class: 'plain-list' }, plate.filaments.map((fl) => {
           const dot = h('span', { class: 'dot', 'aria-hidden': 'true' });
           if (colourCode(fl.color)) dot.style.background = colourCode(fl.color);
@@ -702,7 +789,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       parts.push(h('button', { class: 'btn primary', type: 'button', onclick: () => adoptAll() }, state.files.length > 1 ? t('file.adopt_all') : t('file.adopt')));
     }
     parts.push(autoToggle());
-    fill(fileBox, ...parts, modelsBox(), linksBox);
+    fill(fileBox, ...parts, modelsBox());
   }
 
   // what the linked models are called: asked once, for the list
@@ -792,6 +879,8 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
           h('div', { class: 'two even' },
             field(t('common.notes'), notes),
             field(t('calc.object_description'), objectDescription, t('calc.object_description_hint')))),
+        placesBox,
+        linksBox,
         fileBox,
         imagesCard,
         sections,

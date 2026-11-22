@@ -161,6 +161,7 @@ RESOURCES = {
         "bed_temp_c": optional_int("f.bed_temp", minimum=0, maximum=200),
         "price": optional_number("f.roll_price"),
         "notes": text("f.notes", required=False, max_len=1000),
+        "spoolmandb_id": text("f.spoolmandb_id", required=False, max_len=120),
     }, "lower(brand), lower(material), lower(product_type), lower(colour)"),
     "spools": ("filament_spools", {
         "brand": text("f.brand"),
@@ -178,10 +179,11 @@ RESOURCES = {
         "notes": text("f.notes", required=False, max_len=1000),
         "notify_low": boolean("f.notify_low"),
         "archived": boolean("f.archived"),
+        "spoolmandb_id": text("f.spoolmandb_id", required=False, max_len=120),
     }, "brand, colour"),
 }
 OPTIONAL = {"notes", "archived", "unit", "is_default", "material", "colour", "colour_hex", "product_type", "power_kw", "barcode", "diameter_mm",
-            "print_temp_c", "bed_temp_c", "notify_low", "filament_id", "sku", "refill", "haspelsync_serial"}
+            "print_temp_c", "bed_temp_c", "notify_low", "filament_id", "sku", "refill", "haspelsync_serial", "spoolmandb_id"}
 
 
 def _serialise(row: dict) -> dict:
@@ -224,10 +226,25 @@ def _share_notify(conn, row: dict, *, explicit: bool, creating: bool) -> dict:
     return row
 
 
-def _refuse_mirrored(conn, spool_id, *, allowed: bool) -> None:
-    """A roll that comes from Spoolman is Spoolman's to change (a sync would put it back); only `notify_low` is the app's own."""
-    if not allowed and conn.execute("SELECT 1 FROM filament_spools WHERE id = %s AND spoolman_id IS NOT NULL", (spool_id,)).fetchone():
+def _refuse_mirrored(conn, spool_id, values: "dict | None", *, spoolman_on: bool, bambu_on: bool) -> None:
+    """A roll that comes from Spoolman is Spoolman's to change while Spoolman is in use (a sync would put it back); only `notify_low` is the app's own. A
+    roll of the Bambu Filament Manager is the cloud's in what the cloud keeps (`bambu_cloud.OWNED`) while the cloud is in use: those fields may be sent as
+    they are (the form sends every field) but not changed, and the roll cannot be deleted. `values` None is a delete. A roll of the source that is not in
+    use (`sources.py`) is a roll like any other until it is chosen again."""
+    from . import bambu_cloud                               # imported here: that module imports this one
+    row = conn.execute("SELECT * FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
+    if row is None:
+        return
+    if row["spoolman_id"] is not None and spoolman_on and (values is None or not set(values) <= {"notify_low"}):
         raise ApiError(409, "spoolman.managed")
+    if row["bambu_id"] is not None and bambu_on and (values is None or any(k in values and values[k] != row[k] for k in bambu_cloud.OWNED)):
+        raise ApiError(409, "bambu.managed")
+
+
+def _sources_in_use() -> tuple[bool, bool]:
+    """(Spoolman in use, the Bambu cloud in use), asked before a request holds a connection (see `spoolman.address`, `bambu_cloud.settings`)."""
+    from . import bambu_cloud, spoolman                     # imported here: those modules import this one
+    return spoolman.enabled(), bambu_cloud.active()
 
 
 def _refuse_taken_serial(conn, printer_id, serial: str) -> None:
@@ -295,9 +312,10 @@ def _register(path, table, fields, order):
         if not values:
             raise ApiError(400, "err.nothing_to_change")
         sets = ", ".join(f"{k} = %s" for k in values)
+        spoolman_on, bambu_on = _sources_in_use() if table == "filament_spools" else (False, False)
         with pool().connection() as conn:
             if table == "filament_spools":
-                _refuse_mirrored(conn, item_id, allowed=set(values) <= {"notify_low"})
+                _refuse_mirrored(conn, item_id, values, spoolman_on=spoolman_on, bambu_on=bambu_on)
             if table == "filament_library":
                 from . import filament_library
                 filament_library.before_update(conn, item_id, values)
@@ -316,9 +334,10 @@ def _register(path, table, fields, order):
         return jsonify(_serialise(row))
 
     def delete(item_id):
+        spoolman_on, bambu_on = _sources_in_use() if table == "filament_spools" else (False, False)
         with pool().connection() as conn:
             if table == "filament_spools":
-                _refuse_mirrored(conn, item_id, allowed=False)
+                _refuse_mirrored(conn, item_id, None, spoolman_on=spoolman_on, bambu_on=bambu_on)
             row = conn.execute(f"DELETE FROM {table} WHERE id = %s RETURNING id", (item_id,)).fetchone()
         if row is None:
             raise ApiError(404, "err.not_found")
@@ -396,7 +415,7 @@ def spool_siblings(spool_id):
     """How many other rolls have the same barcode (none when this roll has no barcode)."""
     with pool().read() as conn:
         barcode = _barcode_of(conn, spool_id)
-        count = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL",
+        count = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL AND bambu_id IS NULL",
                              (barcode, spool_id)).fetchone()["n"] if barcode else 0
     return jsonify({"count": count})
 
@@ -414,7 +433,7 @@ def propagate_spool(spool_id):
             return jsonify({"updated": 0})
         row = conn.execute(f"SELECT {', '.join(fields)} FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
         sets = ", ".join(f"{name} = %s" for name in fields)
-        done = conn.execute(f"UPDATE filament_spools SET {sets} WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL RETURNING id",
+        done = conn.execute(f"UPDATE filament_spools SET {sets} WHERE barcode = %s AND id <> %s AND spoolman_id IS NULL AND bambu_id IS NULL RETURNING id",
                             (*[row[name] for name in fields], barcode, spool_id)).fetchall()
     if "material" in fields:                                        # the rolls moved to another material's total
         stock_changed()
@@ -426,7 +445,8 @@ def propagate_spool(spool_id):
 # One delivery at a time: a request with more is refused, so one transaction never holds the write lock for long.
 BULK_MAX_ROLLS = 200
 # What a scanned roll takes over from the roll or library entry with its barcode. Notes, what is left and archived are per roll and never copied.
-FROM_BARCODE = ("brand", "product_type", "material", "colour", "colour_hex", "roll_weight_g", "price", "diameter_mm", "print_temp_c", "bed_temp_c")
+FROM_BARCODE = ("brand", "product_type", "material", "colour", "colour_hex", "roll_weight_g", "price", "diameter_mm", "print_temp_c", "bed_temp_c",
+                "spoolmandb_id")
 
 
 def _from_barcode(conn, barcode: str) -> "tuple[str, dict] | None":
@@ -710,6 +730,7 @@ def model_editor():
         raise ApiError(404, "err.calc_not_found") from None
     spoolman_on = spoolman.enabled()                        # asked before this request holds a connection (see `spoolman.address`)
     haspelsync_on = haspelsync.enabled()                    # the same; whether there is one, never what it answers: that is another service, asked after the screen is open
+    bambu_on = _sources_in_use()[1]
     with pool().read() as conn:
         answer = {name: LISTS[name](conn) for name in ("spools", "printers", "tariffs", "packaging", "parts", "accessories")}
         answer["stock"] = _stock(conn)
@@ -717,6 +738,7 @@ def model_editor():
         answer["listing"] = listings.present(conn, project_id) if project_id else None       # what it is offered for sale as (listings.py)
     answer["spoolman"] = {"enabled": spoolman_on}           # only decides what is offered; the server refuses a booking itself
     answer["haspelsync"] = {"enabled": haspelsync_on}       # decides whether the filament choice also offers what is in the printers (the screen asks for that itself, later)
+    answer["bambu_cloud"] = {"enabled": bambu_on}           # the same, read from the Bambu cloud when there is no HaspelSync (bambu_live.py)
     return jsonify(answer)
 
 
@@ -746,6 +768,31 @@ def _project_links(body):
         links.append({"kind": choice("f.link_kind", LINK_KINDS)(item.get("kind") or "other"),
                       "label": text("f.link_label", required=False, max_len=60)(item.get("label")), "url": url})
     return links, next((link["url"] for link in links if link["kind"] == "model"), "")
+
+
+# Where the files of a 3D model are kept outside this app: a link to a cloud drive or the path of a folder on a network share (a NAS). The place is only remembered and shown, never
+# opened or read by the server. It has to be one of the forms below, so that what the screen turns into a link can never run anything (javascript:, data:): a web address, an
+# smb:// or file:// address, a Windows network path (\\server\share\folder) or a path on a mapped drive (Z:\folder). Paths may hold spaces; a web address may not.
+FILE_KINDS = ("icloud", "gdrive", "onedrive", "dropbox", "nas", "other")
+MAX_FILE_REFS = 12
+PLACE = re.compile(r"^(https?://\S+|smb://\S.*|file://\S.*|\\\\[^\\\s].*|[A-Za-z]:\\.*)$", re.I)
+
+
+def project_file_refs(body):
+    """The places of a 3D model's files: `file_refs`, a list of kind, label and location. None when the body says nothing about them (an update then leaves them as they are)."""
+    given = body.get("file_refs")
+    if given is None:
+        return None
+    if not isinstance(given, list) or len(given) > MAX_FILE_REFS or not all(isinstance(item, dict) for item in given):
+        raise ApiError(400, "err.file_refs", max=MAX_FILE_REFS)
+    refs = []
+    for item in given:
+        location = text("f.file_location", max_len=500)(item.get("location"))
+        if not PLACE.match(location):
+            raise ApiError(400, "err.file_location")
+        refs.append({"kind": choice("f.file_kind", FILE_KINDS)(item.get("kind") or "other"),
+                     "label": text("f.file_label", required=False, max_len=60)(item.get("label")), "location": location})
+    return refs
 
 
 MAX_MODELS = 12
@@ -811,6 +858,7 @@ def project_calc_files(body, *, known=None) -> list:
 def _project_fields(body, *, known_files=None):
     name = text("f.name")(body.get("name"))
     links, source_url = _project_links(body)
+    file_refs = project_file_refs(body)
     models = project_models(body, known=known_files)
     calc_files = project_calc_files(body, known=known_files)
     file_id = calc_files[0] if calc_files else None
@@ -823,19 +871,47 @@ def _project_fields(body, *, known_files=None):
         raise ApiError(400, "err.rounding")
     data, totals = _calc({"data": body.get("data"), "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding})
     return {"name": name, "notes": notes, "object_description": object_description, "margin_pct": margin, "vat_pct": vat, "price_rounding": rounding, "data": data,
-            "totals": totals, "source_url": source_url, "links": links, "file_id": file_id, "calc_files": calc_files, "models": models}
+            "totals": totals, "source_url": source_url, "links": links, "file_refs": file_refs, "file_id": file_id, "calc_files": calc_files, "models": models}
+
+
+def _copy_pictures(conn, source, target) -> None:
+    """What a copy of a model takes along from the model it is a copy of, besides what the screen sends: the choices of the product pictures
+    (`image_text`: purpose, colour, setting, texts) and every picture that is kept with it (`project_images`: the uploaded photos, the saved views of
+    the 3D model with the model and plate they show, the pictures that were made, which of them go to the image model, the cover), as copies with
+    the same time, so they come in the same order (pictures are made one after the other, seconds apart) and nobody has to make or choose them again. The bytes are copied by the database; nothing is read
+    into Python and nothing is written again, so a picture is the very same picture. The 3D models themselves (`models`, `calc_files`) are not copied:
+    a file is kept while any calculation names it (`files._purge_orphans`), and a saved view names its model by file id, so both stay valid.
+    Not copied: what it cost to make them (`ai_image_usage` belongs to the money spent on the original), the jobs and the log, and what the model is for sale as."""
+    conn.execute("UPDATE projects SET image_text = (SELECT image_text FROM projects WHERE id = %s) WHERE id = %s", (source, target))
+    conn.execute("INSERT INTO project_images (project_id, kind, origin, model_ref, selected, variant, purpose, mime, content, width_px, height_px, is_cover, created_at) "
+                 "SELECT %s, kind, origin, model_ref, selected, variant, purpose, mime, content, width_px, height_px, is_cover, created_at "
+                 "FROM project_images WHERE project_id = %s ORDER BY created_at, id", (target, source))
 
 
 @bp.post("/projects")
 def create_project():
-    f = _project_fields(json_body())
+    """A new calculation. With `duplicate_of` (the id of a calculation) it is a copy of that one: the screen sends the fields, and the pictures that belong to the
+    original are copied in the same transaction (`_copy_pictures`), so there is never a copy without them, nor half of them."""
+    body = json_body()
+    f = _project_fields(body)
+    original = None
+    if body.get("duplicate_of") not in (None, ""):
+        try:
+            original = str(uuid.UUID(str(body["duplicate_of"])))
+        except ValueError:
+            raise ApiError(404, "err.calc_not_found") from None
     with pool().connection() as conn:
+        if original is not None and conn.execute("SELECT 1 FROM projects WHERE id = %s", (original,)).fetchone() is None:
+            raise ApiError(404, "err.calc_not_found")
         row = conn.execute(
             "INSERT INTO projects (name, notes, object_description, margin_pct, vat_pct, price_rounding, data, totals, source_url, "
-            "links, file_id, calc_files, models, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "links, file_refs, file_id, calc_files, models, number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
-             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], json.dumps(f["calc_files"]),
+             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), json.dumps(f["file_refs"] or []), f["file_id"], json.dumps(f["calc_files"]),
              json.dumps(f["models"]), next_number(conn, "project"))).fetchone()
+        if original is not None:
+            _copy_pictures(conn, original, row["id"])
+            row = conn.execute("SELECT * FROM projects WHERE id = %s", (row["id"],)).fetchone()          # with the image choices it now has
     return jsonify(_project_row(row)), 201
 
 
@@ -845,9 +921,9 @@ def update_project(project_id):
     with pool().connection() as conn:
         row = conn.execute(
             "UPDATE projects SET name=%s, notes=%s, object_description=%s, margin_pct=%s, vat_pct=%s, price_rounding=%s, data=%s, "
-            "totals=%s, source_url=%s, links=%s, file_id=%s, calc_files=%s, models=%s, updated_at=now() WHERE id=%s RETURNING *",
+            "totals=%s, source_url=%s, links=%s, file_refs=COALESCE(%s, file_refs), file_id=%s, calc_files=%s, models=%s, updated_at=now() WHERE id=%s RETURNING *",
             (f["name"], f["notes"], f["object_description"], f["margin_pct"], f["vat_pct"], f["price_rounding"], json.dumps(f["data"]),
-             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), f["file_id"], json.dumps(f["calc_files"]),
+             json.dumps(f["totals"]), f["source_url"], json.dumps(f["links"]), None if f["file_refs"] is None else json.dumps(f["file_refs"]), f["file_id"], json.dumps(f["calc_files"]),
              json.dumps(f["models"]), project_id)).fetchone()
     if row is None:
         raise ApiError(404, "err.calc_not_found")
@@ -866,10 +942,13 @@ def delete_project(project_id):
 @bp.post("/projects/<uuid:project_id>/book-stock")
 def book_stock(project_id):
     """Subtract the project's filament grams from the spools it used, once. Not with a Spoolman: what is used is kept there (the printer
-    reports it), so a booking here would take the same grams off a second time. That goes for every roll, also one typed in by hand."""
-    from . import listings, spoolman                        # imported here: those modules import this one
+    reports it), so a booking here would take the same grams off a second time. That goes for every roll, also one typed in by hand.
+    With the Bambu Filament Manager it is booked here, and what a roll of the cloud lost is queued in the same transaction and written back
+    to the cloud right after (`bambu_cloud.write_back`): the cloud itself never takes off what a print used of a spool without an RFID chip."""
+    from . import bambu_cloud, listings, spoolman           # imported here: those modules import this one
     if spoolman.enabled():                                  # asked before this request holds a connection (see `spoolman.address`)
         raise ApiError(409, "spoolman.no_booking")
+    bambu_on = bambu_cloud.active()
     with pool().connection() as conn:
         project = conn.execute("SELECT data, stock_booked_at FROM projects WHERE id = %s",
                                (project_id,)).fetchone()
@@ -886,10 +965,10 @@ def book_stock(project_id):
         # that kind (the ones nearest to empty first), and it is only short when all of them together are.
         shelf = {str(r["id"]): r for r in stock.fetch(conn)}
         left = {roll_id: r["remaining_g"] for roll_id, r in shelf.items()}
-        short = []
+        short, queued = [], False
         for spool_id, grams in used.items():
             row = shelf.get(str(spool_id)) or conn.execute(
-                "SELECT id, brand, product_type, material, colour, barcode, remaining_g FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
+                "SELECT id, brand, product_type, material, colour, barcode, remaining_g, bambu_id FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
             if row is None:
                 continue  # spool was deleted since; nothing to subtract from
             left.setdefault(str(row["id"]), row["remaining_g"])
@@ -903,8 +982,13 @@ def book_stock(project_id):
                     left[roll_id] -= take
                     need -= take
                     conn.execute("UPDATE filament_spools SET remaining_g = round(max(remaining_g - %s, 0), 1) WHERE id = %s", (take, roll_id))
+                    cloud = (shelf.get(roll_id) or row)["bambu_id"]
+                    if bambu_on and cloud is not None:
+                        conn.execute("INSERT INTO bambu_cloud_pending_use (bambu_id, grams) VALUES (%s, %s)", (cloud, take))
+                        queued = True
             if need > 0:
                 short.append(tr("book.short_item", name=" ".join(x for x in (row["brand"], row["product_type"]) if x), left=have, need=grams))
         conn.execute("UPDATE projects SET stock_booked_at = now() WHERE id = %s", (project_id,))
     stock_changed()
-    return jsonify({"ok": True, "spools_updated": len(used), "short": short})
+    waiting = bambu_cloud.write_back() if queued else 0     # after the transaction: never hold one while another service is called
+    return jsonify({"ok": True, "spools_updated": len(used), "short": short, "cloud_waiting": waiting})

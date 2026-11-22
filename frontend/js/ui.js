@@ -35,8 +35,15 @@ const ICONS = {
   restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/><path d="M12 8v4l3 2"/>',
   collapse: '<path d="m15 6-6 6 6 6"/>',
   expand: '<path d="m9 6 6 6-6 6"/>',
+  checklist: '<path d="m4 7 1.5 1.5L8 6M4 13l1.5 1.5L8 12M4 19l1.5 1.5L8 18M11 7h9M11 13h9M11 19h9"/>',
+  cloud: '<path d="M7.5 18.5h9a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 6.5 9.5a4.5 4.5 0 0 0 1 9z"/>',
+  nas: '<rect x="3.5" y="4" width="17" height="6.5" rx="1.5"/><rect x="3.5" y="13.5" width="17" height="6.5" rx="1.5"/><path d="M7 7.25h.01M7 16.75h.01"/>',
+  folder: '<path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4l2 2.2h8a1.5 1.5 0 0 1 1.5 1.5v8.3a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18z"/>',
+  cart: '<path d="M3.5 4.5h2.2l2 10h10l1.8-7.5H7"/><circle cx="9.5" cy="19" r="1.2"/><circle cx="17" cy="19" r="1.2"/>',
   'chevron-down': '<path d="m6 9 6 6 6-6"/>',
   'chevron-up': '<path d="m6 15 6-6 6 6"/>',
+  'chevron-left': '<path d="m15 6-6 6 6 6"/>',
+  'chevron-right': '<path d="m9 6 6 6-6 6"/>',
   box: '<path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/>',
   more: '<circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/>',
   scan: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M4 12h16"/>',
@@ -113,9 +120,32 @@ export function foldHead(key, title, { open = true, extra = null } = {}) {
   return h('h2', { class: 'fold-head' }, button);
 }
 
+const foldStates = new Map();
+
+/** A part of a card that folds away, under its own heading (`foldHead` folds the whole card): a button with the title, an optional `count`
+    and a chevron, then `children`. The choice is remembered in this browser under `key` and also in memory, so a part that is drawn again
+    (the product pictures card is, every few seconds while pictures are made) comes back as it was left, also where storage is blocked.
+    `open` is what a first visit gets. */
+export function foldSection(key, title, children, { open = true, count = null } = {}) {
+  const store = `pp-fold-${key}`;
+  let isOpen = open;
+  if (foldStates.has(store)) isOpen = foldStates.get(store);
+  else { try { const saved = localStorage.getItem(store); if (saved === '1' || saved === '0') isOpen = saved === '1'; } catch { /* storage blocked: the default */ } }
+  const id = `fs${Math.random().toString(36).slice(2, 9)}`;
+  const body = h('div', { class: 'fold-section-body stack', id, hidden: !isOpen }, children);
+  const button = h('button', { type: 'button', class: 'fold-toggle', 'aria-expanded': String(isOpen), 'aria-controls': id, onclick: () => {
+    const now = button.getAttribute('aria-expanded') !== 'true';
+    button.setAttribute('aria-expanded', String(now));
+    body.hidden = !now;
+    foldStates.set(store, now);
+    try { localStorage.setItem(store, now ? '1' : '0'); } catch { /* not remembered */ }
+  } }, h('span', { class: 'fold-title' }, title, count == null ? null : h('span', { class: 'badge muted' }, String(count))), icon('chevron-down'));
+  return h('section', { class: 'fold-section stack' }, h('h3', { class: 'fold-head' }, button), body);
+}
+
 // How a connection to another application can stand: working, set up but not answering, or not set up (or still being looked at).
 const CONNECTION = { active: ['badge ok', 'connection.active'], offline: ['badge danger', 'connection.offline'], off: ['badge muted', 'connection.off'],
-  checking: ['badge muted', 'connection.checking'] };
+  checking: ['badge muted', 'connection.checking'], resting: ['badge muted', 'connection.resting'] };
 
 /** The state of a connection as it stands in the heading of its card (`foldHead`'s `extra`): **active**, **not connected** (there is a setup and the other side does not answer)
     or **not configured**, with a short `detail` (a count, a host) and, for a connection that does not answer, the reason as a tooltip. It starts as "checking"; `set(state, { detail, message })` changes it. */

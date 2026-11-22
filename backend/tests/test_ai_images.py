@@ -438,7 +438,7 @@ def test_nothing_is_made_before_a_purpose_is_chosen(ai, project, monkeypatch):
 
 # --- the texts and the logo on the pictures -------------------------------------------------------------------------------
 
-TEXT = {"purpose": "webshop", "colour": "", "scene": "", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 x 10 cm", "Waterdicht PETG"],
+TEXT = {"purpose": "webshop", "colour": "", "text_colour": "", "accent_colour": "", "label_style": "tilted", "scene": "", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 x 10 cm", "Waterdicht PETG"],
         "extra_text": "Op maat gemaakt", "logo": False}
 PLAIN = (10, 120, 10)                                                              # what FakeOpenAI paints
 
@@ -479,10 +479,11 @@ def set_logo(owner):
 
 
 def test_the_texts_are_kept_with_the_calculation(ai, project):
-    assert state(ai, project)["text"] == {"purpose": None, "colour": "", "scene": "", "product_name": "", "specs": [], "extra_text": "", "logo": False}
+    assert state(ai, project)["text"] == {"purpose": None, "colour": "", "text_colour": "", "accent_colour": "", "label_style": "tilted", "scene": "",
+                                          "product_name": "", "specs": [], "extra_text": "", "logo": False}
     res = put_text(ai, project, {"purpose": "social", "product_name": "  Plantenbak   Vensterbank ", "specs": "- 30 x 12 cm\n\n• Waterdicht ",
                                  "extra_text": " Op maat\ngemaakt ", "logo": True})
-    kept = {"purpose": "social", "colour": "", "scene": "", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 cm", "Waterdicht"], "extra_text": "Op maat gemaakt",
+    kept = {"purpose": "social", "colour": "", "text_colour": "", "accent_colour": "", "label_style": "tilted", "scene": "", "product_name": "Plantenbak Vensterbank", "specs": ["30 x 12 cm", "Waterdicht"], "extra_text": "Op maat gemaakt",
             "logo": True}
     assert res.status_code == 200 and res.get_json() == kept and state(ai, project)["text"] == kept
     # saving the calculation itself leaves them alone
@@ -491,7 +492,8 @@ def test_the_texts_are_kept_with_the_calculation(ai, project):
     assert ai.put("/api/projects/00000000-0000-0000-0000-000000000000/images/settings", json=TEXT, headers=H).status_code == 404
 
 
-@pytest.mark.parametrize("body", [{"purpose": "billboard"}, {"colour": "red"}, {"colour": "#12345"}, {"scene": "x" * 301}, {"product_name": "x" * 61}, {"extra_text": "x" * 81}, {"specs": ["x" * 61]},
+@pytest.mark.parametrize("body", [{"purpose": "billboard"}, {"colour": "red"}, {"colour": "#12345"}, {"text_colour": "white"}, {"accent_colour": "#ff00"},
+                                  {"label_style": "neon"}, {"label_style": ["pill"]}, {"scene": "x" * 301}, {"product_name": "x" * 61}, {"extra_text": "x" * 81}, {"specs": ["x" * 61]},
                                   {"specs": ["a", "b", "c", "d", "e", "f"]}, {"specs": [1]}, {"specs": {"a": 1}}])
 def test_the_texts_are_validated(ai, project, body):
     assert put_text(ai, project, body).status_code == 400
@@ -576,6 +578,62 @@ def test_long_texts_stay_inside_the_picture(ai):
             if size[0] >= 1024:                                                    # the texts leave the picture room
                 spot = (round(size[0] * 0.85), round(size[1] * 0.3)) if variant == "landscape" else (size[0] // 2, round(size[1] * 0.12))
                 assert near(made.convert("RGB").getpixel(spot), PLAIN), (purpose, variant)
+
+
+def test_the_colours_of_the_texts_and_of_the_bars_can_be_chosen(ai, project, monkeypatch):
+    fake = ready(ai, project, monkeypatch, result=png((1024, 1024), PLAIN))
+    chosen = {**TEXT, "text_colour": " #FDE68A ", "accent_colour": "#E11D48", "label_style": "burst"}
+    kept = put_text(ai, project, chosen).get_json()
+    assert (kept["text_colour"], kept["accent_colour"], kept["label_style"]) == ("#fde68a", "#e11d48", "burst")    # kept, in one spelling
+    assert queue(ai, project, "studio").status_code == 202
+    lower = picture(ai, project, "studio").crop((0, 400, 1024, 1024))
+    assert any(near(p, (253, 230, 138), 14) for p in pixels(lower))               # the chosen text colour
+    assert any(near(p, (225, 29, 72), 14) for p in pixels(lower))                 # the chosen accent: bar, bullets, sticker
+    assert not any(near(p, (147, 197, 253), 20) for p in pixels(lower))           # and not the web shop's own
+    assert not any(c in fake.calls[0]["data"]["prompt"] for c in ("#fde68a", "#e11d48"))       # the model is never told: the app draws the poster
+    # the screen gets what it draws its examples with
+    got = state(ai, project)
+    assert got["poster"]["label_styles"] == list(ai_images.image_overlay.LABEL_STYLES) and got["limits"]["generated"] == ai_images.MAX_GENERATED
+    assert got["poster"]["accents"]["webshop"]["dark"] == {"accent": "#93c5fd", "label": "#0f172a"} and got["poster"]["layouts"]["landscape"] == "left"
+    assert got["poster"]["ink"]["light"] == {"ink": "#0f172a", "shade": "#ffffff"}
+
+
+def test_a_chosen_text_colour_is_always_readable(ai):
+    overlay = ai_images.image_overlay
+    style = overlay.TEMPLATES["webshop"]
+    for code in ("#ffffff", "#000000", "#808080", "#ffd60a", "#1d4ed8", "#e11d48", "#7f7f7f", "#22c55e"):
+        for measured in ("dark", "light"):
+            paint = overlay._paint(style, measured, {"text_colour": code, "accent_colour": code})
+            assert overlay.contrast(paint["ink"], paint["shade"]) >= 4.5, (code, measured)            # the shade it stands out against
+            assert overlay.contrast(paint["label_ink"], paint["accent"]) >= 4.5, code                # the words on the label read on it
+            if paint["tone"] != measured:
+                assert paint["strength"] > overlay.INK[paint["tone"]]["strength"]                      # against the photo: a stronger shade
+    assert overlay._paint(style, "light", {"text_colour": "javascript:"})["ink"] == overlay.INK["light"]["ink"]   # only a real colour counts
+    # white letters asked for on a studio picture: the picture is darkened under them, not left white
+    light = (244, 242, 238)
+    made = poster("webshop", "square", (1024, 1024), light)
+    white = Image.open(BytesIO(overlay.compose(ai_images._clean(png((1024, 1024), light))[0], "webshop", "square", text=POSTER,
+                                               look={"text_colour": "#ffffff"}))).convert("RGB")
+    assert sum(white.getpixel((1000, 1010))) < 300 < sum(made.getpixel((1000, 1010)))
+    assert any(near(p, (255, 255, 255), 10) for p in pixels(white.crop((0, 512, 512, 1024))))
+
+
+def test_every_label_style_is_its_own_shape_and_stays_inside_the_picture(ai):
+    overlay = ai_images.image_overlay
+    made = {style: poster("social", "square", (1024, 1024), PLAIN, ).tobytes() if style == "tilted" else
+            Image.open(BytesIO(overlay.compose(ai_images._clean(png((1024, 1024), PLAIN))[0], "social", "square", text=POSTER,
+                                               look={"label_style": style}))).convert("RGB").tobytes() for style in overlay.LABEL_STYLES}
+    assert len(set(made.values())) == len(overlay.LABEL_STYLES)                    # five shapes, five pictures; the default is the tilted label
+    assert made["tilted"] == Image.open(BytesIO(overlay.compose(ai_images._clean(png((1024, 1024), PLAIN))[0], "social", "square", text=POSTER,
+                                                                look={"label_style": "nonsense"}))).convert("RGB").tobytes()
+    long = {"product_name": "W" * 60, "specs": ["M" * 60] * 5, "extra_text": "W" * 80}
+    for style in overlay.LABEL_STYLES:
+        for variant, size in (("square", (1024, 1024)), ("landscape", (1536, 1024)), ("portrait", (1024, 1536)), ("square", (64, 64))):
+            out = Image.open(BytesIO(overlay.compose(ai_images._clean(png(size, PLAIN))[0], "marktplaats", variant, text=long, look={"label_style": style})))
+            assert out.size == size
+            if size[0] >= 1024:
+                spot = (round(size[0] * 0.85), round(size[1] * 0.3)) if variant == "landscape" else (size[0] // 2, round(size[1] * 0.12))
+                assert near(out.convert("RGB").getpixel(spot), PLAIN), (style, variant)
 
 
 def test_the_colour_of_the_item_can_be_chosen(ai, project, monkeypatch):
@@ -1022,3 +1080,22 @@ def test_an_older_backup_restores_with_an_empty_description(ai, project):
     assert post(ai, "/api/backup/restore", doc).status_code == 200
     assert ai.get(f"/api/projects/{project['id']}").get_json()["object_description"] == ""
     assert state(ai, project)["text"]["purpose"] is None
+
+
+def test_the_card_keeps_what_pictures_are_made_from_apart_from_what_was_made_and_a_made_picture_opens_in_a_pop_up():
+    """There is no browser here, so the wiring is checked in the sources (the behaviour itself, swipe included, was checked in Chromium): the card has two parts
+    that fold on their own, only the *made* pictures open large, the pop-up goes to the previous and next one by chevron, arrow key and the browser's own
+    snapping scroll (a swipe), and saves the one in view the way the tile does. A picture's file is never read again for it: the pop-up uses the tile's address."""
+    card = (FRONT / "js/ai-images.js").read_text()
+    pop = (FRONT / "js/lightbox.js").read_text()
+    css = (FRONT / "css/app.css").read_text()
+    assert card.count("foldSection(") == 2 and "'product-images-sources'" in card and "'product-images-made'" in card
+    assert card.index("foldSection('product-images-sources'") < card.index("foldSection('product-images-made'")
+    kept, tile = card[card.index("const kept = "):card.index("const file = h('input'")], card[card.index("function tile("):card.index("// A picture that is still to come")]
+    assert "look(" not in kept and "ai-zoom" not in kept                       # a photo or a saved view of the model is not a made picture
+    assert "onclick: () => look(made, image)" in tile and "openLightbox(items, made.indexOf(image)" in card
+    assert "save: (item) => saveImage(item.image)" in card and "?download=1" in card and card.count("imageUrl(m.id)") == 1
+    ui = (FRONT / "js/ui.js").read_text()
+    assert "ArrowLeft" in pop and "ArrowRight" in pop and "icon(`chevron-${" in pop and "'chevron-left':" in ui and "'chevron-right':" in ui and "lightbox.save" in pop
+    assert "scroll-snap-type: x mandatory" in css and "scroll-snap-stop: always" in css and ".lightbox-nav:disabled" in css
+    assert "/js/lightbox.js" in (FRONT / "sw.js").read_text()

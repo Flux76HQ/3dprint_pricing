@@ -321,6 +321,31 @@ dialog.sheet h2 { padding-right: 44px; margin-top: 0; }
 .dialog-x:hover { background: var(--accent-subtle); color: var(--text); }
 .dialog-x .icon { width: 22px; height: 22px; }
 @media (max-width: 480px) { .sheet-body { padding: 16px; } }
+/* The pop-up to look through pictures (`lightbox.js`): as large as the screen allows. The pictures lie in one row that the browser scrolls and snaps,
+   so a swipe (and a trackpad) stops on exactly one; the chevrons and the arrow keys move the same row. */
+dialog.sheet.lightbox { width: min(calc(100vw - 24px), 1100px); height: min(900px, calc(100vh - 24px));
+  height: min(900px, calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))); }
+.lightbox .sheet-body { display: flex; flex-direction: column; gap: 10px; padding: 12px; overflow: hidden; }
+.lightbox-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding-right: 44px; }
+.lightbox-what { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.lightbox-count { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lightbox-stage { position: relative; flex: 1 1 auto; min-height: 0; }
+.lightbox-track { display: flex; width: 100%; height: 100%; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
+  touch-action: pan-x; scrollbar-width: none; border-radius: var(--radius-sm); }
+.lightbox-track::-webkit-scrollbar { display: none; }
+.lightbox-track:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.lightbox-slide { flex: 0 0 100%; width: 100%; height: 100%; margin: 0; scroll-snap-align: center; scroll-snap-stop: always; }
+.lightbox-slide img { display: block; width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none; user-select: none; }
+.lightbox-nav { position: absolute; top: 50%; z-index: 2; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; padding: 0; border: 1px solid var(--rand); border-radius: 50%; color: var(--text); cursor: pointer;
+  background: color-mix(in srgb, var(--surface-solid) 86%, transparent); box-shadow: var(--shadow); }
+.lightbox-nav:hover { border-color: var(--accent); }
+.lightbox-nav:disabled { visibility: hidden; }
+.lightbox-nav.prev { left: 8px; }
+.lightbox-nav.next { right: 8px; }
+.lightbox-nav .icon { width: 24px; height: 24px; }
+.lightbox-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
+.lightbox-error { flex: 1 1 12rem; margin: 0; }
 #toasts { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 28px + env(safe-area-inset-bottom));
   display: flex; flex-direction: column; gap: 8px; width: min(92vw, 420px); }
 @media (min-width: 860px) { #toasts { bottom: 24px; } }
@@ -587,6 +612,11 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .ai-tile { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .ai-tile img { width: 100%; height: auto; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: #fff; }
 .ai-tile figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* A made picture opens large in a pop-up: the picture is a button, so a keyboard gets there too. */
+.ai-zoom { display: block; width: 100%; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font: inherit; cursor: zoom-in; }
+.ai-zoom img { display: block; }
+.ai-zoom:hover img { border-color: var(--accent); }
+.ai-zoom:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 /* Busy: a spinner, and a frame in the shape of the picture to come that pulses */
 .spinner { flex: none; width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 3px solid var(--rand); border-top-color: var(--accent); animation: ai-spin .8s linear infinite; }
 .spinner.small { width: 12px; height: 12px; border-width: 2px; }
@@ -601,6 +631,73 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .ai-skeleton.v-landscape { aspect-ratio: 3 / 2; }
 .ai-skeleton.v-portrait { aspect-ratio: 2 / 3; }
 .ai-tile.pending figcaption { flex-direction: column; align-items: flex-start; gap: 0; }
+/* The colours of the pictures: the item, the texts and the bars of the poster, the shape of the label, and an example beside them */
+.ai-colours { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 220px); gap: 16px; align-items: start;
+  padding: 14px; border: 1px solid var(--rand); border-radius: var(--radius-sm); background: var(--surface-field); }
+.ai-colours p.hint { margin: 0; }
+.ai-look-preview { margin: 0; display: grid; gap: 6px; }
+.ai-look-preview figcaption { margin: 0; }
+.ai-look-frame { display: grid; place-items: center; aspect-ratio: 1 / 1; }
+@media (max-width: 640px) { .ai-colours { grid-template-columns: 1fr; } .ai-look-preview { max-width: 240px; } }
+/* An example of a picture (js/ai-images.js `mockup`): drawn with shapes, sized from its own width (cqi), in the colours the poster will have */
+.ai-mock { position: relative; overflow: hidden; display: block; width: 100%; aspect-ratio: 1 / 1; container-type: inline-size; border-radius: var(--radius-sm);
+  border: 1px solid var(--rand); background: linear-gradient(170deg, #b9c7bf 0%, #7d9088 55%, #4a5a53 100%);
+  --mock-item: #8c96a3; --mock-ink: #fff; --mock-shade: #06060a; --mock-accent: #93c5fd; --mock-label-ink: #0f172a; }
+.ai-mock.v-landscape { aspect-ratio: 3 / 2; }
+.ai-mock.v-portrait { aspect-ratio: 2 / 3; }
+.ai-mock.v-studio { background: linear-gradient(180deg, #f6f4f0 0%, #e7e3dc 100%); }
+.ai-mock.v-detail { background: radial-gradient(circle at 50% 40%, #a9b8b0, #56665f); }
+.ai-mock-table { position: absolute; left: 0; right: 0; bottom: 0; height: 38%; background: linear-gradient(180deg, #8a6a4c, #6b5038); }
+.ai-mock-object { position: absolute; left: 50%; top: 22%; width: 36%; aspect-ratio: 1 / 1; translate: -50% 0; border-radius: 24% 24% 32% 32%;
+  background: var(--mock-item); box-shadow: inset -2.5cqi -3cqi 0 rgba(0, 0, 0, .2), inset 1.5cqi 1.5cqi 0 rgba(255, 255, 255, .18), 0 3cqi 3cqi -2cqi rgba(0, 0, 0, .45); }
+.ai-mock.v-studio .ai-mock-object { top: 26%; }
+.ai-mock.v-detail .ai-mock-object { width: 78%; top: 8%; }
+.ai-mock.v-context .ai-mock-object { width: 24%; top: 40%; }
+.ai-mock.v-landscape .ai-mock-object { width: 26%; }
+.ai-mock.poster.lay-bottom .ai-mock-object { top: 8%; }
+.ai-mock.poster.lay-bottom.v-detail .ai-mock-object { width: 56%; top: 4%; }
+.ai-mock.poster.lay-left .ai-mock-object { left: 72%; }
+.ai-mock-shade { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 38%, color-mix(in srgb, var(--mock-shade) 72%, transparent) 78%); }
+.lay-left .ai-mock-shade { background: linear-gradient(270deg, transparent 38%, color-mix(in srgb, var(--mock-shade) 72%, transparent) 68%); }
+.ai-mock-text { position: absolute; left: 6%; bottom: 6%; width: 62%; display: flex; flex-direction: column; align-items: flex-start; gap: 2cqi; }
+.lay-left .ai-mock-text { width: 36%; }
+.ai-mock-text > span { display: block; border-radius: 1cqi; }
+.m-bar { width: 12cqi; height: 1.6cqi; background: var(--mock-accent); }
+.m-head { width: 100%; height: 6.5cqi; background: var(--mock-ink); }
+.m-head.short { width: 70%; }
+.m-rule { width: 46%; height: .6cqi; background: var(--mock-ink); opacity: .5; }
+.m-spec { width: 62%; height: 2.4cqi; background: var(--mock-ink); opacity: .8; position: relative; margin-left: 3.5cqi; }
+.m-spec::before { content: ""; position: absolute; left: -3.5cqi; top: .4cqi; width: 1.6cqi; height: 1.6cqi; background: var(--mock-accent); }
+.m-spec.short { width: 44%; }
+.ai-mock-text .m-label { display: grid; place-items: center; width: 44%; height: 7cqi; margin-top: 1cqi; background: var(--mock-accent); border-radius: 0; }
+.lay-left .ai-mock-text .m-label { width: 80%; }
+.m-label > span { width: 70%; height: 2.4cqi; border-radius: 1cqi; background: var(--mock-label-ink); }
+.m-label.l-tilted { transform: rotate(-3deg) skewX(-14deg); }
+.m-label.l-pill { border-radius: 99px; outline: .8cqi solid var(--mock-ink); outline-offset: -.8cqi; box-shadow: 0 1.2cqi 2cqi rgba(0, 0, 0, .45); height: 8cqi; width: 50%; }
+.m-label.l-ribbon { clip-path: polygon(0 0, 100% 0, 92% 50%, 100% 100%, 0 100%, 8% 50%); transform: rotate(2deg); width: 54%; height: 8cqi; filter: drop-shadow(0 1cqi 1cqi rgba(0, 0, 0, .45)); }
+.m-label.l-block { box-shadow: 1.4cqi 1.4cqi 0 var(--mock-ink); height: 8.5cqi; width: 54%; }
+.ai-mock-text .m-label.l-burst { position: absolute; left: 64%; bottom: 1cqi; width: 24cqi; height: 24cqi; margin: 0; transform: rotate(-10deg);
+  clip-path: polygon(50% 0, 58% 12%, 71% 4%, 74% 18%, 89% 15%, 85% 29%, 99% 33%, 89% 44%, 100% 54%, 87% 61%, 93% 75%, 79% 76%, 78% 91%, 65% 85%, 56% 99%, 47% 87%,
+    35% 97%, 31% 83%, 17% 88%, 18% 73%, 3% 70%, 12% 58%, 0 48%, 12% 40%, 4% 27%, 18% 25%, 16% 10%, 30% 15%, 37% 2%, 45% 13%); }
+.lay-left .ai-mock-text .m-label.l-burst { left: 70%; width: 18cqi; height: 18cqi; }
+.m-label.l-burst > span { width: 60%; }
+.ai-mock-logo { position: absolute; left: 4%; top: 4%; width: 18%; height: 8%; border-radius: 1.4cqi; background: rgba(255, 255, 255, .94); box-shadow: 0 0 0 .5cqi rgba(0, 0, 0, .08); }
+/* The pop-up that asks which pictures to make: an example per picture, the box to tick on it */
+dialog.sheet.ai-pick-sheet { width: min(calc(100vw - 24px), 780px); }
+.ai-pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.ai-pick { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--rand); border-radius: var(--radius-sm); cursor: pointer; background: var(--surface-field); }
+.ai-pick:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.ai-pick:not(:has(input:checked)) .ai-pick-frame { opacity: .45; filter: grayscale(.7); }
+.ai-pick:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; }
+.ai-pick-frame { display: grid; place-items: center; aspect-ratio: 1 / 1; transition: opacity .15s ease, filter .15s ease; }
+.ai-pick-frame .ai-mock.v-portrait, .ai-look-frame .ai-mock.v-portrait { width: auto; height: 100%; }
+.ai-pick-head { display: flex; align-items: center; gap: 8px; }
+.ai-pick-head input { flex: none; width: 22px; height: 22px; accent-color: var(--accent); }
+.ai-pick .badge { align-self: flex-start; }
+.ai-pick .muted { font-size: .85rem; }
+.ai-pick-notes { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.ai-pick-notes li { margin: 0; }
+@media (prefers-reduced-motion: reduce) { .ai-pick-frame { transition: none; } }
 .badge.ai-busy { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; }
 .ai-failed ul { margin: 0; padding-left: 18px; }
 .ai-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
@@ -781,10 +878,20 @@ dialog.sheet { border: 1px solid var(--lijn-strong); border-radius: 20px; box-sh
 .fold-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
 .connection-state { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: .85rem; font-weight: 400; }
 .fold-toggle .icon { color: var(--text-muted); transition: transform .2s var(--ease), color .15s var(--ease); }
+/* Folded, the heading of a card of links or file locations shows one small icon for each (what it is; the tooltip says its name and address). Open, the rows themselves are there. */
+.fold-icons { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.fold-icons:empty, .fold-toggle[aria-expanded="true"] .fold-icons { display: none; }
+.fold-chip { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--lijn-strong); border-radius: 50%; background: var(--surface-field); }
+.fold-toggle .fold-chip .icon, .fold-toggle:hover .fold-chip .icon { width: 17px; height: 17px; color: var(--text); }
 .fold-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
 .fold-toggle:hover .icon { color: var(--text); }
 .card:has(> .fold-head [aria-expanded="false"]) > :not(.fold-head) { display: none; }
 .card:has(> .fold-head [aria-expanded="false"]) { gap: 0; }
+/* A part inside a card (`foldSection`): a framed block of its own, so two of them read as two things and not as one long list. */
+.fold-section { gap: 0; padding: 4px 14px; border: 1px solid var(--lijn); border-radius: var(--radius-sm); }
+.fold-section > .fold-head .fold-toggle { margin: 0; }
+.fold-section-body { padding: 4px 0 14px; }
+.fold-title .badge { font-weight: 600; }
 .list-row > .item-head { flex: 1 1 18rem; min-width: 0; }       /* the text takes what is left and wraps, so the buttons stay on its right while there is room */
 .list-row > .row { flex: none; }
 
@@ -857,6 +964,28 @@ a.btn[aria-disabled="true"] { opacity: .45; pointer-events: none; }
 .list-filter { display: grid; gap: 4px; flex: 1 1 160px; max-width: 280px; }
 .list-filter label { font-size: .75rem; font-weight: 600; color: var(--text-muted); }
 .list-count { margin: 0; font-size: .85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Choosing rows (`select` of listView): a box in front of every row or tile, a bar with what can be done with the chosen ones. The links, buttons and pull-downs of a row do
+   nothing while choosing, so that a click anywhere on it ticks it instead of opening it or changing it. */
+.select-cell { width: 1%; padding-right: 0; }
+.data-table th.select-cell, .data-table td.select-cell { padding-inline: 12px 0; }
+.select-box { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.select-box:disabled { cursor: not-allowed; }
+.selecting .data-table tbody tr > :not(.select-cell) > *, .selecting .selectable > :not(.select-cell) { pointer-events: none; }
+.selectable { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 6px; cursor: pointer; }
+.selectable > .select-cell { display: grid; place-items: center; width: 40px; height: 44px; padding: 0; }
+.selectable > .card { transition: outline-color .15s var(--ease); outline: 2px solid transparent; outline-offset: 0; }
+.selectable[data-selected] > .card { outline-color: var(--accent); }
+.data-table tr[data-selected] > * { background: var(--accent-subtle); }
+.selectable.locked > .card, .data-table tr.locked > :not(.select-cell) { opacity: .55; }
+.selectable.locked, .data-table tr.locked { cursor: not-allowed; }
+.bulk-bar { position: sticky; z-index: 12; bottom: calc(var(--tabbar-h) + 12px + env(safe-area-inset-bottom)); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 12px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--surface-solid); box-shadow: var(--shadow); }
+.bulk-bar .grow { flex: 1 1 0; }
+.bulk-count { font-weight: 650; font-variant-numeric: tabular-nums; }
+@media (min-width: 860px) { .bulk-bar { bottom: 16px; } }
+.bulk-done { margin-left: auto; }
+/* On a phone the bar is two lines: what is chosen and how to choose more or fewer, then what to do with it and the way out. */
+@media (max-width: 559.98px) { .bulk-bar { gap: 6px; padding: 6px 8px; } .bulk-bar .btn.tool { min-height: 40px; padding-inline: 8px; gap: 4px; font-size: .8rem; } .bulk-count { font-size: .85rem; } .bulk-bar .grow, .bulk-none { display: none; } }          /* "Klaar" lets go of the choice too, so a phone has no room spent on a button for it */
 .tool-check { min-height: var(--control-sm); font-size: .875rem; gap: 8px; }
 .list-summary { margin: 0; }
 .stat-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; }

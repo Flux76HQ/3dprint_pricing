@@ -15,6 +15,7 @@ from flask import Blueprint, Response, jsonify, request
 
 from . import bambu_invoice, bambu_store
 from .api import RESOURCES, _validated
+from .colour_names import loose_kind, to_english
 from .config import CONTRIBUTE_URL, DEFAULT_LIBRARY_URL
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized, tr
@@ -27,7 +28,7 @@ FORMAT_VERSION = 1
 MAX_ROWS = 5_000
 DEFAULTS = {"roll_weight_g": 1000, "diameter_mm": 1.75}          # an entry in a hand-written file may leave these out
 BLANK = {"product_type": "", "material": "", "colour": "", "colour_hex": "", "filament_id": "", "sku": "", "barcode": "", "refill": False,
-         "print_temp_c": None, "bed_temp_c": None, "price": None, "notes": ""}      # what a validated entry lacks when the input left it out
+         "print_temp_c": None, "bed_temp_c": None, "price": None, "notes": "", "spoolmandb_id": ""}      # what a validated entry lacks when the input left it out
 
 
 @bp.before_request
@@ -36,7 +37,7 @@ def _guard():
     """Every route here needs a session."""
 
 
-FILLABLE = ("sku", "filament_id", "barcode", "colour_hex", "print_temp_c", "bed_temp_c")      # what an entry may be given when it lacks it
+FILLABLE = ("sku", "filament_id", "barcode", "colour_hex", "print_temp_c", "bed_temp_c", "spoolmandb_id")      # what an entry may be given when it lacks it
 
 
 def _n(values: dict, key: str) -> str:
@@ -100,6 +101,31 @@ class Index:
         """The entry that `row` would become a copy of once it looks like `merged`. Only what is new counts: two entries that were
         already alike (from before this check existed) can still be edited."""
         return self.find(merged, only=set(keys(merged)) - set(keys(row)), skip=row)
+
+
+class Loose:
+    """The entries of the library by what `colour_names.loose_kind` says they are (and whether they are a refill), to find a filament under its name in the
+    other language: an invoice line "Grijs" is the library's "Gray". It is only used where something is being *added* from outside (the invoice import), after
+    `Index` found nothing; `keys` and the restore check stay exact, because a restore refuses what `keys` calls a copy."""
+
+    def __init__(self, rows=()):
+        self.by: dict[tuple, list] = {}
+        for row in rows:
+            self.add(row)
+
+    @staticmethod
+    def key(values: dict) -> tuple:
+        return loose_kind(values), bool(values.get("refill"))
+
+    def add(self, row: dict) -> None:
+        self.by.setdefault(self.key(row), []).append(row)
+
+    def drop(self, row: dict) -> None:
+        self.by[self.key(row)] = [r for r in self.by.get(self.key(row), []) if r is not row]
+
+    def find(self, values: dict) -> "dict | None":
+        found = self.by.get(self.key(values))
+        return found[0] if found else None
 
 
 def _duplicate(other: dict) -> ApiError:
@@ -183,7 +209,10 @@ def complete(conn, index: Index, row: dict, source: dict, *, price=None) -> dict
 def add_roll(conn, roll: dict, extra=None) -> str:
     """A roll typed in by hand may go in the library too: when the filament is not there yet it is added (what the roll says about the
     filament, never what it cost or what is left), and when it is, that entry gets what it was missing. The same barcode is the same
-    filament; without one, the same brand, material, type, colour, weight and diameter, as a refill or not. When that is more than one
+    filament; so is the same SpoolmanDB id (`spoolmandb_id`: its id says weight and diameter too); without either, the same brand, material,
+    type, colour, weight and diameter, as a refill or not, **with the colour read in either language** (`colour_names.loose_kind`: a roll
+    "Yellow" picked from SpoolmanDB is the library's "Geel", which is completed and not added a second time; `keys` stays exact, because
+    a restore refuses what it calls a copy). When that is more than one
     entry (a refill and a roll with spool), it is not clear which one this roll is, so none is touched. `extra` is what the form knows
     about the filament that a roll does not hold: its supplier `filament_id` and whether it is a `refill` (from the Bambu Lab shop); with a
     `refill` the match is exact, so that is no longer unclear. Returns what happened: `added`, `updated`, `unchanged` or `unclear`."""
@@ -192,11 +221,12 @@ def add_roll(conn, roll: dict, extra=None) -> str:
     extra = extra if isinstance(extra, dict) else {}
     refill = extra["refill"] if isinstance(extra.get("refill"), bool) else None
     spec = {**BLANK, **{k: roll[k] for k in ("brand", "product_type", "material", "colour", "colour_hex", "barcode", "roll_weight_g",
-                                              "diameter_mm", "print_temp_c", "bed_temp_c")},
+                                              "diameter_mm", "print_temp_c", "bed_temp_c", "spoolmandb_id")},
             "filament_id": str(extra.get("filament_id") or "").strip()[:20], "refill": bool(refill)}
-    code = _n(spec, "barcode")
+    code, source = _n(spec, "barcode"), spec["spoolmandb_id"]
     found = [r for r in rows if code and _n(r, "barcode") == code] or \
-        [r for r in rows if _kind(r) == _kind(spec) and (refill is None or r["refill"] == refill)]
+        [r for r in rows if source and r["spoolmandb_id"] == source and (refill is None or r["refill"] == refill)] or \
+        [r for r in rows if loose_kind(r) == loose_kind(spec) and (refill is None or r["refill"] == refill)]
     if not found:
         index.add(_insert(conn, {k: v for k, v in spec.items() if k in FIELDS and k not in ("price", "notes", "sku")}))
         return "added"
@@ -385,11 +415,13 @@ def read_invoice():
     except Localized as exc:
         raise ApiError(422, exc) from None
     with pool().connection() as conn:
-        known = Index(_rows(conn))
+        rows = _rows(conn)
+    known, loose = Index(rows), Loose(rows)
     store = bambu_store.lookup(invoice["lines"])                    # the Bambu Lab web shop's ID of each line: what the owner uses as barcode
     warnings = []
     for n, line in enumerate(invoice["lines"]):
-        match = known.find(line)
+        line["colour"] = to_english(line["colour"])                  # the invoice is Dutch, SpoolmanDB and Spoolman are English: one language, so no colour comes twice
+        match = known.find(line) or loose.find(line)                 # ...and a filament that is there under its Dutch or its English name is the same one
         line["library_id"] = str(match["id"]) if match else None
         line["barcode"] = store["ids"].get(n, "")
     if invoice["total"] is not None and invoice["total"] != invoice["lines_total"]:
@@ -404,8 +436,9 @@ def read_invoice():
 
 @bp.post("/invoice/apply")
 def apply_invoice():
-    """Put the chosen lines of an invoice in the library. A filament that is already there (see `keys`) only gets the newer price and what
-    it was missing (SKU, filament ID, barcode). Only the library changes: the rolls on the shelf are never touched, whatever the invoice says."""
+    """Put the chosen lines of an invoice in the library. A filament that is already there (see `keys`, or `Loose`: the same filament under its name in the
+    other language) only gets the newer price and what it was missing (SKU, filament ID, barcode); one that is new is stored with its colour in English, as
+    the preview showed it. Only the library changes: the rolls on the shelf are never touched, whatever the invoice says."""
     lines = json_body().get("lines")
     if not isinstance(lines, list) or not lines or len(lines) > bambu_invoice.MAX_LINES:
         raise ApiError(400, "bambu.err_no_lines")
@@ -414,21 +447,27 @@ def apply_invoice():
         try:
             if not isinstance(line, dict):
                 raise Localized("backup.bad_row_type")
-            entries.append({**BLANK, **_validated(FIELDS, {**DEFAULTS, **line}, partial=False)})
+            entries.append({**BLANK, **_validated(FIELDS, {**DEFAULTS, **line, "colour": to_english(line.get("colour"))}, partial=False)})
         except (ApiError, Localized) as exc:
             raise ApiError(400, "library.bad_row", n=n, reason=exc.msg) from None
     counts = {"added": 0, "updated": 0, "unchanged": 0}
     with pool().connection() as conn:
-        index = Index(_rows(conn))
+        rows = _rows(conn)
+        index, loose = Index(rows), Loose(rows)
         for n, entry in enumerate(entries, 1):
-            row = index.find(entry)
+            row = index.find(entry) or loose.find(entry)
             if row is None:
-                index.add(_insert(conn, entry))
+                added = _insert(conn, entry)
+                index.add(added)
+                loose.add(added)
                 counts["added"] += 1
                 continue
             try:
                 updated = complete(conn, index, row, entry, price=entry["price"])
             except ApiError as exc:
                 raise ApiError(400, "library.bad_row", n=n, reason=exc.msg) from None
+            if updated is not row:
+                loose.drop(row)
+                loose.add(updated)
             counts["unchanged" if updated is row else "updated"] += 1
     return jsonify({"ok": True, **counts})

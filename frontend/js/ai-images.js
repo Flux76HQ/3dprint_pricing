@@ -4,10 +4,16 @@
 // the page (or closing the browser) does not stop anything; the card picks the progress up again when it is shown.
 import { api, downloadFile, upload } from './api.js';
 import { formatDateTime, getLocale, t } from './i18n.js';
+import { openLightbox } from './lightbox.js';
 import { loadMesh, modelViewer } from './model-viewer.js';
-import { confirmDialog, eur, field, fill, fmt, foldHead, h, icon, saveBlob, switchRow, toast } from './ui.js';
+import { confirmDialog, enhanceDialog, eur, field, fill, fmt, foldHead, foldSection, h, icon, saveBlob, switchRow, toast } from './ui.js';
 
 const VARIANT_LABEL = { square: 'ai.variant_square', landscape: 'ai.variant_landscape', portrait: 'ai.variant_portrait', studio: 'ai.variant_studio', detail: 'ai.variant_detail', context: 'ai.variant_context' };
+// What each picture is, in a sentence, for the pop-up that asks which to make.
+const VARIANT_DESC = { square: 'ai.variant_desc_square', landscape: 'ai.variant_desc_landscape', portrait: 'ai.variant_desc_portrait', studio: 'ai.variant_desc_studio',
+  detail: 'ai.variant_desc_detail', context: 'ai.variant_desc_context' };
+// The shapes the extra text can stand on (image_overlay.LABEL_STYLES).
+const LABEL_STYLE = { tilted: 'ai.label_tilted', pill: 'ai.label_pill', ribbon: 'ai.label_ribbon', burst: 'ai.label_burst', block: 'ai.label_block' };
 // What the pictures are for; the server makes four per purpose and has a template with its own colours for each.
 const PURPOSE_LABEL = { marktplaats: 'ai.purpose_marktplaats', social: 'ai.purpose_social', webshop: 'ai.purpose_webshop' };
 const QUALITIES = [['low', 'ai.quality_low'], ['medium', 'ai.quality_medium'], ['high', 'ai.quality_high']];
@@ -34,6 +40,88 @@ function keepFresh(element, load, ms, watch = () => true) {
 }
 
 const spinner = (small = false) => h('span', { class: `spinner${small ? ' small' : ''}`, 'aria-hidden': 'true' });
+
+// --- Examples of the pictures -------------------------------------------------------
+// Drawn, not made: a frame in the shape of the picture with the item in it, and on the poster the texts as bars in the colours the poster
+// will have. The colours are worked out as image_overlay._paint does (the server sends its templates, `poster` in GET .../images), so the
+// example tells the truth about the choice; only the server draws the real poster.
+
+const HEX = /^#[0-9a-f]{6}$/;
+const channel = (v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+const luminance = (hex) => [1, 3, 5].map((at) => channel(parseInt(hex.slice(at, at + 2), 16))).reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+const contrast = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+const readableOn = (hex) => (contrast(hex, '#ffffff') >= contrast(hex, '#111114') ? '#ffffff' : '#111114');
+
+/** The colours of a poster: `palette` is the server's, `purpose` the template, `light` whether the photo is light where the texts come,
+ *  `look` the owner's choice ({ text_colour, accent_colour, label_style }; empty colours are the template's). */
+function posterColours(palette, purpose, light, look = {}) {
+  let tone = light ? 'light' : 'dark';
+  const text = HEX.test(look.text_colour || '') ? look.text_colour : '';
+  if (text) tone = contrast(text, palette.ink.dark.shade) >= contrast(text, palette.ink.light.shade) ? 'dark' : 'light';
+  const template = (palette.accents[purpose] || Object.values(palette.accents)[0])[tone];
+  const accent = HEX.test(look.accent_colour || '') ? look.accent_colour : '';
+  return { ink: text || palette.ink[tone].ink, shade: palette.ink[tone].shade, accent: accent || template.accent,
+    label: accent ? readableOn(accent) : template.label, style: palette.label_styles.includes(look.label_style) ? look.label_style : palette.label_styles[0] };
+}
+
+/** An example of one picture. `options`: { palette, purpose, poster (with the texts), logo, item (the item's colour), look }. */
+function mockup(variant, options) {
+  const { palette, purpose, poster, logo, item, look } = options;
+  const layout = (palette.layouts || {})[variant] || 'bottom';
+  const light = variant === 'studio';                                // the only picture with a light background
+  const frame = h('div', { class: `ai-mock v-${variant} lay-${layout}${poster ? ' poster' : ''}`, 'aria-hidden': 'true' },
+    variant === 'context' ? h('span', { class: 'ai-mock-table' }) : null,
+    h('span', { class: 'ai-mock-object' }));
+  frame.style.setProperty('--mock-item', HEX.test(item || '') ? item : '#8c96a3');
+  if (poster) {
+    const c = posterColours(palette, purpose, light, look);
+    for (const [name, value] of Object.entries({ ink: c.ink, shade: c.shade, accent: c.accent, 'label-ink': c.label })) frame.style.setProperty(`--mock-${name}`, value);
+    frame.append(h('span', { class: 'ai-mock-shade' }),
+      h('span', { class: 'ai-mock-text' }, h('span', { class: 'm-bar' }), h('span', { class: 'm-head' }), h('span', { class: 'm-head short' }),
+        h('span', { class: 'm-rule' }), h('span', { class: 'm-spec' }), h('span', { class: 'm-spec short' }),
+        h('span', { class: `m-label l-${c.style}` }, h('span', {}))));
+  }
+  if (logo) frame.append(h('span', { class: 'ai-mock-logo' }));
+  return frame;
+}
+
+/** The pop-up before pictures are made: which of the four of this purpose, each with an example and a box to tick. Resolves with the
+ *  variants that are ticked, or null when it is closed. `room` is how many pictures the calculation can still take. */
+function pickVariants({ palette, purpose, variants, text, logo, item, look, room }) {
+  return new Promise((resolve) => {
+    let answer = null;
+    const count = h('p', { class: 'hint', role: 'status' });
+    const go = h('button', { class: 'btn primary', type: 'button', onclick: () => { answer = boxes.filter((b) => b.checked).map((b) => b.value); dialog.close(); } });
+    const update = () => {
+      const n = boxes.filter((b) => b.checked).length;
+      go.disabled = !n || n > room;
+      go.textContent = t('ai.pick_go', { n });
+      count.textContent = n > room ? t('ai.pick_room', { n: room }) : !n ? t('ai.pick_none') : t('ai.pick_count', { n, total: variants.length });
+      count.className = n > room ? 'error' : 'hint';
+    };
+    const boxes = variants.map((variant) => h('input', { type: 'checkbox', value: variant, checked: true, onchange: update }));
+    const tiles = variants.map((variant, i) => {
+      const poster = i === 0 && text;                                // only the first of the four gets the texts
+      return h('label', { class: 'ai-pick' },
+        h('span', { class: 'ai-pick-frame' }, mockup(variant, { palette, purpose, poster, logo, item, look })),
+        h('span', { class: 'ai-pick-head' }, boxes[i], h('strong', {}, t(VARIANT_LABEL[variant]))),
+        poster ? h('span', { class: 'badge' }, t('ai.pick_poster')) : null,
+        h('span', { class: 'muted' }, t(VARIANT_DESC[variant])));
+    });
+    const notes = [t(text ? 'ai.confirm_text_on' : 'ai.confirm_text_off'), logo ? t('ai.confirm_logo') : null, t('ai.confirm_cost')].filter(Boolean);
+    const dialog = enhanceDialog(h('dialog', { class: 'glass sheet ai-pick-sheet' }, h('div', { class: 'stack' },
+      h('h2', {}, t('ai.pick_title')),
+      h('p', { class: 'muted' }, t('ai.pick_intro', { purpose: t(PURPOSE_LABEL[purpose]) })),
+      h('div', { class: 'ai-pick-grid' }, tiles),
+      h('ul', { class: 'ai-pick-notes' }, notes.map((note) => h('li', { class: 'hint' }, note))),
+      count,
+      h('div', { class: 'row end' }, h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, t('common.cancel')), go))));
+    dialog.addEventListener('close', () => { dialog.remove(); resolve(answer); });
+    update();
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
 
 // --- Settings ---------------------------------------------------------------------
 
@@ -227,6 +315,9 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   let warnings = [];
   let sent = [];                                                   // the pictures that go to the image model now (ids)
   let maxSent = 6;
+  let palette = null;                                              // the poster templates, for the examples (see `mockup`)
+  let purposes = {};                                               // purpose -> its four pictures
+  let maxGenerated = 12;
   let uploading = false;
   let wasBusy = false;
   let lastError = '';
@@ -240,6 +331,9 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       warnings = got.warnings || [];
       sent = got.sent || [];
       maxSent = (got.limits || {}).selected || 6;
+      maxGenerated = (got.limits || {}).generated || 12;
+      palette = got.poster;
+      purposes = got.purposes;
       lastError = '';
       if (!form) buildForm(got);
     } catch (e) { lastError = e.message; }
@@ -370,7 +464,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   function buildForm(got) {
     const saved = got.text;
     const limits = got.limits;
-    const purpose = h('select', { onchange: () => { store(); draw(); } },
+    const purpose = h('select', { onchange: () => { showLook(); store(); draw(); } },
       h('option', { value: '' }, t('ai.purpose_choose')),
       Object.keys(got.purposes).map((p) => h('option', { value: p, selected: saved.purpose === p }, t(PURPOSE_LABEL[p]))));
     const name = h('input', { type: 'text', maxlength: limits.product_name, value: saved.product_name, placeholder: t('ai.product_name_ph') });
@@ -384,11 +478,40 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     const showColour = () => {
       tint.hidden = !tintMode.value;
       if (viewer) viewer.setColour(chosenColour() || getModel().colour, !!chosenColour());
+      if (form) showLook();
     };
     tintMode.addEventListener('change', () => { showColour(); store(); });
     tint.addEventListener('input', showColour);
     tint.addEventListener('change', () => store());
     tint.hidden = !saved.colour;
+    // The colours of the poster's texts and of its bars (and label), and the shape of the label: the template's, which follow the photo,
+    // or the owner's own, to go with the item. The example beside them shows the whole as it will be.
+    const firstOf = (p) => (purposes[p] || [])[0] || 'square';
+    const templateAccent = () => posterColours(palette, purpose.value || Object.keys(purposes)[0], firstOf(purpose.value) === 'studio').accent;
+    const lookMode = h('select', {}, h('option', { value: '' }, t('ai.look_auto')),
+      h('option', { value: 'own', selected: !!(saved.text_colour || saved.accent_colour) }, t('ai.look_own')));
+    const inkPick = h('input', { type: 'color', value: saved.text_colour || '#ffffff' });
+    const accentPick = h('input', { type: 'color', value: saved.accent_colour || saved.colour || templateAccent() });
+    const labelStyle = h('select', {}, palette.label_styles.filter((style) => LABEL_STYLE[style]).map((style) => h('option', { value: style,
+      selected: (saved.label_style || palette.label_styles[0]) === style }, t(LABEL_STYLE[style]))));
+    const matchItem = h('button', { class: 'btn tool', type: 'button', onclick: () => { accentPick.value = chosenColour() || getModel().colour || accentPick.value; showLook(); store(); } },
+      t('ai.look_match'));
+    const own = [field(t('ai.look_text'), inkPick), field(t('ai.look_accent'), accentPick), matchItem];
+    const preview = h('div', { class: 'ai-look-frame' });
+    const look = () => ({ text_colour: lookMode.value ? inkPick.value.toLowerCase() : '', accent_colour: lookMode.value ? accentPick.value.toLowerCase() : '',
+      label_style: labelStyle.value });
+    function showLook() {
+      for (const part of own) part.hidden = !lookMode.value;
+      const variant = firstOf(purpose.value);
+      fill(preview, mockup(variant, { palette, purpose: purpose.value || Object.keys(purposes)[0], poster: true, logo: form && form.logoShown(),
+        item: chosenColour() || getModel().colour, look: look() }));
+    }
+    lookMode.addEventListener('change', () => {
+      if (lookMode.value && !saved.accent_colour && !saved.text_colour) accentPick.value = chosenColour() || templateAccent();
+      showLook(); store();
+    });
+    for (const pick of [inkPick, accentPick]) { pick.addEventListener('input', showLook); pick.addEventListener('change', () => store()); }
+    labelStyle.addEventListener('change', () => { showLook(); store(); });
     const scene = h('textarea', { rows: 2, maxlength: limits.scene, placeholder: t('ai.scene_ph') }, saved.scene || '');
     scene.addEventListener('change', () => store());
     let logo = saved.logo;
@@ -396,10 +519,11 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     // The logo is the business's: without the business mode the switch is shown off and cannot be turned (the saved choice is kept).
     const business = businessOn();
     const logoRow = switchRow(t('ai.logo'), t(!business ? 'ai.logo_hint_off' : got.logo_available ? 'ai.logo_hint_on' : 'ai.logo_hint_none'),
-      business && logo, (on) => { logo = on; store(); });
+      business && logo, (on) => { logo = on; showLook(); store(); });
     logoRow.querySelector('.switch').disabled = !business;
     form = {
-      values: () => ({ purpose: purpose.value || null, colour: chosenColour(), scene: scene.value.trim(), product_name: name.value.trim(), specs: specLines(), extra_text: extra.value.trim(), logo }),
+      values: () => ({ purpose: purpose.value || null, colour: chosenColour(), ...look(), scene: scene.value.trim(), product_name: name.value.trim(), specs: specLines(),
+        extra_text: extra.value.trim(), logo }),
       complete: () => !!(name.value.trim() && specLines().length && extra.value.trim()),
       logoShown: () => business && logo && got.logo_available,
     };
@@ -412,10 +536,17 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     }
     for (const input of [name, specs, extra]) { input.addEventListener('input', tell); input.addEventListener('change', store); }
     tell();
+    showLook();
     fill(options,
       field(t('ai.purpose'), purpose, t('ai.purpose_hint')),
-      h('div', { class: 'model-controls' }, field(t('ai.colour'), tintMode), tint),
-      h('p', { class: 'hint' }, t('ai.colour_hint')),
+      h('div', { class: 'ai-colours' },
+        h('div', { class: 'stack' },
+          h('div', { class: 'model-controls' }, field(t('ai.colour'), tintMode), tint),
+          h('p', { class: 'hint' }, t('ai.colour_hint')),
+          h('div', { class: 'model-controls' }, field(t('ai.look'), lookMode), own),
+          field(t('ai.label_style'), labelStyle, t('ai.label_style_hint')),
+          h('p', { class: 'hint' }, t('ai.look_hint'))),
+        h('figure', { class: 'ai-look-preview' }, preview, h('figcaption', { class: 'hint' }, t('ai.look_preview')))),
       field(t('ai.scene'), scene, t('ai.scene_hint')),
       h('h3', {}, t('ai.text_title')),
       field(t('ai.product_name'), name),
@@ -427,13 +558,12 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
 
   async function generate() {
     const chosen = form.values();
-    // The warning before anything is sent: what is about to be made, that it costs money, and a way out.
-    const warning = [t('ai.generate_confirm', { purpose: t(PURPOSE_LABEL[chosen.purpose]) }),
-      t(form.complete() ? 'ai.confirm_text_on' : 'ai.confirm_text_off'), form.logoShown() ? t('ai.confirm_logo') : null,
-      t('ai.confirm_cost')].filter(Boolean).join(' ');
-    if (!(await confirmDialog(warning, t('ai.generate')))) return;
+    // Before anything is sent: which of the four are wanted (each with an example), what goes on them, that it costs money, and a way out.
+    const variants = await pickVariants({ palette, purpose: chosen.purpose, variants: purposes[chosen.purpose] || [], text: form.complete(), logo: form.logoShown(),
+      item: chosen.colour || getModel().colour, look: chosen, room: Math.max(0, maxGenerated - images.filter((i) => i.kind === 'generated').length) });
+    if (!variants || !variants.length) return;
     lastError = '';
-    try { await api('POST', `/api/projects/${projectId}/images/generate`, { description: getDescription(), text: chosen }); } catch (e) { lastError = e.message; }
+    try { await api('POST', `/api/projects/${projectId}/images/generate`, { description: getDescription(), text: chosen, variants }); } catch (e) { lastError = e.message; }
     await refresh();                                               // shows what was queued and keeps asking while it runs
   }
 
@@ -442,11 +572,14 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     await refresh();
   }
 
+  // Hands a picture to the browser as a file. It says nothing when it fails: the tile tells it with a toast, the pop-up in its own footer
+  // (a toast would be behind a pop-up).
+  async function saveImage(image) {
+    const { blob, name } = await downloadFile(`${imageUrl(image.id)}?download=1`);
+    saveBlob(blob, name);
+  }
   async function download(image) {
-    try {
-      const { blob, name } = await downloadFile(`${imageUrl(image.id)}?download=1`);
-      saveBlob(blob, name);
-    } catch (e) { toast(e.message, 'error'); }
+    try { await saveImage(image); } catch (e) { toast(e.message, 'error'); }
   }
 
   const label = (variant) => t(VARIANT_LABEL[variant]);
@@ -465,9 +598,17 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     }, { danger: true, disabled: locked }));
   const coverBadge = (image) => (image.is_cover ? h('span', { class: 'badge' }, t('ai.cover')) : null);
 
-  function tile(image) {
+  // A made picture opens large in a pop-up, with the other made pictures one chevron (or swipe) away, and can be saved from there.
+  function look(made, image) {
+    const items = made.map((m) => ({ src: imageUrl(m.id), alt: label(m.variant), title: label(m.variant), image: m,
+      badges: [m.purpose && PURPOSE_LABEL[m.purpose] ? t(`${PURPOSE_LABEL[m.purpose]}_short`) : null, m.is_cover ? t('ai.cover') : null].filter(Boolean) }));
+    openLightbox(items, made.indexOf(image), { save: (item) => saveImage(item.image) });
+  }
+
+  function tile(image, made) {
     return h('figure', { class: 'ai-tile' },
-      h('img', { src: imageUrl(image.id), alt: label(image.variant), loading: 'lazy', width: image.width_px, height: image.height_px }),
+      h('button', { class: 'ai-zoom', type: 'button', title: t('ai.open'), 'aria-label': `${t('ai.open')}: ${label(image.variant)}`, onclick: () => look(made, image) },
+        h('img', { src: imageUrl(image.id), alt: '', loading: 'lazy', width: image.width_px, height: image.height_px })),
       h('figcaption', {}, h('strong', {}, label(image.variant)), purposeBadge(image), coverBadge(image)),
       tools(image));
   }
@@ -510,20 +651,33 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', multiple: true, disabled: uploading || working, 'aria-label': t('ai.photo_choose'),
       onchange: () => { if (file.files.length) addPhotos([...file.files]); } });
     const purposeChosen = !!(form && form.values().purpose);
-    fill(body,
-      photos.length || views.length ? h('div', { class: 'stack' },
+    const sourceCount = photos.length + views.length;
+    // Two parts that fold away on their own, so what was uploaded or saved from the 3D model (what the pictures are made *from*) is not mixed up
+    // with the pictures that were made for Marktplaats, social media or a webshop. Each remembers in this browser whether it is open.
+    const sources = foldSection('product-images-sources', t('ai.sources_title'), [
+      h('p', { class: 'muted' }, t('ai.sources_intro')),
+      sourceCount ? h('div', { class: 'stack' },
         h('p', { class: 'hint', role: 'status' }, t('ai.send_count', { n: sent.length, max: maxSent })),
         h('div', { class: 'ai-sources' },
           photos.map((photo, i) => kept(photo, photos.length > 1 ? `${t('ai.photo_caption')} ${i + 1}` : t('ai.photo_caption'), t('ai.photo_alt'))),
           views.map((view) => kept(view, viewName(view), t('ai.view_alt'))))) : h('p', { class: 'muted' }, t('ai.photo_none')),
       field(photos.length ? t('ai.photo_replace') : t('ai.photo_choose'), file, t('ai.photo_hint')),
       uploading ? h('div', { class: 'ai-progress', role: 'status' }, spinner(), h('strong', {}, t('ai.uploading'))) : null,
+      // What is done with the photos and the views is made from them: the button is here, with them. While pictures are being made it waits (the progress is below, where a folded part does not hide it).
+      h('div', { class: 'stack' },
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !sourceCount || uploading || !purposeChosen || working, onclick: generate }, t('ai.generate'))),
+        form && !purposeChosen ? h('p', { class: 'hint' }, t('ai.purpose_needed')) : null),
+    ], { count: sourceCount });
+    const results = foldSection('product-images-made', t('ai.made_title'), [
+      h('p', { class: 'muted' }, t('ai.made_intro')),
+      made.length || coming.length ? h('div', { class: 'ai-grid' }, made.map((image) => tile(image, made)), coming.map(pending)) : h('p', { class: 'muted' }, t('ai.made_none')),
+    ], { count: made.length });
+    fill(body,
+      sources,
       working
         ? h('div', { class: 'ai-progress', role: 'status' }, spinner(),
           h('div', {}, h('strong', {}, t('ai.generating', { done: finished, n: finished + coming.length })), h('p', { class: 'hint' }, t('ai.generating_hint'))))
-        : h('div', { class: 'stack' },
-          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', disabled: !(photos.length || views.length) || uploading || !purposeChosen, onclick: generate }, t('ai.generate'))),
-          form && !purposeChosen ? h('p', { class: 'hint' }, t('ai.purpose_needed')) : null),
+        : null,
       h('p', { class: 'error', role: 'alert', hidden: !lastError }, lastError),
       // Everything that went wrong or was left out, here on the page and as soon as it is known (also while the rest is still being made).
       warnings.length ? h('div', { class: 'notice warn stack', role: 'status' },
@@ -536,7 +690,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       failed.length || warnings.length ? h('div', { class: 'row' },
         h('a', { class: 'btn small', href: '#/instellingen/ai' }, t('ai.view_log')),
         working ? null : h('button', { class: 'btn small', type: 'button', onclick: () => act(() => api('DELETE', `/api/projects/${projectId}/images/jobs`)) }, t('ai.failed_dismiss'))) : null,
-      made.length || coming.length ? h('div', { class: 'ai-grid' }, made.map(tile), coming.map(pending)) : null);
+      results);
   }
 
   setTimeout(refresh, 0);

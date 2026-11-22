@@ -157,7 +157,7 @@ def test_applying_an_invoice_fills_the_library_and_leaves_the_shelf_alone(owner)
     res = owner.post("/api/filament-library/invoice/apply", json={"order_number": "EN000000000000000001", "lines": lines}, headers=H).get_json()
     assert (res["added"], res["updated"], res["unchanged"]) == (3, 0, 0) and "rolls" not in res
     entries = {e["colour"]: e for e in library(owner)}
-    assert entries["Rood"]["price"] == "21.84" and entries["Rood"]["filament_id"] == "10200" and entries["Grijs"]["refill"] is True
+    assert entries["Red"]["price"] == "21.84" and entries["Red"]["filament_id"] == "10200" and entries["Gray"]["refill"] is True      # the colours are stored in English
     assert [r["brand"] for r in owner.get("/api/spools").get_json()] == ["Mijn"]            # not one roll was made from the invoice
     assert owner.get("/api/spools/stock").get_json()["groups"][0]["remaining_g"] == "300.0"
 
@@ -275,7 +275,7 @@ def test_the_preview_carries_the_shops_id_of_each_line_as_its_barcode(owner, sho
 
 def test_applying_stores_the_barcode_on_the_filament(owner):
     owner.post("/api/filament-library/invoice/apply", json={"lines": lines_of(owner)}, headers=H)
-    assert {e["colour"]: e["barcode"] for e in library(owner)} == {"Grijs": "43000000000001", "Rood": "43000000000004", "Pruim": "43992833229019"}
+    assert {e["colour"]: e["barcode"] for e in library(owner)} == {"Gray": "43000000000001", "Red": "43000000000004", "Plum": "43992833229019"}
     assert owner.get("/api/spools").get_json() == []
 
 
@@ -507,6 +507,57 @@ def test_an_invoice_line_that_is_a_filament_typed_in_before_completes_it_instead
     [row] = library(owner)
     assert row["id"] == mine["id"] and (row["sku"], row["filament_id"], row["barcode"], row["price"]) == ("A00-D0-1.75-1000-SPLFREE", "10103", "43000000000001", "19.32")
     assert (row["print_temp_c"], row["notes"]) == (215, "mijn")                                # what was entered stays
+
+
+def invoice_lines(owner):
+    return upload(owner, invoice_pdf()).get_json()["lines"]
+
+
+def test_an_invoice_is_read_with_its_colours_in_english(owner):
+    lines = invoice_lines(owner)
+    assert [line["colour"] for line in lines] == ["Gray", "Red", "Plum"]                              # the invoice says Grijs, Rood, Pruim
+    assert [line["filament_id"] for line in lines] == ["10103", "10200", "11204"] and len(library(owner)) == 0
+
+
+def test_an_invoice_line_is_the_filament_the_library_already_has_under_the_other_language(owner):
+    """A filament made from SpoolmanDB is "Gray"; the invoice says "Grijs". Without this the import would add "Grijs" next to it."""
+    for name in ("Gray", "Grijs"):                                                                    # an English entry, and a Dutch one from an earlier invoice
+        mine = make(owner, "/api/filament-library", {"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": name, "refill": True,
+                                                     "roll_weight_g": 1000, "diameter_mm": "1.75", "print_temp_c": 215, "notes": "mijn"})
+        line = next(l for l in invoice_lines(owner) if l["filament_id"] == "10103")
+        assert line["library_id"] == mine["id"], name                                                  # the preview says it is known
+        res = owner.post("/api/filament-library/invoice/apply", json={"lines": [line]}, headers=H).get_json()
+        assert (res["added"], res["updated"], res["unchanged"]) == (0, 1, 0), name
+        [row] = library(owner)
+        assert row["id"] == mine["id"] and row["colour"] == name, name                                 # it keeps the name it has: nothing is renamed
+        assert (row["sku"], row["filament_id"], row["barcode"], row["price"], row["print_temp_c"], row["notes"]) == \
+            ("A00-D0-1.75-1000-SPLFREE", "10103", "43000000000001", "19.32", 215, "mijn"), name        # and gets what it lacked
+        owner.delete(f"/api/filament-library/{mine['id']}", headers=H)
+
+
+def test_a_refill_and_a_roll_with_a_spool_stay_two_filaments_whatever_the_language(owner):
+    make(owner, "/api/filament-library", {"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Gray", "refill": False,
+                                          "roll_weight_g": 1000, "diameter_mm": "1.75"})
+    grey = next(l for l in invoice_lines(owner) if l["filament_id"] == "10103")                        # the invoice's grey is a refill
+    assert grey["refill"] is True and grey["library_id"] is None
+    res = owner.post("/api/filament-library/invoice/apply", json={"lines": [grey]}, headers=H).get_json()
+    assert (res["added"], res["updated"]) == (1, 0) and len(library(owner)) == 2
+
+
+def test_a_line_sent_in_dutch_is_stored_in_english_and_the_same_filament_twice_is_added_once(owner):
+    lines = invoice_lines(owner)
+    dutch = {**lines[1], "colour": "Rood"}                                                             # a caller that did not go through the preview
+    res = owner.post("/api/filament-library/invoice/apply", json={"lines": [dutch, {**dutch, "colour": "Red"}]}, headers=H).get_json()
+    assert (res["added"], res["updated"], res["unchanged"]) == (1, 0, 1)
+    assert [e["colour"] for e in library(owner)] == ["Red"]
+
+
+def test_a_filament_added_by_one_line_is_found_by_the_next_line_under_its_other_name(owner):
+    """Neither line has a SKU, ID or barcode, and their types and colours are spelled differently ("Basic" + "Grijs", and "Basic Gray" as a colour)."""
+    base = {"brand": "Bambu Lab", "material": "PLA", "refill": False, "roll_weight_g": "1000", "diameter_mm": "1.75"}
+    res = owner.post("/api/filament-library/invoice/apply", headers=H,
+                     json={"lines": [{**base, "product_type": "Basic", "colour": "Grijs"}, {**base, "product_type": "", "colour": "Basic Gray"}]}).get_json()
+    assert (res["added"], res["updated"], res["unchanged"]) == (1, 0, 1) and [e["colour"] for e in library(owner)] == ["Gray"]
 
 
 def test_a_backup_with_the_same_filament_twice_is_refused(owner):
