@@ -51,8 +51,8 @@ def main() -> int:
     if "VERSION" in changed_files(args.base_ref):
         raise RuntimeError(
             "This pull request changes VERSION, but the pipeline raises it when beta is promoted to main.\n"
-            f"Fix: restore it (`git checkout {args.base_ref} -- VERSION`). For a minor or major version, put the label\n"
-            "`version:minor` or `version:major` on the promotion pull request (beta to main); without a label the promotion raises the patch number.")
+            f"Fix: restore it (`git checkout {args.base_ref} -- VERSION`). Every promotion raises the minor number (0.1); for a major\n"
+            "or a patch release instead, put the label `version:major` or `version:patch` on the promotion pull request (beta to main).")
     print("VERSION is untouched; it is raised when beta is promoted to main.")
     return 0
 

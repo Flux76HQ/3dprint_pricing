@@ -5,8 +5,8 @@ name: docker
 #
 # This workflow also raises VERSION: pull requests do not touch it (two that did would conflict every time),
 # so a push that changed code or build files gets the next number here, committed to main by the workflow,
-# and the image is built from that commit. A push of documentation only keeps the number. The PR label
-# `version:minor` / `version:major` chooses the part (patch otherwise). The bump commit is pushed with
+# and the image is built from that commit. A push of documentation only keeps the number. Every release is 0.1 higher (the
+# minor number); the PR label `version:major` / `version:patch` chooses another part. The bump commit is pushed with
 # GITHUB_TOKEN and so starts no workflow of its own. The repository must let github-actions push to main
 # (a ruleset bypass for it, if main is protected); without that the bump fails here, loudly, before anything is published.
 on:
@@ -37,10 +37,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          part=patch
+          part=minor
           labels="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[].labels[].name' 2>/dev/null || true)"
           if grep -qx 'version:major' <<<"$labels"; then part=major
-          elif grep -qx 'version:minor' <<<"$labels"; then part=minor; fi
+          elif grep -qx 'version:patch' <<<"$labels"; then part=patch; fi
           python scripts/bump_version.py --before "${{ github.event.before }}" --after "$GITHUB_SHA" --part "$part"
           if ! git diff --quiet VERSION; then
             git config user.name "github-actions[bot]"

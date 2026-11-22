@@ -7,8 +7,8 @@ and commits the new number itself.
 
   python scripts/bump_version.py --before <sha main had> --after <sha it has now> [--part patch|minor|major]
 
-A push that changed a protected, non-documentation path raises VERSION by `--part` (the PR label `version:minor` / `version:major`
-chooses; patch is the default). A push of documentation only leaves it alone. Prints the version that now stands, writes it to
+A push that changed a protected, non-documentation path raises VERSION by `--part` (the PR label `version:major` / `version:patch`
+chooses; minor is the default, so every release is 0.1 higher). A push of documentation only leaves it alone. Prints the version that now stands, writes it to
 VERSION (and to the Home Assistant app, `homeassistant/config.yaml`, whose version names the image tag it is built on) and exits 0;
 it never commits (the workflow does).
 """
@@ -21,6 +21,7 @@ from pathlib import Path
 from check_version_bump import is_doc_only, is_protected, normalize
 
 PARTS = ("patch", "minor", "major")
+DEFAULT_PART = "minor"                                   # every release is 0.1 higher; a label picks another part (docker.yml)
 ADDON_CONFIG = Path("homeassistant/config.yaml")
 ADDON_VERSION = re.compile(r'^version: "\d+\.\d+\.\d+"$', re.M)
 
@@ -59,7 +60,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--before", required=True, help="the commit main had before this push")
     parser.add_argument("--after", default="HEAD", help="the commit main has now")
-    parser.add_argument("--part", choices=PARTS, default="patch")
+    parser.add_argument("--part", choices=PARTS, default=DEFAULT_PART)
     args = parser.parse_args()
 
     path = Path("VERSION")

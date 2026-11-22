@@ -56,19 +56,40 @@ class BumpAfterMergeTest(RepoTestCase):
     def bump(self, *extra):
         return self.run_main(bump_version, "--before", self.before, "--after", "HEAD", *extra)
 
-    def test_a_code_change_raises_the_patch_number_by_default(self):
+    def test_a_code_change_raises_the_minor_number_by_default(self):
         self.write("backend/app.py", "x = 2\n")
         self.commit("code")
         self.assertEqual(self.bump(), 0)
-        self.assertEqual(self.version(), "1.2.4")
+        self.assertEqual(self.version(), "1.3.0")          # every release is 0.1 higher, and the patch number starts over
+
+    def test_every_release_is_a_tenth_higher(self):
+        self.write("backend/app.py", "x = 2\n")
+        self.commit("code")
+        for expected in ("1.3.0", "1.4.0", "1.5.0"):
+            self.bump()
+            self.assertEqual(self.version(), expected)
 
     def test_the_part_comes_from_the_caller(self):
         self.write("frontend/a.js", "1\n")
         self.commit("code")
+        self.bump("--part", "patch")
+        self.assertEqual(self.version(), "1.2.4")
         self.bump("--part", "minor")
         self.assertEqual(self.version(), "1.3.0")
         self.bump("--part", "major")
         self.assertEqual(self.version(), "2.0.0")
+
+    def test_a_major_release_restarts_the_minor_number(self):
+        self.write("VERSION", "1.7.2")
+        self.commit("version")
+        self.write("backend/app.py", "x = 2\n")
+        self.commit("code")
+        self.bump("--part", "major")
+        self.assertEqual(self.version(), "2.0.0")
+        self.write("backend/app.py", "x = 3\n")
+        self.commit("more code")
+        self.bump()                                         # the next release after a major one is 2.1.0
+        self.assertEqual(self.version(), "2.1.0")
 
     def test_documentation_alone_leaves_the_version(self):
         self.write("README.md", "changed\n")
@@ -81,26 +102,26 @@ class BumpAfterMergeTest(RepoTestCase):
         self.write("Dockerfile", "FROM scratch\n")
         self.commit("build")
         self.bump()
-        self.assertEqual(self.version(), "1.2.4")
+        self.assertEqual(self.version(), "1.3.0")
 
     def test_the_home_assistant_app_follows_the_version(self):
         self.write("homeassistant/config.yaml", 'name: x\nversion: "1.2.3"\nslug: y\n')
         self.commit("app")
         self.bump()
-        self.assertEqual(self.version(), "1.2.4")
-        self.assertEqual((self.root / "homeassistant/config.yaml").read_text(), 'name: x\nversion: "1.2.4"\nslug: y\n')
+        self.assertEqual(self.version(), "1.3.0")
+        self.assertEqual((self.root / "homeassistant/config.yaml").read_text(), 'name: x\nversion: "1.3.0"\nslug: y\n')
 
     def test_a_change_to_the_home_assistant_app_counts_as_code(self):
         self.write("homeassistant/run.py", "x = 1\n")
         self.commit("app")
         self.bump()
-        self.assertEqual(self.version(), "1.2.4")
+        self.assertEqual(self.version(), "1.3.0")
 
     def test_a_first_push_counts_everything_as_new(self):
         self.write("backend/app.py", "x = 3\n")
         self.commit("code")
         self.assertEqual(self.run_main(bump_version, "--before", "0" * 40, "--after", "HEAD"), 0)
-        self.assertEqual(self.version(), "1.2.4")
+        self.assertEqual(self.version(), "1.3.0")
 
 
 class PullRequestGuardTest(RepoTestCase):
@@ -131,7 +152,8 @@ class PullRequestGuardTest(RepoTestCase):
         self.commit("code and a bump")
         self.assertEqual(self.guard(), 1)
         self.assertIn("git checkout origin/main -- VERSION", self.message)
-        self.assertIn("version:minor", self.message)
+        self.assertIn("version:major", self.message)
+        self.assertIn("version:patch", self.message)
 
 
 if __name__ == "__main__":

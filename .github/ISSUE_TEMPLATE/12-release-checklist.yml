@@ -28,9 +28,9 @@ body:
       label: Expected version bump
       description: Put the matching label on the promotion pull request.
       options:
-        - Patch (default, protected paths changed)
-        - Minor (label version:minor)
+        - Minor (default, protected paths changed: 0.1 higher)
         - Major (label version:major)
+        - Patch (label version:patch, fixes only)
         - None (documentation only)
     validations:
       required: true
