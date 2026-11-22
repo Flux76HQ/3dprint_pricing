@@ -24,7 +24,7 @@ that"), never as one proxy's directive. Otherwise write "No limit changes in thi
 
 ## Checklist
 
-- [ ] `VERSION` is untouched (the promotion to `main` raises it; label the promotion pull request `version:minor` / `version:major` if it must not be a patch).
+- [ ] `VERSION` is untouched (the promotion to `main` raises it by 0.1; label the promotion pull request `version:major` / `version:patch` if it must not be a minor).
 - [ ] The branch is based on `beta`, this pull request targets `beta`, and it is current with it (`python scripts/update_branch.py`).
 - [ ] No secrets or `.env` files are staged.
 - [ ] `docs/handleiding.md` is updated when run, deploy or backup behaviour changed.

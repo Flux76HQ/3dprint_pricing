@@ -132,9 +132,10 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
   pipeline raises it after the merge to `main`, i.e. when `beta` is promoted: the `docker` workflow runs `scripts/bump_version.py` on every push to `main`, commits the new
   number (`Release X.Y.Z`) and builds the image from that commit. `enforce-version-bump` fails a pull request (into `beta` or `main`) that touches `VERSION`.
   A push to `beta` never raises it and publishes no release, only the `beta` image (section 5).
-- **Owner's intent (noted): the build raises the version by 0.1 for every pull request**, i.e. the **minor** number (`X.Y.Z` → `X.(Y+1).0`).
-  `scripts/bump_version.py` still defaults to `--part patch` until the `docker` workflow passes `minor` by default; until then, the rule below is what actually runs.
-- A promotion that changed protected paths raises the **patch** number; put the label `version:minor` or `version:major` on the
+- **Every release is 0.1 higher**: a promotion that changed protected paths raises the **minor** number (`X.Y.Z` → `X.(Y+1).0`; the patch number starts over).
+  This is the default of `scripts/bump_version.py` and of the `docker` workflow, so a promotion needs no label for it. The number is raised by the promotion, not by each feature
+  pull request into `beta` (those never touch `VERSION`), so features that are promoted together share one number: promote when a feature is done to give it its own.
+  Put the label `version:major` (breaking change, or a milestone such as 2.0.0) or `version:patch` (a promotion of fixes only) on the
   **promotion pull request** (`beta` → `main`, the pull request the bump reads) to raise that part instead. A promotion of documentation only (`*.md`, `*.txt`) keeps the number.
 - Protected paths: `backend/`, `frontend/`, `deploy/`, `homeassistant/`, `repository.yaml`, `scripts/`, `.github/workflows/`,
   `.github/copilot-instructions.md`, `Dockerfile`, `docker-compose.yml`, `docker-compose.build.yml`, `.env.example`
@@ -543,7 +544,7 @@ same commit. `agent-instructions-lint` checks this.
 
 ## 8. Commit checklist
 
-- [ ] `VERSION` is untouched (the promotion to `main` raises it; label the promotion pull request `version:minor` / `version:major` if it must not be a patch).
+- [ ] `VERSION` is untouched (the promotion to `main` raises it by 0.1; label the promotion pull request `version:major` / `version:patch` if it must not be a minor).
 - [ ] The branch is based on `beta` and the pull request targets `beta`; it is current with it (`python scripts/update_branch.py`).
 - [ ] No secrets or `.env` files are staged.
 - [ ] The operational guide (`docs/handleiding.md`) is updated when run/deploy/backup behaviour changed.

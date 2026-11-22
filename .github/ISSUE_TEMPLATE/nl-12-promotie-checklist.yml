@@ -28,9 +28,9 @@ body:
       label: Verwachte versieverhoging
       description: Zet het bijbehorende label op de promotie-pull request.
       options:
-        - Patch (standaard, beschermde paden gewijzigd)
-        - Minor (label version:minor)
+        - Minor (standaard, beschermde paden gewijzigd: 0,1 hoger)
         - Major (label version:major)
+        - Patch (label version:patch, alleen fixes)
         - Geen (alleen documentatie)
     validations:
       required: true
