@@ -154,6 +154,7 @@
  "f.listing_description": "Text of the listing",
  "f.listing_price": "Selling price",
  "f.listing_title": "Title of the listing",
+ "f.packaging": "Packaging",
  "f.price_per_unit": "Price per unit",
  "f.refill": "Refill",
  "f.sku": "Article number (SKU)",

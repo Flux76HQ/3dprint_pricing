@@ -528,3 +528,13 @@ def test_every_reason_a_delivery_can_fail_with_has_words_on_the_screen():
         texts = json.loads((root / "frontend/lang" / f"{language}.json").read_text(encoding="utf-8"))
         assert reasons <= set(texts), sorted(reasons - set(texts))
         assert "{code}" in texts["webhook.err_status"]
+
+
+def test_another_application_sees_the_lines_of_the_invoice_and_the_totals_of_the_order(owner, app):
+    """Packaging material is in the totals but not on the invoice, so it is not in the lines either: the lines are what the invoice lists."""
+    key = new_key(owner)["key"]
+    order = invoiced_order(owner, lines=[line("Doos", 1, "1.21", "21", packaging=True), line("Vaas", 2, "12.10", "21")])
+    got = app.test_client().get(f"/api/v1/orders/{order['id']}", headers=bearer(key)).get_json()
+    assert [(l["description"], l["total"], l["position"]) for l in got["lines"]] == [("Vaas", "24.20", 0)]
+    assert got["totals"]["incl"] == "25.41" and "Doos" not in json.dumps(got)
+

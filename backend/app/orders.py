@@ -120,7 +120,8 @@ def _line(raw, n: int, rounding: str = "none") -> dict:
     else:
         unit_price = _money(number("f.unit_price")(raw.get("unit_price")))
     optional = boolean("f.optional")(raw["optional"]) if "optional" in raw else False
-    return {"project_id": project_id, "project_number": None, "optional": optional, "description": text("f.description", max_len=200)(raw.get("description")),
+    packaging = boolean("f.packaging")(raw["packaging"]) if "packaging" in raw else False          # packaging material: in the total, never on the invoice
+    return {"project_id": project_id, "project_number": None, "optional": optional, "packaging": packaging, "description": text("f.description", max_len=200)(raw.get("description")),
             "quantity": int(quantity), "unit_price": unit_price, "vat_pct": vat_pct, "cost_price": cost_price, "margin_pct": margin_pct,
             "margin_pct_effective": effective}
 
@@ -176,10 +177,10 @@ def _write_lines(conn, order_id, lines: list) -> None:
         project_id = line["project_id"] if line["project_id"] in known else None   # a calculation that is gone is let go
         conn.execute(
             "INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, "
-            "cost_price, margin_pct, optional) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "cost_price, margin_pct, optional, packaging) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (order_id, position, project_id, known.get(project_id) if project_id else line.get("project_number"),
              line["description"], line["quantity"], line["unit_price"], line["vat_pct"], line.get("cost_price"), line.get("margin_pct"),
-             line["optional"]))
+             line["optional"], line["packaging"]))
 
 
 def _lines_of(conn, order_ids: list, columns: str = "*") -> dict:
@@ -316,8 +317,8 @@ def duplicate_order(order_id):
         fields = ("number", *ORDER_FIELDS, "customer_id")
         order = conn.execute(f"INSERT INTO orders ({', '.join(fields)}) VALUES ({', '.join(['%s'] * len(fields))}) RETURNING *",
                              (next_number(conn, "order"), *(values[f] for f in ORDER_FIELDS), source["customer_id"])).fetchone()
-        conn.execute("INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional) "
-                     "SELECT %s, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional "
+        conn.execute("INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging) "
+                     "SELECT %s, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging "
                      "FROM order_lines WHERE order_id = %s ORDER BY position", (order["id"], order_id))
         order, lines = _fetch(conn, order["id"])
         webhooks.emit(conn, "order.created", _event(order, lines))
@@ -449,7 +450,7 @@ def make_invoice(order_id):
     not even the number."""
     with pool().connection() as conn:
         order, lines = _fetch(conn, order_id)
-        if not lines:
+        if not invoice_docs.invoiced(lines):                            # nothing but packaging is nothing to put on an invoice
             raise ApiError(409, "invoice.no_lines")
         business = preferences.shared(conn).get("business") or {}
         first = not order["invoice_number"]                          # the first time is the invoice being made; after that the same one, made again
