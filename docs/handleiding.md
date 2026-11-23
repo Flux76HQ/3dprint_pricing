@@ -169,8 +169,9 @@ tabblad Documentatie van de app (`homeassistant/DOCS.md`).
 - **Back-up.** `backup: cold`: Home Assistant stopt de app tijdens een back-up, want een bestand dat beschreven wordt (het -wal-bestand bevat de nieuwste data) is geen consistente kopie. Verplaatsen tussen
   Docker Compose en Home Assistant gaat met de back-up in de app (Instellingen > Systeem). De automatische back-ups van de app (`/data/backups/auto`, zie *Back-up in de app*) staan in de map van de app
   en gaan dus mee in de back-ups van Home Assistant, die daardoor groter worden.
-- **Versie.** `version` in `homeassistant/config.yaml` is de versie van de image waarop de app gebouwd wordt. Die zet de pijplijn (`scripts/bump_version.py`)
-  gelijk met `VERSION`; een pull request raakt hem niet aan. Een wijziging in `homeassistant/` telt als code en verhoogt het versienummer bij de promotie.
+- **Versie.** `version` in `homeassistant/config.yaml` is de versie van de laatste *release*, want de image waarop de app gebouwd wordt bestaat pas vanaf de promotie. De pijplijn
+  (`scripts/bump_version.py --sync-addon`) zet hem bij een promotie gelijk met `VERSION`; een pull request raakt hem niet aan. Een wijziging in `homeassistant/` telt als code en verhoogt
+  `VERSION` zodra de pull request in `beta` is gemerged.
 - **PostgreSQL 17 (alleen voor de overstap).** Hetzelfde hoofdnummer als `postgres:17-alpine` in de compose-file; de Dockerfile vraagt `postgresql-17` met name. Een datamap
   van een ander hoofdnummer opent PostgreSQL niet, en `run.py` weigert te starten in plaats van eraan te komen. De volgende release haalt PostgreSQL uit de Dockerfile.
 - **Geen Ingress.** Passkeys zijn gebonden aan het domein waarop de app staat, en de app is gemaakt om op de root van een eigen domein te draaien. Gebruikers
@@ -352,9 +353,9 @@ docker compose pull && docker compose up -d
 ```
 `scripts/update.sh` bewaart de database als `DATA_PATH/backups/pre-update-JJJJ-MM-DD-UUMMSS.sqlite3.gz` voordat er iets wordt vervangen (een installatie die nog op PostgreSQL draait krijgt een `.sql.gz`-dump) (daarna verhuist `scripts/migrate_data.sh` data die in een andere map dan `DATA_PATH` staat); mislukt of is die kopie leeg, dan stopt de update. Die kopieën staan in dezelfde map als de data die ze beschermen:
 kopieer ze nu en dan van de server af. Terugzetten: zie *Back-up en herstel*.
-CI publiceert bij elke push naar `beta` `:beta` (en `:beta-<sha>`), zonder release of nieuw versienummer: zet `PRINTPRICING_TAG=beta` in `.env` om de beta te draaien, met een aparte datamap.
+CI verhoogt bij elke gemergde pull request in `beta` die code wijzigde `VERSION` met 0,1 (een label `version:major` of `version:patch` op de pull request kiest een ander deel) en publiceert dan `:beta` (en `:beta-<sha>`), zonder release: zet `PRINTPRICING_TAG=beta` in `.env` om de beta te draaien, met een aparte datamap.
 CI publiceert bij elke promotie naar `main` (een pull request vanuit `beta`) `:latest`, en `:X.Y.Z` plus een GitHub Release (met notities) wanneer
-`VERSION` een nieuwe versie heeft. Een versie-image wordt nooit overschreven. Migraties draaien bij het opstarten
+`VERSION` van `beta` een nieuwe versie heeft; de promotie zelf verhoogt hem niet. Een versie-image wordt nooit overschreven. Migraties draaien bij het opstarten
 vóór de server verkeer krijgt; de container stopt als een migratie faalt of een toegepaste migratie is gewijzigd.
 Hosten op de gedeelde Flux76-server: zie `shared/infrastructure/adding-an-app.md` in App-Guidance.
 
