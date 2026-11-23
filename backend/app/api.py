@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, g, jsonify, request
 
-from . import invoice_docs, invoice_numbers, lowstock, preferences, push, stock
+from . import invoice_docs, invoice_numbers, labels, lowstock, preferences, push, stock
 from .calc import PART_UNITS, ROUNDINGS, calculate
 from .db import id_list, next_number
 from .http import ApiError, config, json_body, login_required, pool, require_admin
@@ -584,6 +584,8 @@ def validated_preferences(body: dict) -> dict:
         prefs["low_stock"] = _validated_low_stock(body["low_stock"])
     if "business" in body:
         prefs["business"] = _validated_business(body["business"])
+    if "label_templates" in body:
+        prefs["label_templates"] = labels.validated_templates(body["label_templates"])      # the choices an order picks its label from
     if "business_mode" in body:
         prefs["business_mode"] = boolean("f.business_mode")(body["business_mode"])      # shows the Business part of the settings
     return prefs
@@ -645,7 +647,7 @@ def put_preferences():
     prefs = validated_preferences(json_body())
     own, business = preferences.split(prefs)
     if business:
-        require_admin()                                              # the company's details, VAT, rounding and thresholds are everybody's
+        require_admin()                                              # the company's details, VAT, rounding, thresholds and label templates are everybody's
     with pool().connection() as conn:
         if own:
             current = conn.execute("SELECT preferences FROM users WHERE id = %s", (g.user_id,)).fetchone()["preferences"]

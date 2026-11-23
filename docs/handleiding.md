@@ -34,7 +34,7 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
   **Een model dupliceren**: *Opslaan als kopie* (titelbalk van het model) bewaart wat er nu in het formulier staat, ook wat je nog niet had opgeslagen, als een nieuw model met *(kopie)* achter de naam. Het neemt mee wat bij het model hoort, zodat je niets opnieuw hoeft te maken of te koppelen: de gekoppelde **3D-modellen** en bestanden voor de filamentberekening (dezelfde bestanden: een bestand blijft bewaard zolang een berekening het noemt), **alle afbeeldingen** (de geüploade foto's, de beelden van het 3D-model die je opsloeg met het model en de plaat die ze tonen, en de afbeeldingen die gemaakt zijn, met welke ervan meegaan naar het AI-model en welke het omslag is) en de keuzes erachter (doel, kleur, setting en teksten). De afbeeldingen zijn kopieën: ze verwijderen of opnieuw maken bij het ene model raakt het andere niet. Niet mee gaan wat het AI-model kostte (dat is uitgegeven aan het origineel), en het **verkoopitem** (de titel, tekst, prijs en EAN van een advertentie horen bij één model; zet de kopie zelf te koop).
 - **Klanten en bestellingen** — klanten met klantnummer, en een bestelling van een klant met meerdere prints: besteldatum, leverdatum, de klant, een lijst met
   modellen (zoek een berekening op **nummer** of naam; elke berekening heeft een nummer, `#12`), aantallen en de totaalprijs. Per
-  bestelling maak je een **factuur** en zet je de status op *nieuw*, *verwerkt*, *verstuurd* of *afgehandeld*. Zie *Bestellingen en
+  bestelling maak je een **factuur** en een **label** en zet je de status op *nieuw*, *verwerkt*, *verstuurd* of *afgehandeld*. Zie *Bestellingen en
   facturen* hieronder.
 - **Navigatiebalk (telefoon)** — de balk onderaan gebruikt Material Design-iconen (Pictogrammers, Apache-2.0, mee te leveren onder `frontend/vendor/mdi/`; ingevuld als het onderdeel actief is, anders als omtrek). Onder *Instellingen → Weergave → Navigatiebalk* kies je **iOS-achtig** (zwevend, afgerond, met een schuifregelaar voor het **glaseffect**: 0 is ondoorzichtig, 100 is het doorzichtigst en meest vervaagd) of **Android-achtig** (over de volle breedte aan de onderrand, met een pil achter het actieve icoon). Standaard staat de keuze op **Automatisch**: de app herkent het toestel en kiest Android-achtig op Android en iOS-achtig op andere apparaten. De keuze staat bij je account (`navbar_style`, `navbar_glass`) en geldt op al je apparaten.
 - **Titelbalk** — bovenaan elke pagina blijft een balk staan met de titel en de hoofdknop (nieuwe bestelling, klant, rol, …) terwijl je scrolt; op een telefoon houdt hij rekening met de uitsparing van camera en notch (`viewport-fit=cover`, `env(safe-area-inset-top)`).
@@ -436,9 +436,9 @@ De app is voor één bedrijf, maar er kunnen meer mensen mee werken. Wie de app 
 
 | | Gebruiker | Beheerder |
 |---|---|---|
-| Berekeningen, bestellingen en facturen maken, klanten, voorraad, printers, tarieven, filamentbibliotheek, printbestanden | ✅ | ✅ |
+| Berekeningen, bestellingen, facturen en labels maken, klanten, voorraad, printers, tarieven, filamentbibliotheek, printbestanden | ✅ | ✅ |
 | Eigen voorkeuren (taal, thema, meldingen, stille uren), eigen passkeys, wachtwoord en herstelcodes | ✅ | ✅ |
-| Bedrijfsgegevens, btw en afronding, drempels voor *filament bijna op*, factuursjabloon en logo wijzigen | ❌ | ✅ |
+| Bedrijfsgegevens, btw en afronding, drempels voor *filament bijna op*, factuursjabloon, logo en labelsjablonen wijzigen | ❌ | ✅ |
 | Gebruikers uitnodigen, nieuwe inloglink maken, beheerder maken, verwijderen | ❌ | ✅ |
 | Back-up en herstel, fabrieksinstellingen, updatecontrole en melding *nieuwe versie*, OpenAI-sleutel | ❌ | ✅ |
 
@@ -471,7 +471,7 @@ Een beheerder kan een gewone gebruiker **beheerder maken** (*Maak beheerder* in 
 
 ### Gedeeld of persoonlijk
 
-Per persoon blijven: taal, thema en accentkleur, de balk onderaan, in- of uitklappen van het menu, het verbergen van kostprijzen, de schakelaar *Zakelijk*, stille uren, en of je een melding over een nieuwe versie wilt. Gedeeld door iedereen (en alleen door een beheerder te wijzigen): `business` (bedrijfsgegevens, factuurnummerformaat, betaal-QR), `vat_pct`, `price_rounding` en `low_stock`. Ze staan in de tabel `shared_preferences`; bij het bijwerken naar deze versie verhuist wat de eigenaar tot nu toe had ingevuld daarheen. Een back-up bevat beide samen onder `preferences`, zoals altijd, en een oudere back-up herstelt dus gewoon.
+Per persoon blijven: taal, thema en accentkleur, de balk onderaan, in- of uitklappen van het menu, het verbergen van kostprijzen, de schakelaar *Zakelijk*, stille uren, en of je een melding over een nieuwe versie wilt. Gedeeld door iedereen (en alleen door een beheerder te wijzigen): `business` (bedrijfsgegevens, factuurnummerformaat, betaal-QR), `vat_pct`, `price_rounding`, `low_stock` en `label_templates` (de labelsjablonen). Ze staan in de tabel `shared_preferences`; bij het bijwerken naar deze versie verhuist wat de eigenaar tot nu toe had ingevuld daarheen. Een back-up bevat beide samen onder `preferences`, zoals altijd, en een oudere back-up herstelt dus gewoon.
 
 ### Back-up, fabrieksinstellingen en de database
 
@@ -544,7 +544,7 @@ De onderdelen van *Instellingen* staan in het **menu links, onder *Instellingen*
 | **Algemeen** | kostprijs en marge blurren, de schakelaar **Zakelijk**, app installeren |
 | **Weergave** | taal, thema, accentkleur |
 | **Beveiliging** | passkeys en herstelcodes, wachtwoord en tweestapsverificatie |
-| **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon; alleen zichtbaar voor beheerders, en als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
+| **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon, labelsjablonen; alleen zichtbaar voor beheerders, en als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
 | **Filamenten** | de filamentbibliotheek: specificaties van filamenten, een Bambu Lab-factuur inlezen, JSON-export en -import en synchroniseren met GitHub; zie *Filamentbibliotheek* |
 | **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
 | **Koppelingen** | alleen beheerders: de koppelingen met [Spoolman](#spoolman-optioneel) en [HaspelSync](#haspelsync-optioneel), API-sleutels waarmee een andere applicatie bestellingen en facturen leest, en webhooks die een seintje geven als er iets gebeurt (zie *Koppelingen: API-sleutels en webhooks*); elke koppeling klapt dicht en toont dan of hij actief is |
@@ -809,6 +809,8 @@ postcode en plaats, land onder elkaar), `bedrijf.naam`, `bedrijf.adres`, `bedrij
 regelvelden hierboven. Het sjabloonbestand, het logo en de gemaakte factuur-PDF’s staan in de **database** (niet onder `UPLOAD_DIR`), dus ze blijven bestaan als je de container opnieuw bouwt of de uploads-map kwijtraakt; ze worden met de rest meegenomen in de
 back-up van de app. Een sjabloon of logo van een eerdere versie (nog als bestand onder `UPLOAD_DIR`) wordt de eerste keer dat het gebruikt wordt in de database gezet; is dat bestand al weg, upload het dan één keer opnieuw. Word- en PDF-bestanden worden als onbetrouwbaar behandeld: grootte en uitgepakte grootte zijn begrensd, Word
 wordt gelezen met `python-docx` (zonder XML-entiteiten) en PDF alleen met `pypdf`; er wordt niets uitgevoerd.
+
+**Een label maken**: naast de factuur maak je bij een bestelling een **label** als PDF, om op een pakket te plakken. Wat daarvoor mogelijk is, stel je één keer in onder *Instellingen → Zakelijk → Labelsjablonen* (alleen beheerders). Een **sjabloon** heeft een naam, een **vel** (het papier waarop je print en waar de labels op staan) en een **opmaak** (hoe één label eruitziet). Nu is er één vel, een A4-vel met twee labels (A5) boven elkaar, en één opmaak, *Verzendlabel*: het adres van de klant groot in het midden, bovenaan jouw adres (en je logo als je er een hebt) en onderaan het bestelnummer, het klantnummer en de *Betreft*. Een te lang adres wordt eerst afgebroken, dan kleiner gezet en pas als het echt niet past afgekapt, zodat het nooit buiten het label komt. In de bestelling (rechts, onder *Factuur*) kies je het sjabloon en de **plek op het vel** (boven of onder) en klik je op *Label maken*: je krijgt een PDF van één A4-vel met **één** label op die plek, zodat een half gebruikt vel stickerpapier weer door de printer kan. Na het maken springt de plek naar het volgende label op het vel; het sjabloon en de plek onthoudt de browser. Het label zegt wat de bestelling nu zegt en volgt de taal van de factuur (*Instellingen → Zakelijk → Bedrijfsgegevens*). Een label wordt **niet bewaard**: het wordt elke keer opnieuw gemaakt, krijgt geen nummer en verandert niets aan de bestelling. De sjablonen staan bij de gedeelde bedrijfsinstellingen (zie *Gedeeld of persoonlijk*), dus ze zitten in de back-up, en iedereen kan een label maken. Een ander vel of een andere opmaak toevoegen is één regel in `backend/app/labels.py` (`FORMATS`, `LAYOUTS`) plus de teksten in `backend/app/lang`; de keuzelijsten in de app volgen vanzelf.
 
 ## Filamentbibliotheek
 

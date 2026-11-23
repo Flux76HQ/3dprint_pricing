@@ -1,13 +1,13 @@
 """Preferences: what belongs to a person, and what belongs to the business.
 
 A person keeps their own language, theme, notification windows and so on (`users.preferences`). The company details on an invoice,
-the VAT rate and rounding that new orders start from and the low-stock thresholds are the business's, shared by everybody
+the VAT rate and rounding that new orders start from, the low-stock thresholds and the label templates are the business's, shared by everybody
 (`shared_preferences`, one row) and changed by an administrator only. The screens and `GET /api/preferences` see both as one
 document, so a client does not need to know where a key is kept.
 """
 import json
 
-SHARED = ("business", "vat_pct", "price_rounding", "low_stock")
+SHARED = ("business", "vat_pct", "price_rounding", "low_stock", "label_templates")
 
 
 def split(prefs: dict) -> tuple[dict, dict]:

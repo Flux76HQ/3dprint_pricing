@@ -665,6 +665,46 @@ function invoiceTemplateCard() {
   return h('div', { class: 'glass card stack' }, h('h2', {}, t('invoice_tpl.title')), body);
 }
 
+// The label templates: each is a name for one choice of sheet (where the labels sit on the paper) and layout (what a label looks like). An order picks
+// one of them and gets a PDF with one label on the sheet. The sheets and layouts on offer, with their names, come from the server
+// (`GET /api/labels/options`): a new one there appears in these pull-downs without a change here. The list is saved whole with every change
+// (`label_templates` in the business's preferences); `ctx.prefs` is read when it is needed, never copied.
+function labelTemplatesCard(ctx) {
+  const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
+  let options = null;
+  const templates = () => ctx.prefs.label_templates || [];
+  const save = async (next) => { await ctx.setPrefs({ label_templates: next }); draw(); };         // refused: setPrefs shows why and gives the old list back
+  const change = (index, key, value) => save(templates().map((tpl, i) => (i === index ? { ...tpl, [key]: value } : tpl)));
+  const pick = (items, current, onPick, label) => h('select', { 'aria-label': label, onchange: (e) => onPick(e.target.value) },
+    items.map((item) => h('option', { value: item.id, selected: item.id === current }, item.name)));
+
+  function draw() {
+    const list = templates();
+    const full = list.length >= options.max_templates;
+    fill(body,
+      h('p', { class: 'muted' }, t('label.intro')),
+      list.length ? null : h('p', { class: 'muted' }, t('label.none')),
+      ...list.map((tpl, index) => {
+        const name = h('input', { type: 'text', maxlength: options.max_name, value: tpl.name, autocomplete: 'off', onchange: () => change(index, 'name', name.value.trim()) });
+        return h('div', { class: 'label-template' },
+          field(t('label.name'), name),
+          field(t('label.format'), pick(options.formats, tpl.format, (v) => change(index, 'format', v), t('label.format'))),
+          field(t('label.layout'), pick(options.layouts, tpl.layout, (v) => change(index, 'layout', v), t('label.layout'))),
+          h('button', { class: 'btn small danger', type: 'button', 'aria-label': t('label.remove', { name: tpl.name }), onclick: async () => {
+            if (!(await confirmDialog(t('label.remove_confirm', { name: tpl.name }), t('common.delete')))) return;
+            save(templates().filter((_, i) => i !== index));
+          } }, icon('trash')));
+      }),
+      h('div', { class: 'row' }, h('button', { class: 'btn small', type: 'button', id: 'add-label-template', disabled: full,
+        onclick: () => save([...templates(), { name: t('label.new_name'), format: options.formats[0].id, layout: options.layouts[0].id }]) },     // no id: the server gives it one
+        icon('plus'), h('span', {}, t('label.add')))),
+      full ? h('p', { class: 'hint' }, t('label.max', { max: options.max_templates })) : null);
+  }
+  api('GET', '/api/labels/options').then((found) => { options = found; draw(); })
+    .catch((e) => body.replaceChildren(h('p', { class: 'error' }, e.message)));
+  return h('div', { class: 'glass card stack' }, h('h2', {}, t('label.title')), body);
+}
+
 // --- About: what runs, how healthy the database is, how the app is connected to it (administrators; /api/about) -----------------------------------
 
 // Each check of the health list: its label and the sentence for every state it can have. The server sends facts, these are the words.
@@ -1048,7 +1088,7 @@ export function settingsView(ctx, requested) {
           field(t('business.rounding'), h('select', { onchange: (e) => setPrefs({ price_rounding: e.target.value }) },
             ROUNDINGS.map(([v, l]) => h('option', { value: v, selected: (ctx.prefs.price_rounding || 'none') === v }, t(l)))))),
         h('datalist', { id: 'vat-presets-settings' }, ['0', '9', '21'].map((v) => h('option', { value: v })))),
-      companyCard(ctx), qrCard(ctx), invoiceLogoCard(), invoiceTemplateCard()],
+      companyCard(ctx), qrCard(ctx), invoiceLogoCard(), invoiceTemplateCard(), labelTemplatesCard(ctx)],
     filamenten: () => filamentLibraryCards(),
     notificaties: () => notificationsCards(ctx),
     gebruikers: () => usersCards(),
