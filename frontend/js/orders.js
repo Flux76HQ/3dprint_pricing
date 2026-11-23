@@ -530,7 +530,7 @@ function buildEditor(order, navigate, ctx) {
   function drawLabel() {
     const list = labelTemplates();
     if (!list.length) {
-      fill(labelBox, h('p', { class: 'muted' }, t('orders.label_none')), h('div', { class: 'row' }, h('a', { class: 'btn small', href: '#/instellingen/zakelijk' }, t('orders.label_settings'))));
+      fill(labelBox, h('p', { class: 'muted' }, t('orders.label_none')), h('div', { class: 'row' }, h('a', { class: 'btn small', href: '#/instellingen/labels' }, t('orders.label_settings'))));
       return;
     }
     if (!labelOptions) { fill(labelBox, h('p', { class: 'muted' }, t('common.loading'))); return; }

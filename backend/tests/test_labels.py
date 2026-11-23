@@ -1,5 +1,6 @@
 """Order labels: the sheets and layouts that can be chosen, the templates an administrator makes of them, and the PDF of one order's label."""
 import io
+import re
 from itertools import combinations
 
 import pytest
@@ -61,9 +62,10 @@ def test_every_sheet_place_and_layout_has_a_name_in_every_language(lang):
     """A new sheet or layout is one entry in `labels.py` and its texts; without the texts the pull-down would show a key."""
     found = labels.options(lang)
     names = [sheet["name"] for sheet in found["formats"]] + [slot["name"] for sheet in found["formats"] for slot in sheet["slots"]] \
-        + [layout["name"] for layout in found["layouts"]]
+        + [layout["name"] for layout in found["layouts"]] + [field["name"] for field in found["fields"]]
     assert names and not [name for name in names if name.startswith("label.")], names
     assert [sheet["id"] for sheet in found["formats"]] == list(labels.FORMATS) and [layout["id"] for layout in found["layouts"]] == list(labels.LAYOUTS)
+    assert [field["id"] for field in found["fields"]] == list(labels.FIELDS)
 
 
 @pytest.mark.parametrize("sheet", labels.FORMATS.values(), ids=list(labels.FORMATS))
@@ -81,9 +83,14 @@ def test_the_sheet_of_today_is_an_a4_with_two_a5_labels_above_one_another():
     assert sheet.page_mm == (210, 297) and sheet.slots == ((0, 0, 210, 148.5), (0, 148.5, 210, 148.5))
 
 
+CHOICES = {"all on": {}, "all off": {field: False for field in labels.FIELDS},
+           **{f"only {field}": {other: other == field for other in labels.FIELDS} for field in labels.FIELDS}}
+
+
 @pytest.mark.parametrize("sheet", labels.FORMATS.values(), ids=list(labels.FORMATS))
 @pytest.mark.parametrize("layout", labels.LAYOUTS)
-def test_every_layout_stays_inside_its_label_on_every_sheet_however_long_the_address_is(sheet, layout):
+@pytest.mark.parametrize("fields", CHOICES.values(), ids=list(CHOICES))
+def test_every_layout_stays_inside_its_label_on_every_sheet_however_long_the_address_is(sheet, layout, fields):
     """A layout is drawn into the box it is given and never knows the sheet: a long name, address and subject are wrapped, made smaller and in the end
     cut, never drawn over the next label or off the paper."""
     long = "Stichting Vrienden van het Historisch Museum en Archief Utrecht-Oost " * 3
@@ -91,7 +98,8 @@ def test_every_layout_stays_inside_its_label_on_every_sheet_however_long_the_add
              "phone": "06 12345678", "subject": long, "email": "", "notes": ""}
     shop = {"name": long, "address": long, "postal_code": "3500 AA", "city": long, "country": long}
     for slot in range(1, len(sheet.slots) + 1):
-        pdf = labels.render(order, shop, None, {"format": sheet.id, "layout": layout}, slot)
+        logo = {"content": picture(), "width_px": 600, "height_px": 200}
+        pdf = labels.render(order, shop, logo, {"format": sheet.id, "layout": layout, "fields": fields}, slot)
         box = labels._box(sheet, slot)
         written = extents(pdf)
         assert written
@@ -113,7 +121,8 @@ def test_a_long_line_is_cut_with_an_ellipsis_and_a_long_text_is_wrapped():
 def test_templates_are_kept_with_an_id_and_the_screen_does_not_have_to_make_one(owner):
     (first, second) = templates(owner, TEMPLATE, {**TEMPLATE, "name": "  Tweede  ", "colour": "red"})
     assert first["name"] == "Verzendlabel A5" and second["name"] == "Tweede" and first["id"] != second["id"]
-    assert set(first) == {"id", "name", "format", "layout"} and set(second) == set(first)             # what is not a template's is dropped
+    assert set(first) == {"id", "name", "format", "layout", "fields"} and set(second) == set(first)    # what is not a template's is dropped
+    assert first["fields"] == {field: True for field in labels.FIELDS}                                 # nothing said: everything is printed
     assert owner.get("/api/preferences").get_json()["label_templates"] == [first, second]
     again = owner.put("/api/preferences", json={"label_templates": [second, first]}, headers=H).get_json()["label_templates"]
     assert again == [second, first]                                                                     # the ids stay, the order is the one given
@@ -127,6 +136,8 @@ def test_templates_are_kept_with_an_id_and_the_screen_does_not_have_to_make_one(
     [{**TEMPLATE, "format": "a3"}], [{**TEMPLATE, "format": ""}], [{k: v for k, v in TEMPLATE.items() if k != "format"}],
     [{**TEMPLATE, "layout": "fraai"}], [{**TEMPLATE, "layout": None}],
     [{**TEMPLATE, "id": "geen-uuid"}], [{**TEMPLATE, "id": 12}],
+    [{**TEMPLATE, "fields": "alles"}], [{**TEMPLATE, "fields": None}], [{**TEMPLATE, "fields": ["sender"]}], [{**TEMPLATE, "fields": {"kleur": True}}],
+    [{**TEMPLATE, "fields": {"sender": "ja"}}], [{**TEMPLATE, "fields": {"sender": 0}}], [{**TEMPLATE, "fields": {"sender": None}}],
     [{**TEMPLATE, "id": "11111111-1111-4111-8111-111111111111"}, {**TEMPLATE, "id": "11111111-1111-4111-8111-111111111111"}],
     [TEMPLATE] * (labels.MAX_TEMPLATES + 1),
 ])
@@ -286,10 +297,89 @@ def test_a_new_sheet_and_a_new_layout_are_one_entry_each(owner, monkeypatch):
         labels.LAYOUTS.pop("alleen_naam", None)
 
 
+# --- the fields ------------------------------------------------------------------------------------------------
+
+MARKERS = {"sender": "Flux76 Prints", "country": "Nederland", "phone": "Tel. 06 12345678", "order_number": "Bestelling ", "customer_number": "Klantnummer ",
+           "subject": "Rack-houders voor oktober", "logo": None}                  # the logo is a picture: it is counted, not read
+
+
+def everything(owner, **fields):
+    """An order with everything filled in, its label with these fields on or off (the rest on), and the text and the number of pictures on it."""
+    business(owner)
+    upload_logo(owner, "logo.png", picture())
+    (template,) = templates(owner, {**TEMPLATE, "fields": fields})
+    order = new_order(owner, subject="Rack-houders voor oktober", phone="06 12345678")
+    pdf = label(owner, order, template).data
+    return " ".join(text for _, _, text in texts(pdf)), pdf_images(pdf)
+
+
+def test_every_field_is_there_when_it_is_on_and_gone_when_it_is_off_and_the_rest_stays(owner):
+    """A field in `FIELDS` that `label_data` does not honour would be a switch that does nothing: each one is switched off alone."""
+    assert set(MARKERS) == set(labels.FIELDS), "a new field needs a marker here"
+    full, pictures = everything(owner)
+    assert pictures == 1 and all(marker in full for marker in MARKERS.values() if marker)
+    for field, marker in MARKERS.items():
+        written, pictures = everything(owner, **{field: False})
+        if marker:
+            assert marker not in written, field
+            assert pictures == 1
+        else:
+            assert pictures == 0, field
+        for other, other_marker in MARKERS.items():
+            if other != field and other_marker:
+                assert other_marker in written, (field, other)                                  # the rest is untouched
+        assert "Jan Jansen" in written and "Kerkstraat 1" in written and "1234 AB Utrecht" in written      # the customer's address is always there
+
+
+def test_with_everything_off_the_label_holds_only_the_address_of_the_recipient_in_the_middle(owner):
+    written, pictures = everything(owner, **{field: False for field in labels.FIELDS})
+    assert pictures == 0
+    assert written == "AAN Jan Jansen Kerkstraat 1 1234 AB Utrecht"
+    (template,) = templates(owner, {**TEMPLATE, "fields": {field: False for field in labels.FIELDS}})
+    pdf = label(owner, new_order(owner), template).data
+    found = texts(pdf)
+    box = labels._box(labels.FORMATS["a4_2xa5"], 1)
+    middle = (max(y for _, y, _ in found) + min(y for _, y, _ in found)) / 2
+    assert abs(middle - (box.y + box.height / 2)) < 3, (middle, box)                                 # centred on the label: no gap is kept for what is not there
+    assert not re.search(rb"\sl\s", PdfReader(io.BytesIO(pdf)).pages[0].get_contents().get_data())      # and no rule: there is nothing above or below to separate it from
+    full = label(owner, new_order(owner), templates(owner)[0]).data
+    assert len(re.findall(rb"\sl\s", PdfReader(io.BytesIO(full)).pages[0].get_contents().get_data())) == 2        # (with everything on there are two)
+
+
+def test_the_sender_can_be_left_off_while_the_logo_stays_and_the_other_way_round(owner):
+    written, pictures = everything(owner, sender=False)
+    assert "Flux76 Prints" not in written and "VAN" not in written and pictures == 1
+    written, pictures = everything(owner, logo=False)
+    assert "Flux76 Prints" in written and "VAN" in written and pictures == 0
+
+
+def test_a_template_from_before_the_fields_prints_everything(owner, app):
+    """A template stored by the release that had no fields has no `fields`: it prints what it always did."""
+    from tests.conftest import connect
+    business(owner)
+    (template,) = templates(owner)
+    with connect(app.config["APP_CONFIG"].database_path) as conn:
+        import json
+        row = conn.execute("SELECT preferences FROM shared_preferences").fetchone()[0]                    # already a dict
+        row["label_templates"] = [{k: v for k, v in row["label_templates"][0].items() if k != "fields"}]
+        conn.execute("UPDATE shared_preferences SET preferences = %s", (json.dumps(row),))
+    assert "fields" not in owner.get("/api/preferences").get_json()["label_templates"][0]
+    written = " ".join(text for _, _, text in texts(label(owner, new_order(owner, subject="Eerst"), template).data))
+    assert "Flux76 Prints" in written and "Eerst" in written and "Klantnummer" in written
+
+
+def test_the_fields_are_in_the_options_in_the_language_asked_for(owner):
+    en = owner.get("/api/labels/options", headers={"X-Lang": "en"}).get_json()["fields"]
+    nl = owner.get("/api/labels/options", headers={"X-Lang": "nl"}).get_json()["fields"]
+    assert [f["id"] for f in en] == list(labels.FIELDS) == [f["id"] for f in nl]
+    assert {f["id"]: f["name"] for f in nl}["sender"] == "Afzendadres (je bedrijfsgegevens)" and {f["id"]: f["name"] for f in en}["sender"] == "Sender address (your business details)"
+
+
 # --- backup ----------------------------------------------------------------------------------------------------
 
 def test_the_templates_are_in_a_backup_and_come_back_with_it(owner):
-    kept = templates(owner, TEMPLATE, {**TEMPLATE, "name": "Tweede"})
+    kept = templates(owner, TEMPLATE, {**TEMPLATE, "name": "Tweede", "fields": {"sender": False, "phone": False}})
+    assert kept[1]["fields"]["sender"] is False and kept[1]["fields"]["subject"] is True
     doc = owner.get("/api/backup", headers=H).get_json()
     assert doc["preferences"]["label_templates"] == kept
     owner.put("/api/preferences", json={"label_templates": []}, headers=H)

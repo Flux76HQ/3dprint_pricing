@@ -8,7 +8,13 @@ Two things are chosen, and both are a list that grows by one entry (never by a c
 * a **layout** (`LAYOUTS`): what is drawn inside one label. A layout is a function that draws into the box it is given (`Box`, in points) and never
   knows which sheet it is on, so every layout works on every sheet, whatever the size of its labels.
 
-A **label template** is a name for one such choice: `{id, name, format, layout}`. The templates are kept in the business's shared preferences
+* the **fields** (`FIELDS`): what goes on the label besides the customer's address, which is always there: the sender's address (the business details),
+  the logo, the customer's country and phone number, the order number, the customer number and the subject. A template says per field whether it is
+  printed; with everything off the label holds the customer's address and nothing else. A layout never sees the switches: `label_data` leaves out what is
+  off, so a layout only has to draw what it is given and to cope with a part that is missing. A new field is one entry in `FIELDS`, one line in
+  `label_data` and a text (`label.field_<id>`).
+
+A **label template** is a name for one such choice: `{id, name, format, layout, fields}`. The templates are kept in the business's shared preferences
 (`preferences.SHARED`, so the backup, restoring one and the factory reset carry them without a table of their own), validated here
 (`validated_templates`, used by `api.validated_preferences`) and chosen on an order. The label says what the order says now: it is never kept.
 
@@ -73,13 +79,15 @@ def _box(sheet: Sheet, slot: int) -> Box:
 
 # --- what a label says ---------------------------------------------------------------------------------------------
 
+FIELDS = ("sender", "logo", "country", "phone", "order_number", "customer_number", "subject")     # every one is on unless the template says otherwise
+
 @dataclass(frozen=True)
 class LabelData:
     """Everything a layout needs, already in words: layouts never read an order, the preferences or the database."""
     lang: str
-    sender: tuple               # the lines of the sender's address (the first is the name); empty when the business has none filled in
+    sender: tuple               # the lines of the sender's address (the first is the name); empty when the business has none filled in, or the template leaves it out
     recipient: tuple            # the lines of the customer's address (the first is the name)
-    phone: str
+    phone: str                  # the rest are empty when the template leaves them out (or the order has none): a layout draws what is there
     number: str                 # the order number
     customer_number: str
     subject: str
@@ -94,16 +102,21 @@ def _one_line(value) -> str:
     return " ".join(str(value or "").split())
 
 
-def label_data(order: dict, business: dict, logo: "dict | None") -> LabelData:
+def label_data(order: dict, business: dict, logo: "dict | None", fields: "dict | None" = None) -> LabelData:
+    """What the label says. `fields` is the template's choice, {field: on}; a field it does not mention is on (a template made before the field existed)."""
+    def on(name: str) -> bool:
+        return (fields or {}).get(name, True)
+
     def lines(*values) -> tuple:
         return tuple(text for text in (_one_line(value) for value in values) if text)
 
     return LabelData(
         lang=invoice_docs.invoice_language(business),                        # the label follows the language of the invoice
-        sender=lines(business.get("name"), business.get("address"), _place(business.get("postal_code"), business.get("city")), business.get("country")),
-        recipient=lines(order["customer_name"], order["address"], _place(order["postal_code"], order["city"]), order["country"]),
-        phone=_one_line(order["phone"]), number=str(order["number"]), customer_number=_one_line(order["customer_number"]),
-        subject=_one_line(order["subject"]), logo=logo)
+        sender=lines(business.get("name"), business.get("address"), _place(business.get("postal_code"), business.get("city")), business.get("country")) if on("sender") else (),
+        recipient=lines(order["customer_name"], order["address"], _place(order["postal_code"], order["city"]), order["country"] if on("country") else ""),
+        phone=_one_line(order["phone"]) if on("phone") else "", number=str(order["number"]) if on("order_number") else "",
+        customer_number=_one_line(order["customer_number"]) if on("customer_number") else "", subject=_one_line(order["subject"]) if on("subject") else "",
+        logo=logo if on("logo") else None)
 
 
 # --- fitting text into a box ---------------------------------------------------------------------------------------
@@ -170,7 +183,8 @@ CAPTION = 7                    # the small grey words "VAN" and "AAN"
 @layout("verzendlabel")
 def shipping_label(canvas: Canvas, box: Box, data: LabelData) -> None:
     """The customer's address large in the middle, the sender small at the top left (and the logo at the top right), and at the bottom what
-    to find the order by: its number, the customer number and the subject."""
+    to find the order by: its number, the customer number and the subject. What is not there (a field the template leaves out) leaves no gap: with
+    nothing above or below, the address is centred on the whole label."""
     regular, bold = invoice_docs._fonts()
     t = lambda key, **params: translate(data.lang, key, **params)       # noqa: E731
     pad, gap = 11 * mm, 7
@@ -204,17 +218,21 @@ def shipping_label(canvas: Canvas, box: Box, data: LabelData) -> None:
         rule(top - header - gap)
         middle_top = top - header - 2 * gap
 
-    # the bottom: the number of the order and of the customer, with the subject under them, and a rule above
-    facts = [t("label.order_number", n=data.number)] + ([t("label.customer_number", number=data.customer_number)] if data.customer_number else [])
+    # the bottom, when there is anything for it: the number of the order and of the customer, with the subject under them, and a rule above
+    facts = ([t("label.order_number", n=data.number)] if data.number else []) + ([t("label.customer_number", number=data.customer_number)] if data.customer_number else [])
     subject = _wrap(data.subject, regular, 9, width, max_lines=2) if data.subject else []
-    footer = 11 * LEADING + len(subject) * 9 * LEADING
-    y = bottom + footer
-    _draw_lines(canvas, [(facts[0], bold)], 11, left, y)
-    if len(facts) > 1:
-        _draw_lines(canvas, [(facts[1], bold)], 11, right, y, align="right")
-    _draw_lines(canvas, [(line, regular) for line in subject], 9, left, y - 11 * LEADING)
-    rule(bottom + footer + gap)
-    middle_bottom = bottom + footer + 2 * gap
+    middle_bottom = bottom
+    if facts or subject:
+        facts_h = 11 * LEADING if facts else 0
+        footer = facts_h + len(subject) * 9 * LEADING
+        y = bottom + footer
+        if facts:
+            _draw_lines(canvas, [(facts[0], bold)], 11, left, y)
+        if len(facts) > 1:
+            _draw_lines(canvas, [(facts[1], bold)], 11, right, y, align="right")
+        _draw_lines(canvas, [(line, regular) for line in subject], 9, left, y - facts_h)
+        rule(bottom + footer + gap)
+        middle_bottom = bottom + footer + 2 * gap
 
     # the middle: who it goes to, as large as it fits, with the phone number under it for the courier; centred between the two rules
     if not data.recipient:
@@ -240,7 +258,7 @@ def render(order: dict, business: dict, logo: "dict | None", template: dict, slo
         raise ApiError(404, "label.err_no_template")
     if not 1 <= slot <= len(sheet.slots):
         raise ApiError(400, "label.err_slot", max=len(sheet.slots))
-    data = label_data(order, business, logo)
+    data = label_data(order, business, logo, template.get("fields"))
     buffer = BytesIO()
     canvas = Canvas(buffer, pagesize=(sheet.page_mm[0] * mm, sheet.page_mm[1] * mm), pageCompression=1)
     canvas.setTitle(translate(data.lang, "label.title", n=data.number))
@@ -254,8 +272,8 @@ def render(order: dict, business: dict, logo: "dict | None", template: dict, slo
 # --- the templates -------------------------------------------------------------------------------------------------
 
 def validated_templates(value) -> list:
-    """The templates as they are stored: a list of `{id, name, format, layout}`, in the order given. A template that comes without an `id` is
-    given one (the screens never invent one: `crypto.randomUUID` does not exist where the app is opened over plain http). Used by the
+    """The templates as they are stored: a list of `{id, name, format, layout, fields}`, in the order given (`fields` is every field with whether it is
+    printed; one that is not mentioned is on). A template that comes without an `id` is given one (the screens never invent one: `crypto.randomUUID` does not exist where the app is opened over plain http). Used by the
     settings and by restoring a backup, so both accept exactly the same things."""
     if not isinstance(value, list):
         raise ApiError(400, "label.err_templates")
@@ -273,6 +291,9 @@ def validated_templates(value) -> list:
             raise ApiError(400, "label.err_format")
         if raw.get("layout") not in LAYOUTS:
             raise ApiError(400, "label.err_layout")
+        fields = raw.get("fields", {})
+        if not isinstance(fields, dict) or any(name not in FIELDS or not isinstance(on, bool) for name, on in fields.items()):
+            raise ApiError(400, "label.err_fields")
         ident = raw.get("id")
         if ident in (None, ""):
             ident = str(uuid.uuid4())
@@ -284,7 +305,7 @@ def validated_templates(value) -> list:
         if ident in seen:
             raise ApiError(400, "label.err_id")
         seen.add(ident)
-        out.append({"id": ident, "name": name, "format": raw["format"], "layout": raw["layout"]})
+        out.append({"id": ident, "name": name, "format": raw["format"], "layout": raw["layout"], "fields": {field: fields.get(field, True) for field in FIELDS}})
     return out
 
 
@@ -295,6 +316,7 @@ def options(lang: str) -> dict:
                      "slots": [{"id": n, "name": translate(lang, f"label.slot_{sheet.id}_{n}")} for n in range(1, len(sheet.slots) + 1)]}
                     for sheet in FORMATS.values()],
         "layouts": [{"id": name, "name": translate(lang, f"label.layout_{name}")} for name in LAYOUTS],
+        "fields": [{"id": field, "name": translate(lang, f"label.field_{field}")} for field in FIELDS],
         "max_templates": MAX_TEMPLATES, "max_name": MAX_NAME}
 
 
