@@ -155,7 +155,7 @@ function fromSaved(order) {
     customer_name: order.customer_name, customer_number: order.customer_number, subject: order.subject, address: order.address, postal_code: order.postal_code, city: order.city, country: order.country,
     email: order.email, phone: order.phone, notes: order.notes, invoice_number: order.invoice_number, invoice_date: str(order.invoice_date), has_invoice_pdf: !!order.has_invoice_pdf,
     lines: order.lines.map((l) => ({ project_id: l.project_id, project_number: l.project_number, description: l.description,
-      quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)), optional: !!l.optional,
+      quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)), optional: !!l.optional, packaging: !!l.packaging,
       // a line made from a calculation has a cost price and its own margin; the server works out its price
       cost_price: l.cost_price == null ? null : str(l.cost_price), margin_pct: l.margin_pct == null ? '' : str(Number(l.margin_pct)) })),
   };
@@ -192,7 +192,7 @@ function buildEditor(order, navigate, ctx) {
   const payload = () => ({
     customer_id: state.customer_id, status: state.status, price_rounding: state.price_rounding, order_date: state.order_date, delivery_date: state.delivery_date || null,
     subject: state.subject.trim(), notes: state.notes, invoice_date: state.invoice_date || null,
-    lines: state.lines.map((l) => ({ project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity), vat_pct: parseNum(l.vat_pct), optional: !!l.optional,
+    lines: state.lines.map((l) => ({ project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity), vat_pct: parseNum(l.vat_pct), optional: !!l.optional, packaging: !!l.packaging,
       ...(l.cost_price == null ? { unit_price: parseNum(l.unit_price) } : { cost_price: parseNum(l.cost_price), margin_pct: parseNum(l.margin_pct) }) })),
   });
 
@@ -252,8 +252,9 @@ function buildEditor(order, navigate, ctx) {
       const unit = h('output', { class: 'cost' }, '—');
       const hint = h('p', { class: 'hint private', role: 'status', hidden: true });
       if (calculated) { lineUnits[i] = unit; marginHints[i] = hint; }
-      const optional = h('label', { class: 'check' },
-        h('input', { type: 'checkbox', checked: !!l.optional, onchange: (e) => { l.optional = e.target.checked; touch(); } }), t('orders.optional'));
+      const optional = l.packaging ? h('p', { class: 'hint' }, t('orders.packaging_line'))                       // packaging is never on the invoice, so it is not optional either
+        : h('label', { class: 'check' },
+          h('input', { type: 'checkbox', checked: !!l.optional, onchange: (e) => { l.optional = e.target.checked; touch(); } }), t('orders.optional'));
       // the model's own line (not one of its accessories) can be brought up to date with the calculation it was made from
       const sync = l.project_id && !l.optional
         ? h('button', { class: 'btn small icon-only sync-line', type: 'button', title: t('orders.sync'), 'aria-label': t('orders.sync_line', { name: l.description || `#${l.project_number}` }),
@@ -307,12 +308,13 @@ function buildEditor(order, navigate, ctx) {
   }
 
   // Loose items from a price list, without a calculation: an accessory (cable, charger) is an optional line, which the invoice lists apart
-  // from the products; packaging material (box, tape, filler) is a normal line, because it is billed with the order. Both are at cost price
+  // from the products; packaging material (box, tape, filler) is a line that counts in the total of the order but is never listed on the invoice (`packaging`,
+  // the server leaves it out). Both are at cost price
   // with margin 0. Choosing the same one again adds one more of it.
   const CATALOGUES = {
     accessory: { path: '/api/accessories', optional: true, per: 'orders.accessory_per', title: 'orders.add_accessory', hint: 'orders.add_accessory_hint',
       search: 'orders.search_accessories', placeholder: 'orders.search_accessories_ph', none: 'orders.no_accessories', noMatch: 'orders.no_accessories_match' },
-    packaging: { path: '/api/packaging', optional: false, per: 'orders.packaging_per', title: 'orders.add_packaging', hint: 'orders.add_packaging_hint',
+    packaging: { path: '/api/packaging', optional: false, packaging: true, per: 'orders.packaging_per', title: 'orders.add_packaging', hint: 'orders.add_packaging_hint',
       search: 'orders.search_packaging', placeholder: 'orders.search_packaging_ph', none: 'orders.no_packaging', noMatch: 'orders.no_packaging_match' },
   };
   async function pickItem(kind) {
@@ -328,9 +330,9 @@ function buildEditor(order, navigate, ctx) {
       const q = search.value.trim().toLowerCase();
       const found = items.filter((a) => !q || a.name.toLowerCase().includes(q));
       results.replaceChildren(...(found.length ? found.map((a) => h('li', {}, h('button', { class: 'btn picker-item', type: 'button', onclick: () => {
-        const existing = state.lines.find((l) => !l.project_id && !!l.optional === c.optional && l.description === describe(a) && Number(l.cost_price) === Number(a.price));
+        const existing = state.lines.find((l) => !l.project_id && !!l.optional === c.optional && !!l.packaging === !!c.packaging && l.description === describe(a) && Number(l.cost_price) === Number(a.price));
         if (existing) existing.quantity = String(Math.floor(parseNum(existing.quantity)) + 1);
-        else state.lines.push({ project_id: null, project_number: null, optional: c.optional, description: describe(a), quantity: '1', unit_price: '', cost_price: str(Number(a.price)),
+        else state.lines.push({ project_id: null, project_number: null, optional: c.optional, packaging: !!c.packaging, description: describe(a), quantity: '1', unit_price: '', cost_price: str(Number(a.price)),
           margin_pct: '0', vat_pct: defaultVat });
         added.set(a.id, (added.get(a.id) || 0) + 1);
         touch(); drawLines(); draw();
@@ -530,7 +532,7 @@ function buildEditor(order, navigate, ctx) {
   function drawLabel() {
     const list = labelTemplates();
     if (!list.length) {
-      fill(labelBox, h('p', { class: 'muted' }, t('orders.label_none')), h('div', { class: 'row' }, h('a', { class: 'btn small', href: '#/instellingen/zakelijk' }, t('orders.label_settings'))));
+      fill(labelBox, h('p', { class: 'muted' }, t('orders.label_none')), h('div', { class: 'row' }, h('a', { class: 'btn small', href: '#/instellingen/labels' }, t('orders.label_settings'))));
       return;
     }
     if (!labelOptions) { fill(labelBox, h('p', { class: 'muted' }, t('common.loading'))); return; }

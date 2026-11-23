@@ -712,10 +712,14 @@ dialog.sheet.ai-pick-sheet { width: min(calc(100vw - 24px), 780px); }
 @keyframes ai-pulse { 0%, 100% { opacity: .45; } 50% { opacity: .9; } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } .ai-skeleton { animation: none; } }
 .logo-preview { max-width: 220px; max-height: 80px; object-fit: contain; padding: 6px; border: 1px solid var(--rand); border-radius: var(--radius-sm); background: #fff; }
-/* A label template (Settings → Business): name, sheet and layout side by side as far as the room goes, the remove button at the end of the last row */
-.label-template { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 10px 0; border-top: 1px solid var(--lijn); }
-.label-template > .field { flex: 1 1 11rem; }
-.label-template > .btn { flex: none; }
+/* A label template (Settings → Labels): name, sheet and layout side by side as far as the room goes, the remove button at the end of the last row, and under them the fields on the label as ticks */
+.label-template { display: flex; flex-direction: column; gap: 12px; padding: 12px 0; border-top: 1px solid var(--lijn); }
+.label-template-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.label-template-head > .field { flex: 1 1 11rem; }
+.label-template-head > .btn { flex: none; }
+.label-fields { display: flex; flex-wrap: wrap; gap: 2px 20px; border: 0; margin: 0; padding: 0; min-width: 0; }
+.label-fields > legend { padding: 0; margin-bottom: 4px; font-size: .82rem; font-weight: 600; color: var(--text-muted); }
+.label-fields > .hint { flex-basis: 100%; margin: 2px 0 0; }
 
 /* Filament: the stock as tiles (two side by side on a phone, more when there is room) and the roll icon */
 .item-head .grow { flex: 1; min-width: 0; }

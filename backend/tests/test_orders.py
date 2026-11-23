@@ -1043,3 +1043,76 @@ def test_in_a_word_template_an_optional_line_says_so_and_has_its_own_placeholder
     assert upload(owner, "eigen.docx", template).status_code == 201
     cells = docx_text(word(owner, f"/api/orders/{order['id']}/invoice"))
     assert "[]" in cells and "[optioneel]" in cells
+
+
+# --- packaging material: in the total, never on the invoice ---------------------------------------------------------
+
+def packaged(owner, **extra):
+    """An order with a box (first, so that the amounts have to stay with their own lines), a vase, some tape and an accessory."""
+    business(owner)
+    return new_order(owner, [line("Verzenddoos M", 1, "1.21", "21", packaging=True), line("Vaas", 2, "12.10", "21"),
+                             line("Tape", 3, "0.50", "21", packaging=True), line("USB-kabel", 1, "4.00", "21", optional=True)], **extra)
+
+
+def test_packaging_is_in_the_total_but_never_on_the_invoice(owner):
+    order = packaged(owner)
+    assert [l["packaging"] for l in order["lines"]] == [True, False, True, False]
+    totals = order["totals"]
+    assert totals["total"] == "30.91"                                                       # 1.21 + 24.20 + 1.50 + 4.00: the packaging is charged
+    text = pdf_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
+    assert "Vaas" in text and "USB-kabel" in text
+    assert "Verzenddoos" not in text and "Tape" not in text
+    assert "€ 24,20" in text and "€ 4,00" in text                                           # each amount stays with its own line although the box came first
+    assert "€ 1,21" not in text and "€ 1,50" not in text
+    for amount in (totals["total"], totals["total_excl"], totals["total_vat"]):             # the totals and the VAT have the packaging in them
+        assert "€ " + amount.replace(".", ",") in text, amount
+
+
+def test_the_lines_of_a_word_template_are_the_ones_on_the_invoice_and_are_numbered_without_gaps(owner):
+    assert upload(owner, "t.docx", make_docx(rows=[["{{regel.nr}}", "{{regel.omschrijving}}", "{{regel.totaal}}"]])).status_code == 201
+    order = packaged(owner)
+    table = Document(io.BytesIO(word(owner, f"/api/orders/{order['id']}/invoice"))).tables[0]
+    assert [[cell.text for cell in row.cells] for row in table.rows] == [["1", "Vaas", "€ 24,20"], ["2", "USB-kabel (optioneel)", "€ 4,00"]]
+
+
+def test_an_order_of_nothing_but_packaging_has_nothing_to_invoice(owner):
+    order = new_order(owner, [line("Doos", 1, "1.00", packaging=True)])
+    res = post(owner, f"/api/orders/{order['id']}/invoice")
+    assert res.status_code == 409 and res.get_json()["error"] == "Deze bestelling heeft nog geen regels. Voeg eerst een model toe."
+    assert owner.get(f"/api/orders/{order['id']}").get_json()["invoice_number"] is None          # and no number was used up
+
+
+def test_a_line_is_not_packaging_unless_it_says_so_and_it_says_so_with_a_boolean(owner):
+    order = new_order(owner, [line("Vaas")])
+    assert order["lines"][0]["packaging"] is False                                           # also what every line from before it existed is
+    assert "Vaas" in pdf_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
+    for bad in ("ja", 1, None, "true"):
+        res = owner.post("/api/orders", json={"customer_id": customer(owner)["id"], "lines": [line(packaging=bad)]}, headers=H)
+        assert res.status_code == 400, bad
+
+
+def test_a_copy_of_an_order_keeps_what_is_packaging(owner):
+    order = packaged(owner)
+    copy = owner.post(f"/api/orders/{order['id']}/duplicate", headers=H).get_json()
+    assert [l["packaging"] for l in copy["lines"]] == [True, False, True, False] and copy["totals"] == order["totals"]
+    assert "Verzenddoos" not in pdf_text(post(owner, f"/api/orders/{copy['id']}/invoice").data)
+
+
+def test_what_is_packaging_comes_back_with_a_backup_and_an_old_backup_has_none(owner):
+    order = packaged(owner)
+    doc = owner.get("/api/backup", headers=H).get_json()
+    assert [l["packaging"] for l in doc["orders"][0]["lines"]] == [True, False, True, False]
+    owner.delete(f"/api/orders/{order['id']}", headers=H)
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    restored = owner.get(f"/api/orders/{order['id']}").get_json()
+    assert [l["packaging"] for l in restored["lines"]] == [True, False, True, False] and restored["totals"] == order["totals"]
+    for item in doc["orders"][0]["lines"]:                                                   # a backup from before the marking: every line is an ordinary one
+        item.pop("packaging")
+    doc["format_version"] = 5
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    assert [l["packaging"] for l in owner.get(f"/api/orders/{order['id']}").get_json()["lines"]] == [False] * 4
+
+
+def test_a_backup_with_packaging_lines_is_not_taken_by_a_release_that_does_not_know_them(owner):
+    assert owner.get("/api/backup", headers=H).get_json()["format_version"] >= 6              # an older release refuses a newer file, and so lists no packaging on an invoice
+
