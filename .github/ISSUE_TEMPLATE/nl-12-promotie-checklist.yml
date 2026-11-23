@@ -7,8 +7,9 @@ body:
     attributes:
       value: |
         Een promotie gebeurt wanneer de eigenaar erom vraagt. Het versienummer kies je
-        hier niet: de `docker`-workflow verhoogt `VERSION` na de merge, en de release
-        notes worden gegenereerd uit de gemergede pull requests. Zie
+        hier niet: elke pull request die in `beta` is gemerged heeft `VERSION` verhoogd
+        (de `docker-beta`-workflow), de promotie brengt het nummer uit dat `beta` heeft, en de
+        release notes worden gegenereerd uit de gemergede pull requests. Zie
         [AGENTS.md](https://github.com/Flux76HQ/3dprint_pricing/blob/main/AGENTS.md)
         sectie 5 en het
         [promotion-runbook](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/promotion-runbook.md).
@@ -22,16 +23,12 @@ body:
     validations:
       required: true
 
-  - type: dropdown
-    id: bump
+  - type: input
+    id: version
     attributes:
-      label: Verwachte versieverhoging
-      description: Zet het bijbehorende label op de promotie-pull request.
-      options:
-        - Minor (standaard, beschermde paden gewijzigd: 0,1 hoger)
-        - Major (label version:major)
-        - Patch (label version:patch, alleen fixes)
-        - Geen (alleen documentatie)
+      label: Te releasen versie
+      description: "`VERSION` op beta, nadat de `docker-beta`-run van de laatste merge klaar is. De promotie brengt dit nummer uit."
+      placeholder: "2.3.0"
     validations:
       required: true
 
@@ -73,7 +70,7 @@ body:
         - label: Promotie-pull request van beta naar main geopend en gemerged met een merge commit (nooit squashen)
         - label: Release vX.Y.Z bestaat en is gemarkeerd als latest
         - label: De images latest en X.Y.Z zijn gebouwd
-        - label: main is teruggemerged in beta, zodat beta de nieuwe VERSION draagt
+        - label: main is teruggemerged in beta, zodat beta de release-commit draagt (de versie van de Home Assistant-app)
 
   - type: checkboxes
     id: after

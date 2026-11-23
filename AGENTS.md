@@ -129,20 +129,27 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
 ## 2. Versioning discipline
 
 - Version source of truth is the `VERSION` file (`MAJOR.MINOR.PATCH`).
-- **A pull request never changes `VERSION`.** Two pull requests that each raise it collide as soon as the other one merges, so the
-  pipeline raises it after the merge to `main`, i.e. when `beta` is promoted: the `docker` workflow runs `scripts/bump_version.py` on every push to `main`, commits the new
-  number (`Release X.Y.Z`) and builds the image from that commit. `enforce-version-bump` fails a pull request (into `beta` or `main`) that touches `VERSION`.
-  A push to `beta` never raises it and publishes no release, only the `beta` image (section 5).
-- **Every release is 0.1 higher**: a promotion that changed protected paths raises the **minor** number (`X.Y.Z` → `X.(Y+1).0`; the patch number starts over).
-  This is the default of `scripts/bump_version.py` and of the `docker` workflow, so a promotion needs no label for it. The number is raised by the promotion, not by each feature
-  pull request into `beta` (those never touch `VERSION`), so features that are promoted together share one number: promote when a feature is done to give it its own.
-  Put the label `version:major` (breaking change, or a milestone such as 2.0.0) or `version:patch` (a promotion of fixes only) on the
-  **promotion pull request** (`beta` → `main`, the pull request the bump reads) to raise that part instead. A promotion of documentation only (`*.md`, `*.txt`) keeps the number.
+- **A pull request never changes `VERSION`.** Two pull requests that each raise it collide as soon as the other one merges, so the pipeline raises it after the merge
+  **into `beta`**: the `docker-beta` workflow runs `scripts/bump_version.py` on every push to `beta`, commits the new number (`Version X.Y.Z`, by github-actions) and builds
+  the beta image from that commit. `enforce-version-bump` fails a pull request into `beta` that touches `VERSION`. This goes one step beyond App-Guidance's baseline (§1 and §20 there raise the
+  number at the promotion and give `beta` no version change) on purpose: the owner wants every feature to have its own number.
+- **Every feature is 0.1 higher.** Every pull request merged into `beta` that changed a protected, non-documentation path raises the **minor** number (`X.Y.Z` → `X.(Y+1).0`; the patch number
+  starts over); it needs no label. Put the label `version:major` (a breaking change, or a milestone such as 2.0.0) or `version:patch` (a fix) on the **pull request itself** to raise that part
+  instead (`major` wins when both are there). A pull request of documentation only (`*.md`, `*.txt`) keeps the number.
+- **How many numbers are due is counted from the history**, not read from the push that started the run: every first-parent commit on `beta` since the last commit that changed `VERSION` is one merged
+  pull request. GitHub keeps only one waiting run per workflow, so two merges close together would otherwise earn one number. A run that failed or was dropped is made up by the next one,
+  `workflow_dispatch` runs it by hand, and run twice it raises nothing twice. When GitHub cannot be asked for a label, nothing is raised rather than guessed (a `version:major` could be missed).
+  A push that is refused because `beta` moved is not rebased: the number starts again from what is there.
+- **The promotion carries the number and does not raise it.** The `docker` workflow publishes the `VERSION` that `beta` has when it is promoted (the `X.Y.Z` image, tag and release, only when that tag does not
+  exist yet), so what was merged since the last promotion, each pull request with its own number, is released under the last of them. On a promotion `enforce-version-bump` only checks that `VERSION` does
+  not go down. Wait for the `docker-beta` run of the last merge to finish before you promote: the number is made in that run.
+- **The Home Assistant app's `version` is not raised with `VERSION`** (section 6g): it names the image the app is built on, and the image of a number exists only from its promotion on. The `docker` workflow
+  sets it (`bump_version.py --sync-addon`) in its `Release X.Y.Z` commit on `main`, which is merged back into `beta`. A commit that changes only that file does not count as a feature.
 - Protected paths: `backend/`, `frontend/`, `deploy/`, `homeassistant/`, `repository.yaml`, `scripts/`, `.github/workflows/`,
   `.github/copilot-instructions.md`, `Dockerfile`, `docker-compose.yml`, `docker-compose.build.yml`, `.env.example`
   (`scripts/check_version_bump.py` holds the list).
-- The workflow needs to push to `main`: github-actions must be allowed to bypass the branch protection, if there is any. Without it
-  the bump fails before anything is published, with the reason in the log.
+- The workflows need to push: `docker-beta` to `beta` (the `Version` commit) and `docker` to `main` (the `Release` commit). github-actions must be allowed to bypass the branch protection of both, if there is any.
+  Without it the bump fails before anything is published, with the reason in the log.
 
 ## 3. Local enforcement and CI controls
 
@@ -153,7 +160,7 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
   | Job name | What it checks |
   |---|---|
   | `only-from-beta` | a pull request into `main` comes from `beta` of this repository (the promotion); every other one fails |
-  | `enforce-version-bump` | the pull request changed `VERSION` (it is raised after the merge, not in the pull request) |
+  | `enforce-version-bump` | a pull request into `beta` changed `VERSION` (it is raised after the merge, not in the pull request); on the promotion into `main`, that `VERSION` is lower than main's |
   | `agent-instructions-lint` | that this file stays canonical and unduplicated |
   | `backend-tests` | calculator, WebAuthn, migrations, API; fails if any test was skipped |
   | `frontend-syntax` | every frontend module parses, checked as an ES module (a copy named `.mjs`: `node --check` on a `.js` file that uses `import` reports nothing, even for a broken one); the manifest is valid JSON; the service worker answers from its cache only what it may (`scripts/test_service_worker.mjs`, section 6i) |
@@ -178,9 +185,9 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
   pull request is merged with a **merge commit**, never squashed or rebased (a squash leaves `beta` diverged from `main`). `only-from-beta`
   fails every other pull request into `main`. The owner makes `only-from-beta` required, and forbids pushing to `main` directly, in the
   branch protection of GitHub; that cannot be done from the code.
-- A push to `beta` builds `ghcr.io/flux76hq/3dprint_pricing:beta` (and `beta-<sha>`, `docker-beta` workflow). It writes no stable tag, no
-  release and no `VERSION`. A promotion builds `latest`, raises `VERSION`, and publishes `X.Y.Z` with its GitHub Release (`docker` workflow), which then
-  merges `main` back into `beta` so `beta` carries the new `VERSION` (best effort; if it warns, merge `main` into `beta` by hand).
+- A push to `beta` builds `ghcr.io/flux76hq/3dprint_pricing:beta` (and `beta-<sha>`, `docker-beta` workflow), after it raised `VERSION` for what was merged (section 2). It writes no stable tag and
+  no release. A promotion builds `latest` and publishes `X.Y.Z` with its GitHub Release (`docker` workflow) for the `VERSION` that `beta` already has; it sets the Home Assistant app's version in a
+  `Release X.Y.Z` commit and merges `main` back into `beta` so `beta` carries that commit (best effort; if it warns, merge `main` into `beta` by hand).
   github-actions must be allowed to push to `beta` as well as to `main`, if either is protected.
 - **One variable picks the build: `PRINTPRICING_TAG`** (`latest` = stable, the default; `beta`; or a version number to pin), set in `.env`.
   `docker-compose.yml` uses it for the image (`ghcr.io/flux76hq/3dprint_pricing:${PRINTPRICING_TAG:-latest}`) and passes the same value into the
@@ -205,12 +212,13 @@ PWA), `deploy/` (container entrypoint), `scripts/` (repo tooling), `homeassistan
   asking again. The promotion to `main` is the exception: open and merge it only when the owner asks.
 - **Promoting `beta` to `main`** follows App-Guidance's
   [`shared/guidelines/promotion-runbook.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/promotion-runbook.md).
-  Here: this app is on the pipeline-bump model, so the promotion does not change `VERSION` and the number is only known after the merge (section 2);
+  Here: `beta` raises `VERSION` for every merged pull request (section 2), so the promotion does not change it: it carries the number `beta` already has, which is known before the merge
+  (name it in the promotion pull request's body);
   the release notes are generated by the `docker` workflow (`gh release create --generate-notes`), not written beforehand, so step 2 of the runbook
   (curated notes first) is skipped and the promotion pull request states "since the previous stable version" in its body instead; the owner's request
   covers both opening and merging it, merged with a merge commit once the checklist is green; the full test command is
   `cd backend && PYTHONPATH=. python -m pytest -q`, plus the frontend syntax check and `python -m unittest discover -s scripts -p "test_*.py"` from `ci.yml`.
-  After the merge, check that release `vX.Y.Z` exists and is *latest* (the update check reads it, section 6e) and that the `latest` and `X.Y.Z` images were built.
+  After the merge, check that release `vX.Y.Z` (the `VERSION` of `beta`) exists and is *latest* (the update check reads it, section 6e) and that the `latest` and `X.Y.Z` images were built.
 
 ## 6. Testing
 
@@ -345,8 +353,9 @@ Follows App-Guidance's [`shared/guidelines/user-management.md`](https://github.c
 `homeassistant/Dockerfile` builds on the published image (`FROM ghcr.io/flux76hq/3dprint_pricing:${BUILD_VERSION}`) and adds PostgreSQL 17, which `run.py` starts
 (only while `/data/postgres` is there and the SQLite file is not, for the one-off import) before the image's own `entrypoint.sh`; it stops both if either dies. Operational detail: `docs/handleiding.md`, section *Home Assistant-app*.
 
-- **`version` in `homeassistant/config.yaml` is the image tag it is built on.** It equals `VERSION`, is raised by `scripts/bump_version.py` in the same
-  release commit, and is never edited by hand or in a pull request (`scripts/test_homeassistant_addon.py` fails when it differs from `VERSION`). The tag exists only
+- **`version` in `homeassistant/config.yaml` is the image tag it is built on.** It is the version of the latest *release*, not of `beta`: `VERSION` is raised for every merged pull request,
+  but the image of that number exists only from its promotion on, so the `docker` workflow sets it (`scripts/bump_version.py --sync-addon`) in the `Release X.Y.Z` commit it makes on `main`, which is
+  merged back into `beta`. It is never edited by hand or in a pull request, and never ahead of `VERSION` (`scripts/test_homeassistant_addon.py`). The tag exists only
   once the `docker` workflow has pushed it, so an update can fail for the minutes between the release commit and the end of that build.
 - **The options are the variables of `.env.example`**, not a second configuration: a variable that must be settable in Home Assistant is added to `config.yaml`
   (`options` + `schema`), `run.py` (`settings()`), and both `translations/` files in one change; the test checks them against each other. Secrets that `.env`
@@ -545,7 +554,7 @@ same commit. `agent-instructions-lint` checks this.
 
 ## 8. Commit checklist
 
-- [ ] `VERSION` is untouched (the promotion to `main` raises it by 0.1; label the promotion pull request `version:major` / `version:patch` if it must not be a minor).
+- [ ] `VERSION` is untouched (the pipeline raises it by 0.1 when the pull request is merged into `beta`; label the pull request `version:major` / `version:patch` if it must not be a minor).
 - [ ] The branch is based on `beta` and the pull request targets `beta`; it is current with it (`python scripts/update_branch.py`).
 - [ ] No secrets or `.env` files are staged.
 - [ ] The operational guide (`docs/handleiding.md`) is updated when run/deploy/backup behaviour changed.

@@ -261,7 +261,7 @@ flowchart LR
 | Image | `ghcr.io/flux76hq/3dprint_pricing:latest` (and `X.Y.Z`) | `ghcr.io/flux76hq/3dprint_pricing:beta` |
 | GitHub release | `vX.Y.Z` | none |
 
-Every change lands in `beta` first, and every push to `beta` builds a new beta image. Only when the beta proves itself is it promoted to `main`, which raises `VERSION` and builds `latest` and the release. To try the beta, set `PRINTPRICING_TAG=beta` in `.env` (the app then shows a **beta** label next to its name) and run `docker compose pull && docker compose up -d`; use a separate data folder for it.
+Every change lands in `beta` first, and every push to `beta` builds a new beta image. Every merged change makes `VERSION` 0.1 higher, so every feature has its own number, and a beta build shows it. Only when the beta proves itself is it promoted to `main`, which builds `latest` and releases the number `beta` has. To try the beta, set `PRINTPRICING_TAG=beta` in `.env` (the app then shows a **beta** label next to its name) and run `docker compose pull && docker compose up -d`; use a separate data folder for it.
 
 ## Contributing
 
