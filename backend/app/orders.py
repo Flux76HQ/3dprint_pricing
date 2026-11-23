@@ -11,7 +11,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template, preferences, webhooks
+from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template, labels, preferences, webhooks
 from .api import _serialise, boolean, number, text
 from .db import id_list, next_number
 from .http import ApiError, json_body, login_required, pool
@@ -489,3 +489,27 @@ def get_invoice(order_id):
     if row is None:
         raise ApiError(404, "invoice.err_no_pdf")
     return _pdf_response(row["invoice_number"], bytes(row["content"]))
+
+
+# --- the label ----------------------------------------------------------------------------------------------------
+
+@bp.get("/<uuid:order_id>/label")
+def get_label(order_id):
+    """The label of this order as a PDF: a sheet of the chosen template (`?template=<id>`) with one label on it, in place `slot` of the sheet
+    (`?slot=2`, default 1). It says what the order says now and is not kept: unlike an invoice nobody has to find it again as it was."""
+    template_id = request.args.get("template", "").strip().lower()
+    try:
+        slot = int(request.args.get("slot", "1"))
+    except ValueError:
+        slot = 0                                                     # not a place on any sheet: `labels.render` refuses it with the number of places there are
+    with pool().read() as conn:
+        order = conn.execute("SELECT * FROM orders WHERE id = %s", (order_id,)).fetchone()
+        if order is None:
+            raise ApiError(404, "err.order_not_found")
+        shared = preferences.shared(conn)
+        logo = invoice_logo.load(conn)
+    template = next((t for t in shared.get("label_templates") or [] if t.get("id") == template_id), None)
+    if template is None:
+        raise ApiError(404, "label.err_no_template")
+    content = labels.render(order, shared.get("business") or {}, logo, template, slot)
+    return Response(content, mimetype="application/pdf", headers={"Content-Disposition": f'attachment; filename="Label-{order["number"]}.pdf"'})

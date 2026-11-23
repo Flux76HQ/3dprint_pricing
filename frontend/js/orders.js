@@ -182,6 +182,7 @@ function buildEditor(order, navigate, ctx) {
   const calcError = h('p', { class: 'error', role: 'alert', hidden: true });
   const linesBox = h('div', { class: 'lines' });
   const invoiceBox = h('div', { class: 'stack' });
+  const labelBox = h('div', { class: 'stack' });
   const customerBox = h('div', { class: 'stack' });
   const statusBox = h('div', { class: 'chips', role: 'group', 'aria-label': t('orders.status') });
   const lineTotals = [];
@@ -512,6 +513,57 @@ function buildEditor(order, navigate, ctx) {
     fill(invoiceBox, ...parts);
   }
 
+  // --- label ------------------------------------------------------------------------------
+  // A PDF with one label of this order, on a sheet of the template that is picked. The sheet and its places have the server's names (`/api/labels/options`,
+  // asked for only when there is a template); the choice is remembered in this browser, and once a label is made the place moves on to the next one on the
+  // sheet, so a half-used sheet can be used up.
+  const labelChoice = (() => {
+    let kept = {};
+    try { kept = JSON.parse(localStorage.getItem('pp-label') || '{}') || {}; } catch { /* private mode: nothing is remembered */ }
+    return { template: String(kept.template || ''), slot: Number(kept.slot) || 1 };
+  })();
+  let labelOptions = null;
+  const labelTemplates = () => ctx.prefs.label_templates || [];                    // read when it is needed, never copied
+  const rememberLabel = () => { try { localStorage.setItem('pp-label', JSON.stringify(labelChoice)); } catch { /* not kept */ } };
+  const slotsOf = (template) => labelOptions.formats.find((f) => f.id === template.format)?.slots || [{ id: 1, name: '1' }];
+
+  function drawLabel() {
+    const list = labelTemplates();
+    if (!list.length) {
+      fill(labelBox, h('p', { class: 'muted' }, t('orders.label_none')), h('div', { class: 'row' }, h('a', { class: 'btn small', href: '#/instellingen/zakelijk' }, t('orders.label_settings'))));
+      return;
+    }
+    if (!labelOptions) { fill(labelBox, h('p', { class: 'muted' }, t('common.loading'))); return; }
+    const template = list.find((x) => x.id === labelChoice.template) || list[0];
+    labelChoice.template = template.id;
+    const slots = slotsOf(template);
+    if (!slots.some((s) => s.id === labelChoice.slot)) labelChoice.slot = slots[0].id;
+    fill(labelBox,
+      field(t('orders.label_template'), h('select', { onchange: (e) => { labelChoice.template = e.target.value; rememberLabel(); drawLabel(); } },
+        list.map((x) => h('option', { value: x.id, selected: x.id === template.id }, x.name)))),
+      slots.length > 1 ? field(t('orders.label_slot'), h('select', { onchange: (e) => { labelChoice.slot = Number(e.target.value); rememberLabel(); } },
+        slots.map((s) => h('option', { value: String(s.id), selected: s.id === labelChoice.slot }, s.name))), t('orders.label_slot_hint')) : null,
+      h('button', { class: 'btn', type: 'button', disabled: !state.id, onclick: makeLabel, id: 'make-label' }, icon('printer'), h('span', {}, t('orders.label_make'))),
+      state.id ? null : h('p', { class: 'muted' }, t('orders.save_first')));
+  }
+
+  async function makeLabel() {
+    if (!state.id) return;
+    if (dirty && !(await save())) return;               // the label says what the order says: save what is on the screen first
+    try {
+      const { blob, name } = await downloadFile(`/api/orders/${state.id}/label?template=${encodeURIComponent(labelChoice.template)}&slot=${labelChoice.slot}`);
+      saveBlob(blob, name);
+      toast(t('orders.label_made', { name }));
+      const used = labelTemplates().find((x) => x.id === labelChoice.template);
+      if (used) {
+        const slots = slotsOf(used);
+        labelChoice.slot = slots[(slots.findIndex((s) => s.id === labelChoice.slot) + 1) % slots.length].id;      // the next label on the sheet
+        rememberLabel();
+      }
+      drawLabel();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   // A new order for the same customer with the same lines, from what is saved (so unsaved changes are asked for first); the server makes it new and without an invoice.
   async function duplicate() {
     if (dirty) { toast(t('orders.duplicate_save_first'), 'error'); return; }
@@ -530,6 +582,11 @@ function buildEditor(order, navigate, ctx) {
 
   drawLines();
   drawInvoice();
+  drawLabel();
+  if (labelTemplates().length) {
+    api('GET', '/api/labels/options').then((found) => { labelOptions = found; drawLabel(); })
+      .catch((e) => fill(labelBox, h('p', { class: 'error', role: 'alert' }, e.message)));
+  }
   drawCustomer();
   recalc();
   return h('div', { class: 'editor' },
@@ -568,5 +625,6 @@ function buildEditor(order, navigate, ctx) {
         h('h2', {}, t('orders.total')), totals, calcError,
         h('div', { class: 'stack' },
           h('h3', {}, t('orders.status')), statusBox,
-          h('h3', {}, t('orders.invoice')), invoiceBox))));
+          h('h3', {}, t('orders.invoice')), invoiceBox,
+          h('h3', {}, t('orders.label')), labelBox))));
 }

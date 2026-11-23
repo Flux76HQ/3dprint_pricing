@@ -712,6 +712,10 @@ dialog.sheet.ai-pick-sheet { width: min(calc(100vw - 24px), 780px); }
 @keyframes ai-pulse { 0%, 100% { opacity: .45; } 50% { opacity: .9; } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } .ai-skeleton { animation: none; } }
 .logo-preview { max-width: 220px; max-height: 80px; object-fit: contain; padding: 6px; border: 1px solid var(--rand); border-radius: var(--radius-sm); background: #fff; }
+/* A label template (Settings → Business): name, sheet and layout side by side as far as the room goes, the remove button at the end of the last row */
+.label-template { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 10px 0; border-top: 1px solid var(--lijn); }
+.label-template > .field { flex: 1 1 11rem; }
+.label-template > .btn { flex: none; }
 
 /* Filament: the stock as tiles (two side by side on a phone, more when there is room) and the roll icon */
 .item-head .grow { flex: 1; min-width: 0; }
