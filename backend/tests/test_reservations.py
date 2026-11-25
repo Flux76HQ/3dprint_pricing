@@ -87,6 +87,14 @@ def test_rolls_of_one_kind_share_the_reservation(owner):
     assert Decimal(group["remaining_g"]) == 350 and Decimal(group["reserved_g"]) == 240 and Decimal(group["available_g"]) == 110
 
 
+def test_the_reservation_is_shared_by_the_refill_and_the_roll_with_spool_of_one_colour(owner):
+    refill, spool = roll(owner, remaining_g=100, barcode="REFILL"), roll(owner, remaining_g=250, barcode="SPOOL")       # one filament, a barcode each
+    new_order(owner, [model_line(model(owner, spool["id"], grams=120), 2)])             # the calculation names the roll that is not called by the kind's key
+    for pick in (refill, spool):
+        group = kind(owner, pick["id"])
+        assert Decimal(group["remaining_g"]) == 350 and Decimal(group["reserved_g"]) == 240 and Decimal(group["available_g"]) == 110
+
+
 def test_a_roll_of_another_colour_is_not_touched(owner):
     black = roll(owner)
     white = roll(owner, colour="Wit", barcode="999")

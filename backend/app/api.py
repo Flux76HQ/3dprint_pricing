@@ -214,9 +214,10 @@ def _share_notify(conn, row: dict, *, explicit: bool, creating: bool) -> dict:
     """`notify_low` belongs to the kind of filament, not to the roll: every roll with the same barcode (or, without one, the same
     brand, type, material and colour) gets the same value. Saving it on a roll sets it on all of them; a new roll that does not say
     anything takes over what its kind already has."""
-    key = stock.key_of(row)
-    siblings = [r for r in conn.execute("SELECT id, brand, product_type, material, colour, barcode, notify_low FROM filament_spools "
-                                        "WHERE id <> %s", (row["id"],)).fetchall() if stock.key_of(r) == key]
+    everyone = conn.execute("SELECT id, brand, product_type, material, colour, barcode, diameter_mm, notify_low FROM filament_spools").fetchall()
+    kinds = stock.Kinds(everyone)                              # every roll, the archived ones too: their flag is kept in step
+    key = kinds.key(row)
+    siblings = [r for r in everyone if r["id"] != row["id"] and kinds.key(r) == key]
     if explicit:
         differing = [r["id"] for r in siblings if r["notify_low"] != row["notify_low"]]
         if differing:
@@ -265,9 +266,10 @@ def _register(path, table, fields, order):
     def rows(conn) -> list:
         if table == "filament_spools":                          # with the name of the group each roll is in (`filament_groups`)
             found = conn.execute(f"{filament_groups.SPOOLS_WITH_GROUP} ORDER BY s.archived, {order}").fetchall()
-        else:
-            found = conn.execute(f"SELECT * FROM {table} ORDER BY archived, {order}"
-                                 if "archived" in fields else f"SELECT * FROM {table} ORDER BY {order}").fetchall()
+            kinds = stock.Kinds(r for r in found if not r["archived"])          # the kind of each roll, as the stock counts it (also for an archived roll)
+            return [{**_serialise(r), "kind": kinds.key(r)} for r in found]
+        found = conn.execute(f"SELECT * FROM {table} ORDER BY archived, {order}"
+                             if "archived" in fields else f"SELECT * FROM {table} ORDER BY {order}").fetchall()
         return [_serialise(r) for r in found]
 
     LISTS[path] = rows
@@ -440,8 +442,8 @@ def lookup_spool():
             return jsonify({"spool": None, "stock": None, "label": label})
         row = conn.execute("SELECT * FROM filament_spools WHERE barcode = %s ORDER BY created_at DESC LIMIT 1",
                            (barcode,)).fetchone()
-        found = stock.groups(stock.fetch(conn, barcode)) if row else []
-    return jsonify({"spool": _serialise(row) if row else None, "stock": found[0] if found else None, "label": None})
+        found = stock.group_of(conn, row) if row else None
+    return jsonify({"spool": _serialise(row) if row else None, "stock": found, "label": None})
 
 
 # Details of the product, not of one roll: the same barcode means the same brand, type, material, colour,
@@ -520,9 +522,9 @@ def spool_from_barcode():
         with pool().read() as conn:
             label = _label_of(conn, barcode)                # a label of Spoolman names a roll that is here already: it adds nothing
             found = None if label else _from_barcode(conn, barcode)
-            stock_now = stock.groups(stock.fetch(conn, barcode)) if found else []
+            stock_now = stock.group_of(conn, found[1]) if found else None
     return jsonify({"barcode": barcode, "source": found[0] if found else None, "roll": _serialise(found[1]) if found else None,
-                    "stock": stock_now[0] if stock_now else None, "label": label})
+                    "stock": stock_now, "label": label})
 
 
 @bp.post("/spools/bulk")
@@ -1017,16 +1019,17 @@ def book_stock(project_id):
         # A line names one roll but means the kind of filament: what its roll does not hold is taken from the other rolls of
         # that kind (the ones nearest to empty first), and it is only short when all of them together are.
         shelf = {str(r["id"]): r for r in stock.fetch(conn)}
+        kinds = stock.Kinds(shelf.values())
         left = {roll_id: r["remaining_g"] for roll_id, r in shelf.items()}
         short, queued = [], False
         for spool_id, grams in used.items():
             row = shelf.get(str(spool_id)) or conn.execute(
-                "SELECT id, brand, product_type, material, colour, barcode, remaining_g, bambu_id FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
+                "SELECT id, brand, product_type, material, colour, barcode, diameter_mm, remaining_g, bambu_id FROM filament_spools WHERE id = %s", (spool_id,)).fetchone()
             if row is None:
                 continue  # spool was deleted since; nothing to subtract from
             left.setdefault(str(row["id"]), row["remaining_g"])
-            kind = stock.key_of(row)
-            others = sorted((roll_id for roll_id, r in shelf.items() if roll_id != str(row["id"]) and stock.key_of(r) == kind and left[roll_id] > 0),
+            kind = kinds.key(row)
+            others = sorted((roll_id for roll_id, r in shelf.items() if roll_id != str(row["id"]) and kinds.key(r) == kind and left[roll_id] > 0),
                             key=lambda roll_id: left[roll_id])
             have, need = left[str(row["id"])] + sum(left[o] for o in others), grams
             for roll_id in [str(row["id"]), *others]:

@@ -560,6 +560,7 @@
  "filament.barcode": "Barcode",
  "filament.barcode_hint": "Scan de barcode met je camera of een scanner. Is de barcode bekend, dan worden de gegevens ingevuld en zie je wat je er nog van hebt.",
  "filament.barcode_note": "Barcode {code}",
+ "filament.barcodes_note": "Meerdere barcodes: {codes}",
  "filament.bed_temp": "Bedtemperatuur (°C)",
  "filament.bed_temp_ph": "bijv. 90",
  "filament.bed_temp_short": "Bedtemp.",

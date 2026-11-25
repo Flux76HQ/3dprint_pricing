@@ -60,9 +60,12 @@ function meter(roll) {
   bar.firstChild.style.width = `${Math.max(0, Math.min(100, Number(roll.remaining_g) / Number(roll.roll_weight_g) * 100))}%`;
   return bar;
 }
-// One kind of filament, as the server groups the stock (`stock.key_of`): the barcode when there is one, else brand, type, material and colour.
-const kindOf = (roll) => (String(roll.barcode || '').trim() ? `barcode:${String(roll.barcode).trim()}`
+// One kind of filament, as the server counts the stock (`stock.Kinds`): rolls with one barcode, or the same filament under another barcode (a refill and a roll
+// with spool), are one kind. The server says it on every roll of the list (`kind`); a roll that just came back from a save has none yet, so the old rule stands in.
+const kindOf = (roll) => roll.kind || (String(roll.barcode || '').trim() ? `barcode:${String(roll.barcode).trim()}`
   : `name:${['brand', 'product_type', 'material', 'colour'].map((key) => norm(roll[key])).join('|')}`);
+// What a kind says about its barcodes: one note, or all of them when a refill and a roll with spool each have one.
+const barcodeNote = (codes) => (codes.length > 1 ? t('filament.barcodes_note', { codes: codes.join(', ') }) : codes.length ? t('filament.barcode_note', { code: codes[0] }) : null);
 // The group (bin, shelf) a row of the roll list or of the stock is in: a roll is in one, a kind in stock has rolls in several (`by_group`); a roll out of any group is "no group".
 const noGroup = () => t('group.none');
 const groupsOfRow = (row) => (row.by_group ? Object.values(row.by_group).map((g) => g.group || noGroup()) : [row.group_name || noGroup()]);
@@ -72,7 +75,7 @@ const filamentFilters = () => [
   { key: 'material', label: t('filter.material'), all: t('filter.all_materials'), value: (row) => row.material },
   { key: 'brand', label: t('filter.brand'), all: t('filter.all_brands'), value: (row) => row.brand },
   { key: 'product_type', label: t('filter.type'), all: t('filter.all_types'), value: (row) => row.product_type }];
-const filamentText = (row) => [row.brand, row.product_type, row.colour, row.material, row.barcode];
+const filamentText = (row) => [row.brand, row.product_type, row.colour, row.material, row.barcode, ...(row.barcodes || [])];
 
 // Built on every call, so the labels follow the language of the screen.
 function resources() {
@@ -127,12 +130,12 @@ function resources() {
       { key: 'left', label: t('sort.left'), value: (r) => Number(r.remaining_g) },
       { key: 'per_kg', label: t('sort.per_kg'), value: (r) => perKg(r) },
       { key: 'newest', label: t('sort.newest'), value: (r) => String(r.created_at || ''), desc: true }],
-    // The rolls of one kind together (three rolls of Bambu Lab Basic red, told apart from another red by the barcode). Inside a group the rolls keep the
+    // The rolls of one kind together (three rolls of Bambu Lab Basic red, a refill and a roll with spool of it included). Inside a group the rolls keep the
     // chosen order, and the groups are in the order of their first roll: sorted on what is left, the kind with the emptiest roll comes first.
     group: { label: t('filament.group'), key: kindOf, head: (rolls) => ({
       icon: spoolIcon(colourOf(rolls[0]), 26), title: [spoolName(rolls[0], ' · '), rolls[0].material].filter(Boolean).join(' · '),
       meta: [t('filament.group_left', { grams: fmt(rolls.reduce((sum, r) => sum + Number(r.remaining_g), 0), 0) }),
-        rolls[0].barcode ? t('filament.barcode_note', { code: rolls[0].barcode }) : null].filter(Boolean).join(' · ') }) },
+        barcodeNote([...new Set(rolls.map((r) => String(r.barcode || '').trim()).filter(Boolean))].sort())].filter(Boolean).join(' · ') }) },
     columns: [
       { label: t('filament.roll'), sort: 'name', cls: 'main', cell: (item) => h('div', { class: 'cell-main' }, spoolIcon(colourOf(item), 28),
         h('div', {}, h('span', { class: 'cell-title' }, spoolName(item, ' · '), item.spoolman_id ? h('span', { class: 'badge' }, t('spoolman.badge')) : null,
@@ -834,7 +837,7 @@ function stockView(reloadRolls) {
     rowClass: (g) => (scoped(g).roll_count ? '' : 'archived'),
     columns: [
       { label: t('nav.filament'), sort: 'name', cls: 'main', cell: (g) => h('div', { class: 'cell-main' }, spoolIcon(colourOf(g), 28),
-        h('div', {}, h('span', { class: 'cell-title' }, name(g), state(scoped(g))), g.barcode ? h('div', { class: 'cell-sub muted' }, t('filament.barcode_note', { code: g.barcode })) : null)) },
+        h('div', {}, h('span', { class: 'cell-title' }, name(g), state(scoped(g))), barcodeNote(g.barcodes || (g.barcode ? [g.barcode] : [])) ? h('div', { class: 'cell-sub muted' }, barcodeNote(g.barcodes || (g.barcode ? [g.barcode] : []))) : null)) },
       { label: t('sort.material'), sort: 'material', cell: (g) => g.material || '—' },
       { label: t('sort.rolls'), sort: 'rolls', cls: 'num', cell: (g) => String(scoped(g).roll_count) },
       { label: t('stock.per_roll_short'), wide: true, cls: 'muted', cell: (g) => (scoped(g).roll_count ? scoped(g).rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ') : '—') },
