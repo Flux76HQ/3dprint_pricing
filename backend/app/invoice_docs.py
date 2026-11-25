@@ -187,13 +187,19 @@ def build_mapping(order: dict, totals: dict, business: dict, lang: str) -> dict:
     }
 
 
+def invoiced(lines: list) -> list:
+    """[(index, line)] of the lines that are on the invoice, each with its place in `lines`, which is what `totals` is indexed by. Packaging material
+    is never on it: its price (and its VAT) is in the totals, but the line is not listed, here nor in what another application is shown."""
+    return [(i, line) for i, line in enumerate(lines) if not line.get("packaging")]
+
+
 def line_mappings(lines: list, totals: dict, lang: str) -> list:
-    return [{"regel.nr": str(i), "regel.omschrijving": line["description"], "regel.aantal": str(line["quantity"]),
+    return [{"regel.nr": str(n), "regel.omschrijving": line["description"], "regel.aantal": str(line["quantity"]),
              "regel.prijs": money(line["unit_price"], lang), "regel.btw": f"{format(Decimal(line['vat_pct']).normalize(), 'f')}%",
-             "regel.bedrag_excl": money(totals["line_net"][i - 1], lang), "regel.bedrag_incl": money(totals["line_totals"][i - 1], lang),
-             "regel.totaal": money(totals["line_totals"][i - 1], lang),
+             "regel.bedrag_excl": money(totals["line_net"][i], lang), "regel.bedrag_incl": money(totals["line_totals"][i], lang),
+             "regel.totaal": money(totals["line_totals"][i], lang),
              "regel.optioneel": translate(lang, "invoice.optional") if line.get("optional") else ""}
-            for i, line in enumerate(lines, 1)]
+            for n, (i, line) in enumerate(invoiced(lines), 1)]
 
 
 def images_for(order: dict, totals: dict, business: dict, logo: "dict | None") -> dict:

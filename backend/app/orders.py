@@ -11,7 +11,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template, preferences, webhooks
+from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template, labels, preferences, reservations, webhooks
 from .api import _serialise, boolean, number, text
 from .db import id_list, next_number
 from .http import ApiError, json_body, login_required, pool
@@ -120,7 +120,8 @@ def _line(raw, n: int, rounding: str = "none") -> dict:
     else:
         unit_price = _money(number("f.unit_price")(raw.get("unit_price")))
     optional = boolean("f.optional")(raw["optional"]) if "optional" in raw else False
-    return {"project_id": project_id, "project_number": None, "optional": optional, "description": text("f.description", max_len=200)(raw.get("description")),
+    packaging = boolean("f.packaging")(raw["packaging"]) if "packaging" in raw else False          # packaging material: in the total, never on the invoice
+    return {"project_id": project_id, "project_number": None, "optional": optional, "packaging": packaging, "description": text("f.description", max_len=200)(raw.get("description")),
             "quantity": int(quantity), "unit_price": unit_price, "vat_pct": vat_pct, "cost_price": cost_price, "margin_pct": margin_pct,
             "margin_pct_effective": effective}
 
@@ -176,10 +177,10 @@ def _write_lines(conn, order_id, lines: list) -> None:
         project_id = line["project_id"] if line["project_id"] in known else None   # a calculation that is gone is let go
         conn.execute(
             "INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, "
-            "cost_price, margin_pct, optional) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "cost_price, margin_pct, optional, packaging) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (order_id, position, project_id, known.get(project_id) if project_id else line.get("project_number"),
              line["description"], line["quantity"], line["unit_price"], line["vat_pct"], line.get("cost_price"), line.get("margin_pct"),
-             line["optional"]))
+             line["optional"], line["packaging"]))
 
 
 def _lines_of(conn, order_ids: list, columns: str = "*") -> dict:
@@ -276,6 +277,43 @@ def totals():
     return jsonify({**compute_totals(lines), "priced_lines": [{"unit_price": str(l["unit_price"]), "margin_pct_effective": l["margin_pct_effective"]} for l in lines]})
 
 
+def _filament_line(raw, n: int):
+    """What the filament check needs of a line: the calculation, how many, and the two flags that decide whether the line takes filament.
+    A line still being typed (no quantity yet) is left out rather than refused, so the check can follow the screen while it is edited."""
+    if not isinstance(raw, dict):
+        raise ApiError(400, "err.order_line", n=n)
+    try:
+        project_id = uuid.UUID(str(raw["project_id"])) if raw.get("project_id") else None
+        quantity = int(Decimal(str(raw.get("quantity"))))
+    except (ValueError, ArithmeticError):
+        return None
+    if project_id is None or not 1 <= quantity <= 100_000:
+        return None
+    return {"project_id": project_id, "quantity": quantity, "optional": bool(raw.get("optional")), "packaging": bool(raw.get("packaging"))}
+
+
+@bp.post("/filament-check")
+def filament_check():
+    """What the order being edited takes of the filament in stock, and whether there is enough of it next to what the other open orders
+    already reserve (`reservations.check`). Nothing is stored: the same lines and status that the order would be saved with."""
+    body = json_body()
+    raw = body.get("lines", [])
+    if not isinstance(raw, list) or len(raw) > MAX_LINES:
+        raise ApiError(400, "err.order_lines", max=MAX_LINES)
+    status = body.get("status", "nieuw")
+    if status not in STATUSES:
+        raise ApiError(400, "err.order_status")
+    order_id = body.get("order_id") or None
+    if order_id is not None:
+        try:
+            order_id = uuid.UUID(str(order_id))
+        except ValueError:
+            raise ApiError(400, "err.order_not_found") from None
+    lines = [_filament_line(line, n) for n, line in enumerate(raw, 1)]
+    with pool().read() as conn:
+        return jsonify(reservations.check(conn, [line for line in lines if line], status=status, order_id=order_id))
+
+
 def _order_with_customer(conn, body: dict) -> dict:
     """The order in `body`, validated, with the details of the customer it names copied in (an order always has a customer)."""
     try:
@@ -316,8 +354,8 @@ def duplicate_order(order_id):
         fields = ("number", *ORDER_FIELDS, "customer_id")
         order = conn.execute(f"INSERT INTO orders ({', '.join(fields)}) VALUES ({', '.join(['%s'] * len(fields))}) RETURNING *",
                              (next_number(conn, "order"), *(values[f] for f in ORDER_FIELDS), source["customer_id"])).fetchone()
-        conn.execute("INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional) "
-                     "SELECT %s, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional "
+        conn.execute("INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging) "
+                     "SELECT %s, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging "
                      "FROM order_lines WHERE order_id = %s ORDER BY position", (order["id"], order_id))
         order, lines = _fetch(conn, order["id"])
         webhooks.emit(conn, "order.created", _event(order, lines))
@@ -449,7 +487,7 @@ def make_invoice(order_id):
     not even the number."""
     with pool().connection() as conn:
         order, lines = _fetch(conn, order_id)
-        if not lines:
+        if not invoice_docs.invoiced(lines):                            # nothing but packaging is nothing to put on an invoice
             raise ApiError(409, "invoice.no_lines")
         business = preferences.shared(conn).get("business") or {}
         first = not order["invoice_number"]                          # the first time is the invoice being made; after that the same one, made again
@@ -489,3 +527,27 @@ def get_invoice(order_id):
     if row is None:
         raise ApiError(404, "invoice.err_no_pdf")
     return _pdf_response(row["invoice_number"], bytes(row["content"]))
+
+
+# --- the label ----------------------------------------------------------------------------------------------------
+
+@bp.get("/<uuid:order_id>/label")
+def get_label(order_id):
+    """The label of this order as a PDF: a sheet of the chosen template (`?template=<id>`) with one label on it, in place `slot` of the sheet
+    (`?slot=2`, default 1). It says what the order says now and is not kept: unlike an invoice nobody has to find it again as it was."""
+    template_id = request.args.get("template", "").strip().lower()
+    try:
+        slot = int(request.args.get("slot", "1"))
+    except ValueError:
+        slot = 0                                                     # not a place on any sheet: `labels.render` refuses it with the number of places there are
+    with pool().read() as conn:
+        order = conn.execute("SELECT * FROM orders WHERE id = %s", (order_id,)).fetchone()
+        if order is None:
+            raise ApiError(404, "err.order_not_found")
+        shared = preferences.shared(conn)
+        logo = invoice_logo.load(conn)
+    template = next((t for t in shared.get("label_templates") or [] if t.get("id") == template_id), None)
+    if template is None:
+        raise ApiError(404, "label.err_no_template")
+    content = labels.render(order, shared.get("business") or {}, logo, template, slot)
+    return Response(content, mimetype="application/pdf", headers={"Content-Disposition": f'attachment; filename="Label-{order["number"]}.pdf"'})

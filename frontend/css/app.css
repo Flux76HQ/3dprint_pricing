@@ -644,6 +644,20 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .ai-look-preview figcaption { margin: 0; }
 .ai-look-frame { display: grid; place-items: center; aspect-ratio: 1 / 1; }
 @media (max-width: 640px) { .ai-colours { grid-template-columns: 1fr; } .ai-look-preview { max-width: 240px; } }
+/* The standard texts under a text field (js/ai-images.js `presetBar`): a list to pick from, and the buttons to keep and to remove one */
+.ai-presets { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.ai-presets select { flex: 1; min-width: 0; }
+.ai-presets .btn.icon-only { flex: none; min-width: 44px; min-height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.ai-presets .btn.icon-only .icon { width: 20px; height: 20px; }
+/* The colours of the print as round buttons under a colour field (`printColours`): the circle is 26px, the button around it 40px for a finger */
+.ai-swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px; margin-top: 4px; }
+.ai-swatches[hidden], .ai-swatches.empty { display: none; }
+.ai-swatches .hint { margin: 0 8px 0 0; }
+.ai-swatch { width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; background: none; display: inline-grid; place-items: center; cursor: pointer; }
+.ai-swatch::before { content: ''; width: 26px; height: 26px; border-radius: 50%; background: var(--swatch); border: 1px solid var(--rand); box-sizing: border-box; }
+.ai-swatch:hover::before { box-shadow: 0 0 0 2px var(--rand); }
+.ai-swatch[aria-pressed="true"]::before { box-shadow: 0 0 0 2px var(--surface-field), 0 0 0 4px var(--accent); }
+.ai-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* An example of a picture (js/ai-images.js `mockup`): drawn with shapes, sized from its own width (cqi), in the colours the poster will have */
 .ai-mock { position: relative; overflow: hidden; display: block; width: 100%; aspect-ratio: 1 / 1; container-type: inline-size; border-radius: var(--radius-sm);
   border: 1px solid var(--rand); background: linear-gradient(170deg, #b9c7bf 0%, #7d9088 55%, #4a5a53 100%);
@@ -717,6 +731,14 @@ dialog.sheet.ai-pick-sheet { width: min(calc(100vw - 24px), 780px); }
 @keyframes ai-pulse { 0%, 100% { opacity: .45; } 50% { opacity: .9; } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } .ai-skeleton { animation: none; } }
 .logo-preview { max-width: 220px; max-height: 80px; object-fit: contain; padding: 6px; border: 1px solid var(--rand); border-radius: var(--radius-sm); background: #fff; }
+/* A label template (Settings → Labels): name, sheet and layout side by side as far as the room goes, the remove button at the end of the last row, and under them the fields on the label as ticks */
+.label-template { display: flex; flex-direction: column; gap: 12px; padding: 12px 0; border-top: 1px solid var(--lijn); }
+.label-template-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.label-template-head > .field { flex: 1 1 11rem; }
+.label-template-head > .btn { flex: none; }
+.label-fields { display: flex; flex-wrap: wrap; gap: 2px 20px; border: 0; margin: 0; padding: 0; min-width: 0; }
+.label-fields > legend { padding: 0; margin-bottom: 4px; font-size: .82rem; font-weight: 600; color: var(--text-muted); }
+.label-fields > .hint { flex-basis: 100%; margin: 2px 0 0; }
 
 /* Filament: the stock as tiles (two side by side on a phone, more when there is room) and the roll icon */
 .item-head .grow { flex: 1; min-width: 0; }
@@ -746,6 +768,14 @@ dialog.sheet.ai-pick-sheet { width: min(calc(100vw - 24px), 780px); }
 .tile-name { font-size: .95rem; line-height: 1.25; overflow-wrap: anywhere; }
 .tile p { margin: 0; font-size: .8rem; }
 .tile-weights { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-reserved { color: var(--text-muted); }
+.tile-reserved.over { color: var(--danger); font-weight: 600; }
+/* What an order takes of the filament in stock: one row per kind, the roll's colour in front. */
+.filament-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.filament-row { display: flex; align-items: flex-start; gap: 10px; }
+.filament-row > div { min-width: 0; flex: 1; }
+.filament-row p { margin: 2px 0 0; }
+.filament-row.short strong { color: var(--danger); }
 /* The search field above both parts of the filament page: a magnifier inside the field, the camera next to it. */
 .search-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
 .search-field { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
@@ -1012,6 +1042,29 @@ a.btn[aria-disabled="true"] { opacity: .45; pointer-events: none; }
 .data-table tr.archived > * { opacity: .6; }
 .data-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .data-table .strong { font-weight: 700; }
+/* The sales overview: figures of now, a chart of the period (cost at the bottom, margin on top: the height is the revenue) and the orders. */
+.sales .big { margin: 0; font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sales .cards h3 { margin: 0; font-size: .8rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
+.sales-now { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.sales-nav { justify-content: space-between; align-items: center; }
+.sales .stats { border-top: 0; padding-top: 0; }
+.sales .stats .strong dd { color: var(--accent); }
+.sales-table tfoot th, .sales-table tfoot td { border-top: 2px solid var(--lijn); font-weight: 700; }
+.chart-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.chart-head h2 { margin: 0; }
+.legend { display: flex; gap: 14px; margin: 0; padding: 0; list-style: none; font-size: .8rem; color: var(--text-muted); }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.swatch.margin, .bar-margin { background: var(--accent); }
+.swatch.cost, .bar-cost { background: color-mix(in srgb, var(--text-muted) 45%, transparent); }
+.bars { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; align-items: end; }
+.bars-month { gap: 2px; }
+.bar { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.bar-area { display: flex; align-items: flex-end; justify-content: center; width: 100%; height: 180px; }
+.bar-stack { display: flex; flex-direction: column; width: 70%; max-width: 44px; min-height: 0; border-radius: 4px 4px 0 0; overflow: hidden; }
+.bar-margin, .bar-cost { display: block; width: 100%; }
+.bar-label { font-size: .7rem; white-space: nowrap; }
+.bars-month .bar-label { font-size: .6rem; }
 .data-table .nowrap { white-space: nowrap; }
 .data-table .actions { width: 1%; white-space: nowrap; text-align: right; }
 .data-table thead .actions { font-size: 0; }                                  /* the column needs no visible heading, a screen reader still gets it */

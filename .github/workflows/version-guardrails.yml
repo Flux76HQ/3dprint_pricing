@@ -1,8 +1,9 @@
 name: version-guardrails
 
-# VERSION is raised after the merge (`docker` workflow, scripts/bump_version.py), never in a pull request:
-# two pull requests that each raise it collide as soon as the other merges. A pull request that touches
-# it fails here with the fix.
+# VERSION is raised after a merge into beta (`docker-beta` workflow, scripts/bump_version.py), never in a pull request:
+# two pull requests that each raise it collide as soon as the other merges. A pull request into beta that touches
+# it fails here with the fix. The promotion (beta into main) is the one pull request that carries a VERSION change,
+# because beta raised it since the last promotion; it only must not lower it.
 on:
   pull_request:
     branches:
@@ -16,5 +17,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: A pull request must not change VERSION
-        run: python scripts/check_version_bump.py --base-ref "origin/${{ github.base_ref }}"
+      - name: A pull request into beta must not change VERSION; a promotion carries it
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$BASE" = "main" ]; then
+            python scripts/check_version_bump.py --base-ref origin/main --promotion
+          else
+            python scripts/check_version_bump.py --base-ref "origin/$BASE"
+          fi

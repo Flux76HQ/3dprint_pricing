@@ -342,7 +342,11 @@ def test_wrong_password_and_wrong_code_get_the_same_plain_refusal(owner):
     assert not authenticated(owner)
 
 
-def test_a_code_works_once_even_across_logins(owner):
+def test_a_code_works_once_even_across_logins(owner, monkeypatch):
+    # The step is pinned: with the wall clock, the 30-second step can turn between the confirmation and a login (a few seconds apart), and then
+    # the "same step" code of the login is a new step and is accepted, which is not what this test is about.
+    step = passwords.current_step()
+    monkeypatch.setattr(passwords, "current_step", lambda now=None: step)
     secret, _ = enable(owner)                                    # enabling already used the current step
     signed_out(owner)
     assert full_login(owner, secret).status_code == 401           # same step as the confirmation: replay

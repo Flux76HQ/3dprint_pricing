@@ -1,26 +1,48 @@
 name: docker-beta
 
 # Publishes the beta image on every push to beta: `beta` moves on every build, `beta-<sha>` names one build.
-# It never writes a stable tag (`latest`, `X.Y.Z`) and never touches VERSION or the releases: main does that,
-# after a promotion (see docker.yml).
+#
+# It raises VERSION first: every pull request merged into beta that changed code or build files makes the number 0.1 higher
+# (scripts/bump_version.py; the label `version:major` / `version:patch` on the pull request chooses another part). The bump is a commit
+# by github-actions on beta, and the image is built from it, so a beta build shows the number of what it holds. Pull requests never touch
+# VERSION (two that did would conflict every time). How many numbers are due is read from the history, not from this push, so a run that
+# GitHub dropped (it keeps one waiting run) or one that failed is made up by the next, and running it twice raises nothing twice.
+# A commit pushed with GITHUB_TOKEN starts no workflow, so the bump commit does not start another run of this one.
+#
+# It never writes a stable tag (`latest`, `X.Y.Z`) and never makes a release: main does that, at a promotion (see docker.yml).
+# The Home Assistant app's version is not touched here either: it names an image tag that exists only once a release has been published.
 on:
   push:
     branches:
       - beta
+  workflow_dispatch:                      # run it again by hand when a bump failed; it only does what is still due
 
 concurrency:
   group: publish-beta
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write                         # the Version commit on beta (github-actions must be allowed to push to beta if it is protected)
   packages: write
+  pull-requests: read                     # the labels of the merged pull requests
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: beta                      # the tip, not the pushed commit: an earlier run may have raised VERSION since
+          fetch-depth: 0                 # the number is counted from the history
+      - name: Raise VERSION for what was merged
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python scripts/bump_version.py --labels gh --push beta
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-qemu-action@v4             # to build the arm64 half of the image on this amd64 runner
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
@@ -38,7 +60,7 @@ jobs:
           platforms: linux/amd64,linux/arm64    # one tag, one manifest: Docker and the Home Assistant Supervisor pull the half that fits
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: GIT_COMMIT=${{ github.sha }}
+          build-args: GIT_COMMIT=${{ steps.bump.outputs.sha }}
           tags: |
             ${{ steps.image.outputs.name }}:beta
-            ${{ steps.image.outputs.name }}:beta-${{ github.sha }}
+            ${{ steps.image.outputs.name }}:beta-${{ steps.bump.outputs.sha }}

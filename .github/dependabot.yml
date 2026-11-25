@@ -6,7 +6,7 @@
 # update opens a pull request into `main`, which `only-from-beta` fails.
 #
 # Not listed on purpose: `homeassistant/Dockerfile` builds on this app's own image, whose tag is a build
-# argument that `scripts/bump_version.py` keeps equal to VERSION; and `postgres:17` in the compose file is
+# argument that the `docker` workflow sets to the released VERSION (`scripts/bump_version.py --sync-addon`); and `postgres:17` in the compose file is
 # pinned to the major version of the old data folder for as long as the one-off import exists (AGENTS.md 6g).
 version: 2
 updates:

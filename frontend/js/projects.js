@@ -135,6 +135,7 @@ function colourGap(a, b) {
   return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
 }
 const SAME_COLOUR = 22;                           // a slicer's colour and a roll's are never typed the same: this close counts as the same
+const PRINT_COLOUR_APART = 10;                    // two colours of the print that look less different than this are offered once
 const blankFilament = () => ({ spool_id: '', colour: '', label: '', grams: '', price_per_kg: '' });
 const blankPart = (group) => ({ group, packaging_id: '', part_id: '', accessory_id: '', label: '', quantity: '1', unit: 'stuks', unit_price: '' });
 
@@ -837,6 +838,22 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     }
     return '';
   };
+  // Every colour the print has, to pick from for the product pictures: that of each filament line (the print file's own colour for it before that of the roll
+  // chosen for it, as for the model), then the filaments in the print files that no line shows yet. A colour that looks like one already there is left out.
+  const printColours = () => {
+    const found = [];
+    const add = (hex, name) => { if (hex && !found.some((c) => colourGap(c.hex, hex) < PRINT_COLOUR_APART)) found.push({ hex, name: name || '' }); };
+    for (const r of state.filament) {
+      const kind = kindOf(r.spool_id);
+      add(colourCode(r.colour) || (kind ? colourOf(kind) : ''), r.label || (kind ? spoolName(kind) : ''));
+    }
+    for (const f of state.files) {
+      for (const plate of f.meta?.analysis?.plates || []) {
+        for (const fl of plate.filaments || []) add(colourCode(fl.color), [fl.type, fl.color].filter(Boolean).join(' '));
+      }
+    }
+    return found;
+  };
   // What the model is offered for sale as (listing.js). The price there is typed; the calculation only advises one, and says what it costs.
   if (state.id) {
     listing = listingCard(state.id, {
@@ -853,6 +870,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
           ? state.models.map((m, i) => ({ fileId: m.file_id, label: m.label.trim() || (m.meta ? m.meta.filename : `${t('file.model')} ${i + 1}`) }))
           : state.files.map((f, i) => ({ fileId: f.file_id, label: f.meta ? f.meta.filename : `${t('file.model')} ${i + 1}` })),
         colour: modelColour(),
+        colours: printColours(),
       }));
     drawFile();                                       // the file card has a button that leads to it
   }

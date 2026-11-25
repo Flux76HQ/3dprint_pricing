@@ -1,9 +1,10 @@
 import { api, downloadFile } from './api.js';
 import { formatDate, t } from './i18n.js';
 import { customerFields, customerLines, customerPicker, emptyCustomer } from './customers.js';
+import { colourOf, spoolIcon } from './filament-ui.js';
 import { listView } from './listview.js';
 import { setDirty } from './updates.js';
-import { ROUNDINGS, backLink, confirmDialog, enhanceDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
+import { ROUNDINGS, backLink, confirmDialog, enhanceDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, saveBlob, spoolName, toast } from './ui.js';
 
 // The stages of an order, in order. The words come from the language files.
 export const STATUSES = ['nieuw', 'verwerkt', 'verstuurd', 'afgehandeld'];
@@ -155,7 +156,7 @@ function fromSaved(order) {
     customer_name: order.customer_name, customer_number: order.customer_number, subject: order.subject, address: order.address, postal_code: order.postal_code, city: order.city, country: order.country,
     email: order.email, phone: order.phone, notes: order.notes, invoice_number: order.invoice_number, invoice_date: str(order.invoice_date), has_invoice_pdf: !!order.has_invoice_pdf,
     lines: order.lines.map((l) => ({ project_id: l.project_id, project_number: l.project_number, description: l.description,
-      quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)), optional: !!l.optional,
+      quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)), optional: !!l.optional, packaging: !!l.packaging,
       // a line made from a calculation has a cost price and its own margin; the server works out its price
       cost_price: l.cost_price == null ? null : str(l.cost_price), margin_pct: l.margin_pct == null ? '' : str(Number(l.margin_pct)) })),
   };
@@ -182,8 +183,12 @@ function buildEditor(order, navigate, ctx) {
   const calcError = h('p', { class: 'error', role: 'alert', hidden: true });
   const linesBox = h('div', { class: 'lines' });
   const invoiceBox = h('div', { class: 'stack' });
+  const labelBox = h('div', { class: 'stack' });
   const customerBox = h('div', { class: 'stack' });
   const statusBox = h('div', { class: 'chips', role: 'group', 'aria-label': t('orders.status') });
+  const filamentBox = h('div', { class: 'stack' });
+  const filamentCard = h('div', { class: 'glass card stack', hidden: true }, h('h2', {}, t('orders.filament_title')), filamentBox);
+  let filamentSeq = 0;
   const lineTotals = [];
   const lineUnits = [];
   const marginHints = [];
@@ -191,7 +196,7 @@ function buildEditor(order, navigate, ctx) {
   const payload = () => ({
     customer_id: state.customer_id, status: state.status, price_rounding: state.price_rounding, order_date: state.order_date, delivery_date: state.delivery_date || null,
     subject: state.subject.trim(), notes: state.notes, invoice_date: state.invoice_date || null,
-    lines: state.lines.map((l) => ({ project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity), vat_pct: parseNum(l.vat_pct), optional: !!l.optional,
+    lines: state.lines.map((l) => ({ project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity), vat_pct: parseNum(l.vat_pct), optional: !!l.optional, packaging: !!l.packaging,
       ...(l.cost_price == null ? { unit_price: parseNum(l.unit_price) } : { cost_price: parseNum(l.cost_price), margin_pct: parseNum(l.margin_pct) }) })),
   });
 
@@ -203,7 +208,41 @@ function buildEditor(order, navigate, ctx) {
       result = await api('POST', '/api/orders/totals', { lines, price_rounding });
       calcError.hidden = true;
       renderTotals();
+      checkFilament();
     } catch (e) { calcError.textContent = e.message; calcError.hidden = false; }
+  }
+  // The filament the models of this order take, next to what is on the shelf and what other open orders already hold. The server says it
+  // (`reservations.check`); an order that is sent or done holds nothing any more, and the card says so.
+  async function checkFilament() {
+    const seq = ++filamentSeq;
+    const modelled = state.lines.filter((l) => l.project_id && !l.optional && !l.packaging);
+    if (!modelled.length) { filamentCard.hidden = true; return; }
+    try {
+      const found = await api('POST', '/api/orders/filament-check', {
+        lines: state.lines.map((l) => ({ project_id: l.project_id, quantity: parseNum(l.quantity), optional: !!l.optional, packaging: !!l.packaging })),
+        status: state.status, order_id: state.id });
+      if (seq !== filamentSeq) return;                              // a newer answer is on its way
+      renderFilament(found);
+    } catch { if (seq === filamentSeq) filamentCard.hidden = true; }
+  }
+  function renderFilament(found) {
+    filamentCard.hidden = !found.kinds.length;
+    const rows = found.kinds.map((k) => {
+      const free = Number(k.remaining_g) - Number(k.reserved_others_g);
+      const short = Number(k.short_g) > 0;
+      return h('li', { class: short ? 'filament-row short' : 'filament-row' },
+        spoolIcon(colourOf(k), 28),
+        h('div', {}, h('strong', {}, [spoolName(k, ' · '), k.material].filter(Boolean).join(' · ')),
+          h('p', { class: 'muted' }, found.reserving ? t('orders.filament_need', { need: fmt(k.need_g, 0), free: fmt(Math.max(free, 0), 0) }) : `${fmt(k.need_g, 0)} g`),
+          found.reserving ? h('p', { class: 'hint' }, t('orders.filament_detail', { left: fmt(k.remaining_g, 0), others: fmt(k.reserved_others_g, 0) })) : null,
+          short ? h('p', { class: 'error' }, t('orders.filament_missing', { short: fmt(k.short_g, 0) })) : null));
+    });
+    fill(filamentBox,
+      !found.reserving ? h('p', { class: 'hint' }, t('orders.filament_released', { status: statusLabel(state.status).toLowerCase() }))
+        : found.short ? h('div', { class: 'notice warn', role: 'alert' }, h('strong', {}, t('orders.filament_short_title')))
+          : h('p', { class: 'hint', role: 'status' }, t('orders.filament_ok')),
+      h('ul', { class: 'filament-list' }, rows),
+      found.reserving ? h('p', { class: 'hint' }, t('orders.filament_hint')) : null);
   }
   function touch() {
     dirty = true;
@@ -251,8 +290,9 @@ function buildEditor(order, navigate, ctx) {
       const unit = h('output', { class: 'cost' }, '—');
       const hint = h('p', { class: 'hint private', role: 'status', hidden: true });
       if (calculated) { lineUnits[i] = unit; marginHints[i] = hint; }
-      const optional = h('label', { class: 'check' },
-        h('input', { type: 'checkbox', checked: !!l.optional, onchange: (e) => { l.optional = e.target.checked; touch(); } }), t('orders.optional'));
+      const optional = l.packaging ? h('p', { class: 'hint' }, t('orders.packaging_line'))                       // packaging is never on the invoice, so it is not optional either
+        : h('label', { class: 'check' },
+          h('input', { type: 'checkbox', checked: !!l.optional, onchange: (e) => { l.optional = e.target.checked; touch(); } }), t('orders.optional'));
       // the model's own line (not one of its accessories) can be brought up to date with the calculation it was made from
       const sync = l.project_id && !l.optional
         ? h('button', { class: 'btn small icon-only sync-line', type: 'button', title: t('orders.sync'), 'aria-label': t('orders.sync_line', { name: l.description || `#${l.project_number}` }),
@@ -306,12 +346,13 @@ function buildEditor(order, navigate, ctx) {
   }
 
   // Loose items from a price list, without a calculation: an accessory (cable, charger) is an optional line, which the invoice lists apart
-  // from the products; packaging material (box, tape, filler) is a normal line, because it is billed with the order. Both are at cost price
+  // from the products; packaging material (box, tape, filler) is a line that counts in the total of the order but is never listed on the invoice (`packaging`,
+  // the server leaves it out). Both are at cost price
   // with margin 0. Choosing the same one again adds one more of it.
   const CATALOGUES = {
     accessory: { path: '/api/accessories', optional: true, per: 'orders.accessory_per', title: 'orders.add_accessory', hint: 'orders.add_accessory_hint',
       search: 'orders.search_accessories', placeholder: 'orders.search_accessories_ph', none: 'orders.no_accessories', noMatch: 'orders.no_accessories_match' },
-    packaging: { path: '/api/packaging', optional: false, per: 'orders.packaging_per', title: 'orders.add_packaging', hint: 'orders.add_packaging_hint',
+    packaging: { path: '/api/packaging', optional: false, packaging: true, per: 'orders.packaging_per', title: 'orders.add_packaging', hint: 'orders.add_packaging_hint',
       search: 'orders.search_packaging', placeholder: 'orders.search_packaging_ph', none: 'orders.no_packaging', noMatch: 'orders.no_packaging_match' },
   };
   async function pickItem(kind) {
@@ -327,9 +368,9 @@ function buildEditor(order, navigate, ctx) {
       const q = search.value.trim().toLowerCase();
       const found = items.filter((a) => !q || a.name.toLowerCase().includes(q));
       results.replaceChildren(...(found.length ? found.map((a) => h('li', {}, h('button', { class: 'btn picker-item', type: 'button', onclick: () => {
-        const existing = state.lines.find((l) => !l.project_id && !!l.optional === c.optional && l.description === describe(a) && Number(l.cost_price) === Number(a.price));
+        const existing = state.lines.find((l) => !l.project_id && !!l.optional === c.optional && !!l.packaging === !!c.packaging && l.description === describe(a) && Number(l.cost_price) === Number(a.price));
         if (existing) existing.quantity = String(Math.floor(parseNum(existing.quantity)) + 1);
-        else state.lines.push({ project_id: null, project_number: null, optional: c.optional, description: describe(a), quantity: '1', unit_price: '', cost_price: str(Number(a.price)),
+        else state.lines.push({ project_id: null, project_number: null, optional: c.optional, packaging: !!c.packaging, description: describe(a), quantity: '1', unit_price: '', cost_price: str(Number(a.price)),
           margin_pct: '0', vat_pct: defaultVat });
         added.set(a.id, (added.get(a.id) || 0) + 1);
         touch(); drawLines(); draw();
@@ -452,6 +493,7 @@ function buildEditor(order, navigate, ctx) {
       if (state.id) {                                  // a saved order changes stage at once; a new one waits for Save
         try { await api('PATCH', `/api/orders/${state.id}/status`, { status: s }); toast(t('orders.status_set', { status: statusLabel(s) })); } catch (e) { toast(e.message, 'error'); }
       } else touch();
+      checkFilament();
       drawStatus();
       statusSelect.value = s;
     } }, statusLabel(s))));
@@ -512,6 +554,57 @@ function buildEditor(order, navigate, ctx) {
     fill(invoiceBox, ...parts);
   }
 
+  // --- label ------------------------------------------------------------------------------
+  // A PDF with one label of this order, on a sheet of the template that is picked. The sheet and its places have the server's names (`/api/labels/options`,
+  // asked for only when there is a template); the choice is remembered in this browser, and once a label is made the place moves on to the next one on the
+  // sheet, so a half-used sheet can be used up.
+  const labelChoice = (() => {
+    let kept = {};
+    try { kept = JSON.parse(localStorage.getItem('pp-label') || '{}') || {}; } catch { /* private mode: nothing is remembered */ }
+    return { template: String(kept.template || ''), slot: Number(kept.slot) || 1 };
+  })();
+  let labelOptions = null;
+  const labelTemplates = () => ctx.prefs.label_templates || [];                    // read when it is needed, never copied
+  const rememberLabel = () => { try { localStorage.setItem('pp-label', JSON.stringify(labelChoice)); } catch { /* not kept */ } };
+  const slotsOf = (template) => labelOptions.formats.find((f) => f.id === template.format)?.slots || [{ id: 1, name: '1' }];
+
+  function drawLabel() {
+    const list = labelTemplates();
+    if (!list.length) {
+      fill(labelBox, h('p', { class: 'muted' }, t('orders.label_none')), h('div', { class: 'row' }, h('a', { class: 'btn small', href: '#/instellingen/labels' }, t('orders.label_settings'))));
+      return;
+    }
+    if (!labelOptions) { fill(labelBox, h('p', { class: 'muted' }, t('common.loading'))); return; }
+    const template = list.find((x) => x.id === labelChoice.template) || list[0];
+    labelChoice.template = template.id;
+    const slots = slotsOf(template);
+    if (!slots.some((s) => s.id === labelChoice.slot)) labelChoice.slot = slots[0].id;
+    fill(labelBox,
+      field(t('orders.label_template'), h('select', { onchange: (e) => { labelChoice.template = e.target.value; rememberLabel(); drawLabel(); } },
+        list.map((x) => h('option', { value: x.id, selected: x.id === template.id }, x.name)))),
+      slots.length > 1 ? field(t('orders.label_slot'), h('select', { onchange: (e) => { labelChoice.slot = Number(e.target.value); rememberLabel(); } },
+        slots.map((s) => h('option', { value: String(s.id), selected: s.id === labelChoice.slot }, s.name))), t('orders.label_slot_hint')) : null,
+      h('button', { class: 'btn', type: 'button', disabled: !state.id, onclick: makeLabel, id: 'make-label' }, icon('printer'), h('span', {}, t('orders.label_make'))),
+      state.id ? null : h('p', { class: 'muted' }, t('orders.save_first')));
+  }
+
+  async function makeLabel() {
+    if (!state.id) return;
+    if (dirty && !(await save())) return;               // the label says what the order says: save what is on the screen first
+    try {
+      const { blob, name } = await downloadFile(`/api/orders/${state.id}/label?template=${encodeURIComponent(labelChoice.template)}&slot=${labelChoice.slot}`);
+      saveBlob(blob, name);
+      toast(t('orders.label_made', { name }));
+      const used = labelTemplates().find((x) => x.id === labelChoice.template);
+      if (used) {
+        const slots = slotsOf(used);
+        labelChoice.slot = slots[(slots.findIndex((s) => s.id === labelChoice.slot) + 1) % slots.length].id;      // the next label on the sheet
+        rememberLabel();
+      }
+      drawLabel();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   // A new order for the same customer with the same lines, from what is saved (so unsaved changes are asked for first); the server makes it new and without an invoice.
   async function duplicate() {
     if (dirty) { toast(t('orders.duplicate_save_first'), 'error'); return; }
@@ -530,6 +623,11 @@ function buildEditor(order, navigate, ctx) {
 
   drawLines();
   drawInvoice();
+  drawLabel();
+  if (labelTemplates().length) {
+    api('GET', '/api/labels/options').then((found) => { labelOptions = found; drawLabel(); })
+      .catch((e) => fill(labelBox, h('p', { class: 'error', role: 'alert' }, e.message)));
+  }
   drawCustomer();
   recalc();
   return h('div', { class: 'editor' },
@@ -563,10 +661,12 @@ function buildEditor(order, navigate, ctx) {
               state.lines.push({ project_id: null, project_number: null, optional: false, description: '', quantity: '1', unit_price: '', cost_price: null, margin_pct: '', vat_pct: defaultVat });
               touch(); drawLines();
             } }, icon('plus'), h('span', {}, t('orders.add_free_line'))))),
+        filamentCard,
         h('div', { class: 'glass card' }, field(t('orders.notes'), h('textarea', { rows: 3, maxlength: 2000, oninput: (e) => bind('notes')(e.target.value) }, state.notes || ''), t('orders.notes_hint')))),
       h('aside', { class: 'glass card summary', 'aria-label': t('orders.total') },
         h('h2', {}, t('orders.total')), totals, calcError,
         h('div', { class: 'stack' },
           h('h3', {}, t('orders.status')), statusBox,
-          h('h3', {}, t('orders.invoice')), invoiceBox))));
+          h('h3', {}, t('orders.invoice')), invoiceBox,
+          h('h3', {}, t('orders.label')), labelBox))));
 }

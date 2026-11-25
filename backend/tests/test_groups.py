@@ -157,7 +157,7 @@ def test_a_backup_from_before_the_groups_restores_and_a_bad_group_is_refused(own
     old.pop("groups")
     for row in old["spools"]:
         row.pop("group")
-    old["format_version"] = 5
+    old["format_version"] = 6
     assert owner.post("/api/backup/restore", json=old, headers=H).status_code == 200
     assert groups(owner) == {} and by_name(owner)["Zwart"]["group_name"] == ""
     named = backup(owner).get_json()

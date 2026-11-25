@@ -1,6 +1,7 @@
 # Home Assistant app (add-on) for 3D Print Pricing. Reference: https://contributors.home-assistant.io/apps/reference/configuration/
-# `version` is the version of the app image this app is built on (ghcr.io/flux76hq/3dprint_pricing:<version>): the `docker` workflow
-# raises it together with VERSION (scripts/bump_version.py), and homeassistant/Dockerfile builds on that tag. Never edit it by hand.
+# `version` is the version of the app image this app is built on (ghcr.io/flux76hq/3dprint_pricing:<version>), and that image exists only for a
+# release: the `docker` workflow sets it to VERSION at a promotion (scripts/bump_version.py --sync-addon). Beta raises VERSION for every
+# merged pull request, but that leaves this file alone. homeassistant/Dockerfile builds on that tag. Never edit it by hand.
 name: 3D Print Pricing
 version: "2.0.0"
 slug: printpricing

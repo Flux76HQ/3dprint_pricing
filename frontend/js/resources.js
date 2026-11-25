@@ -814,7 +814,8 @@ function stockView(reloadRolls) {
     const pick = chosenGroup();
     if (pick === null) return g;
     const here = g.by_group?.[pick];
-    return { ...g, rolls: here?.rolls || [], roll_count: here?.roll_count || 0, remaining_g: here?.remaining_g || '0', low: false };
+    // An order reserves a kind, not a bin: what is reserved cannot be told apart per group, so a list of one group shows none (and all of it as available).
+    return { ...g, rolls: here?.rolls || [], roll_count: here?.roll_count || 0, remaining_g: here?.remaining_g || '0', reserved_g: '0', available_g: here?.remaining_g || '0', low: false };
   };
   const bring = (roll) => view.setPin(pinOf(roll));
   const state = (g) => (!g.roll_count ? h('span', { class: 'badge muted' }, t('stock.sold_out_short')) : (g.notify_low && g.low ? h('span', { class: 'badge danger' }, t('stock.low_badge')) : null));
@@ -837,7 +838,9 @@ function stockView(reloadRolls) {
       { label: t('sort.material'), sort: 'material', cell: (g) => g.material || '—' },
       { label: t('sort.rolls'), sort: 'rolls', cls: 'num', cell: (g) => String(scoped(g).roll_count) },
       { label: t('stock.per_roll_short'), wide: true, cls: 'muted', cell: (g) => (scoped(g).roll_count ? scoped(g).rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ') : '—') },
-      { label: t('sort.left'), sort: 'left', cls: 'num strong', cell: (g) => `${fmt(scoped(g).remaining_g, 0)} g` }],
+      { label: t('sort.left'), sort: 'left', cls: 'num strong', cell: (g) => `${fmt(scoped(g).remaining_g, 0)} g` },
+      { label: t('stock.reserved_short'), wide: true, cls: 'num muted', cell: (g) => (Number(scoped(g).reserved_g) > 0 ? `${fmt(scoped(g).reserved_g, 0)} g` : '—') },
+      { label: t('stock.available_short'), wide: true, cls: 'num', cell: (g) => (Number(scoped(g).reserved_g) > 0 ? h('span', { class: Number(scoped(g).available_g) < 0 ? 'tile-reserved over' : '' }, `${fmt(scoped(g).available_g, 0)} g`) : '—') }],
     tile: (g) => stockTile(scoped(g)),
     // Totals per material, of what is listed: they follow the search and the filters.
     summary(groups) {
