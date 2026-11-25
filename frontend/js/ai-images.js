@@ -292,12 +292,107 @@ export function aiLogCard() {
   return card;
 }
 
+// --- Standard texts and the colours of the print --------------------------------------------------
+
+/** A text as the server keeps it as a standard text (`ai_images.preset_text`): whitespace tidied, and for the specs one per line without a typed bullet.
+ *  Compared with this, a field "holds" a standard text when it says the same, whatever the spacing. */
+const tidy = (field, value) => {
+  const one = (text) => text.split(/\s+/).filter(Boolean).join(' ');
+  return field === 'specs'
+    ? String(value || '').split('\n').map((line) => one(line).replace(/^[-*•·]+/, '').trim()).filter(Boolean).join('\n')
+    : one(String(value || ''));
+};
+
+const presetButton = (name, text, onclick) => h('button', { class: 'btn small icon-only', type: 'button', 'aria-label': text, title: text, onclick }, icon(name));
+
+/** The row under a text field with standard texts: a list to pick one from, a button to keep what stands in the field as one, and a button to remove
+ *  the one that is picked. The list follows the field: it shows the standard text the field holds now, when it holds one. `list` is the field's
+ *  standard texts ([{ id, text }], shared with nothing else: a text kept or removed here is changed in it). */
+function presetBar(field, input, list, label) {
+  const pick = h('select', { 'aria-label': t('ai.preset_for', { field: label }) });
+  const now = () => tidy(field, input.value);
+  const short = (text) => { const one = text.split('\n').join(' · '); return one.length > 70 ? `${one.slice(0, 69)}…` : one; };
+  const keep = presetButton('bookmark-plus-outline', t('ai.preset_keep'), async () => {
+    keep.disabled = true;
+    try {
+      const made = await api('POST', '/api/image-text-presets', { field, text: input.value });
+      if (!list.some((p) => p.id === made.id)) list.push({ id: made.id, text: made.text });
+      toast(t('ai.preset_kept'));
+    } catch (e) { toast(e.message, 'error'); }
+    sync();
+  });
+  const drop = presetButton('trash', t('ai.preset_remove'), async () => {
+    const found = list.find((p) => p.text === now());
+    if (!found || !(await confirmDialog(t('ai.preset_remove_confirm'), t('common.delete')))) return;
+    try {
+      await api('DELETE', `/api/image-text-presets/${found.id}`);
+      list.splice(list.indexOf(found), 1);
+      toast(t('ai.preset_removed'));
+    } catch (e) { toast(e.message, 'error'); }
+    sync();
+  });
+  function sync() {
+    const found = list.find((p) => p.text === now());
+    fill(pick, h('option', { value: '' }, t(list.length ? 'ai.preset_pick' : 'ai.preset_none')),
+      list.map((p) => h('option', { value: String(p.id), title: p.text }, short(p.text))));
+    pick.value = found ? String(found.id) : '';
+    pick.disabled = !list.length;
+    keep.disabled = !now() || !!found;                             // nothing to keep, or it is kept already
+    drop.disabled = !found;
+  }
+  pick.addEventListener('change', () => {
+    const chosen = list.find((p) => String(p.id) === pick.value);
+    if (!chosen) { sync(); return; }
+    input.value = chosen.text;                                     // the field is changed as if it was typed in: whatever listens to it keeps the text
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    sync();
+  });
+  input.addEventListener('input', sync);
+  sync();
+  return h('div', { class: 'ai-presets' }, pick, keep, drop);
+}
+
+/** The colours of the print as round buttons under a colour field: one click puts that colour in the field (`choose`). `colours()` says which there are
+ *  now ([{ hex, name }]); `show()` reads them again, and builds the row anew only when they changed, so a click is never lost to a redraw. */
+function printColours(input, colours, choose) {
+  const row = h('div', { class: 'ai-swatches', role: 'group', 'aria-label': t('ai.print_colours') });
+  let shown = null;
+  const mark = () => { for (const b of row.querySelectorAll('.ai-swatch')) b.setAttribute('aria-pressed', String(b.dataset.hex === input.value.toLowerCase())); };
+  row.show = () => {
+    const list = colours();
+    const key = list.map((c) => c.hex).join(',');
+    if (key !== shown) {
+      shown = key;
+      fill(row, h('span', { class: 'hint' }, t('ai.print_colours')), list.map((c) => {
+        const button = h('button', { class: 'ai-swatch', type: 'button', 'data-hex': c.hex, title: [c.name, c.hex].filter(Boolean).join(' · '),
+          'aria-label': t('ai.print_colour_pick', { name: c.name || c.hex }), onclick: () => { choose(c.hex); mark(); } });
+        button.style.setProperty('--swatch', c.hex);
+        return button;
+      }));
+    }
+    row.classList.toggle('empty', !list.length);
+    mark();
+  };
+  input.addEventListener('input', mark);
+  row.show();
+  return row;
+}
+
+/** Puts a colour in a colour field as if it was picked there, so whatever listens to the field (the example, the 3D view, the saving) follows. */
+function setColour(input, hex) {
+  input.value = hex;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 // --- In a calculation -------------------------------------------------------------
 
 /** The card with the photo of the object and the pictures made from it. `getDescription()` is what the form says now (saved or not);
  *  `businessOn()` says whether the business mode is on now (only then can the logo be put on a picture); `getModel()` gives the 3D
- *  models of the calculation now and the colour of its first filament line ({ models: [{ fileId, label }], colour }), for the 3D view. */
-export function productImagesCard(projectId, getDescription, businessOn = () => false, getModel = () => ({ models: [], colour: '' })) {
+ *  models of the calculation now, the colour of its first filament line and every colour the print has ({ models: [{ fileId, label }], colour,
+ *  colours: [{ hex, name }] }), for the 3D view and for the colour buttons. */
+export function productImagesCard(projectId, getDescription, businessOn = () => false, getModel = () => ({ models: [], colour: '', colours: [] })) {
   const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
   // The purpose and the texts. Built once, when the first answer is in: the part below is redrawn while pictures are made, and a
   // field that is redrawn loses what is being typed in it.
@@ -317,6 +412,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
   let maxSent = 6;
   let palette = null;                                              // the poster templates, for the examples (see `mockup`)
   let purposes = {};                                               // purpose -> its four pictures
+  let presets = { scene: [], product_name: [], specs: [], extra_text: [] };   // the standard texts of the fields (the business's, shared by every calculation)
   let maxGenerated = 12;
   let uploading = false;
   let wasBusy = false;
@@ -335,7 +431,10 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       palette = got.poster;
       purposes = got.purposes;
       lastError = '';
-      if (!form) buildForm(got);
+      if (!form) {
+        try { presets = { ...presets, ...(await api('GET', '/api/image-text-presets')) }; } catch { /* without the list the fields work as before */ }
+        buildForm(got);
+      }
     } catch (e) { lastError = e.message; }
     if (wasBusy && !busy()) {                                      // it finished while this page was watching
       if (jobs.some((j) => j.status === 'failed')) toast(t('ai.done_errors'), 'error'); else toast(t('ai.done'));
@@ -477,6 +576,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     const chosenColour = () => (tintMode.value ? tint.value.toLowerCase() : '');
     const showColour = () => {
       tint.hidden = !tintMode.value;
+      tintSwatches.hidden = !tintMode.value;
       if (viewer) viewer.setColour(chosenColour() || getModel().colour, !!chosenColour());
       if (form) showLook();
     };
@@ -484,6 +584,18 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     tint.addEventListener('input', showColour);
     tint.addEventListener('change', () => store());
     tint.hidden = !saved.colour;
+    // The colours the print has, to pick from instead of the colour picker: for the item, and below for the texts and the bars. They are read again when
+    // the calculation changed (the calculation's filament lines are edited outside this card), as the pointer comes near or a field gets the focus.
+    const printColoursNow = () => getModel().colours || [];
+    const swatches = [];
+    const showSwatches = () => { for (const row of swatches) row.show(); };
+    const swatchesFor = (input) => {
+      const row = printColours(input, printColoursNow, (hex) => setColour(input, hex));
+      swatches.push(row);
+      return row;
+    };
+    const tintSwatches = swatchesFor(tint);
+    tintSwatches.hidden = !saved.colour;                           // with the picker, which is hidden while the item keeps the colour it has in the photo
     // The colours of the poster's texts and of its bars (and label), and the shape of the label: the template's, which follow the photo,
     // or the owner's own, to go with the item. The example beside them shows the whole as it will be.
     const firstOf = (p) => (purposes[p] || [])[0] || 'square';
@@ -496,7 +608,11 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       selected: (saved.label_style || palette.label_styles[0]) === style }, t(LABEL_STYLE[style]))));
     const matchItem = h('button', { class: 'btn tool', type: 'button', onclick: () => { accentPick.value = chosenColour() || getModel().colour || accentPick.value; showLook(); store(); } },
       t('ai.look_match'));
-    const own = [field(t('ai.look_text'), inkPick), field(t('ai.look_accent'), accentPick), matchItem];
+    const inkField = field(t('ai.look_text'), inkPick);
+    const accentField = field(t('ai.look_accent'), accentPick);
+    inkPick.after(swatchesFor(inkPick));                           // each is shown with its field, which is hidden while the colours are automatic
+    accentPick.after(swatchesFor(accentPick));
+    const own = [inkField, accentField, matchItem];
     const preview = h('div', { class: 'ai-look-frame' });
     const look = () => ({ text_colour: lookMode.value ? inkPick.value.toLowerCase() : '', accent_colour: lookMode.value ? accentPick.value.toLowerCase() : '',
       label_style: labelStyle.value });
@@ -505,6 +621,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
       const variant = firstOf(purpose.value);
       fill(preview, mockup(variant, { palette, purpose: purpose.value || Object.keys(purposes)[0], poster: true, logo: form && form.logoShown(),
         item: chosenColour() || getModel().colour, look: look() }));
+      showSwatches();
     }
     lookMode.addEventListener('change', () => {
       if (lookMode.value && !saved.accent_colour && !saved.text_colour) accentPick.value = chosenColour() || templateAccent();
@@ -514,6 +631,12 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     labelStyle.addEventListener('change', () => { showLook(); store(); });
     const scene = h('textarea', { rows: 2, maxlength: limits.scene, placeholder: t('ai.scene_ph') }, saved.scene || '');
     scene.addEventListener('change', () => store());
+    // A text field with its standard texts under it (`presetBar`).
+    const withPresets = (key, label, input, hint) => {
+      const row = field(label, input, hint);
+      input.after(presetBar(key, input, presets[key], label));
+      return row;
+    };
     let logo = saved.logo;
     const specLines = () => specs.value.split('\n').map((line) => line.trim()).filter(Boolean);
     // The logo is the business's: without the business mode the switch is shown off and cannot be turned (the saved choice is kept).
@@ -539,19 +662,20 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     showLook();
     fill(options,
       field(t('ai.purpose'), purpose, t('ai.purpose_hint')),
-      h('div', { class: 'ai-colours' },
+      h('div', { class: 'ai-colours', onpointerenter: showSwatches, onfocusin: showSwatches },
         h('div', { class: 'stack' },
           h('div', { class: 'model-controls' }, field(t('ai.colour'), tintMode), tint),
+          tintSwatches,
           h('p', { class: 'hint' }, t('ai.colour_hint')),
           h('div', { class: 'model-controls' }, field(t('ai.look'), lookMode), own),
           field(t('ai.label_style'), labelStyle, t('ai.label_style_hint')),
           h('p', { class: 'hint' }, t('ai.look_hint'))),
         h('figure', { class: 'ai-look-preview' }, preview, h('figcaption', { class: 'hint' }, t('ai.look_preview')))),
-      field(t('ai.scene'), scene, t('ai.scene_hint')),
+      withPresets('scene', t('ai.scene'), scene, t('ai.scene_hint')),
       h('h3', {}, t('ai.text_title')),
-      field(t('ai.product_name'), name),
-      field(t('ai.specs'), specs, t('ai.specs_hint', { max: limits.specs, len: limits.spec })),
-      field(t('ai.extra_text'), extra, t('ai.extra_text_hint')),
+      withPresets('product_name', t('ai.product_name'), name),
+      withPresets('specs', t('ai.specs'), specs, t('ai.specs_hint', { max: limits.specs, len: limits.spec })),
+      withPresets('extra_text', t('ai.extra_text'), extra, t('ai.extra_text_hint')),
       logoRow, status);
     options.hidden = false;
   }

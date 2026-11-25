@@ -500,6 +500,89 @@ def test_the_texts_are_validated(ai, project, body):
     assert state(ai, project)["text"]["product_name"] == ""
 
 
+# --- standard texts -----------------------------------------------------------------------------------------------
+
+PRESETS = "/api/image-text-presets"
+
+
+def keep_preset(owner, field, text):
+    return owner.post(PRESETS, json={"field": field, "text": text}, headers=H)
+
+
+def test_a_text_can_be_kept_as_a_standard_text_of_its_field_and_is_listed_oldest_first(ai):
+    assert ai.get(PRESETS).get_json() == {"scene": [], "product_name": [], "specs": [], "extra_text": []}
+    first = keep_preset(ai, "extra_text", "  Op maat\ngemaakt ")
+    assert first.status_code == 201 and first.get_json()["text"] == "Op maat gemaakt"                  # checked and tidied as the field itself is
+    assert keep_preset(ai, "extra_text", "Gratis verzending").status_code == 201
+    assert keep_preset(ai, "product_name", "Plantenbak").status_code == 201
+    assert keep_preset(ai, "scene", "Op een houten vensterbank, ochtendlicht").status_code == 201
+    listed = ai.get(PRESETS).get_json()
+    assert [p["text"] for p in listed["extra_text"]] == ["Op maat gemaakt", "Gratis verzending"]
+    assert [p["text"] for p in listed["product_name"]] == ["Plantenbak"] and listed["specs"] == []
+    assert listed["scene"][0]["text"] == "Op een houten vensterbank, ochtendlicht"
+
+
+def test_the_specs_are_kept_one_per_line_without_their_bullets(ai):
+    res = keep_preset(ai, "specs", "- 30 x 12 cm\n\n• Waterdicht PETG ")
+    assert res.status_code == 201 and res.get_json()["text"] == "30 x 12 cm\nWaterdicht PETG"
+    assert keep_preset(ai, "specs", ["30 x 12 cm", "Waterdicht PETG"]).status_code == 200            # the same lines as a list: the same text, kept once
+    assert ai.get(PRESETS).get_json()["specs"] == [{"id": res.get_json()["id"], "text": "30 x 12 cm\nWaterdicht PETG"}]
+
+
+def test_the_same_standard_text_is_kept_once_per_field(ai):
+    made = keep_preset(ai, "product_name", "Plantenbak")
+    again = keep_preset(ai, "product_name", " Plantenbak ")
+    assert (made.status_code, again.status_code) == (201, 200) and again.get_json()["id"] == made.get_json()["id"]
+    assert len(ai.get(PRESETS).get_json()["product_name"]) == 1
+    assert keep_preset(ai, "extra_text", "Plantenbak").status_code == 201                              # another field: another standard text
+
+
+@pytest.mark.parametrize("body", [{"field": "colour", "text": "#ff0000"}, {"field": "logo", "text": "x"}, {"text": "x"}, {"field": ["scene"], "text": "x"},
+                                  {"field": "scene", "text": ""}, {"field": "scene", "text": "   "}, {"field": "specs", "text": "-\n•"},
+                                  {"field": "scene", "text": "x" * 301}, {"field": "product_name", "text": "x" * 61}, {"field": "extra_text", "text": "x" * 81},
+                                  {"field": "specs", "text": "x" * 61}, {"field": "specs", "text": "a\nb\nc\nd\ne\nf"}, {"field": "specs", "text": [1]}])
+def test_a_standard_text_is_checked_like_the_field_it_is_for(ai, body):
+    assert ai.post(PRESETS, json=body, headers=H).status_code == 400
+    assert ai.get(PRESETS).get_json() == {"scene": [], "product_name": [], "specs": [], "extra_text": []}
+
+
+def test_a_field_has_at_most_so_many_standard_texts(ai):
+    for n in range(ai_images.PRESETS_MAX):
+        assert keep_preset(ai, "extra_text", f"Tekst {n}").status_code == 201
+    assert keep_preset(ai, "extra_text", "Een te veel").status_code == 400
+    assert keep_preset(ai, "extra_text", "Tekst 0").status_code == 200                                # one that is there is no new one
+    assert keep_preset(ai, "scene", "Een ander veld heeft zijn eigen ruimte").status_code == 201
+
+
+def test_a_standard_text_can_be_removed(ai):
+    kept = keep_preset(ai, "product_name", "Plantenbak").get_json()
+    other = keep_preset(ai, "product_name", "Vaas").get_json()
+    assert ai.delete(f"{PRESETS}/{kept['id']}", headers=H).status_code == 200
+    assert [p["text"] for p in ai.get(PRESETS).get_json()["product_name"]] == ["Vaas"]
+    assert ai.delete(f"{PRESETS}/{kept['id']}", headers=H).status_code == 404                        # already gone
+    assert ai.delete(f"{PRESETS}/{other['id']}", headers=H).status_code == 200
+
+
+def test_a_removed_standard_text_does_not_change_a_calculation_that_used_it(ai, project):
+    kept = keep_preset(ai, "extra_text", "Op maat gemaakt").get_json()
+    put_text(ai, project, {"purpose": "social", "extra_text": "Op maat gemaakt"})
+    ai.delete(f"{PRESETS}/{kept['id']}", headers=H)
+    assert state(ai, project)["text"]["extra_text"] == "Op maat gemaakt"                             # the calculation keeps its own copy
+
+
+def test_standard_texts_need_the_feature_and_a_session_and_are_for_every_signed_in_person(app, client):
+    assert client.get(PRESETS).status_code == 401
+    onboard(client)
+    assert client.get(PRESETS).status_code == 404                                                      # the feature is off
+    app.config["APP_CONFIG"] = dataclasses.replace(app.config["APP_CONFIG"], ai_images_enabled=True)
+    from tests.test_users import join_with_passkey
+    member = join_with_passkey(app, client)
+    assert member.get(PRESETS).status_code == 200                                                      # not for administrators only, as the key and the log are
+    made = keep_preset(member, "scene", "Op een plank")
+    assert made.status_code == 201
+    assert member.delete(f"{PRESETS}/{made.get_json()['id']}", headers=H).status_code == 200
+
+
 def test_the_first_picture_becomes_a_poster_when_all_texts_are_filled_in(ai, project, monkeypatch):
     fake = ready(ai, project, monkeypatch, result=png((1024, 1024), PLAIN))
     assert queue(ai, project, text=TEXT).status_code == 202
@@ -1045,6 +1128,43 @@ def test_pictures_and_the_description_survive_a_backup_but_the_key_does_not(ai, 
     assert ai.get("/api/projects").get_json()[0]["cover_image_id"] == images[2]["id"]
     assert ai.get("/api/ai-images/settings").get_json()["model"] == "gpt-image-2-mini"
     assert ai.get("/api/ai-images/settings").get_json()["last4"] == KEY[-4:]                    # the key was not touched by the restore
+
+
+def test_the_standard_texts_survive_a_backup_and_replace_those_there(ai):
+    keep_preset(ai, "product_name", "Plantenbak")
+    keep_preset(ai, "specs", "30 x 12 cm\nWaterdicht PETG")
+    keep_preset(ai, "extra_text", "Op maat gemaakt")
+    keep_preset(ai, "extra_text", "Gratis verzending")
+    doc = backup(ai).get_json()
+    assert doc["image_text_presets"] == [{"field": "product_name", "text": "Plantenbak"}, {"field": "specs", "text": "30 x 12 cm\nWaterdicht PETG"},
+                                         {"field": "extra_text", "text": "Op maat gemaakt"}, {"field": "extra_text", "text": "Gratis verzending"}]
+    keep_preset(ai, "scene", "Gemaakt na de back-up")
+    assert post(ai, "/api/backup/restore", doc).status_code == 200
+    listed = ai.get(PRESETS).get_json()
+    assert [p["text"] for p in listed["extra_text"]] == ["Op maat gemaakt", "Gratis verzending"]      # the order came back
+    assert [p["text"] for p in listed["product_name"]] == ["Plantenbak"] and listed["specs"][0]["text"] == "30 x 12 cm\nWaterdicht PETG"
+    assert listed["scene"] == []                                                                     # what was added after the backup is gone, as everything else
+    del doc["image_text_presets"]                                                                    # a file from before the standard texts has none
+    assert post(ai, "/api/backup/restore", doc).status_code == 200
+    assert ai.get(PRESETS).get_json() == {"scene": [], "product_name": [], "specs": [], "extra_text": []}
+
+
+@pytest.mark.parametrize("entries", [{"field": "scene", "text": "x"}, ["scene"], [{"field": "colour", "text": "x"}], [{"field": "scene", "text": ""}],
+                                     [{"field": "scene", "text": "x" * 301}], [{"field": "specs", "text": "a\nb\nc\nd\ne\nf"}],
+                                     [{"field": "scene", "text": f"Tekst {n}"} for n in range(ai_images.PRESETS_MAX + 1)]])
+def test_a_backup_with_damaged_standard_texts_is_refused_before_anything_changes(ai, entries):
+    keep_preset(ai, "scene", "Blijft staan")
+    doc = backup(ai).get_json()
+    doc["image_text_presets"] = entries
+    assert post(ai, "/api/backup/restore", doc).status_code == 400
+    assert [p["text"] for p in ai.get(PRESETS).get_json()["scene"]] == ["Blijft staan"]
+
+
+def test_a_backup_keeps_a_standard_text_once_however_often_the_file_lists_it(ai):
+    doc = backup(ai).get_json()
+    doc["image_text_presets"] = [{"field": "scene", "text": "Op een plank"}, {"field": "scene", "text": " Op een plank "}]
+    assert post(ai, "/api/backup/restore", doc).status_code == 200
+    assert [p["text"] for p in ai.get(PRESETS).get_json()["scene"]] == ["Op een plank"]
 
 
 def test_a_backup_with_a_damaged_picture_is_refused_before_anything_changes(ai, project):

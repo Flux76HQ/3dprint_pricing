@@ -142,6 +142,8 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
     if ai:
         doc["ai_image_settings"] = {"model": ai["model"], "quality": ai["quality"],
                                     "prices": {k: ai_images._plain(ai[f"price_{k}"]) for k in ai_images.PRICE_KEYS}, "usd_eur": ai_images._plain(ai["usd_eur"])}
+    doc["image_text_presets"] = [{"field": r["field"], "text": r["body"]}                # the standard texts of the picture form, the oldest first
+                                 for r in conn.execute("SELECT field, body FROM image_text_presets ORDER BY created_at, id").fetchall()]
     doc["ai_image_usage"] = [                                                          # what the pictures cost: the tokens and the prices they were made at
         {"created_at": r["created_at"].isoformat(), "batch_id": str(r["batch_id"]), "project_id": str(r["project_id"]) if r["project_id"] else None,
          "project_number": r["project_number"], "project_name": r["project_name"], "purpose": r["purpose"], "variant": r["variant"], "model": r["model"],
@@ -362,6 +364,7 @@ def _parse(doc, archive=None, progress=None) -> dict:
     plan["packaging_images"] = _parse_packaging_images(doc.get("packaging_images"), {item["id"] for item in plan["sections"]["packaging"][1]})
     plan["ai_settings"] = _parse_ai_settings(doc.get("ai_image_settings"))
     plan["ai_usage"] = _parse_ai_usage(doc.get("ai_image_usage"), {p["id"] for p in projects})
+    plan["image_text_presets"] = _parse_image_text_presets(doc.get("image_text_presets"))
     plan["orders"] = _parse_orders(doc)
     plan["customers"] = _parse_customers(doc, plan["orders"])
     plan["invoice_pdfs"] = _parse_invoice_pdfs(doc.get("invoice_pdfs"), plan["orders"])
@@ -544,6 +547,31 @@ def _parse_ai_settings(entry):
         except ApiError as exc:
             raise _row_error("ai_image_settings", 1, exc) from None
     return parsed
+
+
+def _parse_image_text_presets(entries) -> list:
+    """The standard texts of the picture form, absent in an older file: each is checked as when it is kept (`ai_images.preset_text`, so the same limits as
+    the field), the same text twice in a field is kept once, and a field has at most `PRESETS_MAX` of them."""
+    if entries in (None, []):
+        return []
+    if not isinstance(entries, list) or len(entries) > ai_images.PRESETS_MAX * len(ai_images.PRESET_FIELDS):
+        raise _row_error("image_text_presets", 1, Localized("backup.bad_row_type"))
+    rows, seen = [], set()
+    for n, entry in enumerate(entries, 1):
+        try:
+            if not isinstance(entry, dict):
+                raise Localized("backup.bad_row_type")
+            field = entry.get("field")
+            body = ai_images.preset_text(field, entry.get("text"))
+            if (field, body) in seen:
+                continue
+            seen.add((field, body))
+            rows.append({"field": field, "body": body})
+        except (ApiError, Localized) as exc:
+            raise _row_error("image_text_presets", n, exc) from None
+    if any(sum(1 for r in rows if r["field"] == field) > ai_images.PRESETS_MAX for field in ai_images.PRESET_FIELDS):
+        raise _row_error("image_text_presets", 1, Localized("backup.bad_row_type"))
+    return rows
 
 
 def _parse_ai_usage(entries, project_ids: set) -> list:
@@ -1077,6 +1105,9 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                     price = plan["ai_settings"]["prices"]
                     conn.execute("UPDATE ai_image_settings SET price_text_in = %s, price_image_in = %s, price_image_out = %s, usd_eur = %s",
                                  (price["text_in"], price["image_in"], price["image_out"], plan["ai_settings"]["usd_eur"]))
+            conn.execute("DELETE FROM image_text_presets")          # the standard texts too: the file's list replaces the one there
+            for preset in plan["image_text_presets"]:
+                _insert(conn, "image_text_presets", preset)
             conn.execute("DELETE FROM ai_image_usage")              # what is in the file replaces what is there, as everything else does
             for usage in plan["ai_usage"]:
                 _insert(conn, "ai_image_usage", usage)
