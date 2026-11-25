@@ -395,6 +395,7 @@
  "label.slot_a4_2xa5_2": "Onder (label 2)",
  "label.title": "Label bestelling {n}",
  "label.to": "Aan",
+ "library.bad_choice": "Die keuze past niet bij deze rol. Er is niets gewijzigd; probeer het opnieuw.",
  "library.bad_list": "De lijst met filamenten klopt niet of is te groot (maximaal {max}).",
  "library.bad_row": "Regel {n}: {reason}",
  "library.contribute_off": "De bijdrage staat uit: de bron is niet de gedeelde bibliotheek van dit project.",
