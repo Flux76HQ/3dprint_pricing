@@ -639,6 +639,20 @@ code { overflow-wrap: anywhere; white-space: normal; }
 .ai-look-preview figcaption { margin: 0; }
 .ai-look-frame { display: grid; place-items: center; aspect-ratio: 1 / 1; }
 @media (max-width: 640px) { .ai-colours { grid-template-columns: 1fr; } .ai-look-preview { max-width: 240px; } }
+/* The standard texts under a text field (js/ai-images.js `presetBar`): a list to pick from, and the buttons to keep and to remove one */
+.ai-presets { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.ai-presets select { flex: 1; min-width: 0; }
+.ai-presets .btn.icon-only { flex: none; min-width: 44px; min-height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.ai-presets .btn.icon-only .icon { width: 20px; height: 20px; }
+/* The colours of the print as round buttons under a colour field (`printColours`): the circle is 26px, the button around it 40px for a finger */
+.ai-swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px; margin-top: 4px; }
+.ai-swatches[hidden], .ai-swatches.empty { display: none; }
+.ai-swatches .hint { margin: 0 8px 0 0; }
+.ai-swatch { width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; background: none; display: inline-grid; place-items: center; cursor: pointer; }
+.ai-swatch::before { content: ''; width: 26px; height: 26px; border-radius: 50%; background: var(--swatch); border: 1px solid var(--rand); box-sizing: border-box; }
+.ai-swatch:hover::before { box-shadow: 0 0 0 2px var(--rand); }
+.ai-swatch[aria-pressed="true"]::before { box-shadow: 0 0 0 2px var(--surface-field), 0 0 0 4px var(--accent); }
+.ai-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* An example of a picture (js/ai-images.js `mockup`): drawn with shapes, sized from its own width (cqi), in the colours the poster will have */
 .ai-mock { position: relative; overflow: hidden; display: block; width: 100%; aspect-ratio: 1 / 1; container-type: inline-size; border-radius: var(--radius-sm);
   border: 1px solid var(--rand); background: linear-gradient(170deg, #b9c7bf 0%, #7d9088 55%, #4a5a53 100%);

@@ -672,11 +672,15 @@ zie je in de app niets. De server beslist, niet de browser.
    | *Productafbeeldingen voor een webshop* | studio, vierkant, detail van dichtbij, liggend 3:2; strak en gelijkmatig belicht |
 
    **Kleur van het item**: standaard blijft het item zoals op de foto of in het 3D-bestand. Kies *Eigen kleur kiezen* en een kleur, dan krijgt het item die kleur op de
-   afbeeldingen (ook als de foto een andere kleur laat zien) en in de 3D-weergave. De kleur wordt bij de berekening bewaard.
+   afbeeldingen (ook als de foto een andere kleur laat zien) en in de 3D-weergave. De kleur wordt bij de berekening bewaard. Onder de kleurkiezer staan de
+   **kleuren uit de print** als ronde knoppen (*Kleuren uit de print*): de kleur van elke filamentregel van de berekening, en daarna die van de filamenten in het
+   printbestand die nog geen regel hebben (kleuren die bijna hetzelfde zijn komen één keer voor). Eén klik zet die kleur in het veld; het gekozen rondje heeft een ring.
+   Wijzig je de filamentregels, dan staat de lijst er weer goed op zodra je met de muis of de vinger bij de kleuren komt.
 
    **Kleur van tekst en balken**: in hetzelfde vlak kies je de kleuren van de poster (zie *Teksten op de afbeelding* hieronder). *Automatisch, passend bij de foto*
    volgt de foto en de stijl van je keuze. Met *Eigen kleuren kiezen* stel je de kleur van de **tekst** in en die van de **balken en het label** (het accentstreepje
    boven de naam, de opsommingstekens en het label met de extra tekst); *Balken in de kleur van het item* neemt de kleur van het item over, zodat alles bij elkaar past.
+   Onder de kleur van de **tekst** en die van de **balken en het label** staan dezelfde kleuren uit de print als ronde knoppen, om er met één klik een te kiezen.
    Ook met eigen kleuren blijft de poster leesbaar: de app kiest zelf of de tekst op een donkere of een lichte waas staat (en maakt die sterker als dat tegen de foto
    in gaat), en het label krijgt witte of donkere letters, wat het best leest op de gekozen kleur.
 
@@ -688,6 +692,14 @@ zie je in de app niets. De server beslist, niet de browser.
    **Setting (extra aanwijzing)**: optioneel beschrijf je in je eigen woorden de omgeving waarin het item te zien moet zijn (bijvoorbeeld “op een houten
    bureau naast een laptop, in zacht ochtendlicht”). Dat komt boven op de *Omschrijving van het object* in de opdracht voor het model; de studiofoto houdt zijn
    neutrale achtergrond. Het wordt bij de berekening bewaard.
+
+   **Standaardteksten**: onder *Setting (extra aanwijzing)*, *Productnaam*, *Korte specs* en *Extra tekst* staat een rij met een lijstje en twee knoppen. Typ een tekst
+   die je vaker gebruikt en kies *Bewaar als standaardtekst* (het bladwijzer-icoon met plusje): hij komt in het lijstje van dat veld. In een andere berekening kies je hem
+   daar weer uit *Standaardtekst kiezen…*, en het veld wordt ingevuld en bewaard alsof je hem hebt getypt. Het lijstje volgt het veld: staat er een standaardtekst in het
+   veld, dan toont het lijstje die; met de prullenbak verwijder je die standaardtekst uit het lijstje (berekeningen die hem al gebruiken houden hun eigen tekst). Een
+   standaardtekst voor *Korte specs* bevat alle regels in één keer. Dezelfde tekst wordt per veld maar één keer bewaard, en een veld heeft er hooguit 50. De
+   standaardteksten zijn van het bedrijf, niet van één berekening of persoon: iedereen die afbeeldingen maakt ziet dezelfde lijstjes. Ze zitten in de back-up
+   en gaan weg bij een fabrieksreset.
 
    **Teksten op de afbeelding**: *Productnaam*, *Korte specs* (een per regel, hooguit 5) en *Extra tekst*. Zijn alle drie ingevuld, dan wordt de **eerste**
    van de vier een reclameposter: de teksten liggen als overlay over de foto (geen vlak of kader, de foto loopt er zacht in over), met de naam als grote kop
