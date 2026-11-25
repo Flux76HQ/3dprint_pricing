@@ -3,7 +3,7 @@
 # release: the `docker` workflow sets it to VERSION at a promotion (scripts/bump_version.py --sync-addon). Beta raises VERSION for every
 # merged pull request, but that leaves this file alone. homeassistant/Dockerfile builds on that tag. Never edit it by hand.
 name: 3D Print Pricing
-version: "2.0.0"
+version: "2.9.0"
 slug: printpricing
 description: Cost price calculator and inventory for a 3D-print business, with its own database
 url: https://github.com/Flux76HQ/3dprint_pricing
