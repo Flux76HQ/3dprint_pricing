@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { t } from './i18n.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
+import { groupField } from './groups.js';
 import { cameraAvailable, cameraPanel } from './scanner.js';
 import { enhanceDialog, fill, fmt, h, icon, spoolName, toast } from './ui.js';
 
@@ -8,16 +9,18 @@ import { enhanceDialog, fill, fmt, h, icon, spoolName, toast } from './ui.js';
 // the code and presses Enter). Every scan is one roll, so scanning a barcode again adds a roll to its line. What a roll is made of (the
 // newest roll with that barcode, else the filament library's entry with it) is decided by the server, for the list as for adding
 // (`/api/spools/from-barcode`, `/api/spools/bulk`), so what is listed is what is made. A barcode that neither knows is filled in once
-// with the roll form; the other rolls with that barcode then follow from it.
+// with the roll form; the other rolls with that barcode then follow from it. A label printed by Spoolman names a roll that is in the app already (or is
+// still to be synced): it adds nothing, and says so, so that scanning a roll of the shelf by mistake does not make a second one.
 const SAME_ROLL_MS = 1500;      // the camera reads a code several times a second: it counts again once it has been out of view this long
 const num = (v) => (v === '' || v == null ? '' : String(v).replace(',', '.'));
 
 /** Opens the scan list. `newRoll(code, saved)` opens the roll form for a new roll with that barcode and returns its dialog (it calls
     `saved` once the roll is saved); `reload` refreshes the page behind once rolls were added. */
 export function openBulkScan({ newRoll, reload }) {
-  const lines = [];             // { code, count, state: 'loading' | 'known' | 'unknown' | 'error', roll, source, stock, price, el }
+  const lines = [];             // { code, count, state: 'loading' | 'known' | 'unknown' | 'label' | 'error', roll, source, stock, price, el }
   let changed = false;          // rolls were saved (by the roll form or by adding the list): the page behind is refreshed on closing
   let saving = false;
+  let group = '';               // where the whole delivery is put away (a name; empty = in no group)
   let seq = 0;
 
   const status = h('p', { class: 'muted scan-status', role: 'status' });
@@ -27,7 +30,8 @@ export function openBulkScan({ newRoll, reload }) {
   const error = h('p', { class: 'error', role: 'alert', hidden: true });
   const library = h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: true });
   const submit = h('button', { class: 'btn primary', type: 'button', onclick: () => save() });
-  const total = () => lines.reduce((n, line) => n + line.count, 0);
+  const added = () => lines.filter((line) => line.state !== 'label');           // a label of Spoolman is not a roll to add
+  const total = () => added().reduce((n, line) => n + line.count, 0);
 
   // Typing, or a hardware scanner (which types the code and presses Enter).
   const input = h('input', { type: 'text', id: 'bulk-code', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'done',
@@ -89,7 +93,8 @@ export function openBulkScan({ newRoll, reload }) {
     draw(line);
     try {
       const found = await api('GET', `/api/spools/from-barcode?barcode=${encodeURIComponent(line.code)}`);
-      Object.assign(line, { roll: found.roll, source: found.source, stock: found.stock, state: found.roll ? 'known' : 'unknown' });
+      Object.assign(line, { roll: found.roll, source: found.source, stock: found.stock, label: found.label, state: found.label ? 'label' : (found.roll ? 'known' : 'unknown') });
+      if (found.label) line.roll = found.label.roll;
       if (found.roll && !line.priceTyped) line.price = found.roll.price ?? '';
     } catch (e) {
       Object.assign(line, { state: 'error', error: e.message });
@@ -103,6 +108,7 @@ export function openBulkScan({ newRoll, reload }) {
     const name = line.roll ? spoolName(line.roll, ' · ') : line.code;
     status.textContent = {
       loading: t('bulk.looking', { code: line.code }),
+      label: t(line.roll ? 'bulk.label' : 'bulk.label_unknown', { name, n: line.label?.number }),
       known: t('bulk.scanned', { name, n: line.count }),
       unknown: t('bulk.scanned_unknown', { code: line.code }),
       error: t('bulk.lookup_failed', { code: line.code }),
@@ -124,7 +130,8 @@ export function openBulkScan({ newRoll, reload }) {
 
   function draw(line) {
     const roll = line.roll;
-    const name = roll ? spoolName(roll, ' · ') : t('bulk.unknown_title');
+    const name = roll ? spoolName(roll, ' · ') : t(line.state === 'label' ? 'bulk.label_title' : 'bulk.unknown_title');
+    const label = line.state === 'label';
     const count = h('span', { class: 'scan-count' }, String(line.count));
     const less = h('button', { class: 'btn small', type: 'button', disabled: line.count <= 1, 'aria-label': t('bulk.less', { name }),
       onclick: () => { line.count -= 1; draw(line); } }, '−');
@@ -140,6 +147,7 @@ export function openBulkScan({ newRoll, reload }) {
       known: [t('filament.barcode_note', { code: line.code }), t(line.source === 'library' ? 'bulk.from_library' : 'bulk.from_roll'),
         roll ? `${fmt(roll.roll_weight_g, 0)} g` : null, roll?.material].filter(Boolean).join(' · '),
       unknown: t('filament.barcode_note', { code: line.code }),
+      label: t(roll ? 'bulk.label' : 'bulk.label_unknown', { name, n: line.label?.number }),
       error: line.error,
     }[line.state];
     fill(line.el,
@@ -150,7 +158,8 @@ export function openBulkScan({ newRoll, reload }) {
       line.state === 'unknown' ? h('div', { class: 'notice warn stack' }, h('p', {}, t('bulk.unknown_hint', { n: line.count })),
         h('div', { class: 'row' }, h('button', { class: 'btn small primary', type: 'button', onclick: () => fillIn(line) }, t('bulk.fill_in')))) : null,
       line.state === 'error' ? h('div', { class: 'row' }, h('button', { class: 'btn small', type: 'button', onclick: () => look(line) }, t('scanner.retry'))) : null,
-      h('div', { class: 'row scan-controls' }, price, h('div', { class: 'row nowrap scan-stepper', role: 'group', 'aria-label': t('bulk.count_label') }, less, count, more), drop));
+      h('div', { class: 'row scan-controls' }, label ? null : price,
+        label ? null : h('div', { class: 'row nowrap scan-stepper', role: 'group', 'aria-label': t('bulk.count_label') }, less, count, more), drop));
     refresh();
   }
 
@@ -158,7 +167,7 @@ export function openBulkScan({ newRoll, reload }) {
   function refresh() {
     const n = total();
     empty.hidden = lines.length > 0;
-    const open = lines.some((line) => line.state !== 'known');
+    const open = added().some((line) => line.state !== 'known');
     blocked.hidden = !lines.some((line) => line.state === 'unknown' || line.state === 'error');
     submit.textContent = n ? t('bulk.add', { n }) : t('bulk.add_none');
     submit.disabled = saving || !n || open;
@@ -170,8 +179,9 @@ export function openBulkScan({ newRoll, reload }) {
     error.hidden = true;
     try {
       const done = await api('POST', '/api/spools/bulk', {
-        items: lines.map((line) => ({ barcode: line.code, count: line.count, price: num(line.price) })),
+        items: added().map((line) => ({ barcode: line.code, count: line.count, price: num(line.price) })),
         add_to_library: library.checked,
+        group,
       });
       lines.length = 0;                                          // added: closing has nothing left to lose
       changed = true;
@@ -198,6 +208,7 @@ export function openBulkScan({ newRoll, reload }) {
     list,
     blocked,
     h('div', { class: 'field' }, h('label', { class: 'check' }, library, t('library.also_add')), h('p', { class: 'hint' }, t('library.also_add_hint'))),
+    groupField({ id: 'bulk-group', label: t('bulk.group'), hint: t('bulk.group_hint'), value: '', onchange: (name) => { group = name.trim(); } }),
     error,
     h('div', { class: 'row end' },
       h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),

@@ -330,8 +330,8 @@ def test_barcode_lookup_returns_the_newest_roll_with_that_barcode(owner):
     make(owner, "/api/spools", {**base, "brand": "Ander", "barcode": "1234"})
     assert owner.get("/api/spools/lookup?barcode=8719").get_json()["spool"]["brand"] == "Nieuw"
     assert owner.get("/api/spools/lookup?barcode=%208719%20").get_json()["spool"]["brand"] == "Nieuw"   # scanner whitespace
-    assert owner.get("/api/spools/lookup?barcode=0000").get_json() == {"spool": None, "stock": None}
-    assert owner.get("/api/spools/lookup").get_json() == {"spool": None, "stock": None}      # empty never matches the "no barcode" rolls
+    assert owner.get("/api/spools/lookup?barcode=0000").get_json() == {"spool": None, "stock": None, "label": None}
+    assert owner.get("/api/spools/lookup").get_json() == {"spool": None, "stock": None, "label": None}      # empty never matches the "no barcode" rolls
     assert owner.get("/api/spools").status_code == 200                            # the list route is unaffected
 
 
@@ -384,8 +384,8 @@ def test_the_barcode_lookup_includes_what_is_in_stock_of_it(owner):
     assert found["spool"]["brand"] == "Bambu PLA Basic" and found["stock"]["roll_count"] == 2
     assert Decimal(found["stock"]["remaining_g"]) == 1300
     unknown = owner.get("/api/spools/lookup?barcode=000").get_json()
-    assert unknown == {"spool": None, "stock": None}
-    assert owner.get("/api/spools/lookup").get_json() == {"spool": None, "stock": None}
+    assert unknown == {"spool": None, "stock": None, "label": None}
+    assert owner.get("/api/spools/lookup").get_json() == {"spool": None, "stock": None, "label": None}
 
 
 def test_stock_needs_a_session(client):
@@ -422,7 +422,7 @@ def test_a_scanned_barcode_that_only_the_library_knows_comes_from_the_library(ow
     assert found["source"] == "library" and found["stock"] is None
     assert (found["roll"]["colour"], found["roll"]["price"], found["roll"]["barcode"]) == ("Grijs", "19.99", "abc-1")
     unknown = owner.get("/api/spools/from-barcode?barcode=0000").get_json()
-    assert unknown == {"barcode": "0000", "source": None, "roll": None, "stock": None}
+    assert unknown == {"barcode": "0000", "source": None, "roll": None, "stock": None, "label": None}
     assert owner.get("/api/spools/from-barcode").get_json()["roll"] is None             # empty never matches the rolls without one
 
 

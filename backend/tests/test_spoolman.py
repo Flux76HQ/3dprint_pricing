@@ -1,6 +1,7 @@
 """Spoolman as the source of the rolls and of what is used: the sync, a roll that is one row wherever it was entered, what a mirrored roll may and
 may not do, and that nothing is booked from a calculation while there is a Spoolman."""
 import dataclasses
+from urllib.parse import unquote
 
 import pytest
 import requests
@@ -15,9 +16,9 @@ URL = "http://spoolman.test:7912"
 NL = {"X-Lang": "nl"}
 
 
-def spool(number, *, vendor="Bambu Lab", name="Zwart", material="PLA", remaining=800.0, initial=1000.0, price=19.5, archived=False, **filament):
+def spool(number, *, vendor="Bambu Lab", name="Zwart", material="PLA", remaining=800.0, initial=1000.0, price=19.5, archived=False, location=None, **filament):
     return {"id": number, "archived": archived, "price": price, "remaining_weight": remaining, "initial_weight": initial, "used_weight": 0,
-            "comment": "", "filament": {"id": number, "name": name, "material": material, "vendor": {"name": vendor}, "diameter": 1.75,
+            "comment": "", "location": location, "filament": {"id": number, "name": name, "material": material, "vendor": {"name": vendor}, "diameter": 1.75,
                                        "color_hex": "1A1A1A", "article_number": f"EAN-{number}", "settings_extruder_temp": 220,
                                        "settings_bed_temp": 55, **filament}}
 
@@ -39,6 +40,7 @@ class Spoolman:
     def __init__(self):
         self.vendors, self.filaments, self.created, self.made, self.spool_limit = [], [], [], [], None
         self.spools, self.used, self.down, self.answer, self.no_use = [], [], False, None, False
+        self.patched, self.renamed, self.no_patch = [], [], False          # the locations that were set, those that were renamed, and a Spoolman that refuses both
 
     def request(self, method, url, params=None, json=None, **kwargs):
         import json as jsonlib
@@ -71,10 +73,30 @@ class Spoolman:
                 raise requests.ConnectionError("down")
             filament = next(f for f in self.filaments if f["id"] == json["filament_id"])
             made = {"id": 500 + len(self.made), "archived": False, "filament": filament, "price": json.get("price"),
-                    "remaining_weight": json["remaining_weight"], "initial_weight": json["initial_weight"], "comment": json.get("comment", "")}
+                    "remaining_weight": json["remaining_weight"], "initial_weight": json["initial_weight"], "comment": json.get("comment", ""),
+                    "location": json.get("location")}
             self.made.append(json)
             self.spools.append(made)
             return Reply(body=jsonlib.dumps(made).encode())
+        if method == "PATCH" and path.startswith("/spool/"):
+            if self.no_patch:
+                raise requests.ConnectionError("down")
+            number = int(path.split("/")[2])
+            target = next((s for s in self.spools if s["id"] == number), None)
+            if target is None:
+                return Reply(404, b"{}")
+            self.patched.append((number, json))
+            target.update(json)
+            return Reply(body=jsonlib.dumps(target).encode())
+        if method == "PATCH" and path.startswith("/location/"):
+            if self.no_patch:
+                raise requests.ConnectionError("down")
+            old = unquote(path[len("/location/"):])
+            self.renamed.append((old, json["name"]))
+            for target in self.spools:
+                if str(target.get("location") or "").lower() == old.lower():
+                    target["location"] = json["name"]
+            return Reply(body=jsonlib.dumps(json["name"]).encode())
         if method == "PUT" and path.endswith("/use"):
             if self.no_use:
                 raise requests.ConnectionError("down")
@@ -217,7 +239,7 @@ def test_a_sync_makes_a_roll_of_every_spool_and_the_status_says_so(owner, server
     server.spools[1]["used_weight"] = 250.0
     server.spools[1]["filament"]["price"] = 24.99
     res = sync(owner)
-    assert res.status_code == 200 and res.get_json() == {"created": 2, "linked": 0, "updated": 0, "archived": 0, "skipped": 0, "total": 2, "sent": 0, "dropped": 0}
+    assert res.status_code == 200 and res.get_json() == {"created": 2, "linked": 0, "updated": 0, "archived": 0, "skipped": 0, "total": 2, "groups": 0, "sent": 0, "dropped": 0}
     black, orange = rolls(owner)[1], rolls(owner)[2]
     assert (black["brand"], black["colour"], black["material"], black["colour_hex"], black["barcode"]) == ("Bambu Lab", "Zwart", "PLA", "#1a1a1a", "EAN-1")
     assert (black["roll_weight_g"], black["remaining_g"], black["price"], black["diameter_mm"], black["print_temp_c"], black["bed_temp_c"]) == \

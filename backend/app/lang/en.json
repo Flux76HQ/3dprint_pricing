@@ -98,6 +98,7 @@
  "backup.s.accessories": "Accessories",
  "backup.s.filament_library": "Filament library",
  "backup.s.files": "Print files",
+ "backup.s.groups": "Groups",
  "backup.s.image_text_presets": "Standard texts for images",
  "backup.s.listings": "Listings",
  "backup.s.packaging_images": "Pictures of packaging",
@@ -155,6 +156,7 @@
  "f.file_kind": "Kind of location",
  "f.file_label": "Name of the location",
  "f.file_location": "Location of the files",
+ "f.group": "Group",
  "f.link_label": "Name of the link",
  "f.listing_description": "Text of the listing",
  "f.listing_price": "Selling price",
@@ -553,5 +555,10 @@
  "webhook.err_timeout": "The receiver did not answer in time.",
  "webhook.err_unreachable": "The receiver cannot be reached.",
  "webhook.err_url": "Enter a full address that starts with http:// or https://, without a login name or a # part.",
- "webhook.too_many": "There are {max} webhooks already. Delete one first."
+ "webhook.too_many": "There are {max} webhooks already. Delete one first.",
+ "group.exists": "There is already a group called {name}.",
+ "group.no_rolls": "Choose one or more rolls first.",
+ "group.not_empty_one": "There is still 1 roll in the group {name}. Move that roll to another group first.",
+ "group.not_empty_other": "There are still {n} rolls in the group {name}. Move those rolls to another group first.",
+ "group.too_many": "Too many rolls at once: {max} at most."
 }

@@ -937,6 +937,18 @@ velden zelf, niet in een blok ernaast. SpoolmanDB is een lijst van filamenten va
   kunnen dan niet meer worden opgezocht. De momentopname in de repository ververs je met `python scripts/sync_spoolmandb.py`, wat dezelfde controles doet en de
   bestanden deterministisch schrijft, zodat de wijziging als pull request leesbaar is.
 
+## Groepen: bakken en opberglocaties
+
+Een **groep** is de plek waar rollen liggen: een bak, plank, lade, droogbox, of de AMS van een printer. Een rol zit in hooguit één groep, en je kunt de lijsten op groep filteren. Met [Spoolman](#spoolman-optioneel) is een groep de **locatie** van een spoel: ze lopen mee.
+
+- **Een rol in een groep zetten.** In het rolformulier staat het veld *Groep (bak of opberglocatie)*: kies een bestaande groep of typ een nieuwe naam, dan wordt die groep gemaakt. Meerdere rollen tegelijk: zet bij *Filament → Rollen* *Selecteren* aan,
+  vink de rollen aan en kies *Naar groep…*. Eén rol kan ook met het mapje achter de rol. Een hele levering die je scant (*Filament → Scannen*) leg je in één keer in een groep met het veld *Leg in groep*. Hoofdletters maken niet uit: *bak a* en *Bak A* zijn dezelfde groep.
+- **Het tabblad Groepen** (*Filament → Groepen*) toont elke groep met het aantal rollen en de grammen die erin liggen. Hier maak je een groep (*Nieuwe groep*, ook een lege, voor een bak die nog leeg staat), hernoem je hem, en open je de rollen erin met de loep.
+  Een groep **verwijderen** kan pas als er geen rol meer in ligt (ook geen gearchiveerde): verplaats de rollen eerst. Zo komt een groep die Spoolman nog gebruikt nooit terug na het verwijderen.
+- **Filteren op groep.** Bij *Voorraad* en bij *Rollen* staat onder *Filteren* het filter *Groep*, met *Zonder groep* voor rollen die nergens liggen. Bij *Voorraad* telt dan wat **in die groep** ligt: heb je drie rollen PLA zwart in twee bakken en kies je één bak,
+  dan zie je alleen de rollen en de grammen in die bak. Zonder filter telt elke rol mee, ook een rol die in geen groep ligt. De groep is ook te zien op de rol en in de kolom *Groep* van de lijst, en je kunt erop sorteren.
+- **Back-up.** Een back-up bevat de groepen (ook lege) en de groep van elke rol, op naam. Een back-up van vóór de groepen kan nog steeds worden teruggezet: de rollen liggen dan in geen groep.
+
 ## Spoolman (optioneel)
 
 Gebruik je [Spoolman](https://github.com/Donkie/Spoolman) voor je spoelen, dan kan dat de **bron van de rollen en van wat er nog op zit** zijn, zodat je dat op één plek bijhoudt. Je vult het adres in als beheerder
@@ -950,7 +962,7 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
   opmerking en wat er nog op zit komen uit Spoolman; de *artikelnummer* van het filament wordt de barcode (rollen met dezelfde barcode tellen in de voorraad samen). Een spoel met een eigen prijs telt voor die prijs, anders geldt de prijs van het filament.
   **Prijzen worden overgenomen zoals ze in Spoolman staan en gelden hier als prijs excl. btw**, net als overal in de app.
 - **Een rol uit Spoolman is van Spoolman.** Je past hem daar aan; hier kan je hem niet bewerken, archiveren of verwijderen (de volgende synchronisatie zou het terugzetten). Alleen de melding *bijna op* is van de app
-  en blijft staan. Een spoel die in Spoolman is gearchiveerd, wordt hier gearchiveerd; een spoel die uit Spoolman is verdwenen wordt hier **gearchiveerd, nooit verwijderd**, omdat opgeslagen berekeningen ernaar kunnen verwijzen.
+  en blijft staan, en de **groep** verplaats je hier (zie *Groepen en locaties*). Een spoel die in Spoolman is gearchiveerd, wordt hier gearchiveerd; een spoel die uit Spoolman is verdwenen wordt hier **gearchiveerd, nooit verwijderd**, omdat opgeslagen berekeningen ernaar kunnen verwijzen.
 - **Een rol staat hier één keer.** Stond een rol hier al omdat je hem met de hand invoerde, en leest de app daarna de spoel uit Spoolman die dezelfde rol is, dan wordt die rol **aan de spoel gekoppeld** en komt er geen tweede bij
   (de melding na het synchroniseren telt ze als *gekoppeld*). Dezelfde rol is: hetzelfde merk en dezelfde barcode (in Spoolman het artikelnummer), of zonder barcode hetzelfde merk, dezelfde naam (type en kleur) en hetzelfde materiaal,
   ongeacht hoofdletters. Eén rol hoort bij één spoel: heb je twee rollen van een soort en staat er één spoel in Spoolman, dan wordt de rol gekoppeld waarvan het gewicht het dichtst bij dat van de spoel ligt en blijft de andere een eigen rol.
@@ -960,6 +972,15 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
   al van de printer, dus hier afboeken zou dezelfde grammen twee keer van de rol halen. Dat geldt voor alle rollen, ook voor een rol die je met de hand invoerde. Haal je het adres van Spoolman weg, dan boek je weer af als voorheen.
   Boekingen van vóór deze regel die Spoolman nog niet had gekregen, gaan nog mee bij de volgende synchronisatie (tot dan telt de app ze af van het gewicht dat Spoolman meldt); een melding die Spoolman voorgoed weigert
   (de spoel bestaat daar niet meer) wordt laten vallen.
+- **Groepen en locaties.** Een groep (zie [Groepen](#groepen-bakken-en-opberglocaties)) is de **locatie** van een spoel in Spoolman. Bij het synchroniseren wordt de locatie van elke spoel de groep van zijn rol (een locatie die hier nieuw is, maakt een groep; de melding telt die),
+  en een spoel zonder locatie is een rol zonder groep. Verplaats je hier een rol uit Spoolman naar een groep (of haal je hem eruit), dan wordt **eerst de locatie van de spoel in Spoolman** aangepast en pas daarna de rol hier; is Spoolman niet bereikbaar, dan blijft de rol waar hij was
+  (er verschijnt een foutmelding) en verspringt er dus nooit een rol naar een andere groep dan in Spoolman. Hernoem je een groep waar rollen uit Spoolman in liggen, dan gaat de hele locatie in Spoolman in één keer mee. Dit is het enige dat de app van een spoel verandert, naast het aanmaken van spoelen en het melden van verbruik.
+  Een rol die je met de hand invoerde en die daarna aan zijn spoel wordt gekoppeld, houdt zijn groep als Spoolman geen locatie voor de spoel heeft; een locatie in Spoolman gaat voor. Een groep verplaatsen of hernoemen mag iedereen; de knoppen *Synchroniseren* en de pushes blijven voor beheerders.
+- **Labels van Spoolman scannen.** Op de labels die Spoolman maakt (*Print* → QR-code) staat een QR-code met `WEB+SPOOLMAN:S-<nummer>`, of, als je bij Spoolman voor het adres koos, het adres van de spoel (`…/spool/show/<nummer>`). De scanner in de app (de scanknop naast het zoekveld van *Filament*, of een
+  hardwarescanner die in het zoekveld typt en met Enter afsluit) herkent beide: de lijst toont dan **alleen die rol** (bij *Voorraad* de soort waar hij bij hoort), onder een blokje *Gescand: …* dat je met het kruisje of *Wis filters* weer weghaalt. Dat het adres bij een andere server hoort, maakt niet uit: alleen het nummer telt en de app roept er niets mee aan.
+  Hoort het label bij een spoel die hier nog niet staat, dan zegt de app dat en vraagt hij je eerst te synchroniseren. Zo'n label is **nooit een barcode**: in het rolformulier wordt het niet als barcode bewaard, en in *Scannen* (een levering) wordt het genegeerd, want die rol staat er al. Een gewone barcode werkt als voorheen.
+- **Groepen naar Spoolman.** De knop zet de groep van elke gekoppelde rol als locatie in Spoolman, **waar Spoolman nog geen locatie voor de spoel heeft**. Een locatie die Spoolman al heeft (dezelfde of een andere) blijft zoals ze is, en er wordt niets gewist. Eerst zie je hoeveel spoelen het zijn. Je hebt dit zelden nodig,
+  want een rol hier verplaatsen meldt het Spoolman direct; het is voor rollen die al in een groep lagen voordat ze aan hun spoel werden gekoppeld. Hoogstens 300 per keer. *Rollen naar Spoolman* geeft de spoel die het maakt meteen de groep van de rol als locatie.
 - **Bibliotheek naar Spoolman.** De knop zet de filamenten van de [filamentbibliotheek](#filamentbibliotheek) in Spoolman, zodat je daar alleen nog een spoel hoeft toe te voegen (en die komt met de volgende synchronisatie hier). Eerst zie je
   hoeveel er worden aangemaakt. Merken die Spoolman nog niet kent worden aangemaakt; een filament dat Spoolman al heeft (zelfde merk en artikelnummer, of zelfde merk, naam en materiaal) blijft **ongemoeid**, en er wordt in Spoolman
   **nooit iets verwijderd of overschreven**. De kleur (met het type ervoor) wordt de naam, barcode (anders SKU) het artikelnummer en de richtprijs de prijs. Spoolman eist een dichtheid: de app neemt een gangbare waarde per materiaal
@@ -970,7 +991,7 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
   dan wordt de rol daaraan gekoppeld en wordt er **geen tweede spoel** gemaakt; de bevestiging noemt dat aantal apart. Elke rol wordt apart vastgelegd: gaat het halverwege mis, dan blijven de al gekoppelde
   rollen gekoppeld en maakt een tweede run ze niet opnieuw aan. Daarna komen merk, type en kleur van de rol uit Spoolman (het type komt daar vóór de kleur in de naam te staan). Hoogstens 300 spoelen per keer.
 - **De bibliotheek blijft.** Spoolman vervangt de bibliotheek niet: zonder `SPOOLMAN_URL` werkt alles als voorheen, en de bibliotheek (GitHub-sync, factuurimport, bijdragen) kan ernaast blijven bestaan.
-- **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft. De wachtrij met eerdere boekingen die nog naar Spoolman moeten zit er niet in (werk in uitvoering).
+- **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft; de groepen staan er ook in (zie *Groepen*). De wachtrij met eerdere boekingen die nog naar Spoolman moeten zit er niet in (werk in uitvoering).
 
 ## Bambu Lab Filament Manager (optioneel)
 
