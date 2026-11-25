@@ -167,6 +167,65 @@ function contributeDialog({ entries, already_there: known }, base) {
   dialog.showModal();
 }
 
+/** What an entry is called when two of them differ only by their spool: the name as the invoice preview shows it, with "met spoel" for the one that is not a refill. */
+const entryName = (e) => libraryName(e) + (e.refill ? '' : ` · ${t('library.spool_short')}`);
+
+/** Rolls that fit more than one entry (a refill and a roll with spool): the owner says which one each is, comparing the roll with the invoice data of every
+ * entry it could be (name, ID, SKU, reference price and barcode, as the invoice preview shows them). A choice completes that entry from the roll and gives the
+ * roll the entry's barcode; a roll left on *Overslaan* is only read. Nothing happens until *Toepassen*. */
+function unclearDialog(counts, onDone) {
+  const rows = counts.unclear_rolls.map((roll) => {
+    const name = `pick-${roll.id}`;
+    return { roll, skip: h('input', { type: 'radio', name, value: '', checked: true }),
+      options: roll.candidates.map((entry) => ({ entry, input: h('input', { type: 'radio', name, value: entry.id }) })) };
+  });
+  const error = h('p', { class: 'error', role: 'alert', hidden: true });
+  // A roll that has a barcode of its own, or belongs to Spoolman or the Bambu cloud, keeps it (`taggable` is the server's word).
+  const note = (roll, entry) => {
+    if (!roll.taggable) return t('library.unclear_fixed');
+    return entry.barcode ? t('library.unclear_tag', { code: entry.barcode }) : t('library.unclear_no_tag');
+  };
+  const apply = async () => {
+    const choices = {};
+    for (const { roll, options } of rows) {
+      const picked = options.find((o) => o.input.checked);
+      if (picked) choices[roll.id] = picked.entry.id;
+    }
+    if (!Object.keys(choices).length && !counts.added && !counts.updated) { error.textContent = t('library.unclear_none'); error.hidden = false; return; }
+    try {
+      const done = await api('POST', '/api/filament-library/from-rolls', { choices });
+      dialog.close();
+      toast([t('library.from_rolls_done', done), done.tagged ? t('library.from_rolls_tagged', done) : '', done.unclear ? t('library.from_rolls_unclear', { n: done.unclear }) : ''].filter(Boolean).join(' '));
+      onDone();
+    } catch (e) { error.textContent = e.message; error.hidden = false; }
+  };
+  const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
+    h('div', { class: 'stack' },
+      h('h2', {}, t('library.unclear_title')),
+      h('p', { class: 'muted' }, t('library.unclear_intro', { n: rows.length })),
+      counts.added || counts.updated ? h('p', { class: 'muted' }, [counts.added ? t('library.unclear_added', { n: counts.added }) : '', counts.updated ? t('library.unclear_updated', { n: counts.updated }) : ''].filter(Boolean).join(' ')) : null,
+      h('p', { class: 'hint' }, t('library.unclear_hint')),
+      h('ul', { class: 'plain-list' }, rows.map(({ roll, skip, options }) => h('li', { class: 'list-row' }, h('div', { class: 'stack pick-roll' },
+        h('div', { class: 'item-head' }, spoolIcon(colourOf(roll), 30),
+          h('div', { class: 'grow' }, h('strong', {}, libraryName(roll)),
+            h('p', { class: 'muted' }, [`${fmt(roll.roll_weight_g, 0)} g · ${fmt(roll.diameter_mm)} mm`, t('library.unclear_paid', { price: eur(roll.price) }),
+              t('library.unclear_left', { g: fmt(roll.remaining_g, 0) })].join(' · ')),
+            h('p', { class: 'muted' }, roll.barcode ? t('library.invoice_barcode', { code: roll.barcode }) : t('library.unclear_roll_no_barcode')))),
+        h('fieldset', { class: 'pick-list' }, h('legend', { class: 'muted' }, t('library.unclear_pick')),
+          options.map(({ entry, input }) => h('label', { class: 'check pick' }, input,
+            h('div', { class: 'grow' }, h('strong', {}, entryName(entry)), h('p', { class: 'muted' }, details(entry)),
+              h('p', { class: 'muted' }, entry.barcode ? t('library.invoice_barcode', { code: entry.barcode }) : t('library.invoice_no_barcode')),
+              h('p', { class: 'hint' }, note(roll, entry))))),
+          h('label', { class: 'check pick' }, skip, t('library.unclear_skip'))))))),
+      error,
+      h('div', { class: 'row end' },
+        h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
+        h('button', { class: 'btn primary', type: 'button', onclick: apply }, t('library.unclear_do'))))));
+  dialog.addEventListener('close', () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
 /** Invoice, the rolls in stock, JSON file and GitHub sync: the ways to fill the library without typing. */
 function shareCard(state) {
   const pdf = h('input', { type: 'file', accept: '.pdf,application/pdf', hidden: true, 'aria-label': t('library.invoice'), onchange: async () => {
@@ -216,9 +275,9 @@ function shareCard(state) {
   const fromRolls = async () => {
     try {
       const counts = await api('POST', '/api/filament-library/from-rolls?dry_run=1');
-      const unclear = counts.unclear ? ` ${t('library.from_rolls_unclear', counts)}` : '';
-      if (!counts.added && !counts.updated) { toast(t('library.from_rolls_nothing') + unclear); return; }
-      if (!(await confirmDialog(t('library.from_rolls_confirm', counts) + unclear, t('library.from_rolls_do')))) return;
+      if (counts.unclear_rolls.length) { unclearDialog(counts, state.reload); return; }        // some rolls need the owner to say which entry they are
+      if (!counts.added && !counts.updated) { toast(t('library.from_rolls_nothing')); return; }
+      if (!(await confirmDialog(t('library.from_rolls_confirm', counts), t('library.from_rolls_do')))) return;
       const done = await api('POST', '/api/filament-library/from-rolls');
       toast(t('library.from_rolls_done', done));
       state.reload();

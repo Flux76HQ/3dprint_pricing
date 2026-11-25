@@ -14,7 +14,7 @@ import requests
 from flask import Blueprint, Response, jsonify, request
 
 from . import bambu_invoice, bambu_store
-from .api import RESOURCES, _validated
+from .api import RESOURCES, _validated, stock_changed
 from .colour_names import loose_kind, to_english
 from .config import CONTRIBUTE_URL, DEFAULT_LIBRARY_URL
 from .http import ApiError, config, json_body, login_required, pool
@@ -206,6 +206,44 @@ def complete(conn, index: Index, row: dict, source: dict, *, price=None) -> dict
     return updated
 
 
+def _match(rows: list[dict], roll: dict, extra=None) -> "tuple[dict, list[dict]]":
+    """(what the roll says about its filament, the library entries it could be): the same barcode is the same filament; so is the same SpoolmanDB
+    id; without either, the same brand, material, type, colour, weight and diameter, as a refill or not (`extra["refill"]`, when it is known, makes
+    that exact), with the colour read in either language."""
+    extra = extra if isinstance(extra, dict) else {}
+    refill = extra["refill"] if isinstance(extra.get("refill"), bool) else None
+    spec = {**BLANK, **{k: roll[k] for k in ("brand", "product_type", "material", "colour", "colour_hex", "barcode", "roll_weight_g",
+                                              "diameter_mm", "print_temp_c", "bed_temp_c", "spoolmandb_id")},
+            "filament_id": str(extra.get("filament_id") or "").strip()[:20], "refill": bool(refill)}
+    code, source = _n(spec, "barcode"), spec["spoolmandb_id"]
+    found = [r for r in rows if code and _n(r, "barcode") == code] or \
+        [r for r in rows if source and r["spoolmandb_id"] == source and (refill is None or r["refill"] == refill)] or \
+        [r for r in rows if loose_kind(r) == loose_kind(spec) and (refill is None or r["refill"] == refill)]
+    return spec, found
+
+
+def _place(conn, roll: dict, extra=None, *, chosen=None) -> "tuple[str, dict | None]":
+    """What `add_roll` does, and the entry the roll turned out to be (None when it was added, or when it is not clear which one it is).
+    `chosen` is the id of the entry the owner says this roll is: it settles a roll that fits more than one, and it must be one of them."""
+    rows = _rows(conn)
+    index = Index(rows)
+    spec, found = _match(rows, roll, extra)
+    if chosen is not None:
+        found = [r for r in found if str(r["id"]) == str(chosen)]
+        if not found:                                              # the choice is not (any more) one of the entries it could be: never a new entry
+            return "unclear", None
+    if not found:
+        index.add(_insert(conn, {k: v for k, v in spec.items() if k in FIELDS and k not in ("price", "notes", "sku")}))
+        return "added", None
+    if len(found) > 1:
+        return "unclear", None
+    try:
+        updated = complete(conn, index, found[0], spec)
+    except ApiError:                                              # it would clash with another entry: leave the entry as it is
+        return "unclear", None
+    return ("unchanged" if updated is found[0] else "updated"), updated
+
+
 def add_roll(conn, roll: dict, extra=None) -> str:
     """A roll typed in by hand may go in the library too: when the filament is not there yet it is added (what the roll says about the
     filament, never what it cost or what is left), and when it is, that entry gets what it was missing. The same barcode is the same
@@ -216,27 +254,7 @@ def add_roll(conn, roll: dict, extra=None) -> str:
     entry (a refill and a roll with spool), it is not clear which one this roll is, so none is touched. `extra` is what the form knows
     about the filament that a roll does not hold: its supplier `filament_id` and whether it is a `refill` (from the Bambu Lab shop); with a
     `refill` the match is exact, so that is no longer unclear. Returns what happened: `added`, `updated`, `unchanged` or `unclear`."""
-    rows = _rows(conn)
-    index = Index(rows)
-    extra = extra if isinstance(extra, dict) else {}
-    refill = extra["refill"] if isinstance(extra.get("refill"), bool) else None
-    spec = {**BLANK, **{k: roll[k] for k in ("brand", "product_type", "material", "colour", "colour_hex", "barcode", "roll_weight_g",
-                                              "diameter_mm", "print_temp_c", "bed_temp_c", "spoolmandb_id")},
-            "filament_id": str(extra.get("filament_id") or "").strip()[:20], "refill": bool(refill)}
-    code, source = _n(spec, "barcode"), spec["spoolmandb_id"]
-    found = [r for r in rows if code and _n(r, "barcode") == code] or \
-        [r for r in rows if source and r["spoolmandb_id"] == source and (refill is None or r["refill"] == refill)] or \
-        [r for r in rows if loose_kind(r) == loose_kind(spec) and (refill is None or r["refill"] == refill)]
-    if not found:
-        index.add(_insert(conn, {k: v for k, v in spec.items() if k in FIELDS and k not in ("price", "notes", "sku")}))
-        return "added"
-    if len(found) > 1:
-        return "unclear"
-    try:
-        updated = complete(conn, index, found[0], spec)
-    except ApiError:                                              # it would clash with another entry: leave the entry as it is
-        return "unclear"
-    return "unchanged" if updated is found[0] else "updated"
+    return _place(conn, roll, extra)[0]
 
 
 # --- export / import as JSON -------------------------------------------------------------------------------------
@@ -386,20 +404,75 @@ def contribution():
 
 # --- the rolls on the shelf ---------------------------------------------------------------------------------------
 
+def _taggable(roll: dict) -> bool:
+    """Whether a roll may be given a barcode by a choice: only one that has none (a barcode that is there was typed or scanned), and not one that
+    Spoolman or the Bambu cloud keeps (a sync would put it back)."""
+    return not (roll["barcode"] or "").strip() and roll["spoolman_id"] is None and roll["bambu_id"] is None
+
+
+def _offer(roll: dict, found: list[dict]) -> dict:
+    """A roll that fits more than one entry, with those entries, for the owner to choose from (`taggable`: a choice would give the roll the barcode of the entry)."""
+    def entry(row: dict) -> dict:
+        return {"id": str(row["id"]), **{k: _plain(row[k]) for k in FIELDS if k != "notes"}}
+    return {"id": str(roll["id"]), "taggable": _taggable(roll),
+            **{k: _plain(roll[k]) for k in ("brand", "product_type", "material", "colour", "colour_hex", "barcode", "roll_weight_g", "diameter_mm", "price", "remaining_g")},
+            "candidates": [entry(row) for row in found]}
+
+
+def _tag(conn, roll: dict, entry: dict) -> bool:
+    """The roll the owner says is this entry gets its barcode, so it is never unclear again (see `_taggable`); returns whether the roll changed."""
+    code = (entry["barcode"] or "").strip()
+    if not code or not _taggable(roll):
+        return False
+    conn.execute("UPDATE filament_spools SET barcode = %s WHERE id = %s", (code, roll["id"]))
+    return True
+
+
+def _choices(body) -> dict[str, str]:
+    """`{"choices": {roll id: entry id}}`: which entry the owner says a roll is. Nothing else is read from the body."""
+    choices = body.get("choices") if isinstance(body, dict) else None
+    if choices is None:
+        return {}
+    if not isinstance(choices, dict) or len(choices) > MAX_ROWS or not all(isinstance(k, str) and isinstance(v, str) for k, v in choices.items()):
+        raise ApiError(400, "library.bad_choice")
+    return choices
+
+
 @bp.post("/from-rolls")
 def from_rolls():
     """Put the filaments of the rolls in the filament list (not archived: those are on the shelf) in the library, so they can be shared too.
     Each roll goes through `add_roll`: a filament that is not there yet is added with what the roll says about it (never its price or what is
     left), one that is there only gets what it lacked, and a roll that cannot be told from more than one entry is left out and counted as
-    `unclear`. The rolls themselves are only read. With `dry_run=1` everything is done and then rolled back, so the counts are exact."""
+    `unclear`, with the entries it could be in `unclear_rolls` (the invoice's data of each: SKU, filament ID, refill, barcode, price).
+    The owner settles such a roll with `choices` ({roll id: entry id}, the entry must be one of those): the entry is completed from the roll, and
+    the roll is given the entry's barcode (`_tag`: the only thing here that changes a roll, only on that choice, only when it has none), counted as
+    `tagged`; a choice that is not one of the roll's entries is refused (400, nothing changes). Rolls without a choice are only read.
+    With `dry_run=1` everything is done and then rolled back, so the counts are exact."""
     dry_run = request.args.get("dry_run") == "1"
-    counts = {"added": 0, "updated": 0, "unchanged": 0, "unclear": 0}
+    choices = _choices(request.get_json(silent=True))
+    counts = {"added": 0, "updated": 0, "unchanged": 0, "unclear": 0, "tagged": 0}
+    unclear = []
     with pool().connection() as conn:
-        for roll in conn.execute("SELECT * FROM filament_spools WHERE NOT archived ORDER BY created_at, id").fetchall():
-            counts[add_roll(conn, roll)] += 1
+        rolls = conn.execute("SELECT * FROM filament_spools WHERE NOT archived ORDER BY created_at, id").fetchall()
+        rows = _rows(conn)
+        for roll in rolls:                                         # what each choice may be is settled before anything is written
+            wanted = choices.get(str(roll["id"]))
+            if wanted is not None and wanted not in [str(r["id"]) for r in _match(rows, roll)[1]]:
+                raise ApiError(400, "library.bad_choice")
+        if not {str(r["id"]) for r in rolls} >= set(choices):
+            raise ApiError(400, "library.bad_choice")
+        for roll in rolls:
+            result, entry = _place(conn, roll, chosen=choices.get(str(roll["id"])))
+            counts[result] += 1
+            if entry is not None and str(roll["id"]) in choices and _tag(conn, roll, entry):
+                counts["tagged"] += 1
+            if result == "unclear":
+                unclear.append(_offer(roll, _match(_rows(conn), roll)[1]))
         if dry_run:
             conn.rollback()
-    return jsonify({"ok": True, "dry_run": dry_run, **counts})
+    if counts["tagged"] and not dry_run:
+        stock_changed()                                             # a roll with a barcode is another kind in the stock
+    return jsonify({"ok": True, "dry_run": dry_run, **counts, "unclear_rolls": unclear})
 
 
 # --- Bambu Lab invoice -------------------------------------------------------------------------------------------

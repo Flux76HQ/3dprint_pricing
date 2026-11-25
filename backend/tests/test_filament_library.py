@@ -421,6 +421,117 @@ def test_a_roll_that_fits_two_entries_is_counted_as_unclear_and_touches_nothing(
     assert from_rolls(owner)["unclear"] == 1 and len(library(owner)) == 2
 
 
+def both(owner):
+    """The library as an invoice leaves it: the same colour as a refill and with a spool, each with the shop's barcode."""
+    refill = make(owner, "/api/filament-library", {**GREY, "barcode": "BIJVUL1"})
+    spool = make(owner, "/api/filament-library", {**GREY, "sku": "A00-D0-1.75-1000-SPL", "refill": False, "filament_id": "10104", "barcode": "METSPOOL1"})
+    return refill, spool
+
+
+def choose(owner, choices, query=""):
+    return owner.post(f"/api/filament-library/from-rolls{query}", json={"choices": choices}, headers=H)
+
+
+def roll_of(owner, roll):
+    return next(r for r in owner.get("/api/spools").get_json() if r["id"] == roll["id"])
+
+
+def test_a_roll_that_fits_two_entries_is_listed_with_the_entries_it_could_be(owner):
+    refill, spool = both(owner)
+    roll = make(owner, "/api/spools", {**ROLL, "barcode": ""})
+    dry = from_rolls(owner, "?dry_run=1")
+    assert dry["unclear"] == 1 and len(dry["unclear_rolls"]) == 1
+    [offer] = dry["unclear_rolls"]
+    assert (offer["id"], offer["brand"], offer["colour"], offer["barcode"], float(offer["price"]), float(offer["remaining_g"])) == (roll["id"], "Bambu Lab", "Grijs", "", 9.08, 640.0)
+    assert {(c["id"], c["refill"], c["sku"], c["filament_id"], c["barcode"]) for c in offer["candidates"]} == {
+        (refill["id"], True, GREY["sku"], "10103", "BIJVUL1"), (spool["id"], False, "A00-D0-1.75-1000-SPL", "10104", "METSPOOL1")}
+    assert offer["taggable"] is True and all("notes" not in c for c in offer["candidates"]) and roll_of(owner, roll)["barcode"] == ""       # only read
+
+
+def test_a_roll_that_is_clear_is_not_listed(owner):
+    both(owner)
+    make(owner, "/api/spools", {**ROLL, "barcode": "METSPOOL1"})                                  # the barcode says which one it is
+    done = from_rolls(owner)
+    assert (done["unclear"], done["tagged"], done["unclear_rolls"]) == (0, 0, [])
+
+
+def test_choosing_what_a_roll_is_completes_that_entry_and_gives_the_roll_its_barcode(owner):
+    refill, spool = both(owner)
+    roll = make(owner, "/api/spools", {**ROLL, "barcode": ""})
+    done = choose(owner, {roll["id"]: spool["id"]}).get_json()
+    assert (done["updated"], done["unclear"], done["tagged"], done["unclear_rolls"]) == (1, 0, 1, [])
+    mine = roll_of(owner, roll)
+    assert (mine["barcode"], mine["remaining_g"], mine["price"], mine["notes"]) == ("METSPOOL1", "640.0", "9.08", "kast")       # only the barcode changed
+    chosen, other = (next(e for e in library(owner) if e["id"] == i["id"]) for i in (spool, refill))
+    assert (chosen["print_temp_c"], chosen["colour_hex"]) == (220, "#9e9e9e") and (other["print_temp_c"], other["colour_hex"]) == (None, "")
+    assert len(library(owner)) == 2
+    again = from_rolls(owner)                                                                     # settled for good: the barcode says which one it is
+    assert (again["unclear"], again["unchanged"], again["tagged"]) == (0, 1, 0)
+    assert owner.get("/api/spools/stock").get_json()["groups"][0]["key"] == "barcode:METSPOOL1"
+
+
+def test_a_dry_run_with_a_choice_reports_it_and_writes_nothing(owner):
+    refill, spool = both(owner)
+    roll = make(owner, "/api/spools", {**ROLL, "barcode": ""})
+    dry = choose(owner, {roll["id"]: refill["id"]}, "?dry_run=1").get_json()
+    assert (dry["dry_run"], dry["tagged"], dry["updated"]) == (True, 1, 1)
+    assert roll_of(owner, roll)["barcode"] == "" and all(e["print_temp_c"] is None for e in library(owner))
+
+
+def test_a_choice_that_does_not_fit_is_refused_and_nothing_changes(owner):
+    refill, spool = both(owner)
+    red = make(owner, "/api/filament-library", {**GREY, "colour": "Rood", "sku": "", "filament_id": "", "barcode": ""})
+    roll = make(owner, "/api/spools", {**ROLL, "barcode": ""})
+    before = library(owner)
+    for choices in ({roll["id"]: red["id"]},                                                      # an entry the roll cannot be
+                    {roll["id"]: "no-such-entry"},
+                    {"no-such-roll": spool["id"]},                                                # a roll that is not in the list
+                    {roll["id"]: 7}, ["x"]):                                                      # not a map of ids
+        res = choose(owner, choices)
+        assert res.status_code == 400 and "past niet bij deze rol" in res.get_json()["error"], (choices, res.status_code, res.get_json())
+    assert roll_of(owner, roll)["barcode"] == "" and library(owner) == before
+
+
+def test_a_roll_that_has_its_own_barcode_or_belongs_to_spoolman_keeps_it(owner):
+    refill, spool = both(owner)
+    own = make(owner, "/api/spools", {**ROLL, "barcode": "EIGEN-1"})                              # typed or scanned: not the library's to replace
+    mirrored = make(owner, "/api/spools", {**ROLL, "barcode": "", "colour": "Grijs "})
+    with owner.application.extensions["pool"].connection() as conn:
+        conn.execute("UPDATE filament_spools SET spoolman_id = 9 WHERE id = %s", (mirrored["id"],))
+    dry = from_rolls(owner, "?dry_run=1")
+    assert {o["id"]: o["taggable"] for o in dry["unclear_rolls"]} == {own["id"]: False, mirrored["id"]: False}         # the dialog is told
+    done = choose(owner, {own["id"]: spool["id"], mirrored["id"]: spool["id"]}).get_json()
+    assert done["tagged"] == 0
+    assert (roll_of(owner, own)["barcode"], roll_of(owner, mirrored)["barcode"]) == ("EIGEN-1", "")
+
+
+def test_a_choice_that_stopped_fitting_while_choosing_never_adds_an_entry(owner):
+    refill = make(owner, "/api/filament-library", GREY)
+    spool = make(owner, "/api/filament-library", {**GREY, "sku": "A00-D0-1.75-1000-SPL", "refill": False, "filament_id": "10104"})
+    first = make(owner, "/api/spools", {**ROLL, "barcode": "X1"})
+    second = make(owner, "/api/spools", {**ROLL, "barcode": "X1"})                                # the same barcode, chosen as the other entry
+    done = choose(owner, {first["id"]: spool["id"], second["id"]: refill["id"]}).get_json()       # the first one gives the spool entry the barcode X1
+    assert len(library(owner)) == 2 and (done["unclear"], done["added"]) == (1, 0)
+    assert next(e for e in library(owner) if e["id"] == spool["id"])["barcode"] == "X1"
+
+
+def test_a_roll_that_fits_one_entry_is_never_given_a_barcode_unasked(owner):
+    make(owner, "/api/filament-library", {**GREY, "barcode": "BIJVUL1"})                         # the only entry of this filament, with a barcode
+    roll = make(owner, "/api/spools", {**ROLL, "barcode": ""})
+    for choices in ({}, {"choices": {}}):
+        done = owner.post("/api/filament-library/from-rolls", json=choices, headers=H).get_json()
+        assert (done["tagged"], done["unclear"]) == (0, 0) and roll_of(owner, roll)["barcode"] == ""         # a roll changes only when the owner chose
+
+
+def test_a_roll_without_a_choice_is_only_read(owner):
+    refill, spool = both(owner)
+    roll = make(owner, "/api/spools", {**ROLL, "barcode": ""})
+    before = owner.get("/api/spools").get_json()
+    done = choose(owner, {}).get_json()
+    assert (done["unclear"], done["tagged"], len(done["unclear_rolls"])) == (1, 0, 1)
+    assert owner.get("/api/spools").get_json() == before and roll_of(owner, roll)["barcode"] == ""
+
+
 # --- no filament twice ------------------------------------------------------------------------------------------------
 
 PLUM = {"brand": "Bambu Lab", "product_type": "Matte", "material": "PLA", "colour": "Pruim", "roll_weight_g": 1000, "diameter_mm": "1.75"}
