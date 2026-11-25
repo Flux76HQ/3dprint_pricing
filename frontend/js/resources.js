@@ -778,7 +778,9 @@ function stockView(reloadRolls) {
       { label: t('sort.material'), sort: 'material', cell: (g) => g.material || '—' },
       { label: t('sort.rolls'), sort: 'rolls', cls: 'num', cell: (g) => String(g.roll_count) },
       { label: t('stock.per_roll_short'), wide: true, cls: 'muted', cell: (g) => (g.roll_count ? g.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ') : '—') },
-      { label: t('sort.left'), sort: 'left', cls: 'num strong', cell: (g) => `${fmt(g.remaining_g, 0)} g` }],
+      { label: t('sort.left'), sort: 'left', cls: 'num strong', cell: (g) => `${fmt(g.remaining_g, 0)} g` },
+      { label: t('stock.reserved_short'), wide: true, cls: 'num muted', cell: (g) => (Number(g.reserved_g) > 0 ? `${fmt(g.reserved_g, 0)} g` : '—') },
+      { label: t('stock.available_short'), wide: true, cls: 'num', cell: (g) => (Number(g.reserved_g) > 0 ? h('span', { class: Number(g.available_g) < 0 ? 'tile-reserved over' : '' }, `${fmt(g.available_g, 0)} g`) : '—') }],
     tile: stockTile,
     // Totals per material, of what is listed: they follow the search and the filters.
     summary(groups) {

@@ -44,5 +44,7 @@ export function stockTile(g) {
     h('strong', { class: 'tile-name' }, spoolName(g, ' · ')),
     h('p', { class: 'muted tile-meta' }, [g.material, g.roll_count ? t('stock.rolls', { n: g.roll_count }) : t('stock.sold_out')].filter(Boolean).join(' · ')),
     g.roll_count ? h('p', { class: 'muted tile-weights' }, t('stock.per_roll', { weights: g.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ') })) : null,
+    Number(g.reserved_g) > 0 ? h('p', { class: Number(g.available_g) < 0 ? 'tile-reserved over' : 'tile-reserved' },
+      `${t('stock.reserved', { n: fmt(g.reserved_g, 0) })} · ${t('stock.available', { n: fmt(g.available_g, 0) })}`) : null,
     g.notify_low && g.low ? h('p', { class: 'stock-low' }, t('stock.low_badge')) : null);
 }

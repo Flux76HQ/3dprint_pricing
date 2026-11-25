@@ -1,9 +1,10 @@
 import { api, downloadFile } from './api.js';
 import { formatDate, t } from './i18n.js';
 import { customerFields, customerLines, customerPicker, emptyCustomer } from './customers.js';
+import { colourOf, spoolIcon } from './filament-ui.js';
 import { listView } from './listview.js';
 import { setDirty } from './updates.js';
-import { ROUNDINGS, backLink, confirmDialog, enhanceDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, saveBlob, toast } from './ui.js';
+import { ROUNDINGS, backLink, confirmDialog, enhanceDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, saveBlob, spoolName, toast } from './ui.js';
 
 // The stages of an order, in order. The words come from the language files.
 export const STATUSES = ['nieuw', 'verwerkt', 'verstuurd', 'afgehandeld'];
@@ -185,6 +186,9 @@ function buildEditor(order, navigate, ctx) {
   const labelBox = h('div', { class: 'stack' });
   const customerBox = h('div', { class: 'stack' });
   const statusBox = h('div', { class: 'chips', role: 'group', 'aria-label': t('orders.status') });
+  const filamentBox = h('div', { class: 'stack' });
+  const filamentCard = h('div', { class: 'glass card stack', hidden: true }, h('h2', {}, t('orders.filament_title')), filamentBox);
+  let filamentSeq = 0;
   const lineTotals = [];
   const lineUnits = [];
   const marginHints = [];
@@ -204,7 +208,41 @@ function buildEditor(order, navigate, ctx) {
       result = await api('POST', '/api/orders/totals', { lines, price_rounding });
       calcError.hidden = true;
       renderTotals();
+      checkFilament();
     } catch (e) { calcError.textContent = e.message; calcError.hidden = false; }
+  }
+  // The filament the models of this order take, next to what is on the shelf and what other open orders already hold. The server says it
+  // (`reservations.check`); an order that is sent or done holds nothing any more, and the card says so.
+  async function checkFilament() {
+    const seq = ++filamentSeq;
+    const modelled = state.lines.filter((l) => l.project_id && !l.optional && !l.packaging);
+    if (!modelled.length) { filamentCard.hidden = true; return; }
+    try {
+      const found = await api('POST', '/api/orders/filament-check', {
+        lines: state.lines.map((l) => ({ project_id: l.project_id, quantity: parseNum(l.quantity), optional: !!l.optional, packaging: !!l.packaging })),
+        status: state.status, order_id: state.id });
+      if (seq !== filamentSeq) return;                              // a newer answer is on its way
+      renderFilament(found);
+    } catch { if (seq === filamentSeq) filamentCard.hidden = true; }
+  }
+  function renderFilament(found) {
+    filamentCard.hidden = !found.kinds.length;
+    const rows = found.kinds.map((k) => {
+      const free = Number(k.remaining_g) - Number(k.reserved_others_g);
+      const short = Number(k.short_g) > 0;
+      return h('li', { class: short ? 'filament-row short' : 'filament-row' },
+        spoolIcon(colourOf(k), 28),
+        h('div', {}, h('strong', {}, [spoolName(k, ' · '), k.material].filter(Boolean).join(' · ')),
+          h('p', { class: 'muted' }, found.reserving ? t('orders.filament_need', { need: fmt(k.need_g, 0), free: fmt(Math.max(free, 0), 0) }) : `${fmt(k.need_g, 0)} g`),
+          found.reserving ? h('p', { class: 'hint' }, t('orders.filament_detail', { left: fmt(k.remaining_g, 0), others: fmt(k.reserved_others_g, 0) })) : null,
+          short ? h('p', { class: 'error' }, t('orders.filament_missing', { short: fmt(k.short_g, 0) })) : null));
+    });
+    fill(filamentBox,
+      !found.reserving ? h('p', { class: 'hint' }, t('orders.filament_released', { status: statusLabel(state.status).toLowerCase() }))
+        : found.short ? h('div', { class: 'notice warn', role: 'alert' }, h('strong', {}, t('orders.filament_short_title')))
+          : h('p', { class: 'hint', role: 'status' }, t('orders.filament_ok')),
+      h('ul', { class: 'filament-list' }, rows),
+      found.reserving ? h('p', { class: 'hint' }, t('orders.filament_hint')) : null);
   }
   function touch() {
     dirty = true;
@@ -455,6 +493,7 @@ function buildEditor(order, navigate, ctx) {
       if (state.id) {                                  // a saved order changes stage at once; a new one waits for Save
         try { await api('PATCH', `/api/orders/${state.id}/status`, { status: s }); toast(t('orders.status_set', { status: statusLabel(s) })); } catch (e) { toast(e.message, 'error'); }
       } else touch();
+      checkFilament();
       drawStatus();
       statusSelect.value = s;
     } }, statusLabel(s))));
@@ -622,6 +661,7 @@ function buildEditor(order, navigate, ctx) {
               state.lines.push({ project_id: null, project_number: null, optional: false, description: '', quantity: '1', unit_price: '', cost_price: null, margin_pct: '', vat_pct: defaultVat });
               touch(); drawLines();
             } }, icon('plus'), h('span', {}, t('orders.add_free_line'))))),
+        filamentCard,
         h('div', { class: 'glass card' }, field(t('orders.notes'), h('textarea', { rows: 3, maxlength: 2000, oninput: (e) => bind('notes')(e.target.value) }, state.notes || ''), t('orders.notes_hint')))),
       h('aside', { class: 'glass card summary', 'aria-label': t('orders.total') },
         h('h2', {}, t('orders.total')), totals, calcError,

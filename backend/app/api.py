@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, g, jsonify, request
 
-from . import invoice_docs, invoice_numbers, labels, lowstock, preferences, push, stock
+from . import invoice_docs, invoice_numbers, labels, lowstock, preferences, push, reservations, stock
 from .calc import PART_UNITS, ROUNDINGS, calculate
 from .db import id_list, next_number
 from .http import ApiError, config, json_body, login_required, pool, require_admin
@@ -364,6 +364,7 @@ def _stock(conn) -> dict:
     """What is left, per kind of filament and per material. A kind with the notification on says at what weight it is
     announced and whether it is under that now."""
     groups = stock.groups(stock.fetch(conn))
+    reservations.add_to_stock(conn, groups)               # what the open orders hold of each kind, and what is left after that
     limits = lowstock.settings(preferences.shared(conn))
     materials: dict[str, dict] = {}
     for g_ in groups:

@@ -11,7 +11,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template, labels, preferences, webhooks
+from . import calc, customers, invoice_docs, invoice_logo, invoice_numbers, invoice_template, labels, preferences, reservations, webhooks
 from .api import _serialise, boolean, number, text
 from .db import id_list, next_number
 from .http import ApiError, json_body, login_required, pool
@@ -275,6 +275,43 @@ def totals():
     rounding = _rounding(body.get("price_rounding"))
     lines = [_line(line, n, rounding) for n, line in enumerate(raw, 1)]
     return jsonify({**compute_totals(lines), "priced_lines": [{"unit_price": str(l["unit_price"]), "margin_pct_effective": l["margin_pct_effective"]} for l in lines]})
+
+
+def _filament_line(raw, n: int):
+    """What the filament check needs of a line: the calculation, how many, and the two flags that decide whether the line takes filament.
+    A line still being typed (no quantity yet) is left out rather than refused, so the check can follow the screen while it is edited."""
+    if not isinstance(raw, dict):
+        raise ApiError(400, "err.order_line", n=n)
+    try:
+        project_id = uuid.UUID(str(raw["project_id"])) if raw.get("project_id") else None
+        quantity = int(Decimal(str(raw.get("quantity"))))
+    except (ValueError, ArithmeticError):
+        return None
+    if project_id is None or not 1 <= quantity <= 100_000:
+        return None
+    return {"project_id": project_id, "quantity": quantity, "optional": bool(raw.get("optional")), "packaging": bool(raw.get("packaging"))}
+
+
+@bp.post("/filament-check")
+def filament_check():
+    """What the order being edited takes of the filament in stock, and whether there is enough of it next to what the other open orders
+    already reserve (`reservations.check`). Nothing is stored: the same lines and status that the order would be saved with."""
+    body = json_body()
+    raw = body.get("lines", [])
+    if not isinstance(raw, list) or len(raw) > MAX_LINES:
+        raise ApiError(400, "err.order_lines", max=MAX_LINES)
+    status = body.get("status", "nieuw")
+    if status not in STATUSES:
+        raise ApiError(400, "err.order_status")
+    order_id = body.get("order_id") or None
+    if order_id is not None:
+        try:
+            order_id = uuid.UUID(str(order_id))
+        except ValueError:
+            raise ApiError(400, "err.order_not_found") from None
+    lines = [_filament_line(line, n) for n, line in enumerate(raw, 1)]
+    with pool().read() as conn:
+        return jsonify(reservations.check(conn, [line for line in lines if line], status=status, order_id=order_id))
 
 
 def _order_with_customer(conn, body: dict) -> dict:
