@@ -142,6 +142,7 @@
  "err.links": "Een 3D-model heeft hooguit {max} links, elk met een soort en een adres.",
  "err.file_refs": "Hooguit {max} bestandslocaties per model.",
  "err.file_location": "Een bestandslocatie is een webadres (https://…), een smb://-adres, een netwerkpad (\\\\server\\share\\map) of een pad op een gekoppelde schijf (Z:\\map).",
+ "err.report_period": "Onbekende periode.",
  "f.auto_backup": "Automatische back-ups",
  "f.filament_id": "Filament-ID",
  "f.haspelsync_serial": "Serienummer (HaspelSync)",

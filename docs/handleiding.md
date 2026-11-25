@@ -740,6 +740,15 @@ De foto en de gemaakte afbeeldingen staan in de database (tabel `project_images`
 (`ai_image_jobs`, `ai_image_log`) beschrijven lopend werk en geschiedenis en zitten er niet in; **de kosten (`ai_image_usage`), de prijzen en de koers zitten er wel in**. De foto en
 je omschrijving gaan naar OpenAI; wat daar mee gebeurt volgt hun voorwaarden.
 
+## Omzet en marge
+
+Het menu *Omzet en marge* (onder *Verkoop*) laat zien wat je bestellingen hebben opgeleverd. Bovenaan staan de kaarten *Deze week*, *Deze maand* en *Dit jaar* met de **marge** en daaronder de omzet, de kosten en het aantal bestellingen. Eronder kies je een **week, maand of jaar**, loop je met de pijltjes naar een vorige of volgende periode (*Nu* springt terug) en zie je de totalen van die periode, een staafgrafiek (per dag, of per maand bij een jaar; het onderste, grijze deel is de kosten, het bovenste de marge, dus de hoogte is de omzet) en een tabel met de bestellingen en een totaalregel.
+
+- **Omzet** is wat de klant betaalt **zonder btw**. **Kosten** zijn de kostprijs van de regels (filament, onderdelen, verpakking, printtijd en energie, zoals de berekening ze had toen de regel werd gemaakt) maal het aantal. **Marge** is omzet min kosten; *Marge van de omzet* is dat als percentage.
+- Een bestelling telt mee op haar **besteldatum** en alleen zodra ze op *Verstuurd* of *Afgehandeld* staat. Met de schakelaar *Ook bestellingen die nog niet verstuurd zijn* tellen *Nieuw* en *Verwerkt* ook mee.
+- Een regel **zonder kostprijs** (een eigen regel, zoals verzendkosten) telt als omzet zonder kosten. Staat zo'n regel in de periode, dan zegt de pagina dat de marge daar iets te ruim is.
+- De server rekent alles uit (`backend/app/reports.py`, `GET /api/reports/sales`); een week loopt van maandag tot en met zondag.
+
 ## Bestellingen en facturen
 
 **Klanten** (menu *Klanten*): een klant heeft een klantnummer, naam, adres, postcode, plaats, land, e-mail, telefoon en een notitie (alleen voor jezelf). Laat je het klantnummer leeg, dan krijgt de klant het volgende vrije hele getal (`1`, `2`, …); een eigen nummer (`K9999`) mag ook, maar is uniek (hoofdletters tellen niet). Een klant met bestellingen kan niet verwijderd worden. Bestaande bestellingen kregen bij het bijwerken automatisch een klant: één per naam + klantnummer, met een vrij nummer als het klantnummer leeg of dubbel was.

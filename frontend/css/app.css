@@ -1023,6 +1023,29 @@ a.btn[aria-disabled="true"] { opacity: .45; pointer-events: none; }
 .data-table tr.archived > * { opacity: .6; }
 .data-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .data-table .strong { font-weight: 700; }
+/* The sales overview: figures of now, a chart of the period (cost at the bottom, margin on top: the height is the revenue) and the orders. */
+.sales .big { margin: 0; font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sales .cards h3 { margin: 0; font-size: .8rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
+.sales-now { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.sales-nav { justify-content: space-between; align-items: center; }
+.sales .stats { border-top: 0; padding-top: 0; }
+.sales .stats .strong dd { color: var(--accent); }
+.sales-table tfoot th, .sales-table tfoot td { border-top: 2px solid var(--lijn); font-weight: 700; }
+.chart-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.chart-head h2 { margin: 0; }
+.legend { display: flex; gap: 14px; margin: 0; padding: 0; list-style: none; font-size: .8rem; color: var(--text-muted); }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.swatch.margin, .bar-margin { background: var(--accent); }
+.swatch.cost, .bar-cost { background: color-mix(in srgb, var(--text-muted) 45%, transparent); }
+.bars { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; align-items: end; }
+.bars-month { gap: 2px; }
+.bar { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.bar-area { display: flex; align-items: flex-end; justify-content: center; width: 100%; height: 180px; }
+.bar-stack { display: flex; flex-direction: column; width: 70%; max-width: 44px; min-height: 0; border-radius: 4px 4px 0 0; overflow: hidden; }
+.bar-margin, .bar-cost { display: block; width: 100%; }
+.bar-label { font-size: .7rem; white-space: nowrap; }
+.bars-month .bar-label { font-size: .6rem; }
 .data-table .nowrap { white-space: nowrap; }
 .data-table .actions { width: 1%; white-space: nowrap; text-align: right; }
 .data-table thead .actions { font-size: 0; }                                  /* the column needs no visible heading, a screen reader still gets it */
