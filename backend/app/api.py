@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, g, jsonify, request
 
-from . import invoice_docs, invoice_numbers, lowstock, preferences, push, stock
+from . import filament_groups, invoice_docs, invoice_numbers, lowstock, preferences, push, stock
 from .calc import PART_UNITS, ROUNDINGS, calculate
 from .db import id_list, next_number
 from .http import ApiError, config, json_body, login_required, pool, require_admin
@@ -263,8 +263,11 @@ LISTS: dict = {}                     # path -> rows(conn): what `GET /api/<path>
 
 def _register(path, table, fields, order):
     def rows(conn) -> list:
-        found = conn.execute(f"SELECT * FROM {table} ORDER BY archived, {order}"
-                             if "archived" in fields else f"SELECT * FROM {table} ORDER BY {order}").fetchall()
+        if table == "filament_spools":                          # with the name of the group each roll is in (`filament_groups`)
+            found = conn.execute(f"{filament_groups.SPOOLS_WITH_GROUP} ORDER BY s.archived, {order}").fetchall()
+        else:
+            found = conn.execute(f"SELECT * FROM {table} ORDER BY archived, {order}"
+                                 if "archived" in fields else f"SELECT * FROM {table} ORDER BY {order}").fetchall()
         return [_serialise(r) for r in found]
 
     LISTS[path] = rows
@@ -276,6 +279,7 @@ def _register(path, table, fields, order):
     def create():
         body = json_body()
         values = _validated(fields, body, partial=False)
+        group = filament_groups.clean(body.get("group"), required=False) if table == "filament_spools" else ""          # the name of a group, made when it is new
         # A roll may be added more than once (Dupliceren): `count` identical rolls, all or none, as many as a scanned delivery may hold.
         count = (optional_int("f.count", minimum=1, maximum=BULK_MAX_ROLLS)(body.get("count")) or 1) if table == "filament_spools" else 1
         cols = ", ".join(values)
@@ -291,6 +295,9 @@ def _register(path, table, fields, order):
             elif table == "energy_tariffs" and not conn.execute("SELECT 1 FROM energy_tariffs").fetchone():
                 values["is_default"] = True  # the first tariff is the default
                 cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
+            if group:
+                values["group_id"] = filament_groups.ensure(conn, group)
+                cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
             row = conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks}) RETURNING *",
                                tuple(values.values())).fetchone()
             if table == "filament_spools":
@@ -303,16 +310,29 @@ def _register(path, table, fields, order):
                 if body.get("add_to_library") is True:          # a roll typed in by hand may also be put in the library, if it is not there yet
                     from . import filament_library              # imported here: that module imports this one
                     filament_library.add_roll(conn, row, body.get("library"))
+                row = filament_groups.named(conn, row)
         if table == "filament_spools":
             stock_changed()
         return jsonify(_serialise(row)), 201
 
     def update(item_id):
-        values = _validated(fields, json_body(), partial=True)
-        if not values:
+        body = json_body()
+        values = _validated(fields, body, partial=True)
+        moving = table == "filament_spools" and "group" in body          # the group is changed by `filament_groups.assign`, which also tells Spoolman
+        group = filament_groups.clean(body.get("group"), required=False) if moving else ""
+        if not values and not moving:
             raise ApiError(400, "err.nothing_to_change")
         sets = ", ".join(f"{k} = %s" for k in values)
         spoolman_on, bambu_on = _sources_in_use() if table == "filament_spools" else (False, False)
+        if moving:
+            if values:                                                   # what else is sent must be allowed before the roll is moved
+                with pool().read() as conn:
+                    _refuse_mirrored(conn, item_id, values, spoolman_on=spoolman_on, bambu_on=bambu_on)
+            filament_groups.assign([item_id], group, spoolman_on=spoolman_on)
+            if not values:
+                with pool().read() as conn:
+                    row = conn.execute(f"{filament_groups.SPOOLS_WITH_GROUP} WHERE s.id = %s", (item_id,)).fetchone()
+                return jsonify(_serialise(row))
         with pool().connection() as conn:
             if table == "filament_spools":
                 _refuse_mirrored(conn, item_id, values, spoolman_on=spoolman_on, bambu_on=bambu_on)
@@ -326,7 +346,7 @@ def _register(path, table, fields, order):
             row = conn.execute(f"UPDATE {table} SET {sets} WHERE id = %s RETURNING *",
                                (*values.values(), item_id)).fetchone()
             if row is not None and table == "filament_spools":
-                row = _share_notify(conn, row, explicit="notify_low" in values, creating=False)
+                row = filament_groups.named(conn, _share_notify(conn, row, explicit="notify_low" in values, creating=False))
         if row is None:
             raise ApiError(404, "err.not_found")
         if table == "filament_spools":
@@ -385,17 +405,42 @@ def spool_stock():
         return jsonify(_stock(conn))
 
 
+def _label_of(conn, code: str) -> "dict | None":
+    """What a Spoolman label says (`spoolman.scanned_spool`): `{number, roll}`, the roll being the one that is that spool here (None when it has not been
+    synced yet), or None when the code is no Spoolman label but an ordinary barcode. A label is a code that names one spool, so it is never a barcode:
+    the roll form, the scan list and the search all ask this first."""
+    from . import spoolman                                  # imported here: that module imports this one
+    number = spoolman.scanned_spool(code)
+    if number is None:
+        return None
+    row = conn.execute(f"{filament_groups.SPOOLS_WITH_GROUP} WHERE s.spoolman_id = %s", (number,)).fetchone()
+    return {"number": number, "roll": _serialise(row) if row else None}
+
+
+@bp.get("/spools/scan")
+def scan_spool():
+    """What a scanned code is: a label printed by Spoolman (`label`, with the roll that is that spool, so the screen can bring it up) or something
+    else (`label` None: an ordinary barcode, searched for as text)."""
+    code = (request.args.get("code") or "").strip()
+    with pool().read() as conn:
+        return jsonify({"code": code, "label": _label_of(conn, code) if code else None})
+
+
 @bp.get("/spools/lookup")
 def lookup_spool():
-    """The newest roll with this barcode (so a re-purchase can copy its details) and what is in stock of it."""
+    """The newest roll with this barcode (so a re-purchase can copy its details) and what is in stock of it. A Spoolman label has no barcode in it:
+    it answers `label` instead (see `_label_of`)."""
     barcode = (request.args.get("barcode") or "").strip()
     if not barcode:
-        return jsonify({"spool": None, "stock": None})
+        return jsonify({"spool": None, "stock": None, "label": None})
     with pool().read() as conn:
+        label = _label_of(conn, barcode)
+        if label:
+            return jsonify({"spool": None, "stock": None, "label": label})
         row = conn.execute("SELECT * FROM filament_spools WHERE barcode = %s ORDER BY created_at DESC LIMIT 1",
                            (barcode,)).fetchone()
         found = stock.groups(stock.fetch(conn, barcode)) if row else []
-    return jsonify({"spool": _serialise(row) if row else None, "stock": found[0] if found else None})
+    return jsonify({"spool": _serialise(row) if row else None, "stock": found[0] if found else None, "label": None})
 
 
 # Details of the product, not of one roll: the same barcode means the same brand, type, material, colour,
@@ -469,13 +514,14 @@ def _from_barcode(conn, barcode: str) -> "tuple[str, dict] | None":
 def spool_from_barcode():
     """What scanning this barcode adds (`roll`, None when the barcode is unknown), where it comes from, and what is in stock of it."""
     barcode = (request.args.get("barcode") or "").strip()
-    found, stock_now = None, []
+    found, stock_now, label = None, [], None
     if barcode:
         with pool().read() as conn:
-            found = _from_barcode(conn, barcode)
+            label = _label_of(conn, barcode)                # a label of Spoolman names a roll that is here already: it adds nothing
+            found = None if label else _from_barcode(conn, barcode)
             stock_now = stock.groups(stock.fetch(conn, barcode)) if found else []
     return jsonify({"barcode": barcode, "source": found[0] if found else None, "roll": _serialise(found[1]) if found else None,
-                    "stock": stock_now[0] if stock_now else None})
+                    "stock": stock_now[0] if stock_now else None, "label": label})
 
 
 @bp.post("/spools/bulk")
@@ -498,8 +544,10 @@ def add_spools_by_barcode():
         lines.append((barcode, count, None if price is None or str(price).strip() == "" else fields["price"](price)))
     if sum(count for _, count, _ in lines) > BULK_MAX_ROLLS:
         raise ApiError(400, "bulk.too_many", max=BULK_MAX_ROLLS)
+    group = filament_groups.clean(body.get("group"), required=False)           # where the whole delivery is put away; empty = in no group
     created = []
     with pool().connection() as conn:
+        group_id = filament_groups.ensure(conn, group)
         for barcode, count, price in lines:
             found = _from_barcode(conn, barcode)
             if found is None:
@@ -508,6 +556,8 @@ def add_spools_by_barcode():
             if values["price"] is None:                                   # a library entry without a reference price
                 raise ApiError(400, "bulk.no_price", barcode=barcode)
             values = _validated(fields, values, partial=False)
+            if group_id is not None:
+                values["group_id"] = group_id
             cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
             first = conn.execute(f"INSERT INTO filament_spools ({cols}) VALUES ({marks}) RETURNING *", tuple(values.values())).fetchone()
             first = _share_notify(conn, first, explicit=False, creating=True)       # takes over the notification its kind already has
@@ -520,7 +570,7 @@ def add_spools_by_barcode():
                 from . import filament_library                          # imported here: that module imports this one
                 filament_library.add_roll(conn, first)
     stock_changed()
-    return jsonify({"created": len(created), "rolls": [_serialise(row) for row in created]}), 201
+    return jsonify({"created": len(created), "rolls": [_serialise({**row, "group_name": group}) for row in created]}), 201
 
 
 # --- preferences ----------------------------------------------------------------

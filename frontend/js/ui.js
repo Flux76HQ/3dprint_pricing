@@ -270,6 +270,32 @@ export function askChoice(message, choices) {
   });
 }
 
+/** A question with one line to type the answer in: resolves with the trimmed text, or null when it was cancelled. `list` are suggestions for the line
+    (a pull-down of what exists, while anything else may still be typed); `empty` is the label of a button that answers with the empty text (a
+    way to say "none" that a plain Cancel is not). */
+export function askText(message, { value = '', label = '', confirm = t('common.save'), maxlength = 64, list = [], hint = '', empty = '' } = {}) {
+  return new Promise((resolve) => {
+    let picked = null;
+    const id = `ask-${Math.random().toString(36).slice(2, 9)}`;
+    const input = h('input', { type: 'text', id, value, maxlength, autocomplete: 'off', list: list.length ? `${id}-list` : null, required: true });
+    const done = (text) => { picked = text; resolve(text); dialog.close(); };
+    const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
+      h('form', { class: 'stack', method: 'dialog', onsubmit: (e) => { e.preventDefault(); if (input.value.trim()) done(input.value.trim()); } },
+        h('p', {}, message),
+        h('div', { class: 'field' }, label ? h('label', { for: id }, label) : null, input, hint ? h('p', { class: 'hint' }, hint) : null,
+          list.length ? h('datalist', { id: `${id}-list` }, list.map((name) => h('option', { value: name }))) : null),
+        h('div', { class: 'row end wrap' },
+          h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, t('common.cancel')),
+          empty ? h('button', { class: 'btn', type: 'button', onclick: () => done('') }, empty) : null,
+          h('button', { class: 'btn primary', type: 'submit' }, confirm)))));
+    dialog.addEventListener('close', () => { dialog.remove(); resolve(picked); });
+    document.body.append(dialog);
+    dialog.showModal();
+    input.focus();
+    input.select();
+  });
+}
+
 // A real <button role="switch">: the accessibility tree is right by construction, and
 // space/enter/focus order come for free. The label points at the title instead of repeating it.
 export function switchRow(title, description, checked, onChange) {

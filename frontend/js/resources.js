@@ -1,8 +1,10 @@
 import { api, upload } from './api.js';
 import { getLanguage, t } from './i18n.js';
 import { colourOf, spoolIcon, stockTile } from './filament-ui.js';
+import { groupField, groupsView, moveRolls } from './groups.js';
 import { openBulkScan } from './bulk-scan.js';
 import { listView, rowActions } from './listview.js';
+import { goTo } from './pwa.js';
 import { scanBarcode } from './scanner.js';
 import { livePanel, serialField } from './haspelsync.js';
 import { bambuBar, cloudSignedIn } from './bambu-cloud.js';
@@ -61,8 +63,12 @@ function meter(roll) {
 // One kind of filament, as the server groups the stock (`stock.key_of`): the barcode when there is one, else brand, type, material and colour.
 const kindOf = (roll) => (String(roll.barcode || '').trim() ? `barcode:${String(roll.barcode).trim()}`
   : `name:${['brand', 'product_type', 'material', 'colour'].map((key) => norm(roll[key])).join('|')}`);
-// The filters of both parts of the filament page: by material, brand and type, each narrowing what the next one offers.
+// The group (bin, shelf) a row of the roll list or of the stock is in: a roll is in one, a kind in stock has rolls in several (`by_group`); a roll out of any group is "no group".
+const noGroup = () => t('group.none');
+const groupsOfRow = (row) => (row.by_group ? Object.values(row.by_group).map((g) => g.group || noGroup()) : [row.group_name || noGroup()]);
+// The filters of both parts of the filament page: by group, material, brand and type, each narrowing what the next one offers.
 const filamentFilters = () => [
+  { key: 'group', label: t('group.title'), all: t('filter.all_groups'), value: groupsOfRow },
   { key: 'material', label: t('filter.material'), all: t('filter.all_materials'), value: (row) => row.material },
   { key: 'brand', label: t('filter.brand'), all: t('filter.all_brands'), value: (row) => row.brand },
   { key: 'product_type', label: t('filter.type'), all: t('filter.all_types'), value: (row) => row.product_type }];
@@ -75,7 +81,7 @@ function resources() {
     id: 'filament', title: t('filament.title'), path: '/api/spools', empty: t('filament.empty'), archivable: true,
     intro: t('filament.intro'),
     defaults: { brand: '', product_type: '', material: '', colour: '', colour_hex: '', roll_weight_g: '1000', price: '', remaining_g: '1000',
-      barcode: '', diameter_mm: '1.75', print_temp_c: '', bed_temp_c: '', notify_low: false, notes: '', add_to_library: true },
+      barcode: '', group: '', diameter_mm: '1.75', print_temp_c: '', bed_temp_c: '', notify_low: false, notes: '', add_to_library: true },
     fields: [
       { key: 'barcode', label: t('filament.barcode'), type: 'barcode', hint: t('filament.barcode_hint') },
       { key: 'brand', label: t('filament.brand'), type: 'brand', required: true },
@@ -88,6 +94,7 @@ function resources() {
       { key: 'roll_weight_g', label: t('filament.roll_weight'), type: 'number', required: true },
       { key: 'price', label: t('filament.roll_price'), type: 'number', required: true },
       { key: 'remaining_g', label: t('filament.remaining'), type: 'number', required: true },
+      { key: 'group', label: t('group.field'), type: 'group', hint: t('group.field_hint') },
       { key: 'diameter_mm', label: t('filament.diameter'), type: 'number', required: true, list: ['1.75', '2.85'] },
       { key: 'print_temp_c', label: t('filament.print_temp'), type: 'number', placeholder: t('filament.print_temp_ph'), hint: t('filament.print_temp_hint') },
       { key: 'bed_temp_c', label: t('filament.bed_temp'), type: 'number', placeholder: t('filament.bed_temp_ph'), hint: t('filament.optional') },
@@ -104,7 +111,8 @@ function resources() {
           ...(item.print_temp_c != null ? [[t('filament.print_temp_short'), `${item.print_temp_c} °C`]] : []),
           ...(item.bed_temp_c != null ? [[t('filament.bed_temp_short'), `${item.bed_temp_c} °C`]] : [])],
         extra: meter(item),
-        footnote: [item.barcode ? t('filament.barcode_note', { code: item.barcode }) : null, item.spoolman_id ? t('spoolman.note') : null,
+        footnote: [item.group_name ? t('group.note', { name: item.group_name }) : null, item.barcode ? t('filament.barcode_note', { code: item.barcode }) : null,
+          item.spoolman_id ? t('spoolman.note') : null,
           item.bambu_id ? t('bambu.note') : null].filter(Boolean).join(' · ') || null,
       };
     },
@@ -115,6 +123,7 @@ function resources() {
     sorts: [
       { key: 'name', label: t('sort.name'), value: (r) => spoolName(r, ' ') },
       { key: 'material', label: t('sort.material'), value: (r) => norm(r.material) || '~' },
+      { key: 'group', label: t('group.title'), value: (r) => norm(r.group_name) || '~' },
       { key: 'left', label: t('sort.left'), value: (r) => Number(r.remaining_g) },
       { key: 'per_kg', label: t('sort.per_kg'), value: (r) => perKg(r) },
       { key: 'newest', label: t('sort.newest'), value: (r) => String(r.created_at || ''), desc: true }],
@@ -131,6 +140,7 @@ function resources() {
           item.archived ? h('span', { class: 'badge muted' }, t('common.archived')) : null),
         item.notes ? h('div', { class: 'cell-sub muted' }, item.notes) : null)) },
       { label: t('sort.material'), sort: 'material', cell: (item) => item.material || '—' },
+      { label: t('group.title'), sort: 'group', wide: true, cell: (item) => item.group_name || '—' },
       { label: t('sort.left'), sort: 'left', cls: 'meter-cell', cell: (item) => h('div', { class: 'cell-meter' }, h('span', { class: 'num' }, `${fmt(item.remaining_g, 0)} g`), meter(item)) },
       { label: t('sort.per_kg'), sort: 'per_kg', cls: 'num', cell: (item) => eur(perKg(item)) },
       { label: t('filament.roll_price'), cls: 'num', wide: true, cell: (item) => eur(item.price) },
@@ -138,14 +148,16 @@ function resources() {
     // A roll typed in here can be duplicated: the roll form, filled in with this roll, makes one or more new ones.
     // A roll from Spoolman is Spoolman's to change (the server refuses it), and a new one is made there: all that is left here is the low-stock alert.
     // A roll of the Bambu Filament Manager is edited (what the cloud does not keep), never duplicated: a new spool is added in Bambu Studio or Handy.
+    // Every roll can be moved to a group, a roll from Spoolman too (the server tells Spoolman: the group is the spool's location there).
     actions(item, reload) {
-      if (cloudManaged(item)) return [];
+      const move = { icon: 'folder', label: t('group.move_named', { name: spoolName(item, ' · ') }), onclick: () => moveRolls([item], reload) };
+      if (cloudManaged(item)) return [move];
       if (!item.spoolman_id) {
-        return [{ icon: 'copy', label: t('filament.duplicate_named', { name: spoolName(item, ' · ') }), onclick: () => openForm(this, null, reload, { copyOf: item }) }];
+        return [{ icon: 'copy', label: t('filament.duplicate_named', { name: spoolName(item, ' · ') }), onclick: () => openForm(this, null, reload, { copyOf: item }) }, move];
       }
       return [{ icon: 'bell', label: item.notify_low ? t('spoolman.notify_off') : t('spoolman.notify_on'), pressed: !!item.notify_low, onclick: async () => {
         try { await api('PATCH', `${this.path}/${item.id}`, { notify_low: !item.notify_low }); reload(); } catch (e) { toast(e.message, 'error'); }
-      } }];
+      } }, move];
     },
   },
   verpakking: {
@@ -323,7 +335,15 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
       looked = code;
       if (!code) { notice.hidden = true; return; }
       try {
-        const { spool, stock } = await api('GET', `/api/spools/lookup?barcode=${encodeURIComponent(code)}`);
+        const { spool, stock, label } = await api('GET', `/api/spools/lookup?barcode=${encodeURIComponent(code)}`);
+        if (label) {                                  // the QR code of a Spoolman label names a spool; it is not the filament's barcode, so it is not kept as one
+          values[f.key] = '';
+          input.value = '';
+          looked = null;
+          notice.replaceChildren(h('span', {}, label.roll ? t('barcode.label_known', { n: label.number, name: spoolName(label.roll, ' · ') }) : t('barcode.label_unknown', { n: label.number })));
+          notice.hidden = false;
+          return;
+        }
         if (!spool) {
           notice.replaceChildren(h('span', {}, t('barcode.new')));
           notice.hidden = false;
@@ -641,6 +661,7 @@ export function openForm(config, item, reload, { copyOf = null } = {}) {
     if (f.type === 'barcode') return barcodeField(f);
     if (f.type === 'brand') return brandField(f);
     if (f.type === 'color') return colourField(f);
+    if (f.type === 'group') return groupField({ label: f.label, hint: f.hint, value: values[f.key] || '', onchange: (name) => { values[f.key] = name; dirty.add(f.key); } });
     if (f.type === 'haspelsync') {
       return serialField({ label: f.label, hint: f.hint, value: values[f.key] || '', onchange: (serial) => { values[f.key] = serial; dirty.add(f.key); } });
     }
@@ -750,6 +771,32 @@ const cloudManaged = (item) => !!(item && item.bambu_id && cloudSignedIn());
 // What was typed and filtered on the filament page is kept while switching between its two parts.
 const filamentMemory = {};
 
+// A label printed by Spoolman (its QR code holds `WEB+SPOOLMAN:S-12`, or the address of the spool's page) names one roll. The server decides what is one (`/api/spools/scan`);
+// the pattern here only saves that question for a search that is plainly something else.
+const LABELISH = /spoolman|spool\/show/i;
+
+/** The roll a label of Spoolman names; `false` when the code is an ordinary barcode, `null` (and the person is told) for a spool that is not here yet. */
+async function labelRoll(code) {
+  let label = null;
+  try { label = (await api('GET', `/api/spools/scan?code=${encodeURIComponent(code)}`)).label; } catch { return false; }          // the search as text still works
+  if (!label) return false;
+  if (!label.roll) { toast(t('scan.spoolman_unknown', { n: label.number }), 'error'); return null; }
+  return label.roll;
+}
+const pinOf = (roll) => ({ label: t('scan.pin', { name: spoolName(roll, ' · ') }), ref: { rollId: roll.id } });
+/** What the search of the filament page does with a code: a label of Spoolman brings up its roll (`bring`), anything else is text to search for (`setText`). */
+const scanned = (bring, setText) => async (code) => {
+  const roll = LABELISH.test(code) ? await labelRoll(code) : false;
+  if (roll === false) setText(code); else if (roll) bring(roll);
+};
+/** The same for a code typed in the search field or sent by a hardware scanner, which ends it with Enter: true when it was a label (the field is then cleared). */
+const labelSearch = (bring) => async (text) => {
+  if (!LABELISH.test(text)) return false;
+  const roll = await labelRoll(text);
+  if (roll) bring(roll);
+  return roll !== false;
+};
+
 /** The barcode scanner next to a search field: on a phone a barcode is scanned rather than typed. */
 const scanButton = (onCode) => h('button', { class: 'btn tool icon-only', type: 'button', 'aria-label': t('filament.search_scan'), title: t('filament.search_scan'), onclick: async () => {
   const code = await scanBarcode();
@@ -760,30 +807,43 @@ const scanButton = (onCode) => h('button', { class: 'btn tool icon-only', type: 
 function stockView(reloadRolls) {
   const plural = (n) => t('stock.rolls', { n });
   const name = (g) => spoolName(g, ' · ');
+  // The group the lists are filtered on (the filter is shared by both parts), as a kind's `by_group` names it: '' is "no group", null is none chosen.
+  const chosenGroup = () => { const pick = filamentMemory.filters?.group || ''; return !pick ? null : (pick === norm(noGroup()) ? '' : pick); };
+  // A kind as it is in the chosen group: what lies *there*, not what the kind has altogether, so a list filtered on a bin adds up what is in the bin.
+  const scoped = (g) => {
+    const pick = chosenGroup();
+    if (pick === null) return g;
+    const here = g.by_group?.[pick];
+    return { ...g, rolls: here?.rolls || [], roll_count: here?.roll_count || 0, remaining_g: here?.remaining_g || '0', low: false };
+  };
+  const bring = (roll) => view.setPin(pinOf(roll));
   const state = (g) => (!g.roll_count ? h('span', { class: 'badge muted' }, t('stock.sold_out_short')) : (g.notify_low && g.low ? h('span', { class: 'badge danger' }, t('stock.low_badge')) : null));
   const view = listView({
     id: 'stock', memory: filamentMemory, tilesClass: 'stock-grid',
-    search: { label: t('filament.search'), placeholder: t('filament.search_ph'), text: filamentText, extra: scanButton((code) => view.setQuery(code)) },
+    search: { label: t('filament.search'), placeholder: t('filament.search_ph'), text: filamentText, extra: scanButton(scanned(bring, (code) => view.setQuery(code))),
+      submit: labelSearch(bring) },
+    pin: { match: (g, ref) => g.spool_ids.includes(ref.rollId) },
     filters: filamentFilters(),
     sorts: [
       { key: 'name', label: t('sort.name'), value: (g) => spoolName(g, ' ') },
       { key: 'material', label: t('sort.material'), value: (g) => norm(g.material) || '~' },
-      { key: 'left', label: t('sort.left'), value: (g) => Number(g.remaining_g) },
-      { key: 'rolls', label: t('sort.rolls'), value: (g) => Number(g.roll_count), desc: true }],
+      { key: 'left', label: t('sort.left'), value: (g) => Number(scoped(g).remaining_g) },
+      { key: 'rolls', label: t('sort.rolls'), value: (g) => Number(scoped(g).roll_count), desc: true }],
     tie: (g) => spoolName(g, ' '),
-    rowClass: (g) => (g.roll_count ? '' : 'archived'),
+    rowClass: (g) => (scoped(g).roll_count ? '' : 'archived'),
     columns: [
       { label: t('nav.filament'), sort: 'name', cls: 'main', cell: (g) => h('div', { class: 'cell-main' }, spoolIcon(colourOf(g), 28),
-        h('div', {}, h('span', { class: 'cell-title' }, name(g), state(g)), g.barcode ? h('div', { class: 'cell-sub muted' }, t('filament.barcode_note', { code: g.barcode })) : null)) },
+        h('div', {}, h('span', { class: 'cell-title' }, name(g), state(scoped(g))), g.barcode ? h('div', { class: 'cell-sub muted' }, t('filament.barcode_note', { code: g.barcode })) : null)) },
       { label: t('sort.material'), sort: 'material', cell: (g) => g.material || '—' },
-      { label: t('sort.rolls'), sort: 'rolls', cls: 'num', cell: (g) => String(g.roll_count) },
-      { label: t('stock.per_roll_short'), wide: true, cls: 'muted', cell: (g) => (g.roll_count ? g.rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ') : '—') },
-      { label: t('sort.left'), sort: 'left', cls: 'num strong', cell: (g) => `${fmt(g.remaining_g, 0)} g` }],
-    tile: stockTile,
+      { label: t('sort.rolls'), sort: 'rolls', cls: 'num', cell: (g) => String(scoped(g).roll_count) },
+      { label: t('stock.per_roll_short'), wide: true, cls: 'muted', cell: (g) => (scoped(g).roll_count ? scoped(g).rolls.map((r) => `${fmt(r.remaining_g, 0)} g`).join(', ') : '—') },
+      { label: t('sort.left'), sort: 'left', cls: 'num strong', cell: (g) => `${fmt(scoped(g).remaining_g, 0)} g` }],
+    tile: (g) => stockTile(scoped(g)),
     // Totals per material, of what is listed: they follow the search and the filters.
     summary(groups) {
       const materials = new Map();
-      for (const g of groups) {
+      for (const kind of groups) {
+        const g = scoped(kind);
         const material = String(g.material || t('stock.unknown_material')).trim();
         const m = materials.get(material.toLowerCase()) || { name: material, rolls: 0, grams: 0 };         // "PLA" and "pla" are one material
         m.rolls += g.roll_count;
@@ -799,12 +859,12 @@ function stockView(reloadRolls) {
     try { view.setItems((await api('GET', '/api/spools/stock')).groups); } catch (e) { toast(e.message, 'error'); }
     reloadRolls?.();
   }
-  return { el: view.el, load };
+  return { el: view.el, load, view };
 }
 
 export function resourceView(key, sub) {
   const config = resources()[key];
-  const part = key === 'filament' ? (sub === 'rollen' ? 'rollen' : 'voorraad') : null;
+  const part = key === 'filament' ? (['rollen', 'groepen'].includes(sub) ? sub : 'voorraad') : null;
   let showArchived = false;
   let items = [];
   const nameOf = (item) => (config.name ? config.name(item) : item.name);
@@ -844,12 +904,30 @@ export function resourceView(key, sub) {
       t('common.show_archived'))
     : null;
 
-  // The stock is a list of its own (kinds, not rolls); every other page lists its own things.
+  // A roll that was scanned (a label of Spoolman) is brought up: when it is archived the list shows those too, or it would be nowhere to be seen.
+  const bring = (roll) => {
+    if (roll.archived && !showArchived) {
+      showArchived = true;
+      archiveToggle.querySelector('input').checked = true;
+      show();
+    }
+    view.setPin(pinOf(roll));
+  };
+  // The stock is a list of its own (kinds, not rolls), the groups too; every other page lists its own things.
   const stock = part === 'voorraad' ? stockView() : null;
-  const view = stock ? null : listView({
+  const groupPart = part === 'groepen' ? groupsView({ show: (name) => {          // the rolls of a group: the roll list, filtered on it
+    filamentMemory.filters = { ...filamentMemory.filters, group: norm(name) };
+    filamentMemory.query = '';
+    filamentMemory.pin = null;
+    goTo('#/filament/rollen');
+  } }) : null;
+  const view = stock || groupPart ? null : listView({
     id: part === 'rollen' ? 'rolls' : config.id, memory: key === 'filament' ? filamentMemory : undefined,
     search: { label: key === 'filament' ? t('filament.search') : t('list.search'), placeholder: key === 'filament' ? t('filament.search_ph') : t('list.search_ph'),
-      text: config.search, extra: key === 'filament' ? scanButton((code) => view.setQuery(code)) : null },
+      text: config.search, extra: key === 'filament' ? scanButton(scanned(bring, (code) => view.setQuery(code))) : null, submit: key === 'filament' ? labelSearch(bring) : null },
+    pin: key === 'filament' ? { match: (item, ref) => item.id === ref.rollId } : null,
+    // Rolls can be chosen and moved to a group in one go (`group.move`), Spoolman's too.
+    select: key === 'filament' ? { id: (item) => item.id, label: nameOf, actions: [{ icon: 'folder', label: t('group.move'), primary: true, run: (rows) => moveRolls(rows, load) }] } : null,
     filters: config.filters, sorts: config.sorts, tie: nameOf, group: config.group,
     rowClass: (item) => (item.archived ? 'archived' : ''),
     columns: [...config.columns, { label: t('list.actions'), cls: 'actions', cell: actionsOf }],
@@ -859,8 +937,10 @@ export function resourceView(key, sub) {
 
   async function load() {
     if (stock) { stock.load(); return; }
+    if (groupPart) { groupPart.load(); return; }
     try {
       items = await api('GET', config.path);
+      if (key === 'filament') for (const item of items) item.group = item.group_name || '';          // the form's field is `group`; the server names it `group_name`
       if (config.image) {                                              // which items have a picture, in one question
         const { images } = await api('GET', config.image).catch(() => ({ images: {} }));
         for (const item of items) item.image_version = images[item.id] || '';
@@ -878,15 +958,15 @@ export function resourceView(key, sub) {
         key === 'filament' ? h('button', { class: 'btn', type: 'button', 'aria-label': t('bulk.title'), onclick: () => openBulkScan({
           newRoll: (code, saved) => openForm({ ...config, defaults: { ...config.defaults, barcode: code } }, null, saved), reload: load }) },
         icon('scan'), h('span', {}, t('bulk.open'))) : null,
-        h('button', { class: 'btn primary', type: 'button', onclick: () => openForm(config, null, load) },
-          icon('plus'), h('span', {}, t(`${config.id}.new`))))),
+        h('button', { class: 'btn primary', type: 'button', onclick: () => (groupPart ? groupPart.create() : openForm(config, null, load)) },
+          icon('plus'), h('span', {}, groupPart ? t('group.new') : t(`${config.id}.new`))))),
     h('p', { class: 'muted page-intro' }, config.intro),
     key === 'printers' ? livePanel() : null,                         // what each printer is doing now: hidden without HaspelSync
     key === 'filament' ? h('div', { class: 'subbar' },
       h('nav', { class: 'subnav', 'aria-label': t('filament.parts') },
-        ...[['voorraad', 'filament.part_stock'], ['rollen', 'filament.part_rolls']].map(([to, label]) => h('a', { href: `#/filament/${to}`, 'aria-current': part === to ? 'page' : null }, t(label)))),
+        ...[['voorraad', 'filament.part_stock'], ['rollen', 'filament.part_rolls'], ['groepen', 'filament.part_groups']].map(([to, label]) => h('a', { href: `#/filament/${to}`, 'aria-current': part === to ? 'page' : null }, t(label)))),
       spoolmanBar(load), bambuBar({ onState: () => { if (!stock && items.length) show(); }, onSynced: load })) : null,
     key === 'onderdelen' || key === 'accessoires' ? h('nav', { class: 'subnav', 'aria-label': t('parts.tabs') },
       ...[['onderdelen', 'parts.title'], ['accessoires', 'accessories.title']].map(([to, label]) => h('a', { href: `#/onderdelen${to === 'accessoires' ? '/accessoires' : ''}`, 'aria-current': key === to ? 'page' : null }, t(label)))) : null,
-    stock ? stock.el : view.el);
+    stock ? stock.el : (groupPart ? groupPart.el : view.el));
 }

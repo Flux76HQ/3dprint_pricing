@@ -15,6 +15,11 @@ What is used is Spoolman's to keep as well (the printer reports it there), so wi
 still reported it (`PUT /api/v1/spool/<id>/use`): a sync sends what is left of it first, and until it is sent the weight Spoolman
 reports is reduced by it, so the shelf does not jump back up. Nothing is added to it any more.
 
+A spool's *location* is the roll's group (`filament_groups.py`): a sync reads it (a group is made for a location that is new here), a roll moved
+here is moved there first (`filament_groups.assign`), a group renamed here is renamed there (`rename_location`), and `push_groups` fills in the
+location of a spool that has none. A roll that was typed in here and turns out to be a spool keeps its group when Spoolman has no location for it.
+The labels Spoolman prints (a QR code with `WEB+SPOOLMAN:S-<id>`, or the address of the spool's page) name one spool: `scanned_spool` reads them.
+
 The address is configuration, never taken from a request. Nothing is followed on a redirect, every answer is capped in size, and Spoolman's
 data is validated and clamped before it reaches a column (a malformed spool is skipped and counted, never fatal). The library
 (`filament_library`) is not touched by any of this.
@@ -25,12 +30,12 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import requests
 from flask import Blueprint, g, jsonify, request
 
-from . import filament_library, spoolmandb
+from . import filament_groups, filament_library, spoolmandb
 from .api import _serialise, _share_notify, stock_changed
 from .colour_names import same_name
 from .config import ConfigError, check_spoolman_url
@@ -162,6 +167,35 @@ def _temp(value, high: int):
     return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= high else None
 
 
+LOCATION_MAX = filament_groups.NAME_MAX                 # what Spoolman accepts for a spool's location
+LABEL = re.compile(r"^web\+spoolman:s-(?P<id>[0-9]{1,10})$", re.IGNORECASE)                       # the QR code of a label, as Spoolman's own scanner reads it
+LABEL_URL = re.compile(r"^https?://[^/\s?#]+(?:/[^\s?#]*)?/spool/show/(?P<id>[0-9]{1,10})/?(?:[?#]\S*)?$", re.IGNORECASE)     # or the address of the spool's page (a base path is fine)
+
+
+def scanned_spool(code: str) -> "int | None":
+    """The number of the spool a scanned code names, when the code is a label printed by Spoolman: its QR code holds `WEB+SPOOLMAN:S-<id>`, or, when
+    the label was made with the address option, `<Spoolman>/spool/show/<id>`. None for anything else (an ordinary barcode). Only the number is taken:
+    the host in an address is not checked or called (the number is looked up among the rolls here), and whatever the case, as Spoolman's own scanner."""
+    found = LABEL.match(code or "") or LABEL_URL.match(code or "")
+    number = int(found["id"]) if found else 0
+    return number if 0 < number < 2 ** 31 else None
+
+
+def location_of(spool: dict) -> str:
+    """Where Spoolman keeps this spool: its location, trimmed; empty for none. It is the name of the roll's group."""
+    return _text(spool.get("location"), LOCATION_MAX)
+
+
+def set_location(number: int, name: "str | None") -> None:
+    """Put a spool in a location in Spoolman (None: in none). The only thing of a spool that is ever changed there besides what a sync reads."""
+    _json("PATCH", f"/spool/{int(number)}", json={"location": name or None})
+
+
+def rename_location(old: str, new: str) -> None:
+    """Rename a location in Spoolman: every spool in it moves to the new name in one call."""
+    _json("PATCH", f"/location/{quote(old, safe='')}", json={"name": new})
+
+
 def to_roll(spool: dict) -> dict:
     """The columns of a roll from one spool of Spoolman. Spoolman's *filament* is what our roll calls brand/material/colour, its *name* is the
     colour, its *article number* is the barcode (what groups the rolls of one kind), and a price on the spool beats the filament's."""
@@ -275,6 +309,12 @@ def _link(conn, roll_id, spool_id: int, values: dict) -> None:
                  (spool_id, *values.values(), roll_id))
 
 
+def _kept_group(values: dict, group_id) -> dict:
+    """The columns a roll typed in here takes from the spool it turns out to be: Spoolman's, except the group when Spoolman has no location for the
+    spool, so the roll keeps the one it had (`push_groups` can then put it in Spoolman)."""
+    return {**values, **({"group_id": group_id} if group_id is not None else {})}
+
+
 # --- the sync ----------------------------------------------------------------------------------------------------------
 
 def sync(conn, spools: list, skipped: int) -> dict:
@@ -287,6 +327,15 @@ def sync(conn, spools: list, skipped: int) -> dict:
     typed = conn.execute("SELECT * FROM filament_spools WHERE spoolman_id IS NULL AND NOT archived ORDER BY created_at, id").fetchall()
     twins = _twins([s for s in spools if s["id"] not in have and not s.get("archived")], typed)       # only a spool that is new here can be one
     created = updated = linked = 0
+    groups_before = conn.execute("SELECT count(*) AS n FROM filament_groups").fetchone()["n"]
+    made: dict[str, object] = {}                         # the groups met in this sync, by name: one question per name, not per spool
+
+    def group_of(spool: dict):
+        place = location_of(spool)
+        if place and place.lower() not in made:
+            made[place.lower()] = filament_groups.ensure(conn, place)
+        return made.get(place.lower()) if place else None
+
     for spool in spools:
         values = to_roll(spool)
         values["remaining_g"] = max(values["remaining_g"] - owed.get(spool["id"], Decimal(0)), Decimal(0))
@@ -296,14 +345,16 @@ def sync(conn, spools: list, skipped: int) -> dict:
                 continue                                 # an archived spool that was never here is not worth a roll
             twin = twins.pop(spool["id"], None)
             if twin is not None:                         # typed in here before it was read from Spoolman: the same roll, so not a second row
-                _link(conn, twin, spool["id"], values)
+                _link(conn, twin, spool["id"], _kept_group(values, group_of(spool)))
                 linked += 1
                 continue
+            values["group_id"] = group_of(spool)
             row = conn.execute(f"INSERT INTO filament_spools (spoolman_id, spoolman_synced_at, {', '.join(values)}) "
                                f"VALUES (%s, now(), {', '.join(['%s'] * len(values))}) RETURNING *", (spool["id"], *values.values())).fetchone()
             _share_notify(conn, row, explicit=False, creating=True)      # a new roll of a kind that is watched is watched too
             created += 1
             continue
+        values["group_id"] = group_of(spool)             # Spoolman's location is the group, and none there is none here
         if _differs(row, values):
             conn.execute(f"UPDATE filament_spools SET {', '.join(f'{k} = %s' for k in values)} WHERE id = %s", (*values.values(), row["id"]))
             updated += 1
@@ -311,7 +362,8 @@ def sync(conn, spools: list, skipped: int) -> dict:
     gone = [r["id"] for r in have.values() if not r["archived"]]
     if gone:
         conn.execute("UPDATE filament_spools SET archived = true WHERE id IN (SELECT value FROM json_each(%s))", (id_list(gone),))
-    return {"created": created, "linked": linked, "updated": updated, "archived": len(gone), "skipped": skipped, "total": len(spools)}
+    groups = conn.execute("SELECT count(*) AS n FROM filament_groups").fetchone()["n"] - groups_before
+    return {"created": created, "linked": linked, "updated": updated, "archived": len(gone), "skipped": skipped, "total": len(spools), "groups": groups}
 
 
 # --- the library to Spoolman ----------------------------------------------------------------------------------------------
@@ -435,7 +487,7 @@ def push_rolls(*, dry_run: bool) -> dict:
         done = {"created": 0, "linked": 0, "filaments": 0, "vendors": 0, "skipped": 0, "left": 0}
         for roll_id in ids:
             with pool().connection() as conn:
-                roll = conn.execute("SELECT * FROM filament_spools WHERE id = %s AND spoolman_id IS NULL AND NOT archived", (roll_id,)).fetchone()
+                roll = conn.execute(f"{filament_groups.SPOOLS_WITH_GROUP} WHERE s.id = %s AND s.spoolman_id IS NULL AND NOT s.archived", (roll_id,)).fetchone()
             if roll is None:
                 continue                                  # linked, archived or removed since the list was read
             brand, wanted = _as_filament(roll)
@@ -447,7 +499,7 @@ def push_rolls(*, dry_run: bool) -> dict:
                 done["linked"] += 1
                 if not dry_run:
                     with pool().connection() as conn:
-                        _link(conn, roll_id, twin["id"], to_roll(twin))
+                        _link(conn, roll_id, twin["id"], _kept_group(to_roll(twin), filament_groups.ensure(conn, location_of(twin))))
                 continue
             if done["created"] >= MAX_CREATED:
                 done["left"] += 1
@@ -460,13 +512,57 @@ def push_rolls(*, dry_run: bool) -> dict:
                 continue
             weight = roll["roll_weight_g"]
             body = {"filament_id": filament_id, "initial_weight": float(weight), "remaining_weight": float(min(roll["remaining_g"], weight)),
-                    "price": float(roll["price"]), "comment": roll["notes"][:1024]}
+                    "price": float(roll["price"]), "comment": roll["notes"][:1024], "location": roll["group_name"][:LOCATION_MAX]}      # the group is the spool's location
             made = _json("POST", "/spool", json={k: v for k, v in body.items() if v != ""})[1]
             if not isinstance(made, dict) or not isinstance(made.get("id"), int):
                 raise SpoolmanError("spoolman.bad_reply", retry=False)
             with pool().connection() as conn:
                 conn.execute("UPDATE filament_spools SET spoolman_id = %s, spoolman_synced_at = now() WHERE id = %s", (made["id"], roll_id))
         return done
+
+
+MAX_PUSHED = MAX_CREATED                # spools put in a location per run: each one is a request, and the screen waits
+
+
+def push_groups(*, dry_run: bool) -> dict:
+    """Put the group of every roll that is a spool in Spoolman in that spool's location, where Spoolman has none yet (`set`). Like the other pushes it only
+    *completes*: a spool that already has a location is left as it is, the same one (`same`) or another (`other`: Spoolman's word is the one a sync
+    brings here), and nothing is cleared. Archived rolls and rolls that are no group's are not asked. A roll whose spool has gone from Spoolman (`gone`) is
+    left for the next sync, which archives it. Moving a roll in the app tells Spoolman at once (`filament_groups.assign`), so this is for what was
+    in a group before it was linked to its spool."""
+    with named_lock(pool(), LOCK):
+        by_number = {spool["id"]: spool for spool in fetch_spools()[0]}
+        with pool().read() as conn:
+            rolls = conn.execute("SELECT s.spoolman_id, g.name AS group_name FROM filament_spools s JOIN filament_groups g ON g.id = s.group_id "
+                                 "WHERE s.spoolman_id IS NOT NULL AND NOT s.archived ORDER BY s.created_at, s.id").fetchall()
+        done = {"set": 0, "same": 0, "other": 0, "gone": 0, "left": 0}
+        for roll in rolls:
+            spool = by_number.get(roll["spoolman_id"])
+            if spool is None:
+                done["gone"] += 1
+                continue
+            there = location_of(spool)
+            if there.lower() == roll["group_name"].lower():
+                done["same"] += 1
+            elif there:
+                done["other"] += 1
+            elif done["set"] >= MAX_PUSHED:
+                done["left"] += 1
+            else:
+                done["set"] += 1
+                if not dry_run:
+                    set_location(roll["spoolman_id"], roll["group_name"][:LOCATION_MAX])
+        return done
+
+
+@bp.post("/push-groups")
+def run_push_groups():
+    if not enabled():
+        raise ApiError(400, "spoolman.off")
+    try:
+        return jsonify(push_groups(dry_run=request.args.get("dry_run") == "1"))
+    except SpoolmanError as exc:
+        raise exc.api() from None
 
 
 @bp.post("/push-library")

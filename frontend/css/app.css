@@ -520,6 +520,11 @@ input[type=time], input[type=date] { font: inherit; color: var(--text); backgrou
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chips .seg { border: 1px solid var(--rand); border-radius: 99px; padding: 6px 14px; }
 .chips .seg[aria-pressed="true"] { border-color: var(--accent); }
+/* The roll a scan brought up: the list is narrowed to it, under a chip that says what it is and takes it away again. */
+.list-pin { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 2px 4px 2px 10px; border: 1px solid var(--accent); border-radius: 99px; background: var(--accent-subtle); }
+.list-pin[hidden] { display: none; }
+.list-pin .icon { width: 16px; height: 16px; }
+.list-pin .pin-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 select.status { width: auto; min-height: 44px; }
 @media (min-width: 640px) { .two.even { grid-template-columns: 1fr 1fr; } }
 .line.order { grid-template-columns: 1fr 1fr; }

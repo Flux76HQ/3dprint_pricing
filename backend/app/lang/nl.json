@@ -95,6 +95,7 @@
  "backup.s.accessories": "Accessoires",
  "backup.s.filament_library": "Filamentbibliotheek",
  "backup.s.files": "Printbestanden",
+ "backup.s.groups": "Groepen",
  "backup.s.listings": "Verkoopitems",
  "backup.s.packaging_images": "Afbeeldingen van verpakking",
  "backup.s.parts": "Onderdelen",
@@ -150,6 +151,7 @@
  "f.file_kind": "Soort locatie",
  "f.file_label": "Naam van de locatie",
  "f.file_location": "Locatie van de bestanden",
+ "f.group": "Groep",
  "f.link_label": "Naam van de link",
  "f.listing_description": "Tekst van het verkoopitem",
  "f.listing_price": "Verkoopprijs",
@@ -521,5 +523,10 @@
  "webhook.err_timeout": "De ontvanger antwoordde niet op tijd.",
  "webhook.err_unreachable": "De ontvanger is niet bereikbaar.",
  "webhook.err_url": "Vul een volledig adres in dat met http:// of https:// begint, zonder inlognaam of #-deel.",
- "webhook.too_many": "Er zijn al {max} webhooks. Verwijder er eerst een."
+ "webhook.too_many": "Er zijn al {max} webhooks. Verwijder er eerst een.",
+ "group.exists": "Er is al een groep met de naam {name}.",
+ "group.no_rolls": "Kies eerst een of meer rollen.",
+ "group.not_empty_one": "In de groep {name} ligt nog 1 rol. Verplaats die rol eerst naar een andere groep.",
+ "group.not_empty_other": "In de groep {name} liggen nog {n} rollen. Verplaats die rollen eerst naar een andere groep.",
+ "group.too_many": "Te veel rollen in één keer: hoogstens {max}."
 }

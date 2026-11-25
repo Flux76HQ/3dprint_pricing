@@ -113,6 +113,19 @@ export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
       } catch (err) { toast(err.message, 'error'); }
       draw();
     };
+    // The group of a roll is the location of its spool: moving a roll tells Spoolman at once, a sync reads the locations. What is left is a roll that was in a group
+    // before it was linked to its spool: that group goes to Spoolman as its location, where Spoolman has none (a location it has is never replaced). Asked first, with the numbers.
+    const pushGroups = async () => {
+      try {
+        const plan = await api('POST', '/api/spoolman/push-groups?dry_run=1');
+        const rest = [plan.other ? t('spoolman.groups_other', { n: plan.other }) : null, plan.left ? t('spoolman.push_left', plan) : null].filter(Boolean).join(' ');
+        if (!plan.set) { toast([t('spoolman.groups_nothing'), rest].filter(Boolean).join(' ')); return; }
+        if (!(await confirmDialog([t('spoolman.groups_confirm', { n: plan.set }), rest].filter(Boolean).join(' '), t('spoolman.groups_do')))) return;
+        const done = await api('POST', '/api/spoolman/push-groups');
+        toast([t('spoolman.groups_done', { n: done.set }), rest].filter(Boolean).join(' '));
+      } catch (err) { toast(err.message, 'error'); }
+      draw();
+    };
     fill(card, foldHead('spoolman', t('spoolman.title'), { open: false, extra: badge.el }),
       h('p', { class: 'muted' }, t('spoolman.intro')), problem,
       h('p', { class: 'hint breakable' }, t('spoolman.status', { host: status.host, n: status.rolls,
@@ -120,9 +133,11 @@ export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
       status.pending ? h('p', { class: 'notice', role: 'status' }, t('spoolman.pending', { n: status.pending })) : null,
       status.can_sync ? h('div', { class: 'row' }, sync,
         h('button', { class: 'btn', type: 'button', onclick: push }, t('spoolman.push')),
-        h('button', { class: 'btn', type: 'button', onclick: pushRolls }, t('spoolman.rolls'))) : h('p', { class: 'hint' }, t('spoolman.admin_only')),
+        h('button', { class: 'btn', type: 'button', onclick: pushRolls }, t('spoolman.rolls')),
+        h('button', { class: 'btn', type: 'button', onclick: pushGroups }, t('spoolman.groups'))) : h('p', { class: 'hint' }, t('spoolman.admin_only')),
       setup ? h('p', { class: 'hint' }, t('spoolman.push_hint')) : null,
       setup ? h('p', { class: 'hint' }, t('spoolman.rolls_hint')) : null,
+      setup ? h('p', { class: 'hint' }, t('spoolman.groups_hint')) : null,
       address);
     card.hidden = false;
   }
