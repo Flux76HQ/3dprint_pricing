@@ -1,5 +1,7 @@
 """Groups of rolls (bins, shelves, drawers): the groups themselves, what a roll in a group looks like in the lists and the stock, the backup, and the
 Spoolman side: a spool's location is the roll's group, a roll moved here is moved there first, and the labels Spoolman prints are read by the scanner."""
+import json
+
 import pytest
 
 from tests.test_auth_api import H
@@ -294,10 +296,10 @@ def test_pushing_the_groups_only_fills_in_a_location_that_spoolman_has_not_got(o
     assert {n: r["group_name"] for n, r in rolls(owner).items()} == {1: "Bak A", 2: "Bak B", 3: "Elders", 4: ""}      # Spoolman's word, except where it has none
     sql(app, "UPDATE filament_spools SET group_id = (SELECT id FROM filament_groups WHERE name = 'Bak C') WHERE spoolman_id = 3")    # another word here than there
     plan = owner.post("/api/spoolman/push-groups?dry_run=1", json={}, headers=H).get_json()
-    assert plan == {"set": 1, "same": 1, "other": 1, "gone": 0, "left": 0} and server.patched == []
+    assert plan == {"set": 1, "same": 1, "other": 1, "gone": 0, "left": 0, "listed": 0} and server.patched == []
     done = owner.post("/api/spoolman/push-groups", json={}, headers=H).get_json()
     assert done["set"] == 1 and server.patched == [(1, {"location": "Bak A"})] and server.spools[2]["location"] == "Elders"      # Spoolman's other word is left alone
-    assert owner.post("/api/spoolman/push-groups", json={}, headers=H).get_json() == {"set": 0, "same": 2, "other": 1, "gone": 0, "left": 0}
+    assert owner.post("/api/spoolman/push-groups", json={}, headers=H).get_json() == {"set": 0, "same": 2, "other": 1, "gone": 0, "left": 0, "listed": 0}
     assert typed[0]["group_name"] == "Bak A"
 
 
@@ -355,3 +357,113 @@ def test_a_label_is_never_a_barcode_to_look_up_or_to_add(owner, server):
     again = owner.get("/api/spools/from-barcode", query_string={"barcode": "web+spoolman:s-12"}).get_json()
     assert again["roll"] is None and again["stock"] is None and again["label"]["roll"]["colour"] == "Zwart"
     assert owner.get("/api/spools/lookup", query_string={"barcode": "web+spoolman:s-12"}).get_json()["spool"] is None
+
+
+# --- Spoolman's own list of locations: where a group without a spool in it can be --------------------------------------------
+
+def listed(server):
+    return json.loads(server.settings.get("locations", "[]"))
+
+
+def test_a_group_made_here_is_put_on_spoolmans_list_of_locations(owner, server):
+    server.settings["locations"] = json.dumps(["Oud", 7, "bak z"])         # what Spoolman's page keeps: its own order, and whatever else is there
+    assert make(owner, "/api/groups", {"name": "Bak A"})["name"] == "Bak A"
+    assert listed(server) == ["Oud", 7, "bak z", "Bak A"] and server.setting_writes == [["Oud", 7, "bak z", "Bak A"]]
+    assert owner.post("/api/groups", json={"name": "BAK A"}, headers=H).status_code == 409 and len(server.setting_writes) == 1      # not made, so not announced
+    make(owner, "/api/groups", {"name": "Bak Z"})                          # Spoolman has it already, in another case: it stays as it is
+    assert listed(server) == ["Oud", 7, "bak z", "Bak A"] and len(server.setting_writes) == 1
+    assert sorted(groups(owner)) == ["Bak A", "Bak Z"]
+
+
+def test_a_group_is_not_made_here_when_spoolman_cannot_be_told(owner, server):
+    server.no_patch = True
+    res = owner.post("/api/groups", json={"name": "Bak A"}, headers=H)
+    assert res.status_code == 502 and "Spoolman" in res.get_json()["error"] and groups(owner) == {} and listed(server) == []
+
+
+def test_without_spoolman_a_group_is_just_made(owner, stand_in):
+    assert make(owner, "/api/groups", {"name": "Bak A"})["name"] == "Bak A" and stand_in.setting_writes == []
+
+
+def test_a_renamed_group_is_renamed_on_spoolmans_list_with_or_without_spools_of_spoolman(owner, server):
+    server.spools = [spool(1, location="Plank 1")]
+    server.settings["locations"] = json.dumps(["Eerste", "Plank 1", "Laatste"])
+    sync(owner)
+    server.setting_writes.clear()
+    res = owner.patch(f"/api/groups/{groups(owner)['Plank 1']['id']}", json={"name": "Plank Boven"}, headers=H)
+    assert res.status_code == 200 and server.renamed == [("Plank 1", "Plank Boven")]
+    assert listed(server) == ["Eerste", "Plank Boven", "Laatste"]          # in its place on the list
+    server.settings["locations"] = json.dumps(["Plank Boven", "Overig"])
+    other = make(owner, "/api/groups", {"name": "Leeg"})                   # no spool of Spoolman's in it: nothing to rename there, but the list has to follow
+    assert owner.patch(f"/api/groups/{other['id']}", json={"name": "Leeg 2"}, headers=H).status_code == 200
+    assert server.renamed == [("Plank 1", "Plank Boven")] and listed(server) == ["Plank Boven", "Overig", "Leeg 2"]    # made on the list, then renamed in its place
+    server.settings["locations"] = json.dumps(["Leeg 2", "leeg 3"])        # the new name is on the list already, as another entry: one stays
+    assert owner.patch(f"/api/groups/{other['id']}", json={"name": "Leeg 3"}, headers=H).status_code == 200
+    assert listed(server) == ["Leeg 3"]
+    server.settings["locations"] = json.dumps(["Overig"])                  # not on the list at all (made by an older release): the new name is put there
+    assert owner.patch(f"/api/groups/{other['id']}", json={"name": "Leeg 4"}, headers=H).status_code == 200
+    assert listed(server) == ["Overig", "Leeg 4"]
+
+
+def test_a_group_is_not_renamed_here_when_spoolman_cannot_be_told(owner, server):
+    made = make(owner, "/api/groups", {"name": "Bak A"})
+    server.no_patch = True
+    assert owner.patch(f"/api/groups/{made['id']}", json={"name": "Bak B"}, headers=H).status_code == 502
+    assert list(groups(owner)) == ["Bak A"] and listed(server) == ["Bak A"]
+
+
+def test_a_deleted_group_is_taken_off_spoolmans_list_and_a_refused_one_is_not(owner, server):
+    server.settings["locations"] = json.dumps(["Andere", "Leeg"])
+    empty, full = make(owner, "/api/groups", {"name": "Leeg"}), make(owner, "/api/groups", {"name": "Vol"})
+    roll(owner, group="Vol")
+    assert listed(server) == ["Andere", "Leeg", "Vol"]
+    assert owner.delete(f"/api/groups/{full['id']}", headers=H).status_code == 409 and "Vol" in listed(server)       # refused: still a group, still listed
+    server.no_patch = True
+    assert owner.delete(f"/api/groups/{empty['id']}", headers=H).status_code == 502 and "Leeg" in groups(owner)    # Spoolman did not take it off, so it is not deleted here
+    server.no_patch = False
+    assert owner.delete(f"/api/groups/{empty['id']}", headers=H).status_code == 200
+    assert listed(server) == ["Andere", "Vol"] and list(groups(owner)) == ["Vol"]
+    assert owner.delete(f"/api/groups/{empty['id']}", headers=H).status_code == 404
+
+
+def test_a_group_made_by_typing_a_new_name_is_announced_after_the_roll_is_saved(owner, server):
+    assert roll(owner, group="Bak A")["group_name"] == "Bak A" and listed(server) == ["Bak A"]
+    roll(owner, colour="Wit", group="bak a")                               # the same group: nothing more to say
+    assert server.setting_writes == [["Bak A"]]
+    second = roll(owner, colour="Rood")
+    owner.patch(f"/api/spools/{second['id']}", json={"group": "Bak B"}, headers=H)
+    owner.post("/api/groups/assign", json={"ids": [second["id"]], "group": "Bak C"}, headers=H)
+    assert listed(server) == ["Bak A", "Bak B", "Bak C"]
+    server.no_patch = True
+    saved = roll(owner, colour="Blauw", group="Bak D")                      # Spoolman is away: the roll is saved anyway, and the group is made
+    assert saved["group_name"] == "Bak D" and "Bak D" in groups(owner) and listed(server) == ["Bak A", "Bak B", "Bak C"]
+
+
+def test_what_comes_from_spoolman_is_not_told_back(owner, server):
+    server.spools = [spool(1, location="Plank 1"), spool(2, name="Wit", location="Plank 2")]
+    typed = roll(owner, colour="Rood", barcode="EAN-3", group="Mijn bak")
+    server.spools.append(spool(3, name="Rood", location=None))
+    server.spools[2]["filament"]["article_number"] = "EAN-3"
+    sync(owner)
+    assert sorted(groups(owner)) == ["Mijn bak", "Plank 1", "Plank 2"] and server.setting_writes == [["Mijn bak"]] and typed["group_name"] == "Mijn bak"
+
+
+def test_pushing_the_groups_also_lists_the_ones_spoolman_has_nowhere(owner, app, server):
+    for name in ("Leeg", "Bak A", "Staat al op de lijst", "Op een spoel"):
+        sql(app, "INSERT INTO filament_groups (name) VALUES (%s)", (name,))                     # made without telling Spoolman (an older release, a restore)
+    server.settings["locations"] = json.dumps(["staat al op de lijst", "Iets anders"])
+    server.spools = [spool(1, location="op een spoel")]
+    plan = owner.post("/api/spoolman/push-groups?dry_run=1", json={}, headers=H).get_json()
+    assert plan["listed"] == 2 and server.setting_writes == []             # Bak A and Leeg
+    assert owner.post("/api/spoolman/push-groups", json={}, headers=H).get_json()["listed"] == 2
+    assert listed(server) == ["staat al op de lijst", "Iets anders", "Bak A", "Leeg"]
+    assert owner.post("/api/spoolman/push-groups", json={}, headers=H).get_json()["listed"] == 0 and len(server.setting_writes) == 1
+    server.no_patch = True
+    sql(app, "INSERT INTO filament_groups (name) VALUES ('Nieuw')")
+    assert owner.post("/api/spoolman/push-groups", json={}, headers=H).status_code == 502
+
+
+def test_a_request_that_is_refused_announces_nothing(owner, server):
+    res = owner.post("/api/spools/bulk", json={"items": [{"barcode": "0000", "count": 1}], "group": "Levering"}, headers=H)
+    assert res.status_code == 400 and groups(owner) == {}                  # the group was made on the way and is gone with the refused delivery
+    assert server.setting_writes == [] and listed(server) == []
