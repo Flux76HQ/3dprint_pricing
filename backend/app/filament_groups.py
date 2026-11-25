@@ -5,13 +5,18 @@ lower case alike: that is how Spoolman reads a *location*, which is what a group
 and a Spoolman location are the same thing, and keeping them in step is `spoolman.sync` (Spoolman's location becomes the roll's group),
 `assign` below (a roll moved here is moved in Spoolman first, while Spoolman is in use) and `spoolman.push_groups`.
 
+Spoolman keeps a list of locations of its own besides the locations of its spools (`spoolman.add_locations`), so a group without a roll in it can be there too:
+a group *made* here is put on it, one *renamed* here is renamed on it and one *deleted* here is taken off it, each of them in Spoolman first (an explicit
+action fails whole when Spoolman cannot be reached, and nothing changes here). A group made on the way, by typing a new name for a roll, is announced after the
+answer has been given (`_announce`): the roll is saved either way, and *Groups to Spoolman* puts on the list what was missed.
+
 A group is never removed from under a roll: only an empty one can be deleted (`group.not_empty`), because a roll that is in a group in Spoolman
 would bring the group back at the next sync. Nothing here ever deletes a roll.
 """
 import logging
 import uuid
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, g, has_request_context, jsonify
 
 from .db import UniqueViolation, id_list, named_lock
 from .http import ApiError, json_body, login_required, pool
@@ -48,16 +53,36 @@ def find(conn, name: str):
     return conn.execute("SELECT * FROM filament_groups WHERE lower(name) = lower(%s)", (name,)).fetchone()
 
 
-def ensure(conn, name: str):
+def ensure(conn, name: str, *, announce: bool = True):
     """The id of the group with this name, made when it is new; None for no name. Inside a writing transaction, which holds the write lock, so
-    two rolls that need the same new group make it once."""
+    two rolls that need the same new group make it once. A group that is new is announced to Spoolman once the request is answered (`_announce`), unless
+    it came from Spoolman (`announce` off)."""
     name = name.strip()
     if not name:
         return None
     found = find(conn, name)
     if found is not None:
         return found["id"]
+    if announce and has_request_context():
+        g.groups_made = [*getattr(g, "groups_made", []), name[:NAME_MAX]]
     return conn.execute("INSERT INTO filament_groups (name) VALUES (%s) RETURNING id", (name[:NAME_MAX],)).fetchone()["id"]
+
+
+@bp.after_app_request
+def _announce(response):
+    """The groups made on the way by this request (a new name typed for a roll) are put on Spoolman's list of locations, when Spoolman is in use. Only after a
+    successful answer, so a request that was refused announces nothing, and a failure never fails the request: the roll is saved, and the next push of the
+    groups (or the next group made) puts the name there."""
+    names = getattr(g, "groups_made", None)
+    if not names or response.status_code >= 400:
+        return response
+    from . import spoolman                                      # imported here: that module imports this one
+    try:
+        if spoolman.enabled():
+            spoolman.add_locations(names)
+    except spoolman.SpoolmanError as exc:
+        log.warning("Spoolman was not told of the new group(s) %s: %s", ", ".join(names), exc.key)
+    return response
 
 
 def named(conn, row: dict) -> dict:
@@ -90,14 +115,21 @@ def list_groups():
 
 @bp.post("")
 def create_group():
+    from . import spoolman                                      # imported here: that module imports this one
     name = clean(json_body().get("name"))
+    on = spoolman.enabled()                                     # asked before the request holds a connection
+    with pool().read() as conn:
+        found = find(conn, name)
+        if found is not None:
+            raise ApiError(409, "group.exists", name=found["name"])                 # as it is spelled here, not as it was typed
     try:
+        if on:
+            spoolman.add_locations([name])                      # on Spoolman's list first: when it cannot be reached the group is not made here either
         with pool().connection() as conn:
-            found = find(conn, name)
-            if found is not None:
-                raise ApiError(409, "group.exists", name=found["name"])             # as it is spelled here, not as it was typed
             made = conn.execute("INSERT INTO filament_groups (name) VALUES (%s) RETURNING id", (name,)).fetchone()["id"]
-            row = next(g for g in listing(conn) if g["id"] == str(made))
+            row = next(group for group in listing(conn) if group["id"] == str(made))
+    except spoolman.SpoolmanError as exc:
+        raise exc.api() from None
     except UniqueViolation:                                     # another request made it between the look and the insert
         raise ApiError(409, "group.exists", name=name) from None
     return jsonify(row), 201
@@ -106,7 +138,8 @@ def create_group():
 @bp.patch("/<uuid:group_id>")
 def rename_group(group_id):
     """Rename a group. A group that has rolls from Spoolman is renamed there first (all its spools move to the new location in one call), so the next
-    sync does not bring the old name back; the new name may not be one that another group already has."""
+    sync does not bring the old name back, and the name on Spoolman's list of locations is renamed with it; the new name may not be one that another
+    group already has."""
     from . import spoolman                                      # imported here: that module imports this one
     name = clean(json_body().get("name"))
     on = spoolman.enabled()                                     # asked before the request holds a connection
@@ -128,9 +161,11 @@ def rename_group(group_id):
         with pool().read() as conn:
             return jsonify(next(g for g in listing(conn) if g["id"] == str(group_id)))
     try:
-        if on and linked:
+        if on:
             with named_lock(pool(), spoolman.LOCK):             # not while a sync reads the old name
-                spoolman.rename_location(row["name"], name)
+                if linked:
+                    spoolman.rename_location(row["name"], name)
+                spoolman.rename_listed(row["name"], name)
                 return jsonify(save())
         return jsonify(save())
     except spoolman.SpoolmanError as exc:
@@ -158,13 +193,29 @@ def assign_rolls():
 
 @bp.delete("/<uuid:group_id>")
 def delete_group(group_id):
-    with pool().connection() as conn:
+    """Delete an empty group, and take it off Spoolman's list of locations first (or it would stay there as an empty location)."""
+    from . import spoolman                                      # imported here: that module imports this one
+    on = spoolman.enabled()                                     # asked before the request holds a connection
+
+    def look(conn):
         row = conn.execute("SELECT name FROM filament_groups WHERE id = %s", (group_id,)).fetchone()
         if row is None:
             raise ApiError(404, "err.not_found")
         in_use = conn.execute("SELECT count(*) AS n FROM filament_spools WHERE group_id = %s", (group_id,)).fetchone()["n"]
         if in_use:
             raise ApiError(409, "group.not_empty", name=row["name"], n=in_use)
+        return row
+
+    with pool().read() as conn:
+        row = look(conn)
+    try:
+        if on:
+            with named_lock(pool(), spoolman.LOCK):
+                spoolman.unlist(row["name"])
+    except spoolman.SpoolmanError as exc:
+        raise exc.api() from None
+    with pool().connection() as conn:
+        look(conn)                                              # once more where it is written: a roll may have been put in it meanwhile
         conn.execute("DELETE FROM filament_groups WHERE id = %s", (group_id,))
     return jsonify({"ok": True})
 

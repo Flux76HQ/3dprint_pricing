@@ -41,6 +41,7 @@ class Spoolman:
         self.vendors, self.filaments, self.created, self.made, self.spool_limit = [], [], [], [], None
         self.spools, self.used, self.down, self.answer, self.no_use = [], [], False, None, False
         self.patched, self.renamed, self.no_patch = [], [], False          # the locations that were set, those that were renamed, and a Spoolman that refuses both
+        self.settings, self.setting_writes = {}, []                        # Spoolman's settings by key (the JSON text that is kept) and every write of one, as the value it holds
 
     def request(self, method, url, params=None, json=None, **kwargs):
         import json as jsonlib
@@ -78,6 +79,16 @@ class Spoolman:
             self.made.append(json)
             self.spools.append(made)
             return Reply(body=jsonlib.dumps(made).encode())
+        if path.startswith("/setting/"):
+            key = path[len("/setting/"):]
+            assert key == "locations", key
+            if method == "POST":
+                if self.no_patch:
+                    raise requests.ConnectionError("down")
+                assert isinstance(json, str), "a setting is sent as a JSON string that holds the JSON, as Spoolman's own page sends it"
+                self.settings[key] = json
+                self.setting_writes.append(jsonlib.loads(json))
+            return Reply(body=jsonlib.dumps({"value": self.settings.get(key, "[]"), "is_set": key in self.settings, "type": "array"}).encode())
         if method == "PATCH" and path.startswith("/spool/"):
             if self.no_patch:
                 raise requests.ConnectionError("down")

@@ -18,6 +18,9 @@ reports is reduced by it, so the shelf does not jump back up. Nothing is added t
 A spool's *location* is the roll's group (`filament_groups.py`): a sync reads it (a group is made for a location that is new here), a roll moved
 here is moved there first (`filament_groups.assign`), a group renamed here is renamed there (`rename_location`), and `push_groups` fills in the
 location of a spool that has none. A roll that was typed in here and turns out to be a spool keeps its group when Spoolman has no location for it.
+Spoolman lists a location only while a spool is in it, except on its *Locations* page, which keeps a list of its own (the setting `locations`, an array of names,
+shown next to the locations of the spools): that is where a group without a roll in it can exist there. A group made here is put on that list (`add_locations`),
+a group renamed here is renamed on it and a group deleted here (only an empty one is) is taken off it, so the two never disagree; nothing is read from it.
 The labels Spoolman prints (a QR code with `WEB+SPOOLMAN:S-<id>`, or the address of the spool's page) name one spool: `scanned_spool` reads them.
 
 The address is configuration, never taken from a request. Nothing is followed on a redirect, every answer is capped in size, and Spoolman's
@@ -196,6 +199,72 @@ def rename_location(old: str, new: str) -> None:
     _json("PATCH", f"/location/{quote(old, safe='')}", json={"name": new})
 
 
+LOCATIONS = "locations"                                 # the setting of Spoolman's Locations page: the names of its locations, in the order it shows them
+
+
+def _locations() -> list:
+    """Spoolman's list of locations (the setting `locations`), as it is: names, and whatever else somebody put there, which is never touched."""
+    _, answer = _json("GET", f"/setting/{LOCATIONS}")
+    try:
+        found = json.loads(answer["value"]) if isinstance(answer, dict) and isinstance(answer.get("value"), str) else []
+    except ValueError:
+        found = []
+    return found if isinstance(found, list) else []
+
+
+def _same_name(a, b) -> bool:
+    return isinstance(a, str) and isinstance(b, str) and a.strip().lower() == b.strip().lower()
+
+
+def edit_locations(change) -> bool:
+    """Change Spoolman's list of locations: `change(list)` gives the new one, which is only written when it differs. A setting is sent as a JSON string that
+    holds the JSON, which is how Spoolman's own page sends it. Not locked: the caller holds `LOCK` (a read and a write of the whole list must not
+    overlap another's), which `add_locations` does for the one that has none. True when something was written."""
+    current = _locations()
+    new = change(list(current))
+    if new == current:
+        return False
+    _json("POST", f"/setting/{LOCATIONS}", json=json.dumps(new))
+    return True
+
+
+def rename_listed(old: str, new: str) -> bool:
+    """Rename a location on Spoolman's list (put the new name on it when the old one was not there; one name that is there twice is kept once). The
+    caller holds `LOCK`."""
+    def change(current):
+        out, placed = [], False
+        for entry in current:
+            if _same_name(entry, old) or _same_name(entry, new):
+                if not placed:
+                    out.append(new)
+                    placed = True
+            else:
+                out.append(entry)
+        return out if placed else [*out, new]
+    return edit_locations(change)
+
+
+def unlist(name: str) -> bool:
+    """Take a location off Spoolman's list: a spool that is still in it keeps it (a location is only a text on the spool). The caller holds `LOCK`."""
+    return edit_locations(lambda current: [entry for entry in current if not _same_name(entry, name)])
+
+
+def add_locations(names) -> int:
+    """Put these names on Spoolman's list of locations, those it has not got yet (any case counts as the same), at the end; how many were added.
+    A group made here is announced like this, so that it is on Spoolman's *Locations* page before any spool is in it."""
+    added = []
+
+    def change(current):
+        for name in dict.fromkeys(str(n).strip() for n in names):
+            if name and not any(_same_name(name, have) for have in current + added):
+                added.append(name)
+        return current + added
+
+    with named_lock(pool(), LOCK):
+        edit_locations(change)
+    return len(added)
+
+
 def to_roll(spool: dict) -> dict:
     """The columns of a roll from one spool of Spoolman. Spoolman's *filament* is what our roll calls brand/material/colour, its *name* is the
     colour, its *article number* is the barcode (what groups the rolls of one kind), and a price on the spool beats the filament's."""
@@ -333,7 +402,7 @@ def sync(conn, spools: list, skipped: int) -> dict:
     def group_of(spool: dict):
         place = location_of(spool)
         if place and place.lower() not in made:
-            made[place.lower()] = filament_groups.ensure(conn, place)
+            made[place.lower()] = filament_groups.ensure(conn, place, announce=False)         # it came from Spoolman: nothing to tell it
         return made.get(place.lower()) if place else None
 
     for spool in spools:
@@ -499,7 +568,7 @@ def push_rolls(*, dry_run: bool) -> dict:
                 done["linked"] += 1
                 if not dry_run:
                     with pool().connection() as conn:
-                        _link(conn, roll_id, twin["id"], _kept_group(to_roll(twin), filament_groups.ensure(conn, location_of(twin))))
+                        _link(conn, roll_id, twin["id"], _kept_group(to_roll(twin), filament_groups.ensure(conn, location_of(twin), announce=False)))
                 continue
             if done["created"] >= MAX_CREATED:
                 done["left"] += 1
@@ -525,17 +594,25 @@ MAX_PUSHED = MAX_CREATED                # spools put in a location per run: each
 
 
 def push_groups(*, dry_run: bool) -> dict:
-    """Put the group of every roll that is a spool in Spoolman in that spool's location, where Spoolman has none yet (`set`). Like the other pushes it only
+    """Put the groups Spoolman has nowhere on its list of locations (`listed`: a group without a roll in it, or with only rolls that are not spools; the ones a spool
+    has, or the list has, are not counted), and put the group of every roll that is a spool in Spoolman in that spool's location, where Spoolman has none yet (`set`). Like the other pushes it only
     *completes*: a spool that already has a location is left as it is, the same one (`same`) or another (`other`: Spoolman's word is the one a sync
     brings here), and nothing is cleared. Archived rolls and rolls that are no group's are not asked. A roll whose spool has gone from Spoolman (`gone`) is
     left for the next sync, which archives it. Moving a roll in the app tells Spoolman at once (`filament_groups.assign`), so this is for what was
     in a group before it was linked to its spool."""
     with named_lock(pool(), LOCK):
-        by_number = {spool["id"]: spool for spool in fetch_spools()[0]}
+        spools = fetch_spools()[0]
+        by_number = {spool["id"]: spool for spool in spools}
+        listed = _locations()
         with pool().read() as conn:
             rolls = conn.execute("SELECT s.spoolman_id, g.name AS group_name FROM filament_spools s JOIN filament_groups g ON g.id = s.group_id "
                                  "WHERE s.spoolman_id IS NOT NULL AND NOT s.archived ORDER BY s.created_at, s.id").fetchall()
-        done = {"set": 0, "same": 0, "other": 0, "gone": 0, "left": 0}
+            names = [r["name"] for r in conn.execute("SELECT name FROM filament_groups ORDER BY lower(name)").fetchall()]
+        known = [*listed, *(location_of(spool) for spool in spools)]
+        unknown = [name for name in names if not any(_same_name(name, have) for have in known)]
+        done = {"set": 0, "same": 0, "other": 0, "gone": 0, "left": 0, "listed": len(unknown)}
+        if unknown and not dry_run:
+            _json("POST", f"/setting/{LOCATIONS}", json=json.dumps([*listed, *unknown]))        # under the lock already, so not through `add_locations`
         for roll in rolls:
             spool = by_number.get(roll["spoolman_id"])
             if spool is None:

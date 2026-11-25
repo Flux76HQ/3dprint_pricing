@@ -113,16 +113,19 @@ export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
       } catch (err) { toast(err.message, 'error'); }
       draw();
     };
-    // The group of a roll is the location of its spool: moving a roll tells Spoolman at once, a sync reads the locations. What is left is a roll that was in a group
-    // before it was linked to its spool: that group goes to Spoolman as its location, where Spoolman has none (a location it has is never replaced). Asked first, with the numbers.
+    // The group of a roll is the location of its spool: moving a roll tells Spoolman at once, a sync reads the locations, and a group that is made, renamed or deleted here
+    // is made, renamed or deleted on Spoolman's list of locations too. What is left is what was there before that: a group Spoolman has nowhere (also an empty one) goes on
+    // its list, and a roll that was in a group before it was linked to its spool puts that group in Spoolman as its location, where Spoolman has none (a location it has is
+    // never replaced). Asked first, with the numbers.
     const pushGroups = async () => {
       try {
         const plan = await api('POST', '/api/spoolman/push-groups?dry_run=1');
         const rest = [plan.other ? t('spoolman.groups_other', { n: plan.other }) : null, plan.left ? t('spoolman.push_left', plan) : null].filter(Boolean).join(' ');
-        if (!plan.set) { toast([t('spoolman.groups_nothing'), rest].filter(Boolean).join(' ')); return; }
-        if (!(await confirmDialog([t('spoolman.groups_confirm', { n: plan.set }), rest].filter(Boolean).join(' '), t('spoolman.groups_do')))) return;
+        if (!plan.set && !plan.listed) { toast([t('spoolman.groups_nothing'), rest].filter(Boolean).join(' ')); return; }
+        const ask = [plan.listed ? t('spoolman.groups_listed', { n: plan.listed }) : null, plan.set ? t('spoolman.groups_confirm', { n: plan.set }) : null, rest].filter(Boolean).join(' ');
+        if (!(await confirmDialog(ask, t('spoolman.groups_do')))) return;
         const done = await api('POST', '/api/spoolman/push-groups');
-        toast([t('spoolman.groups_done', { n: done.set }), rest].filter(Boolean).join(' '));
+        toast([done.listed ? t('spoolman.groups_listed_done', { n: done.listed }) : null, done.set ? t('spoolman.groups_done', { n: done.set }) : null, rest].filter(Boolean).join(' '));
       } catch (err) { toast(err.message, 'error'); }
       draw();
     };
