@@ -20,6 +20,7 @@ from flask import Blueprint, Response, g, jsonify, request
 from . import api_keys
 from .api import _serialise
 from .db import id_list
+from .invoice_docs import invoiced
 from .http import ApiError, pool
 from .orders import STATUSES, _lines_of, _pdf_response, compute_totals
 
@@ -87,14 +88,16 @@ def _paged(conn, table: str, where: list, params: list, size: int) -> list:
 
 
 def order_view(order: dict, lines: list, has_pdf: bool) -> dict:
-    """An order as another application sees it: what is on the invoice, never what it cost."""
+    """An order as another application sees it: what is on the invoice, never what it cost. The lines are the ones the invoice lists (packaging material is in
+    the totals, not in the lines, as on the invoice)."""
     totals = compute_totals(lines)
     out = _serialise({k: order[k] for k in ("id", "number", "status", "order_date", "delivery_date", "subject", "created_at", "updated_at")})
     out["customer"] = _serialise({"id": order["customer_id"], "number": order["customer_number"], "name": order["customer_name"],
                                   **{k: order[k] for k in ("address", "postal_code", "city", "country", "email", "phone")}})
     out["invoice"] = {"number": order["invoice_number"], "date": order["invoice_date"].isoformat(), "has_pdf": has_pdf} if order["invoice_number"] else None
-    out["lines"] = [{**_serialise({k: line[k] for k in ("position", "description", "quantity", "unit_price", "vat_pct", "optional")}),
-                     "total": totals["line_totals"][i], "net": totals["line_net"][i], "vat": totals["line_vat"][i]} for i, line in enumerate(lines)]
+    out["lines"] = [{"position": n, **_serialise({k: line[k] for k in ("description", "quantity", "unit_price", "vat_pct", "optional")}),
+                     "total": totals["line_totals"][i], "net": totals["line_net"][i], "vat": totals["line_vat"][i]}
+                    for n, (i, line) in enumerate(invoiced(lines))]                     # as on the invoice: no packaging, and the positions count what is there
     out["totals"] = {"excl": totals["total_excl"], "vat": totals["total_vat"], "incl": totals["total"], "by_vat_rate": totals["vat"]}
     return out
 

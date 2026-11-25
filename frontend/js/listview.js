@@ -20,7 +20,10 @@ function remembered(id) {
  * `config`:
  *   id        remembers the view, the order and the grouping in this browser (`pp-list-<id>`)
  *   memory    an object of the page's own: what was typed and filtered is kept in it, for a page that is drawn again (the parts of Filament)
- *   search    { label, placeholder, text: (row) => text or texts, extra: a node next to the field (the barcode scanner) }
+ *   search    { label, placeholder, text: (row) => text or texts, extra: a node next to the field (the barcode scanner),
+ *             submit: async (text) => true when the text was dealt with (Enter, which is how a hardware scanner ends a code): it is then cleared }
+ *   pin       { match: (row, ref) => whether the row is what `setPin({ label, ref })` brought up }: a scanned code names one thing, so only that is listed,
+ *             under a chip that says what it is and takes it away again
  *   filters   [{ key, label, all, value: (row) => text or texts }]: pull-downs, filled from the rows; each narrows what the next one offers
  *   chips     { label, all, options: [[value, label]], value: (row) => value }: one row of choices that is always in sight (the status of an order)
  *   sorts     [{ key, label, value: (row) => text or number, desc }]: the first is the order a first visit gets; `desc` starts it the other way round
@@ -46,6 +49,7 @@ export function listView(config) {
   memory.query ??= '';
   memory.filters ??= {};
   memory.chip ??= '';
+  memory.pin ??= null;
   const state = {
     view: views.includes(saved.view) ? saved.view : views[0],
     by: sorts.some((s) => s.key === saved.by) ? saved.by : sorts[0]?.key,
@@ -77,8 +81,9 @@ export function listView(config) {
   const passes = (row, upTo = filters.length) => filters.slice(0, upTo).every((f) => !memory.filters[f.key]
     || many(f.value(row)).some((v) => norm(v) === memory.filters[f.key]));
   const chipped = (row) => !config.chips || !memory.chip || String(config.chips.value(row)) === memory.chip;
+  const pinned = (row) => !memory.pin || !config.pin || !!config.pin.match(row, memory.pin.ref);
   const activeFilters = () => filters.filter((f) => memory.filters[f.key]).length;
-  const narrowed = () => words().length > 0 || activeFilters() > 0 || !!memory.chip;
+  const narrowed = () => words().length > 0 || activeFilters() > 0 || !!memory.chip || !!memory.pin;
 
   function ordered(rows) {
     const sort = sorts.find((s) => s.key === state.by);
@@ -92,11 +97,28 @@ export function listView(config) {
   const input = config.search ? h('input', { type: 'search', value: memory.query, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
     enterkeyhint: 'search', placeholder: config.search.placeholder, 'aria-label': config.search.label,
     oninput: (e) => { memory.query = e.target.value; draw(); },
-    onkeydown: (e) => { if (e.key === 'Escape' && input.value) { e.preventDefault(); setQuery(''); } } }) : null;
+    onkeydown: (e) => {
+      if (e.key === 'Escape' && input.value) { e.preventDefault(); setQuery(''); }
+      else if (e.key === 'Enter' && config.search.submit && input.value.trim()) { e.preventDefault(); submit(); }
+    } }) : null;
   function setQuery(value) {
     memory.query = value;
     if (input) input.value = value;
     draw();
+  }
+  async function submit() {
+    const text = input.value.trim();
+    if (await config.search.submit(text) && input.value.trim() === text) setQuery('');       // dealt with, and not typed over meanwhile
+  }
+  const pinBar = h('div', { class: 'list-pin', hidden: true });
+  function setPin(pin) {
+    memory.pin = pin;
+    draw();
+  }
+  function drawPin() {
+    pinBar.hidden = !memory.pin;
+    if (memory.pin) fill(pinBar, icon('scan'), h('span', { class: 'pin-label' }, memory.pin.label),
+      h('button', { class: 'btn tool icon-only', type: 'button', title: t('scan.pin_clear'), 'aria-label': t('scan.pin_clear'), onclick: () => setPin(null) }, icon('close')));
   }
 
   const filterButton = filters.length ? h('button', { type: 'button', class: 'btn tool', 'aria-expanded': 'false', 'aria-controls': `filters-${config.id}`,
@@ -110,6 +132,7 @@ export function listView(config) {
   function clearAll() {
     for (const f of filters) memory.filters[f.key] = '';
     memory.chip = '';
+    memory.pin = null;
     setQuery('');
   }
 
@@ -191,7 +214,7 @@ export function listView(config) {
         sortSelect ? h('div', { class: 'sort-control', role: 'group', 'aria-label': t('sort.label') }, sortSelect, dirButton) : null,
         viewButtons)),
     filterRow,
-    h('div', { class: 'list-tools-row sub' }, chips, groupSwitch, ...(config.toggles || []), h('span', { class: 'grow' }), count, clearButton));
+    h('div', { class: 'list-tools-row sub' }, pinBar, chips, groupSwitch, ...(config.toggles || []), h('span', { class: 'grow' }), count, clearButton));
 
   // --- choosing rows ---------------------------------------------------------------
   const bulk = select ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': t('list.selection'), hidden: true }) : null;
@@ -295,6 +318,7 @@ export function listView(config) {
 
   function draw() {
     drawFilters();
+    drawPin();
     drawChips();
     drawSort();
     viewButtons?.querySelectorAll('.seg').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === state.view)));
@@ -303,7 +327,7 @@ export function listView(config) {
     selectButton?.setAttribute('aria-pressed', String(selecting));
     root.classList.toggle('selecting', selecting);
     if (!loaded) return;
-    const rows = ordered(items.filter((row) => searched(row) && passes(row) && chipped(row)));
+    const rows = ordered(items.filter((row) => searched(row) && passes(row) && chipped(row) && pinned(row)));
     shown = rows;
     for (const id of [...chosen]) if (!rows.some((row) => idOf(row) === id && canChoose(row))) chosen.delete(id);       // what is not listed (any more) is not chosen
     drawBulk();
@@ -326,6 +350,8 @@ export function listView(config) {
     el: root,
     setItems(rows) { items = rows; loaded = true; draw(); },
     setQuery,
+    /** Brings up one thing a scan named (`config.pin`): `{ label, ref }`, or null to list everything again. */
+    setPin,
     /** Narrows the overview to what one of its filters offers (`value` is what the filter's `value` gives; one that is not among the rows is let go). */
     setFilter(key, value) { memory.filters[key] = norm(value); draw(); },
     refresh: draw,

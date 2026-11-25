@@ -4,6 +4,7 @@ import { customerEditorView, customerListView } from './customers.js';
 import { orderEditorView, orderListView } from './orders.js';
 import { projectEditorView, projectListView } from './projects.js';
 import { resourceView } from './resources.js';
+import { salesView } from './sales.js';
 import { ACCENTS, settingsMenu, settingsSection, settingsView } from './settings.js';
 import { initRelease, redrawRelease, releaseAvailable, stopRelease } from './release.js';
 import { initUpdates, setDirty } from './updates.js';
@@ -26,11 +27,12 @@ const NAV = [
   ['onderdelen', 'nav.parts', 'chip'],
   ['printers', 'nav.printers', 'printer-3d'],
   ['energie', 'nav.energy', 'lightning-bolt'],
+  ['omzet', 'nav.sales', 'chart-line'],
   ['instellingen', 'nav.settings', 'cog'],
 ];
 // The sidebar shows them in groups, by what they are for: [label key, routes]. Settings stand apart, at the bottom.
 const NAV_GROUPS = [
-  ['nav.group_sales', ['berekeningen', 'bestellingen', 'klanten']],
+  ['nav.group_sales', ['berekeningen', 'bestellingen', 'klanten', 'omzet']],
   ['nav.group_stock', ['filament', 'verpakking', 'onderdelen']],
   ['nav.group_production', ['printers', 'energie']],
 ];
@@ -112,6 +114,7 @@ function pageContent({ page, id, extra }) {
     case 'klanten':
       if (id) return customerEditorView(id === 'nieuw' ? null : id, navigate);
       return customerListView();
+    case 'omzet': return salesView();
     case 'filament': case 'verpakking': case 'printers': case 'energie': return resourceView(page, id);
     case 'onderdelen': return resourceView(id === 'accessoires' ? 'accessoires' : 'onderdelen', id);
     case 'meer':

@@ -27,7 +27,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, current_app, g, jsonify, request, send_file
 
-from . import ai_images, customers, filament_library, invoice_docs, invoice_logo, invoice_template, listings, orders, packaging_images, preferences, printfile
+from . import ai_images, customers, filament_groups, filament_library, invoice_docs, invoice_logo, invoice_template, listings, orders, packaging_images, preferences, printfile
 from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized, render, request_language
@@ -36,7 +36,7 @@ bp = Blueprint("backup", __name__, url_prefix="/api/backup")
 log = logging.getLogger(__name__)
 
 FORMAT = "printpricing-backup"
-FORMAT_VERSION = 5          # 5: the filament library; 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
+FORMAT_VERSION = 7          # 7: the groups of rolls; 6: packaging lines on orders (an older release would list them on the invoice); 5: the filament library; 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
                             # numbers. A file of an older version still restores
 MAX_ROWS = 20_000
 MAX_USAGE_ROWS = 200_000                      # what the pictures cost: a row per picture, and there is no limit on writing them, so there is none on reading them that a real file could meet
@@ -113,6 +113,10 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
         columns = ["id", *fields, *(["spoolman_id", "bambu_id"] if key == "spools" else []), "created_at"]   # the numbers keep a restored roll linked to its spool in Spoolman or the Bambu cloud
         rows = conn.execute(f"SELECT {', '.join(columns)} FROM {table} ORDER BY created_at, id").fetchall()
         doc[key] = [_serialise(r) for r in rows]
+    placed = {str(r["id"]): r["name"] for r in conn.execute("SELECT s.id, g.name FROM filament_spools s JOIN filament_groups g ON g.id = s.group_id").fetchall()}
+    for roll in doc["spools"]:                                   # a roll names its group, not the id the group has here: the file is read by any installation
+        roll["group"] = placed.get(roll["id"], "")
+    doc["groups"] = [r["name"] for r in conn.execute("SELECT name FROM filament_groups ORDER BY created_at, id").fetchall()]     # empty groups are kept too
     rows = conn.execute(f"SELECT {', '.join(PROJECT_COLUMNS)} FROM projects ORDER BY created_at, id").fetchall()
     doc["projects"] = [_serialise(r) for r in rows]
     doc["customers"] = [_serialise(r) for r in conn.execute(
@@ -142,6 +146,8 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
     if ai:
         doc["ai_image_settings"] = {"model": ai["model"], "quality": ai["quality"],
                                     "prices": {k: ai_images._plain(ai[f"price_{k}"]) for k in ai_images.PRICE_KEYS}, "usd_eur": ai_images._plain(ai["usd_eur"])}
+    doc["image_text_presets"] = [{"field": r["field"], "text": r["body"]}                # the standard texts of the picture form, the oldest first
+                                 for r in conn.execute("SELECT field, body FROM image_text_presets ORDER BY created_at, id").fetchall()]
     doc["ai_image_usage"] = [                                                          # what the pictures cost: the tokens and the prices they were made at
         {"created_at": r["created_at"].isoformat(), "batch_id": str(r["batch_id"]), "project_id": str(r["project_id"]) if r["project_id"] else None,
          "project_number": r["project_number"], "project_name": r["project_name"], "purpose": r["purpose"], "variant": r["variant"], "model": r["model"],
@@ -226,7 +232,7 @@ def _export_orders(conn) -> list:
     lines = orders._lines_of(conn, [r["id"] for r in rows])
     for row in rows:
         item = _serialise(row)
-        item["lines"] = [_serialise({k: line[k] for k in ("project_id", "project_number", "description", "quantity", "unit_price", "vat_pct", "cost_price", "margin_pct", "optional")})
+        item["lines"] = [_serialise({k: line[k] for k in ("project_id", "project_number", "description", "quantity", "unit_price", "vat_pct", "cost_price", "margin_pct", "optional", "packaging")})
                          for line in lines[row["id"]]]
         out.append(item)
     return out
@@ -308,6 +314,15 @@ def _parse(doc, archive=None, progress=None) -> dict:
                 raise _row_error("files", n, exc) from None
         plan["file_ids"] = {f["id"] for f in plan["files"]}
 
+    groups: dict[str, str] = {}                                 # the groups of the file by name in lower case (as they are found): the file's own spelling
+    for n, name in enumerate(_rows(doc, "groups"), 1):
+        try:
+            if not isinstance(name, str):
+                raise Localized("backup.bad_row_type")
+            groups.setdefault(filament_groups.clean(name).lower(), filament_groups.clean(name))
+        except (ApiError, Localized) as exc:
+            raise _row_error("groups", n, exc) from None
+
     for key, resource in SECTIONS:
         table, fields = RESOURCES[resource][:2]
         parsed = []
@@ -316,10 +331,14 @@ def _parse(doc, archive=None, progress=None) -> dict:
                 if not isinstance(row, dict):
                     raise Localized("backup.bad_row_type")
                 values = _validated(fields, row, partial=False)
+                group = ""
                 if key == "spools":
                     values["spoolman_id"] = _spoolman_id(row.get("spoolman_id"), {p["values"]["spoolman_id"] for p in parsed})
                     values["bambu_id"] = _bambu_id(row.get("bambu_id"), {p["values"]["bambu_id"] for p in parsed})
-                parsed.append({"id": _uuid(row.get("id") or uuid.uuid4(), key), "values": values,
+                    group = filament_groups.clean(row.get("group"), required=False)         # a file before version 6 has none: the roll is in no group
+                    if group:
+                        group = groups.setdefault(group.lower(), group)                      # a group the roll names is a group, listed or not
+                parsed.append({"id": _uuid(row.get("id") or uuid.uuid4(), key), "values": values, "group": group,
                                "created_at": _when(row.get("created_at"))})
             except (ApiError, Localized) as exc:
                 raise _row_error(key, n, exc) from None
@@ -341,6 +360,7 @@ def _parse(doc, archive=None, progress=None) -> dict:
                     item["values"]["is_default"] = not seen
                     seen = True
         plan["sections"][key] = (table, parsed)
+    plan["groups"] = list(groups.values())
 
     projects = []
     for n, row in enumerate(_rows(doc, "projects"), 1):
@@ -362,6 +382,7 @@ def _parse(doc, archive=None, progress=None) -> dict:
     plan["packaging_images"] = _parse_packaging_images(doc.get("packaging_images"), {item["id"] for item in plan["sections"]["packaging"][1]})
     plan["ai_settings"] = _parse_ai_settings(doc.get("ai_image_settings"))
     plan["ai_usage"] = _parse_ai_usage(doc.get("ai_image_usage"), {p["id"] for p in projects})
+    plan["image_text_presets"] = _parse_image_text_presets(doc.get("image_text_presets"))
     plan["orders"] = _parse_orders(doc)
     plan["customers"] = _parse_customers(doc, plan["orders"])
     plan["invoice_pdfs"] = _parse_invoice_pdfs(doc.get("invoice_pdfs"), plan["orders"])
@@ -544,6 +565,31 @@ def _parse_ai_settings(entry):
         except ApiError as exc:
             raise _row_error("ai_image_settings", 1, exc) from None
     return parsed
+
+
+def _parse_image_text_presets(entries) -> list:
+    """The standard texts of the picture form, absent in an older file: each is checked as when it is kept (`ai_images.preset_text`, so the same limits as
+    the field), the same text twice in a field is kept once, and a field has at most `PRESETS_MAX` of them."""
+    if entries in (None, []):
+        return []
+    if not isinstance(entries, list) or len(entries) > ai_images.PRESETS_MAX * len(ai_images.PRESET_FIELDS):
+        raise _row_error("image_text_presets", 1, Localized("backup.bad_row_type"))
+    rows, seen = [], set()
+    for n, entry in enumerate(entries, 1):
+        try:
+            if not isinstance(entry, dict):
+                raise Localized("backup.bad_row_type")
+            field = entry.get("field")
+            body = ai_images.preset_text(field, entry.get("text"))
+            if (field, body) in seen:
+                continue
+            seen.add((field, body))
+            rows.append({"field": field, "body": body})
+        except (ApiError, Localized) as exc:
+            raise _row_error("image_text_presets", n, exc) from None
+    if any(sum(1 for r in rows if r["field"] == field) > ai_images.PRESETS_MAX for field in ai_images.PRESET_FIELDS):
+        raise _row_error("image_text_presets", 1, Localized("backup.bad_row_type"))
+    return rows
 
 
 def _parse_ai_usage(entries, project_ids: set) -> list:
@@ -1024,8 +1070,10 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                 replaced = conn.execute(f"DELETE FROM {table} RETURNING stored_name").fetchone()
                 if replaced and replaced["stored_name"]:                       # a file an earlier release left under UPLOAD_DIR
                     old_files.append(replaced["stored_name"])
-            for table in ("filament_spools", "filament_library", "packaging_items", "part_items", "accessory_items", "energy_tariffs", "printers"):
+            for table in ("filament_spools", "filament_groups", "filament_library", "packaging_items", "part_items", "accessory_items", "energy_tariffs", "printers"):
                 conn.execute(f"DELETE FROM {table}")
+            group_ids = {name.lower(): conn.execute("INSERT INTO filament_groups (name) VALUES (%s) RETURNING id", (name,)).fetchone()["id"]
+                         for name in plan["groups"]}                          # before the rolls, which name them
             if plan["files"]:
                 old_files += [r["stored_name"] for r in conn.execute("DELETE FROM print_files RETURNING stored_name").fetchall()]
                 for row in file_rows:
@@ -1033,6 +1081,8 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
             for _key, (table, items) in plan["sections"].items():
                 for item in items:
                     values = {"id": item["id"], **item["values"]}
+                    if table == "filament_spools" and item["group"]:
+                        values["group_id"] = group_ids[item["group"].lower()]
                     if item["created_at"]:
                         values["created_at"] = item["created_at"]
                     _insert(conn, table, values)
@@ -1077,6 +1127,9 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                     price = plan["ai_settings"]["prices"]
                     conn.execute("UPDATE ai_image_settings SET price_text_in = %s, price_image_in = %s, price_image_out = %s, usd_eur = %s",
                                  (price["text_in"], price["image_in"], price["image_out"], plan["ai_settings"]["usd_eur"]))
+            conn.execute("DELETE FROM image_text_presets")          # the standard texts too: the file's list replaces the one there
+            for preset in plan["image_text_presets"]:
+                _insert(conn, "image_text_presets", preset)
             conn.execute("DELETE FROM ai_image_usage")              # what is in the file replaces what is there, as everything else does
             for usage in plan["ai_usage"]:
                 _insert(conn, "ai_image_usage", usage)

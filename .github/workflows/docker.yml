@@ -3,12 +3,12 @@ name: docker
 # Publishes the stable image on every push to main (a promotion from beta; beta has its own workflow, docker-beta.yml). `latest` is a channel and moves on every build;
 # `X.Y.Z` names one artifact, so it is only pushed when the git tag vX.Y.Z does not exist yet.
 #
-# This workflow also raises VERSION: pull requests do not touch it (two that did would conflict every time),
-# so a push that changed code or build files gets the next number here, committed to main by the workflow,
-# and the image is built from that commit. A push of documentation only keeps the number. The PR label
-# `version:minor` / `version:major` chooses the part (patch otherwise). The bump commit is pushed with
-# GITHUB_TOKEN and so starts no workflow of its own. The repository must let github-actions push to main
-# (a ruleset bypass for it, if main is protected); without that the bump fails here, loudly, before anything is published.
+# This workflow does not raise VERSION: beta does, for every pull request merged into it (docker-beta.yml), and the promotion carries
+# the number. What it does here is set the Home Assistant app's version to it (homeassistant/config.yaml names the image tag the app
+# is built on, which exists only from this publish on), committed to main by the workflow, and the image is built from that commit.
+# A promotion that left VERSION where it was (documentation only) builds `latest` again and publishes no new version. The commit is
+# pushed with GITHUB_TOKEN and so starts no workflow of its own. The repository must let github-actions push to main (a ruleset
+# bypass for it, if main is protected); without that this fails, loudly, before anything is published.
 on:
   push:
     branches:
@@ -30,29 +30,23 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main                      # the tip, not the pushed commit: an earlier run may have raised VERSION since
+          ref: main                      # the tip, not the pushed commit: an earlier run may have added its release commit since
           fetch-depth: 0
-      - name: Raise VERSION for this push
+      - name: Set the Home Assistant app to the released version
         id: bump
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          part=patch
-          labels="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[].labels[].name' 2>/dev/null || true)"
-          if grep -qx 'version:major' <<<"$labels"; then part=major
-          elif grep -qx 'version:minor' <<<"$labels"; then part=minor; fi
-          python scripts/bump_version.py --before "${{ github.event.before }}" --after "$GITHUB_SHA" --part "$part"
-          if ! git diff --quiet VERSION; then
+          python scripts/bump_version.py --sync-addon
+          if ! git diff --quiet homeassistant/config.yaml; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Release $(tr -d '[:space:]' < VERSION)" VERSION homeassistant/config.yaml
+            git commit -m "Release $(tr -d '[:space:]' < VERSION)" homeassistant/config.yaml
             pushed=false
             for attempt in 1 2 3; do
               if git push origin HEAD:main; then pushed=true; break; fi
-              git pull --rebase origin main              # something landed meanwhile; VERSION is only ever changed here
+              git pull --rebase origin main              # something landed meanwhile; this commit only ever changes the app's version
             done
             if [ "$pushed" != true ]; then
-              echo "::error::Could not push the VERSION bump to main. Let github-actions push to main (ruleset bypass), or bump VERSION by hand."
+              echo "::error::Could not push the release commit to main. Let github-actions push to main (ruleset bypass), or set the version in homeassistant/config.yaml by hand."
               exit 1
             fi
           fi
@@ -95,8 +89,8 @@ jobs:
         run: |
           gh release create "v${{ steps.version.outputs.version }}" --target "${{ steps.bump.outputs.sha }}" \
             --title "v${{ steps.version.outputs.version }}" --generate-notes
-      # beta is where pull requests land and main only receives promotions from it, so beta has to carry the VERSION bump
-      # (and the release commit) main just made. Best effort: a failure here never undoes the release.
+      # beta is where pull requests land and main only receives promotions from it, so beta has to carry the release commit main
+      # just made (the Home Assistant app's version). Best effort: a failure here never undoes the release.
       - name: Bring beta level with main
         continue-on-error: true
         run: |

@@ -34,7 +34,7 @@ te houden waar die prijzen op gebaseerd zijn. Inloggen gaat met **passkeys** of,
   **Een model dupliceren**: *Opslaan als kopie* (titelbalk van het model) bewaart wat er nu in het formulier staat, ook wat je nog niet had opgeslagen, als een nieuw model met *(kopie)* achter de naam. Het neemt mee wat bij het model hoort, zodat je niets opnieuw hoeft te maken of te koppelen: de gekoppelde **3D-modellen** en bestanden voor de filamentberekening (dezelfde bestanden: een bestand blijft bewaard zolang een berekening het noemt), **alle afbeeldingen** (de geüploade foto's, de beelden van het 3D-model die je opsloeg met het model en de plaat die ze tonen, en de afbeeldingen die gemaakt zijn, met welke ervan meegaan naar het AI-model en welke het omslag is) en de keuzes erachter (doel, kleur, setting en teksten). De afbeeldingen zijn kopieën: ze verwijderen of opnieuw maken bij het ene model raakt het andere niet. Niet mee gaan wat het AI-model kostte (dat is uitgegeven aan het origineel), en het **verkoopitem** (de titel, tekst, prijs en EAN van een advertentie horen bij één model; zet de kopie zelf te koop).
 - **Klanten en bestellingen** — klanten met klantnummer, en een bestelling van een klant met meerdere prints: besteldatum, leverdatum, de klant, een lijst met
   modellen (zoek een berekening op **nummer** of naam; elke berekening heeft een nummer, `#12`), aantallen en de totaalprijs. Per
-  bestelling maak je een **factuur** en zet je de status op *nieuw*, *verwerkt*, *verstuurd* of *afgehandeld*. Zie *Bestellingen en
+  bestelling maak je een **factuur** en een **label** en zet je de status op *nieuw*, *verwerkt*, *verstuurd* of *afgehandeld*. Zie *Bestellingen en
   facturen* hieronder.
 - **Navigatiebalk (telefoon)** — de balk onderaan gebruikt Material Design-iconen (Pictogrammers, Apache-2.0, mee te leveren onder `frontend/vendor/mdi/`; ingevuld als het onderdeel actief is, anders als omtrek). Onder *Instellingen → Weergave → Navigatiebalk* kies je **iOS-achtig** (zwevend, afgerond, met een schuifregelaar voor het **glaseffect**: 0 is ondoorzichtig, 100 is het doorzichtigst en meest vervaagd) of **Android-achtig** (over de volle breedte aan de onderrand, met een pil achter het actieve icoon). Standaard staat de keuze op **Automatisch**: de app herkent het toestel en kiest Android-achtig op Android en iOS-achtig op andere apparaten. De keuze staat bij je account (`navbar_style`, `navbar_glass`) en geldt op al je apparaten.
 - **Titelbalk** — bovenaan elke pagina blijft een balk staan met de titel en de hoofdknop (nieuwe bestelling, klant, rol, …) terwijl je scrolt; op een telefoon houdt hij rekening met de uitsparing van camera en notch (`viewport-fit=cover`, `env(safe-area-inset-top)`).
@@ -169,8 +169,9 @@ tabblad Documentatie van de app (`homeassistant/DOCS.md`).
 - **Back-up.** `backup: cold`: Home Assistant stopt de app tijdens een back-up, want een bestand dat beschreven wordt (het -wal-bestand bevat de nieuwste data) is geen consistente kopie. Verplaatsen tussen
   Docker Compose en Home Assistant gaat met de back-up in de app (Instellingen > Systeem). De automatische back-ups van de app (`/data/backups/auto`, zie *Back-up in de app*) staan in de map van de app
   en gaan dus mee in de back-ups van Home Assistant, die daardoor groter worden.
-- **Versie.** `version` in `homeassistant/config.yaml` is de versie van de image waarop de app gebouwd wordt. Die zet de pijplijn (`scripts/bump_version.py`)
-  gelijk met `VERSION`; een pull request raakt hem niet aan. Een wijziging in `homeassistant/` telt als code en verhoogt het versienummer bij de promotie.
+- **Versie.** `version` in `homeassistant/config.yaml` is de versie van de laatste *release*, want de image waarop de app gebouwd wordt bestaat pas vanaf de promotie. De pijplijn
+  (`scripts/bump_version.py --sync-addon`) zet hem bij een promotie gelijk met `VERSION`; een pull request raakt hem niet aan. Een wijziging in `homeassistant/` telt als code en verhoogt
+  `VERSION` zodra de pull request in `beta` is gemerged.
 - **PostgreSQL 17 (alleen voor de overstap).** Hetzelfde hoofdnummer als `postgres:17-alpine` in de compose-file; de Dockerfile vraagt `postgresql-17` met name. Een datamap
   van een ander hoofdnummer opent PostgreSQL niet, en `run.py` weigert te starten in plaats van eraan te komen. De volgende release haalt PostgreSQL uit de Dockerfile.
 - **Geen Ingress.** Passkeys zijn gebonden aan het domein waarop de app staat, en de app is gemaakt om op de root van een eigen domein te draaien. Gebruikers
@@ -352,9 +353,9 @@ docker compose pull && docker compose up -d
 ```
 `scripts/update.sh` bewaart de database als `DATA_PATH/backups/pre-update-JJJJ-MM-DD-UUMMSS.sqlite3.gz` voordat er iets wordt vervangen (een installatie die nog op PostgreSQL draait krijgt een `.sql.gz`-dump) (daarna verhuist `scripts/migrate_data.sh` data die in een andere map dan `DATA_PATH` staat); mislukt of is die kopie leeg, dan stopt de update. Die kopieën staan in dezelfde map als de data die ze beschermen:
 kopieer ze nu en dan van de server af. Terugzetten: zie *Back-up en herstel*.
-CI publiceert bij elke push naar `beta` `:beta` (en `:beta-<sha>`), zonder release of nieuw versienummer: zet `PRINTPRICING_TAG=beta` in `.env` om de beta te draaien, met een aparte datamap.
+CI verhoogt bij elke gemergde pull request in `beta` die code wijzigde `VERSION` met 0,1 (een label `version:major` of `version:patch` op de pull request kiest een ander deel) en publiceert dan `:beta` (en `:beta-<sha>`), zonder release: zet `PRINTPRICING_TAG=beta` in `.env` om de beta te draaien, met een aparte datamap.
 CI publiceert bij elke promotie naar `main` (een pull request vanuit `beta`) `:latest`, en `:X.Y.Z` plus een GitHub Release (met notities) wanneer
-`VERSION` een nieuwe versie heeft. Een versie-image wordt nooit overschreven. Migraties draaien bij het opstarten
+`VERSION` van `beta` een nieuwe versie heeft; de promotie zelf verhoogt hem niet. Een versie-image wordt nooit overschreven. Migraties draaien bij het opstarten
 vóór de server verkeer krijgt; de container stopt als een migratie faalt of een toegepaste migratie is gewijzigd.
 Hosten op de gedeelde Flux76-server: zie `shared/infrastructure/adding-an-app.md` in App-Guidance.
 
@@ -436,9 +437,9 @@ De app is voor één bedrijf, maar er kunnen meer mensen mee werken. Wie de app 
 
 | | Gebruiker | Beheerder |
 |---|---|---|
-| Berekeningen, bestellingen en facturen maken, klanten, voorraad, printers, tarieven, filamentbibliotheek, printbestanden | ✅ | ✅ |
+| Berekeningen, bestellingen, facturen en labels maken, klanten, voorraad, printers, tarieven, filamentbibliotheek, printbestanden | ✅ | ✅ |
 | Eigen voorkeuren (taal, thema, meldingen, stille uren), eigen passkeys, wachtwoord en herstelcodes | ✅ | ✅ |
-| Bedrijfsgegevens, btw en afronding, drempels voor *filament bijna op*, factuursjabloon en logo wijzigen | ❌ | ✅ |
+| Bedrijfsgegevens, btw en afronding, drempels voor *filament bijna op*, factuursjabloon, logo en labelsjablonen wijzigen | ❌ | ✅ |
 | Gebruikers uitnodigen, nieuwe inloglink maken, beheerder maken, verwijderen | ❌ | ✅ |
 | Back-up en herstel, fabrieksinstellingen, updatecontrole en melding *nieuwe versie*, OpenAI-sleutel | ❌ | ✅ |
 
@@ -471,7 +472,7 @@ Een beheerder kan een gewone gebruiker **beheerder maken** (*Maak beheerder* in 
 
 ### Gedeeld of persoonlijk
 
-Per persoon blijven: taal, thema en accentkleur, de balk onderaan, in- of uitklappen van het menu, het verbergen van kostprijzen, de schakelaar *Zakelijk*, stille uren, en of je een melding over een nieuwe versie wilt. Gedeeld door iedereen (en alleen door een beheerder te wijzigen): `business` (bedrijfsgegevens, factuurnummerformaat, betaal-QR), `vat_pct`, `price_rounding` en `low_stock`. Ze staan in de tabel `shared_preferences`; bij het bijwerken naar deze versie verhuist wat de eigenaar tot nu toe had ingevuld daarheen. Een back-up bevat beide samen onder `preferences`, zoals altijd, en een oudere back-up herstelt dus gewoon.
+Per persoon blijven: taal, thema en accentkleur, de balk onderaan, in- of uitklappen van het menu, het verbergen van kostprijzen, de schakelaar *Zakelijk*, stille uren, en of je een melding over een nieuwe versie wilt. Gedeeld door iedereen (en alleen door een beheerder te wijzigen): `business` (bedrijfsgegevens, factuurnummerformaat, betaal-QR), `vat_pct`, `price_rounding`, `low_stock` en `label_templates` (de labelsjablonen). Ze staan in de tabel `shared_preferences`; bij het bijwerken naar deze versie verhuist wat de eigenaar tot nu toe had ingevuld daarheen. Een back-up bevat beide samen onder `preferences`, zoals altijd, en een oudere back-up herstelt dus gewoon.
 
 ### Back-up, fabrieksinstellingen en de database
 
@@ -545,6 +546,7 @@ De onderdelen van *Instellingen* staan in het **menu links, onder *Instellingen*
 | **Weergave** | taal, thema, accentkleur |
 | **Beveiliging** | passkeys en herstelcodes, wachtwoord en tweestapsverificatie |
 | **Zakelijk** | btw en afronding, bedrijfsgegevens, factuursjabloon; alleen zichtbaar voor beheerders, en als de schakelaar *Zakelijk* onder *Algemeen* aan staat (de voorkeur `business_mode`, per account) |
+| **Labels** | alleen beheerders (groep *Gegevens*, ook zonder de schakelaar *Zakelijk*): de labelsjablonen voor een bestelling, met vel, opmaak en de velden die op het label komen; zie *Bestellingen en facturen* |
 | **Filamenten** | de filamentbibliotheek: specificaties van filamenten, een Bambu Lab-factuur inlezen, JSON-export en -import en synchroniseren met GitHub; zie *Filamentbibliotheek* |
 | **Notificaties** | meldingen (dit apparaat, testmelding, verbindingscontrole, apparatenlijst) en stille uren; *nieuwe versie* en de drempels voor *filament bijna op* alleen voor beheerders |
 | **Koppelingen** | alleen beheerders: de koppelingen met [Spoolman](#spoolman-optioneel) en [HaspelSync](#haspelsync-optioneel), API-sleutels waarmee een andere applicatie bestellingen en facturen leest, en webhooks die een seintje geven als er iets gebeurt (zie *Koppelingen: API-sleutels en webhooks*); elke koppeling klapt dicht en toont dan of hij actief is |
@@ -670,11 +672,15 @@ zie je in de app niets. De server beslist, niet de browser.
    | *Productafbeeldingen voor een webshop* | studio, vierkant, detail van dichtbij, liggend 3:2; strak en gelijkmatig belicht |
 
    **Kleur van het item**: standaard blijft het item zoals op de foto of in het 3D-bestand. Kies *Eigen kleur kiezen* en een kleur, dan krijgt het item die kleur op de
-   afbeeldingen (ook als de foto een andere kleur laat zien) en in de 3D-weergave. De kleur wordt bij de berekening bewaard.
+   afbeeldingen (ook als de foto een andere kleur laat zien) en in de 3D-weergave. De kleur wordt bij de berekening bewaard. Onder de kleurkiezer staan de
+   **kleuren uit de print** als ronde knoppen (*Kleuren uit de print*): de kleur van elke filamentregel van de berekening, en daarna die van de filamenten in het
+   printbestand die nog geen regel hebben (kleuren die bijna hetzelfde zijn komen één keer voor). Eén klik zet die kleur in het veld; het gekozen rondje heeft een ring.
+   Wijzig je de filamentregels, dan staat de lijst er weer goed op zodra je met de muis of de vinger bij de kleuren komt.
 
    **Kleur van tekst en balken**: in hetzelfde vlak kies je de kleuren van de poster (zie *Teksten op de afbeelding* hieronder). *Automatisch, passend bij de foto*
    volgt de foto en de stijl van je keuze. Met *Eigen kleuren kiezen* stel je de kleur van de **tekst** in en die van de **balken en het label** (het accentstreepje
    boven de naam, de opsommingstekens en het label met de extra tekst); *Balken in de kleur van het item* neemt de kleur van het item over, zodat alles bij elkaar past.
+   Onder de kleur van de **tekst** en die van de **balken en het label** staan dezelfde kleuren uit de print als ronde knoppen, om er met één klik een te kiezen.
    Ook met eigen kleuren blijft de poster leesbaar: de app kiest zelf of de tekst op een donkere of een lichte waas staat (en maakt die sterker als dat tegen de foto
    in gaat), en het label krijgt witte of donkere letters, wat het best leest op de gekozen kleur.
 
@@ -686,6 +692,14 @@ zie je in de app niets. De server beslist, niet de browser.
    **Setting (extra aanwijzing)**: optioneel beschrijf je in je eigen woorden de omgeving waarin het item te zien moet zijn (bijvoorbeeld “op een houten
    bureau naast een laptop, in zacht ochtendlicht”). Dat komt boven op de *Omschrijving van het object* in de opdracht voor het model; de studiofoto houdt zijn
    neutrale achtergrond. Het wordt bij de berekening bewaard.
+
+   **Standaardteksten**: onder *Setting (extra aanwijzing)*, *Productnaam*, *Korte specs* en *Extra tekst* staat een rij met een lijstje en twee knoppen. Typ een tekst
+   die je vaker gebruikt en kies *Bewaar als standaardtekst* (het bladwijzer-icoon met plusje): hij komt in het lijstje van dat veld. In een andere berekening kies je hem
+   daar weer uit *Standaardtekst kiezen…*, en het veld wordt ingevuld en bewaard alsof je hem hebt getypt. Het lijstje volgt het veld: staat er een standaardtekst in het
+   veld, dan toont het lijstje die; met de prullenbak verwijder je die standaardtekst uit het lijstje (berekeningen die hem al gebruiken houden hun eigen tekst). Een
+   standaardtekst voor *Korte specs* bevat alle regels in één keer. Dezelfde tekst wordt per veld maar één keer bewaard, en een veld heeft er hooguit 50. De
+   standaardteksten zijn van het bedrijf, niet van één berekening of persoon: iedereen die afbeeldingen maakt ziet dezelfde lijstjes. Ze zitten in de back-up
+   en gaan weg bij een fabrieksreset.
 
    **Teksten op de afbeelding**: *Productnaam*, *Korte specs* (een per regel, hooguit 5) en *Extra tekst*. Zijn alle drie ingevuld, dan wordt de **eerste**
    van de vier een reclameposter: de teksten liggen als overlay over de foto (geen vlak of kader, de foto loopt er zacht in over), met de naam als grote kop
@@ -738,6 +752,15 @@ De foto en de gemaakte afbeeldingen staan in de database (tabel `project_images`
 (`ai_image_jobs`, `ai_image_log`) beschrijven lopend werk en geschiedenis en zitten er niet in; **de kosten (`ai_image_usage`), de prijzen en de koers zitten er wel in**. De foto en
 je omschrijving gaan naar OpenAI; wat daar mee gebeurt volgt hun voorwaarden.
 
+## Omzet en marge
+
+Het menu *Omzet en marge* (onder *Verkoop*) laat zien wat je bestellingen hebben opgeleverd. Bovenaan staan de kaarten *Deze week*, *Deze maand* en *Dit jaar* met de **marge** en daaronder de omzet, de kosten en het aantal bestellingen. Eronder kies je een **week, maand of jaar**, loop je met de pijltjes naar een vorige of volgende periode (*Nu* springt terug) en zie je de totalen van die periode, een staafgrafiek (per dag, of per maand bij een jaar; het onderste, grijze deel is de kosten, het bovenste de marge, dus de hoogte is de omzet) en een tabel met de bestellingen en een totaalregel.
+
+- **Omzet** is wat de klant betaalt **zonder btw**. **Kosten** zijn de kostprijs van de regels (filament, onderdelen, verpakking, printtijd en energie, zoals de berekening ze had toen de regel werd gemaakt) maal het aantal. **Marge** is omzet min kosten; *Marge van de omzet* is dat als percentage.
+- Een bestelling telt mee op haar **besteldatum** en alleen zodra ze op *Verstuurd* of *Afgehandeld* staat. Met de schakelaar *Ook bestellingen die nog niet verstuurd zijn* tellen *Nieuw* en *Verwerkt* ook mee.
+- Een regel **zonder kostprijs** (een eigen regel, zoals verzendkosten) telt als omzet zonder kosten. Staat zo'n regel in de periode, dan zegt de pagina dat de marge daar iets te ruim is.
+- De server rekent alles uit (`backend/app/reports.py`, `GET /api/reports/sales`); een week loopt van maandag tot en met zondag.
+
 ## Bestellingen en facturen
 
 **Klanten** (menu *Klanten*): een klant heeft een klantnummer, naam, adres, postcode, plaats, land, e-mail, telefoon en een notitie (alleen voor jezelf). Laat je het klantnummer leeg, dan krijgt de klant het volgende vrije hele getal (`1`, `2`, …); een eigen nummer (`K9999`) mag ook, maar is uniek (hoofdletters tellen niet). Een klant met bestellingen kan niet verwijderd worden. Bestaande bestellingen kregen bij het bijwerken automatisch een klant: één per naam + klantnummer, met een vrij nummer als het klantnummer leeg of dubbel was.
@@ -756,11 +779,13 @@ en zoek je op *Betreft*, naam, klantnummer, plaats, bestelnummer of factuurnumme
 
 **Een klant dupliceren**: *Dupliceren* in de titelbalk van een klant maakt een nieuwe klant met dezelfde naam (met *(kopie)* erachter, zodat je hem niet voor het origineel aanziet), adres, contactgegevens en notitie, en het volgende vrije klantnummer. De bestellingen blijven bij de klant voor wie ze gemaakt zijn. De kopie opent meteen, om te veranderen wat anders is.
 
+**Filament reserveren.** Zolang een bestelling op *Nieuw* of *Verwerkt* staat, houdt hij het filament vast dat zijn modellen nodig hebben (de filamentregels van de berekening, in gram per stuk, maal het aantal; accessoires en verpakking tellen niet mee). Er wordt **niets afgeboekt**: de rol houdt zijn gewicht, want de voorraad wordt bijgewerkt door Spoolman (of door *Filament afboeken* bij de berekening). In de bestelling toont het blok *Filament* per kleur wat nodig is, wat beschikbaar is (voorraad min wat andere open bestellingen al vasthouden) en een waarschuwing met het tekort in gram als het niet genoeg is. Op de pagina *Filament* staat bij elke soort wat er gereserveerd en beschikbaar is. Zodra de status op *Verstuurd* of *Afgehandeld* komt (of de bestelling wordt verwijderd) is de reservering weg: er wordt niets bijgehouden dat je kunt vergeten, het wordt elke keer uit de open bestellingen uitgerekend. Zet de status dus pas op *Verstuurd* als de print klaar is: tussen het afdrukken (Spoolman boekt het gebruik) en die status telt het filament dubbel.
+
 **Bestellingen aan een andere klant toewijzen**: kies in het overzicht met *Selecteren* een of meer bestellingen (bij *Bestellingen* kun je eerst op klant filteren om ze allemaal te vinden) en kies *Toewijzen aan klant*. Je kiest de klant, ziet wat er gaat gebeuren en bevestigt; de server doet **alles of niets**. De bestellingen nemen de gegevens van die klant over, zoals bij opslaan, en elke gewijzigde bestelling meldt `order.updated` aan de webhooks. Een bestelling **met een factuur** kan niet gekozen worden en wordt door de server geweigerd (409): die factuur is voor de klant gemaakt van wie hij was, en wat een factuur zegt wordt nooit herschreven. Maak daar zo nodig een nieuwe bestelling van (*Dupliceren*). Bestellingen die al bij die klant horen blijven zoals ze zijn.
 
 **Losse accessoires op een bestelling**: met *Accessoire toevoegen* kies je een accessoire uit je lijst (*Onderdelen → Accessoires*, gearchiveerde staan er niet bij) en komt het als optionele regel tegen inkoopprijs (marge 0, aanpasbaar) op de bestelling, ook zonder berekening. Kies je hetzelfde nog eens, dan gaat het aantal omhoog. Een accessoire per meter of per kg krijgt dat achter de omschrijving.
 
-**Verpakking op een bestelling**: met *Verpakking toevoegen* kies je verpakkingsmateriaal uit je lijst (*Verpakking*, gearchiveerde staan er niet bij) en komt het als gewone regel (niet optioneel) tegen inkoopprijs (marge 0, aanpasbaar) op de bestelling, zodat het in het totaal en op de factuur zit. Kies je hetzelfde nog eens, dan gaat het aantal omhoog. Wat je per bestelling nodig hebt (één doos voor drie modellen) bepaal je dus zelf, in plaats van per model.
+**Verpakking op een bestelling**: met *Verpakking toevoegen* kies je verpakkingsmateriaal uit je lijst (*Verpakking*, gearchiveerde staan er niet bij) en komt het als regel (niet optioneel) tegen inkoopprijs (marge 0, aanpasbaar) op de bestelling. **Verpakking staat nooit op de factuur**: de regel telt mee in het totaal van de bestelling (en dus in het totaalbedrag, de btw en het te betalen bedrag op de factuur), maar wordt niet als regel getoond, ook niet in een Word-sjabloon of in wat een andere applicatie via de API ziet. De regels op de factuur tellen daardoor samen op tot minder dan het totaal, precies het bedrag van de verpakking. In de bestelling staat onder zo'n regel dat hij niet op de factuur komt. Een bestelling met alleen verpakking kun je niet factureren. Verpakking die al vóór deze regel op een bestelling stond, blijft zoals ze was (gewoon gefactureerd): de app raadt dat niet op de naam, en een gemaakte factuur wordt nooit herschreven; wil je die niet meer op de factuur, verwijder de regel en voeg de verpakking opnieuw toe met *Verpakking toevoegen*. Kies je hetzelfde nog eens, dan gaat het aantal omhoog. Wat je per bestelling nodig hebt (één doos voor drie modellen) bepaal je dus zelf, in plaats van per model.
 
 **Accessoires op een bestelling**: kies je een berekening die accessoires (kabels, laders) heeft, dan komt het model op één regel en elke accessoire op een eigen regel, aangevinkt als *Optioneel (accessoire)* en tegen **inkoopprijs** (marge 0; de btw en afronding van de bestelling gelden wel). Het model houdt de rest van de kostprijs en de marge. Zo'n regel kun je aanpassen of weghalen als de klant hem niet wil, en je kunt elke regel zelf als optioneel markeren. Optionele regels tellen gewoon mee in het totaal, maar de factuur zet ze **apart onder het kopje *Accessoires (optioneel)*** na de andere regels, want het product werkt ook zonder. In een Word-sjabloon, waar één rij voor elke regel wordt herhaald, staat achter de omschrijving *(optioneel)*.
 
@@ -809,6 +834,8 @@ postcode en plaats, land onder elkaar), `bedrijf.naam`, `bedrijf.adres`, `bedrij
 regelvelden hierboven. Het sjabloonbestand, het logo en de gemaakte factuur-PDF’s staan in de **database** (niet onder `UPLOAD_DIR`), dus ze blijven bestaan als je de container opnieuw bouwt of de uploads-map kwijtraakt; ze worden met de rest meegenomen in de
 back-up van de app. Een sjabloon of logo van een eerdere versie (nog als bestand onder `UPLOAD_DIR`) wordt de eerste keer dat het gebruikt wordt in de database gezet; is dat bestand al weg, upload het dan één keer opnieuw. Word- en PDF-bestanden worden als onbetrouwbaar behandeld: grootte en uitgepakte grootte zijn begrensd, Word
 wordt gelezen met `python-docx` (zonder XML-entiteiten) en PDF alleen met `pypdf`; er wordt niets uitgevoerd.
+
+**Een label maken**: naast de factuur maak je bij een bestelling een **label** als PDF, om op een pakket te plakken. Wat daarvoor mogelijk is, stel je één keer in onder *Instellingen → Labels* (groep *Gegevens*, alleen beheerders). Een **sjabloon** heeft een naam, een **vel** (het papier waarop je print en waar de labels op staan), een **opmaak** (hoe één label eruitziet) en de **velden** die op het label komen: het afzendadres (je bedrijfsgegevens), het logo, het land en het telefoonnummer van de ontvanger, het bestelnummer, het klantnummer en de *Betreft*. Het adres van de ontvanger staat er altijd op; zet je alle velden uit, dan is dat het enige wat er staat, midden op het label, zonder lege plekken voor wat er niet is. Een sjabloon uit de tijd vóór de velden drukt alles af, zoals het deed. Nu is er één vel, een A4-vel met twee labels (A5) boven elkaar, en één opmaak, *Verzendlabel*: het adres van de klant groot in het midden, bovenaan jouw adres (en je logo als je er een hebt) en onderaan het bestelnummer, het klantnummer en de *Betreft*. Een te lang adres wordt eerst afgebroken, dan kleiner gezet en pas als het echt niet past afgekapt, zodat het nooit buiten het label komt. In de bestelling (rechts, onder *Factuur*) kies je het sjabloon en de **plek op het vel** (boven of onder) en klik je op *Label maken*: je krijgt een PDF van één A4-vel met **één** label op die plek, zodat een half gebruikt vel stickerpapier weer door de printer kan. Na het maken springt de plek naar het volgende label op het vel; het sjabloon en de plek onthoudt de browser. Het label zegt wat de bestelling nu zegt en volgt de taal van de factuur (*Instellingen → Zakelijk → Bedrijfsgegevens*). Een label wordt **niet bewaard**: het wordt elke keer opnieuw gemaakt, krijgt geen nummer en verandert niets aan de bestelling. De sjablonen staan bij de gedeelde bedrijfsinstellingen (zie *Gedeeld of persoonlijk*), dus ze zitten in de back-up, en iedereen kan een label maken. Een ander vel, een andere opmaak of een extra veld toevoegen is één regel in `backend/app/labels.py` (`FORMATS`, `LAYOUTS`, `FIELDS`) plus de teksten in `backend/app/lang`; de keuzelijsten in de app volgen vanzelf.
 
 ## Filamentbibliotheek
 
@@ -910,6 +937,18 @@ velden zelf, niet in een blok ernaast. SpoolmanDB is een lijst van filamenten va
   kunnen dan niet meer worden opgezocht. De momentopname in de repository ververs je met `python scripts/sync_spoolmandb.py`, wat dezelfde controles doet en de
   bestanden deterministisch schrijft, zodat de wijziging als pull request leesbaar is.
 
+## Groepen: bakken en opberglocaties
+
+Een **groep** is de plek waar rollen liggen: een bak, plank, lade, droogbox, of de AMS van een printer. Een rol zit in hooguit één groep, en je kunt de lijsten op groep filteren. Met [Spoolman](#spoolman-optioneel) is een groep de **locatie** van een spoel: ze lopen mee.
+
+- **Een rol in een groep zetten.** In het rolformulier staat het veld *Groep (bak of opberglocatie)*: kies een bestaande groep of typ een nieuwe naam, dan wordt die groep gemaakt. Meerdere rollen tegelijk: zet bij *Filament → Rollen* *Selecteren* aan,
+  vink de rollen aan en kies *Naar groep…*. Eén rol kan ook met het mapje achter de rol. Een hele levering die je scant (*Filament → Scannen*) leg je in één keer in een groep met het veld *Leg in groep*. Hoofdletters maken niet uit: *bak a* en *Bak A* zijn dezelfde groep.
+- **Het tabblad Groepen** (*Filament → Groepen*) toont elke groep met het aantal rollen en de grammen die erin liggen. Hier maak je een groep (*Nieuwe groep*, ook een lege, voor een bak die nog leeg staat), hernoem je hem, en open je de rollen erin met de loep.
+  Een groep **verwijderen** kan pas als er geen rol meer in ligt (ook geen gearchiveerde): verplaats de rollen eerst. Zo komt een groep die Spoolman nog gebruikt nooit terug na het verwijderen.
+- **Filteren op groep.** Bij *Voorraad* en bij *Rollen* staat onder *Filteren* het filter *Groep*, met *Zonder groep* voor rollen die nergens liggen. Bij *Voorraad* telt dan wat **in die groep** ligt: heb je drie rollen PLA zwart in twee bakken en kies je één bak,
+  dan zie je alleen de rollen en de grammen in die bak. Zonder filter telt elke rol mee, ook een rol die in geen groep ligt. De groep is ook te zien op de rol en in de kolom *Groep* van de lijst, en je kunt erop sorteren.
+- **Back-up.** Een back-up bevat de groepen (ook lege) en de groep van elke rol, op naam. Een back-up van vóór de groepen kan nog steeds worden teruggezet: de rollen liggen dan in geen groep.
+
 ## Spoolman (optioneel)
 
 Gebruik je [Spoolman](https://github.com/Donkie/Spoolman) voor je spoelen, dan kan dat de **bron van de rollen en van wat er nog op zit** zijn, zodat je dat op één plek bijhoudt. Je vult het adres in als beheerder
@@ -923,7 +962,7 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
   opmerking en wat er nog op zit komen uit Spoolman; de *artikelnummer* van het filament wordt de barcode (rollen met dezelfde barcode tellen in de voorraad samen). Een spoel met een eigen prijs telt voor die prijs, anders geldt de prijs van het filament.
   **Prijzen worden overgenomen zoals ze in Spoolman staan en gelden hier als prijs excl. btw**, net als overal in de app.
 - **Een rol uit Spoolman is van Spoolman.** Je past hem daar aan; hier kan je hem niet bewerken, archiveren of verwijderen (de volgende synchronisatie zou het terugzetten). Alleen de melding *bijna op* is van de app
-  en blijft staan. Een spoel die in Spoolman is gearchiveerd, wordt hier gearchiveerd; een spoel die uit Spoolman is verdwenen wordt hier **gearchiveerd, nooit verwijderd**, omdat opgeslagen berekeningen ernaar kunnen verwijzen.
+  en blijft staan, en de **groep** verplaats je hier (zie *Groepen en locaties*). Een spoel die in Spoolman is gearchiveerd, wordt hier gearchiveerd; een spoel die uit Spoolman is verdwenen wordt hier **gearchiveerd, nooit verwijderd**, omdat opgeslagen berekeningen ernaar kunnen verwijzen.
 - **Een rol staat hier één keer.** Stond een rol hier al omdat je hem met de hand invoerde, en leest de app daarna de spoel uit Spoolman die dezelfde rol is, dan wordt die rol **aan de spoel gekoppeld** en komt er geen tweede bij
   (de melding na het synchroniseren telt ze als *gekoppeld*). Dezelfde rol is: hetzelfde merk en dezelfde barcode (in Spoolman het artikelnummer), of zonder barcode hetzelfde merk, dezelfde naam (type en kleur) en hetzelfde materiaal,
   ongeacht hoofdletters. Eén rol hoort bij één spoel: heb je twee rollen van een soort en staat er één spoel in Spoolman, dan wordt de rol gekoppeld waarvan het gewicht het dichtst bij dat van de spoel ligt en blijft de andere een eigen rol.
@@ -933,6 +972,16 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
   al van de printer, dus hier afboeken zou dezelfde grammen twee keer van de rol halen. Dat geldt voor alle rollen, ook voor een rol die je met de hand invoerde. Haal je het adres van Spoolman weg, dan boek je weer af als voorheen.
   Boekingen van vóór deze regel die Spoolman nog niet had gekregen, gaan nog mee bij de volgende synchronisatie (tot dan telt de app ze af van het gewicht dat Spoolman meldt); een melding die Spoolman voorgoed weigert
   (de spoel bestaat daar niet meer) wordt laten vallen.
+- **Groepen en locaties.** Een groep (zie [Groepen](#groepen-bakken-en-opberglocaties)) is de **locatie** van een spoel in Spoolman. Bij het synchroniseren wordt de locatie van elke spoel de groep van zijn rol (een locatie die hier nieuw is, maakt een groep; de melding telt die),
+  en een spoel zonder locatie is een rol zonder groep. Verplaats je hier een rol uit Spoolman naar een groep (of haal je hem eruit), dan wordt **eerst de locatie van de spoel in Spoolman** aangepast en pas daarna de rol hier; is Spoolman niet bereikbaar, dan blijft de rol waar hij was
+  (er verschijnt een foutmelding) en verspringt er dus nooit een rol naar een andere groep dan in Spoolman. Hernoem je een groep waar rollen uit Spoolman in liggen, dan gaat de hele locatie in Spoolman in één keer mee. Dit is het enige dat de app van een spoel verandert, naast het aanmaken van spoelen en het melden van verbruik.
+  **Een nieuwe groep komt ook in Spoolman**, ook als er nog geen rol in ligt: Spoolman kent een locatie alleen zolang er een spoel in zit, behalve op de pagina *Locations*, die een eigen lijst met namen bijhoudt (de instelling `locations`, naast de locaties van de spoelen). Een groep die je hier maakt, komt op die lijst, een groep die je hernoemt wordt daar hernoemd en een lege groep die je verwijdert gaat er weer af. Dat gebeurt eerst in Spoolman: is Spoolman niet bereikbaar, dan wordt de groep hier niet gemaakt, hernoemd of verwijderd (er verschijnt een foutmelding). Typ je bij een rol een nieuwe naam, dan wordt de groep eerst hier gemaakt en daarna aan Spoolman gemeld; is die dan niet bereikbaar, dan is de rol toch bewaard en zet *Groepen naar Spoolman* de naam later op de lijst. De app leest die lijst niet: een lege locatie die je in Spoolman zelf maakt, komt pas hier zodra er een spoel in zit.
+  Een rol die je met de hand invoerde en die daarna aan zijn spoel wordt gekoppeld, houdt zijn groep als Spoolman geen locatie voor de spoel heeft; een locatie in Spoolman gaat voor. Een groep verplaatsen of hernoemen mag iedereen; de knoppen *Synchroniseren* en de pushes blijven voor beheerders.
+- **Labels van Spoolman scannen.** Op de labels die Spoolman maakt (*Print* → QR-code) staat een QR-code met `WEB+SPOOLMAN:S-<nummer>`, of, als je bij Spoolman voor het adres koos, het adres van de spoel (`…/spool/show/<nummer>`). De scanner in de app (de scanknop naast het zoekveld van *Filament*, of een
+  hardwarescanner die in het zoekveld typt en met Enter afsluit) herkent beide: de lijst toont dan **alleen die rol** (bij *Voorraad* de soort waar hij bij hoort), onder een blokje *Gescand: …* dat je met het kruisje of *Wis filters* weer weghaalt. Dat het adres bij een andere server hoort, maakt niet uit: alleen het nummer telt en de app roept er niets mee aan.
+  Hoort het label bij een spoel die hier nog niet staat, dan zegt de app dat en vraagt hij je eerst te synchroniseren. Zo'n label is **nooit een barcode**: in het rolformulier wordt het niet als barcode bewaard, en in *Scannen* (een levering) wordt het genegeerd, want die rol staat er al. Een gewone barcode werkt als voorheen.
+- **Groepen naar Spoolman.** De knop zet eerst de groepen die Spoolman nog nergens kent (ook lege) op zijn lijst met locaties, en zet de groep van elke gekoppelde rol als locatie in Spoolman, **waar Spoolman nog geen locatie voor de spoel heeft**. Een locatie die Spoolman al heeft (dezelfde of een andere) blijft zoals ze is, en er wordt niets gewist. Eerst zie je hoeveel spoelen het zijn. Je hebt dit zelden nodig,
+  want een groep maken, hernoemen of verwijderen en een rol verplaatsen meldt het Spoolman direct; het is voor groepen en rollen die er al waren voordat dat zo ging, en voor een groep die niet gemeld kon worden. Hoogstens 300 per keer. *Rollen naar Spoolman* geeft de spoel die het maakt meteen de groep van de rol als locatie.
 - **Bibliotheek naar Spoolman.** De knop zet de filamenten van de [filamentbibliotheek](#filamentbibliotheek) in Spoolman, zodat je daar alleen nog een spoel hoeft toe te voegen (en die komt met de volgende synchronisatie hier). Eerst zie je
   hoeveel er worden aangemaakt. Merken die Spoolman nog niet kent worden aangemaakt; een filament dat Spoolman al heeft (zelfde merk en artikelnummer, of zelfde merk, naam en materiaal) blijft **ongemoeid**, en er wordt in Spoolman
   **nooit iets verwijderd of overschreven**. De kleur (met het type ervoor) wordt de naam, barcode (anders SKU) het artikelnummer en de richtprijs de prijs. Spoolman eist een dichtheid: de app neemt een gangbare waarde per materiaal
@@ -943,7 +992,7 @@ als Spoolman erachter staat. Een leeg adres betekent: geen Spoolman, en alles bl
   dan wordt de rol daaraan gekoppeld en wordt er **geen tweede spoel** gemaakt; de bevestiging noemt dat aantal apart. Elke rol wordt apart vastgelegd: gaat het halverwege mis, dan blijven de al gekoppelde
   rollen gekoppeld en maakt een tweede run ze niet opnieuw aan. Daarna komen merk, type en kleur van de rol uit Spoolman (het type komt daar vóór de kleur in de naam te staan). Hoogstens 300 spoelen per keer.
 - **De bibliotheek blijft.** Spoolman vervangt de bibliotheek niet: zonder `SPOOLMAN_URL` werkt alles als voorheen, en de bibliotheek (GitHub-sync, factuurimport, bijdragen) kan ernaast blijven bestaan.
-- **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft. De wachtrij met eerdere boekingen die nog naar Spoolman moeten zit er niet in (werk in uitvoering).
+- **Back-up.** Een back-up bevat het spoolnummer van elke rol uit Spoolman, zodat een teruggezette rol gekoppeld blijft; de groepen staan er ook in (zie *Groepen*). De wachtrij met eerdere boekingen die nog naar Spoolman moeten zit er niet in (werk in uitvoering).
 
 ## Bambu Lab Filament Manager (optioneel)
 

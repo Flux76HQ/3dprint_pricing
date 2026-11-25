@@ -113,6 +113,22 @@ export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
       } catch (err) { toast(err.message, 'error'); }
       draw();
     };
+    // The group of a roll is the location of its spool: moving a roll tells Spoolman at once, a sync reads the locations, and a group that is made, renamed or deleted here
+    // is made, renamed or deleted on Spoolman's list of locations too. What is left is what was there before that: a group Spoolman has nowhere (also an empty one) goes on
+    // its list, and a roll that was in a group before it was linked to its spool puts that group in Spoolman as its location, where Spoolman has none (a location it has is
+    // never replaced). Asked first, with the numbers.
+    const pushGroups = async () => {
+      try {
+        const plan = await api('POST', '/api/spoolman/push-groups?dry_run=1');
+        const rest = [plan.other ? t('spoolman.groups_other', { n: plan.other }) : null, plan.left ? t('spoolman.push_left', plan) : null].filter(Boolean).join(' ');
+        if (!plan.set && !plan.listed) { toast([t('spoolman.groups_nothing'), rest].filter(Boolean).join(' ')); return; }
+        const ask = [plan.listed ? t('spoolman.groups_listed', { n: plan.listed }) : null, plan.set ? t('spoolman.groups_confirm', { n: plan.set }) : null, rest].filter(Boolean).join(' ');
+        if (!(await confirmDialog(ask, t('spoolman.groups_do')))) return;
+        const done = await api('POST', '/api/spoolman/push-groups');
+        toast([done.listed ? t('spoolman.groups_listed_done', { n: done.listed }) : null, done.set ? t('spoolman.groups_done', { n: done.set }) : null, rest].filter(Boolean).join(' '));
+      } catch (err) { toast(err.message, 'error'); }
+      draw();
+    };
     fill(card, foldHead('spoolman', t('spoolman.title'), { open: false, extra: badge.el }),
       h('p', { class: 'muted' }, t('spoolman.intro')), problem,
       h('p', { class: 'hint breakable' }, t('spoolman.status', { host: status.host, n: status.rolls,
@@ -120,9 +136,11 @@ export function spoolmanCard(onSynced = () => {}, { configure = false } = {}) {
       status.pending ? h('p', { class: 'notice', role: 'status' }, t('spoolman.pending', { n: status.pending })) : null,
       status.can_sync ? h('div', { class: 'row' }, sync,
         h('button', { class: 'btn', type: 'button', onclick: push }, t('spoolman.push')),
-        h('button', { class: 'btn', type: 'button', onclick: pushRolls }, t('spoolman.rolls'))) : h('p', { class: 'hint' }, t('spoolman.admin_only')),
+        h('button', { class: 'btn', type: 'button', onclick: pushRolls }, t('spoolman.rolls')),
+        h('button', { class: 'btn', type: 'button', onclick: pushGroups }, t('spoolman.groups'))) : h('p', { class: 'hint' }, t('spoolman.admin_only')),
       setup ? h('p', { class: 'hint' }, t('spoolman.push_hint')) : null,
       setup ? h('p', { class: 'hint' }, t('spoolman.rolls_hint')) : null,
+      setup ? h('p', { class: 'hint' }, t('spoolman.groups_hint')) : null,
       address);
     card.hidden = false;
   }

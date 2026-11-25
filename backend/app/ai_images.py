@@ -12,7 +12,9 @@ by one and writes what happens to `ai_image_log`. The browser polls the jobs, so
 Pictures are made for a purpose (`PURPOSES`: a marketplace ad, social media, a web shop), four per purpose. The product name, the
 specifications and the extra text typed with the calculation (`projects.image_text`) are put on the first of the four by `image_overlay`,
 as a poster in a fixed template, never by the model, and only when all three are filled in; the logo of the invoice goes on when its switch is on and
-whoever asks has the business mode on.
+whoever asks has the business mode on. A text that is used again and again can be kept as a standard text of its field (`image_text_presets`, `/api/image-text-presets`:
+the setting, the product name, the specs, the extra text); that list belongs to the business, so it sits outside `/api/ai-images` and every signed-in person who makes pictures
+reads and keeps it, and a standard text is checked exactly as the field it is for (`preset_text`).
 
 What a set of pictures cost is kept, not worked out from the picture: OpenAI says how many tokens it counted for each (`usage` in its answer), and that is
 written to `ai_image_usage` in the transaction that stores the picture, with the prices and the rate of that moment (`usage_of`, `_record_usage`). The prices
@@ -284,6 +286,63 @@ def put_image_text(project_id):
         _project(conn, project_id)
         _save_text(conn, project_id, settings)
     return jsonify(settings)
+
+
+# --- standard texts ----------------------------------------------------------------------------------------------
+
+PRESET_FIELDS = ("scene", "product_name", "specs", "extra_text")   # the fields of the form that can have standard texts
+PRESETS_MAX = 50                                                   # per field: a list to pick from stays short enough to read
+
+
+def preset_text(field, value) -> str:
+    """A standard text, checked exactly as the field it is for (`image_text`: the same limits, the specs one per line without their bullets), and
+    kept as that field holds it: one line, or for the specs the lines joined by a newline. An empty text is nobody's standard."""
+    if field not in PRESET_FIELDS:
+        raise ApiError(400, "ai.err_preset_field")
+    kept = image_text({field: value})[field]
+    body = "\n".join(kept) if field == "specs" else kept
+    if not body:
+        raise ApiError(400, "ai.err_preset_empty")
+    return body
+
+
+def presets_of(conn) -> dict:
+    """Every field with its standard texts, the oldest first: {field: [{id, text}]}."""
+    out = {field: [] for field in PRESET_FIELDS}
+    for row in conn.execute("SELECT id, field, body FROM image_text_presets ORDER BY created_at, id").fetchall():
+        out[row["field"]].append({"id": row["id"], "text": row["body"]})
+    return out
+
+
+@bp.get("/image-text-presets")
+def get_presets():
+    """The standard texts of the form, for everybody who makes pictures (the list is the business's, not a calculation's)."""
+    with pool().read() as conn:
+        return jsonify(presets_of(conn))
+
+
+@bp.post("/image-text-presets")
+def add_preset():
+    """Keep a text as a standard text of one field. The same text twice is kept once (the existing one is answered)."""
+    body = json_body()
+    field = body.get("field")
+    kept = preset_text(field, body.get("text"))
+    with pool().connection() as conn:
+        found = conn.execute("SELECT id FROM image_text_presets WHERE field = %s AND body = %s", (field, kept)).fetchone()
+        if found:
+            return jsonify({"id": found["id"], "field": field, "text": kept}), 200
+        if conn.execute("SELECT count(*) AS n FROM image_text_presets WHERE field = %s", (field,)).fetchone()["n"] >= PRESETS_MAX:
+            raise ApiError(400, "ai.err_presets_many", max=PRESETS_MAX)
+        made = conn.execute("INSERT INTO image_text_presets (field, body) VALUES (%s, %s) RETURNING id", (field, kept)).fetchone()
+    return jsonify({"id": made["id"], "field": field, "text": kept}), 201
+
+
+@bp.delete("/image-text-presets/<int:preset_id>")
+def delete_preset(preset_id):
+    with pool().connection() as conn:
+        if not conn.execute("DELETE FROM image_text_presets WHERE id = %s RETURNING 1", (preset_id,)).fetchone():
+            raise ApiError(404, "err.not_found")
+    return jsonify({"ok": True})
 
 
 # --- settings ----------------------------------------------------------------------------------------------------

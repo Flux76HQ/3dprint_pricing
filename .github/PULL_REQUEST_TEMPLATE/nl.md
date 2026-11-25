@@ -24,7 +24,7 @@ moet minstens dat toestaan"), nooit als directive van één proxy. Anders: "No l
 
 ## Checklist
 
-- [ ] `VERSION` is onaangeroerd (de promotie naar `main` verhoogt hem; label de promotie-pull request `version:minor` / `version:major` als het geen patch mag zijn).
+- [ ] `VERSION` is onaangeroerd (de pijplijn verhoogt hem met 0,1 zodra de pull request in `beta` is gemerged; label de pull request `version:major` / `version:patch` als het geen minor mag zijn).
 - [ ] De branch is gebaseerd op `beta`, deze pull request gaat naar `beta` en is actueel met `beta` (`python scripts/update_branch.py`).
 - [ ] Er staan geen geheimen of `.env`-bestanden in de commit.
 - [ ] `docs/handleiding.md` is bijgewerkt als draaien, deployen of back-ups veranderden.
