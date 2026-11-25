@@ -78,12 +78,21 @@ def test_the_choice_is_shared_by_every_roll_with_the_same_barcode(owner):
     a = roll(owner, 1000, barcode="8719", notify=True)
     b = make(owner, "/api/spools", {"brand": "Bambu", "material": "PLA", "barcode": "8719", "roll_weight_g": 1000, "price": 20,
                                     "remaining_g": 1000})                                  # says nothing: takes over what the kind has
-    other = roll(owner, 1000, barcode="1234", notify=False)
+    other = roll(owner, 1000, barcode="1234", notify=False, colour="White")                  # another filament: its own choice
     assert b["notify_low"] is True and flags(owner) == {a["id"]: True, b["id"]: True, other["id"]: False}
     owner.patch(f"/api/spools/{b['id']}", json={"notify_low": False}, headers=H)               # switched off on one roll: off for the kind
     assert flags(owner) == {a["id"]: False, b["id"]: False, other["id"]: False}
     owner.patch(f"/api/spools/{a['id']}", json={"notify_low": True}, headers=H)
     assert flags(owner) == {a["id"]: True, b["id"]: True, other["id"]: False}
+
+
+def test_the_choice_is_shared_with_the_same_filament_under_another_barcode(owner):
+    refill = roll(owner, 1000, barcode="REFILL", notify=True)                                   # the shop gives a refill and a roll with spool a barcode each
+    spool = make(owner, "/api/spools", {"brand": "Bambu", "material": "PLA", "colour": "Black", "barcode": "SPOOL", "roll_weight_g": 1000,
+                                        "price": 20, "remaining_g": 1000})                     # says nothing: takes over what the kind has
+    assert spool["notify_low"] is True
+    owner.patch(f"/api/spools/{spool['id']}", json={"notify_low": False}, headers=H)
+    assert flags(owner) == {refill["id"]: False, spool["id"]: False}
 
 
 def test_a_roll_that_says_it_explicitly_sets_it_for_its_kind(owner):
@@ -138,11 +147,23 @@ def test_the_rolls_of_one_barcode_count_together(owner, pushapp):
     assert queued["payload"]["body"] == "Bijna op: Bambu Black (PLA): 500 g" and alerts(pushapp) == ["barcode:8719"]
 
 
+def test_a_refill_and_a_roll_with_spool_of_one_colour_count_together(owner, pushapp):
+    subscribe(owner)
+    settings(owner, threshold_g=500)
+    refill = roll(owner, 1000, barcode="REFILL")
+    spool = roll(owner, 300, barcode="SPOOL")                                                  # 1300 g of one kind, whatever the barcodes
+    assert outbox(pushapp) == [] and alerts(pushapp) == []
+    owner.patch(f"/api/spools/{refill['id']}", json={"remaining_g": 200}, headers=H)           # 500 g together: the kind is low, not one roll
+    (queued,) = outbox(pushapp)
+    assert queued["payload"]["body"] == "Bijna op: Bambu Black (PLA): 500 g" and alerts(pushapp) == ["barcode:REFILL"]    # called by its smallest barcode
+    assert spool["id"] != refill["id"]
+
+
 def test_kinds_with_other_barcodes_are_counted_apart(owner, pushapp):
     subscribe(owner)
     settings(owner, threshold_g=500)
     roll(owner, 300, barcode="1111")
-    roll(owner, 300, barcode="2222", colour="White")                      # 600 g of PLA in total, but two kinds
+    roll(owner, 300, barcode="2222", colour="White")                      # 600 g of PLA in total, but two filaments: two kinds
     assert alerts(pushapp) == ["barcode:1111", "barcode:2222"]
 
 

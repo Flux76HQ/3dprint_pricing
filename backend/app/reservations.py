@@ -1,7 +1,7 @@
 """Filament that open orders still have to use: reserved, never booked off.
 
 Nothing is stored. What an order reserves is worked out from its lines whenever it is asked: the filament of each model on the order (the
-calculation's filament lines, grams per piece) times the quantity, per kind of filament (`stock.key_of`). An order reserves while its
+calculation's filament lines, grams per piece) times the quantity, per kind of filament (`stock.Kinds`). An order reserves while its
 status is in `OPEN` (`nieuw`, `verwerkt`); at `verstuurd` or `afgehandeld` the print is made, the roll in stock (Spoolman, or the booking
 of the calculation) already says so, and the reservation is gone: it lets go by itself when the status changes, the order is deleted or a
 line is taken off, because there is no second record that could be forgotten.
@@ -27,7 +27,7 @@ def _spools(conn, spool_ids) -> dict:
     ids = sorted({str(s) for s in spool_ids})
     if not ids:
         return {}
-    rows = conn.execute("SELECT id, brand, product_type, material, colour, colour_hex, barcode FROM filament_spools "
+    rows = conn.execute("SELECT id, brand, product_type, material, colour, colour_hex, barcode, diameter_mm FROM filament_spools "
                         "WHERE id IN (SELECT value FROM json_each(%s))", (id_list(ids),)).fetchall()
     return {str(r["id"]): r for r in rows}
 
@@ -42,6 +42,7 @@ def per_piece(conn, project_ids) -> tuple:
     projects = conn.execute("SELECT id, data FROM projects WHERE id IN (SELECT value FROM json_each(%s))", (id_list(ids),)).fetchall()
     wanted = [line.get("spool_id") for p in projects for line in (p["data"] or {}).get("filament", []) if line.get("spool_id")]
     rolls = _spools(conn, wanted)
+    shelf = stock.Kinds(stock.fetch(conn))                   # the kinds as the shelf has them: a roll is named by the kind it is part of
     out: dict = {}
     names: dict = {}
     for project in projects:
@@ -50,7 +51,7 @@ def per_piece(conn, project_ids) -> tuple:
             roll = rolls.get(str(line.get("spool_id") or ""))
             if roll is None:
                 continue
-            key = stock.key_of(roll)
+            key = shelf.key(roll)
             kinds[key] = kinds.get(key, Decimal(0)) + Decimal(str(line.get("grams") or 0))
             names.setdefault(key, roll)
         out[str(project["id"])] = kinds

@@ -71,7 +71,7 @@ def test_a_scanned_barcode_is_found_through_its_index(owner, fresh_db, sent):
     assert owner.get(f"/api/spools/{first['id']}/siblings").get_json()["count"] == 1
     assert post(owner, f"/api/spools/{first['id']}/propagate", {"fields": ["brand"]}).status_code == 200
     found = plans(fresh_db, sent, "barcode = ?")
-    assert len(found) >= 4
+    assert len(found) >= 3                                                                    # (the kind of a roll is worked out from the whole shelf, as on the stock page: that is no barcode query)
     for sql, plan in found:
         assert through(plan, "filament_spools_barcode") and "SCAN filament_spools" not in plan, (sql, plan)
     newest = [plan for sql, plan in found if "ORDER BY created_at DESC LIMIT 1" in sql]
