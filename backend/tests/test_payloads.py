@@ -44,7 +44,7 @@ def test_the_list_of_calculations_carries_their_prices_and_not_their_lines(owner
     assert {"filament", "parts", "subtotals"} <= set(whole["totals"]) and "data" in whole       # the lines are in the calculation itself
     for key in ("id", "number", "name", "margin_pct", "vat_pct", "price_rounding", "links", "stock_booked_at", "created_at", "updated_at"):
         assert row[key] == whole[key], key
-    assert row["cover_image_id"] is None and row["ai_busy"] is False
+    assert row["cover_image_id"] is None and row["ai_busy"] is False and whole["cover_image_id"] is None      # the calculation's own screen shows it at the top
 
 
 def test_the_order_editor_asks_for_the_model_it_adds_because_the_list_does_not_hold_its_lines():

@@ -712,7 +712,7 @@ zie je in de app niets. De server beslist, niet de browser.
    Kies *Afbeeldingen maken* (onderaan het blok *Foto's en 3D-beelden*, want de afbeeldingen worden van die foto's en beelden gemaakt; de knop wacht tot je een doel koos en terwijl er afbeeldingen worden gemaakt): de app vraagt eerst in een venster **welke afbeeldingen** je wilt. Elk van de vier staat er met een getekend voorbeeld (de vorm, de
    opzet, en bij de eerste de poster in jouw kleuren en labelvorm) en een vinkje; alleen wat aangevinkt is wordt gemaakt en betaald. Het venster zegt ook of er
    teksten en een logo op komen en dat elke afbeelding API-tegoed bij OpenAI kost; met *Annuleren* breek je daar nog af. Vink je de eerste uit, dan komt er geen poster. Verder begrenst de app het aantal per uur en bewaart er hooguit 12 per
-   berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met berekeningen) of verwijderen.
+   berekening. Per afbeelding kun je *Downloaden*, *Als omslag* gebruiken (verschijnt in de lijst met berekeningen, daar in de tegelweergave twee keer zo breed als in de tabel, en bovenaan het 3D model zelf) of verwijderen.
 
    **Twee delen, die je los van elkaar inklapt.** De kaart houdt uit elkaar wat de afbeeldingen **van** zijn en wat er **gemaakt** is: *Foto's en 3D-beelden* (wat je
    uploadde of van het 3D-model opsloeg, met het vinkje *Meesturen*) en *Gegenereerde afbeeldingen* (wat het AI-model maakte, bijvoorbeeld voor Marktplaats; het label

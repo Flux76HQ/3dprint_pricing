@@ -599,6 +599,12 @@ code { overflow-wrap: anywhere; white-space: normal; }
 
 /* AI product images: the cover in the list, the photo and the made pictures in a calculation */
 .cover-thumb { flex: none; width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: #fff; }
+/* In a tile the cover is twice as wide as elsewhere, and as high, so that the picture is not cropped any further. `THUMB_EDGE` (ai_images.py) is 3 times this. */
+.item-head .cover-thumb { width: 112px; height: 112px; }
+/* The cover at the top of a model's screen: the whole picture, never cropped, in a box of a fixed height so that the form below does not move when it loads. */
+.model-cover { display: flex; justify-content: center; padding: 8px; }
+.model-cover img { display: block; width: 100%; height: 240px; object-fit: contain; border-radius: var(--radius-sm); }
+@media (max-width: 600px) { .model-cover img { height: 180px; } }
 .ai-source { max-width: 220px; max-height: 220px; object-fit: contain; border-radius: var(--radius-sm); border: 1px solid var(--rand); background: #fff; }
 /* The actions of a picture, as icons: one size, room for a finger; the star of the cover is filled and in the accent colour. */
 .ai-tools { gap: 6px; }
