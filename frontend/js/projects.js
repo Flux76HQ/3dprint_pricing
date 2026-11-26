@@ -6,7 +6,7 @@ import { formatDate, t } from './i18n.js';
 import { listingCard } from './listing.js';
 import { listView } from './listview.js';
 import { setDirty } from './updates.js';
-import { backLink, blurToggle, confirmDialog, eur, field, fill, fmt, foldHead, h, headAction, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
+import { ROUNDINGS, backLink, blurToggle, confirmDialog, eur, field, fill, fmt, foldHead, h, headAction, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
 
 // [value sent to the server, label key]
 const UNITS = [['stuks', 'unit.pieces'], ['m', 'unit.meter'], ['g', 'unit.gram']];
@@ -143,7 +143,7 @@ function fromSaved(project) {
   const d = project.data || {};
   const str = (v) => (v == null ? '' : String(v));
   return {
-    id: project.id, number: project.number, name: project.name, notes: project.notes, object_description: project.object_description || '', margin_pct: str(project.margin_pct),
+    id: project.id, number: project.number, name: project.name, notes: project.notes, object_description: project.object_description || '', margin_pct: str(project.margin_pct), price_rounding: project.price_rounding || 'none',
     // the files the filament is worked out from; of each: which plate is chosen (ALL_PLATES for all), and for a file without slicer
     // data the material and fill its weight is estimated with
     files: ((project.calc_files || []).length ? project.calc_files : (project.file_id ? [project.file_id] : []))
@@ -175,7 +175,7 @@ export function projectEditorView(id, navigate, ctx = { prefs: {}, setPrefs: asy
 
 function buildEditor({ spools, stock, printers, tariffs, packaging, parts, accessories, project, listed, navigate, ctx, spoolman, haspelsync }) {
   const state = project ? fromSaved(project) : {
-    id: null, name: '', notes: '', object_description: '', margin_pct: '0', stock_booked_at: null, files: [], models: [], links: [], file_refs: [],
+    id: null, name: '', notes: '', object_description: '', margin_pct: '0', price_rounding: ctx.prefs.price_rounding || 'none', stock_booked_at: null, files: [], models: [], links: [], file_refs: [],
     vat_pct: ctx.prefs.vat_pct ?? '21',
     filament: [blankFilament()], parts: [], depreciation: [], energy: [],
   };
@@ -216,7 +216,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
 
   const payload = () => ({
     name: state.name, notes: state.notes, object_description: state.object_description, margin_pct: parseNum(state.margin_pct),
-    vat_pct: parseNum(state.vat_pct), price_rounding: 'none',      // rounding is decided per order
+    vat_pct: parseNum(state.vat_pct), price_rounding: state.price_rounding,      // the selling price is decided here, rounding included; an order takes it over
     file_id: state.files.length ? state.files[0].file_id : null,
     calc_files: state.files.map((f) => f.file_id),
     models: state.models.map((m) => ({ file_id: m.file_id, label: m.label.trim() })),
@@ -806,6 +806,8 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
 
   const nameInput = textInput(state, 'name', { required: true, maxlength: 120, placeholder: t('calc.name_ph') });
   const marginInput = numberInput(state.margin_pct, bind(state, 'margin_pct'), { class: 'private' });
+  const roundingSelect = h('select', { onchange: (e) => bind(state, 'price_rounding')(e.target.value) },
+    ROUNDINGS.map(([v, k]) => h('option', { value: v, selected: state.price_rounding === v }, t(k))));
   const vatInput = numberInput(state.vat_pct, bind(state, 'vat_pct'), { list: 'vat-presets' });
   const vatPresets = h('datalist', { id: 'vat-presets' }, ['0', '9', '21'].map((v) => h('option', { value: v })));
   const notes = h('textarea', { rows: 2, oninput: (e) => bind(state, 'notes')(e.target.value) }, state.notes || '');
@@ -894,6 +896,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
             field(t('calc.margin_field'), marginInput, t('calc.margin_hint')),
             field(t('calc.vat_field'), vatInput, t('calc.vat_hint'))),
           vatPresets,
+          field(t('calc.rounding_field'), roundingSelect, t('calc.rounding_hint')),
           h('div', { class: 'two even' },
             field(t('common.notes'), notes),
             field(t('calc.object_description'), objectDescription, t('calc.object_description_hint')))),

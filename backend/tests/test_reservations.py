@@ -54,6 +54,15 @@ def test_two_open_orders_add_up_and_both_statuses_reserve(owner):
     assert Decimal(kind(owner, r["id"])["reserved_g"]) == 300
 
 
+def test_an_order_in_progress_reserves_too_and_lets_go_when_it_is_sent(owner):
+    r = roll(owner)
+    order = new_order(owner, [model_line(model(owner, r["id"], grams=100), 2)], status="in_behandeling")
+    assert Decimal(kind(owner, r["id"])["reserved_g"]) == 200
+    assert check(owner, [model_line(model(owner, r["id"], grams=100, name="Tweede"), 4)], status="in_behandeling")["reserving"] is True
+    assert owner.patch(f"/api/orders/{order['id']}/status", json={"status": "verstuurd"}, headers=H).status_code == 200
+    assert Decimal(kind(owner, r["id"])["reserved_g"]) == 0
+
+
 def test_sent_or_done_orders_let_go(owner):
     r = roll(owner)
     p = model(owner, r["id"], grams=100)
@@ -138,6 +147,84 @@ def test_a_sent_order_reserves_nothing_and_is_never_short(owner):
     result = check(owner, [model_line(model(owner, r["id"], grams=100), 5)], status="verstuurd")
     assert result["reserving"] is False and result["short"] is False and result["kinds"][0]["short_g"] == "0.0"
     assert result["kinds"][0]["need_g"] == "500.0"
+
+
+# --- the list of orders says which open order is short of filament ---------------------------------------------------
+
+def listed(owner, **query):
+    """The rows of `GET /api/orders`, by order id."""
+    res = owner.get("/api/orders", query_string=query)
+    assert res.status_code == 200, res.get_json()
+    return {row["id"]: row for row in res.get_json()}
+
+
+def test_the_list_marks_an_open_order_that_takes_more_filament_than_there_is(owner):
+    r = roll(owner, remaining_g=250)
+    p = model(owner, r["id"], grams=100)
+    fine = new_order(owner, [model_line(p, 2)])                                        # 200 g of 250 g
+    other = roll(owner, colour="Wit", barcode="999", remaining_g=50)
+    short = new_order(owner, [model_line(model(owner, other["id"], grams=80, name="Schaal"), 1)])      # 80 g of 50 g
+    rows = listed(owner)
+    assert rows[fine["id"]]["filament_short"] == []
+    kinds = rows[short["id"]]["filament_short"]
+    assert [(k["brand"], k["product_type"], k["material"], k["colour"], k["short_g"]) for k in kinds] == [("Bambu", "PLA Basic", "PLA", "Wit", "30.0")]
+    assert set(kinds[0]) == {"brand", "product_type", "material", "colour", "colour_hex", "short_g"}
+
+
+def test_orders_that_compete_for_the_same_filament_are_both_marked_with_what_is_missing_in_all(owner):
+    r = roll(owner, remaining_g=300)
+    p = model(owner, r["id"], grams=100)
+    a, b = new_order(owner, [model_line(p, 2)]), new_order(owner, [model_line(p, 2)], status="verwerkt")      # 400 g asked of 300 g
+    rows = listed(owner)
+    assert [k["short_g"] for k in rows[a["id"]]["filament_short"]] == ["100.0"] == [k["short_g"] for k in rows[b["id"]]["filament_short"]]
+
+
+def test_the_list_says_what_the_order_itself_says(owner):
+    """The list and the *Filament* card of a saved order are one rule: the same kinds and the same grams short."""
+    r = roll(owner, remaining_g=300)
+    p = model(owner, r["id"], grams=100)
+    a = new_order(owner, [model_line(p, 2)])
+    b = new_order(owner, [model_line(p, 2)])
+    for order in (a, b):
+        card = check(owner, [model_line(p, 2)], order_id=order["id"])
+        assert [(k["brand"], k["colour"], k["short_g"]) for k in card["kinds"] if Decimal(k["short_g"]) > 0] == \
+               [(k["brand"], k["colour"], k["short_g"]) for k in listed(owner)[order["id"]]["filament_short"]]
+
+
+def test_an_order_that_is_sent_or_done_is_never_marked_and_the_mark_comes_back_with_the_status(owner):
+    r = roll(owner, remaining_g=50)
+    order = new_order(owner, [model_line(model(owner, r["id"], grams=100), 1)])
+    assert listed(owner)[order["id"]]["filament_short"]
+    for status in ("verstuurd", "afgehandeld"):
+        assert owner.patch(f"/api/orders/{order['id']}/status", json={"status": status}, headers=H).status_code == 200
+        assert listed(owner)[order["id"]]["filament_short"] == [], status
+    assert owner.patch(f"/api/orders/{order['id']}/status", json={"status": "verwerkt"}, headers=H).status_code == 200
+    assert listed(owner)[order["id"]]["filament_short"]
+
+
+def test_a_filtered_list_still_counts_what_the_other_open_orders_hold(owner):
+    r = roll(owner, remaining_g=300)
+    p = model(owner, r["id"], grams=100)
+    new_order(owner, [model_line(p, 2)], status="verwerkt")
+    mine = new_order(owner, [model_line(p, 2)], status="nieuw")
+    assert listed(owner, status="nieuw")[mine["id"]]["filament_short"][0]["short_g"] == "100.0"          # the other one is not in this list, and still holds its 200 g
+
+
+def test_optional_packaging_and_manual_lines_never_make_an_order_short(owner):
+    r = roll(owner, remaining_g=10)
+    p = model(owner, r["id"], grams=100)
+    manual = model(owner, None, name="Handwerk")
+    order = new_order(owner, [line("Verzending", 1), model_line(p, 1, optional=True), model_line(p, 1, packaging=True), model_line(manual, 5)])
+    assert listed(owner)[order["id"]]["filament_short"] == []
+
+
+def test_a_kind_that_is_not_on_the_shelf_any_more_is_short_by_everything(owner):
+    r = roll(owner, remaining_g=500)
+    order = new_order(owner, [model_line(model(owner, r["id"], grams=100), 2)])
+    assert listed(owner)[order["id"]]["filament_short"] == []
+    assert owner.patch(f"/api/spools/{r['id']}", json={"archived": True}, headers=H).status_code == 200
+    short = listed(owner)[order["id"]]["filament_short"]
+    assert [(k["colour"], k["short_g"]) for k in short] == [("Zwart", "200.0")]      # an archived roll is no stock: all of it is missing, named from the roll
 
 
 def test_the_check_refuses_a_bad_status_and_needs_a_session(owner, app):

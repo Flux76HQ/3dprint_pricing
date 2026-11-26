@@ -109,7 +109,7 @@ function pageContent({ page, id, extra }) {
       return projectListView({ get prefs() { return prefs; }, setPrefs, get aiImages() { return session.aiImages; } });
     case 'bestellingen':
       if (id === 'klant' && extra) return orderListView({ customer: extra });                         // the orders of one customer: #/bestellingen/klant/<id>
-      if (id) return orderEditorView(id === 'nieuw' ? null : id, navigate, { get prefs() { return prefs; } });
+      if (id) return orderEditorView(id === 'nieuw' ? null : id, navigate, { get prefs() { return prefs; }, get aiImages() { return session.aiImages; } });
       return orderListView();
     case 'klanten':
       if (id) return customerEditorView(id === 'nieuw' ? null : id, navigate);

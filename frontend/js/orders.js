@@ -1,4 +1,5 @@
 import { api, downloadFile } from './api.js';
+import { coverUrl } from './ai-images.js';
 import { formatDate, t } from './i18n.js';
 import { customerFields, customerLines, customerPicker, emptyCustomer } from './customers.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
@@ -7,19 +8,30 @@ import { setDirty } from './updates.js';
 import { ROUNDINGS, backLink, confirmDialog, enhanceDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, saveBlob, spoolName, toast } from './ui.js';
 
 // The stages of an order, in order. The words come from the language files.
-export const STATUSES = ['nieuw', 'verwerkt', 'verstuurd', 'afgehandeld'];
-const STATUS_KEYS = { nieuw: 'orders.status_nieuw', verwerkt: 'orders.status_verwerkt', verstuurd: 'orders.status_verstuurd', afgehandeld: 'orders.status_afgehandeld' };
+export const STATUSES = ['nieuw', 'in_behandeling', 'verwerkt', 'verstuurd', 'afgehandeld'];
+const STATUS_KEYS = { nieuw: 'orders.status_nieuw', in_behandeling: 'orders.status_in_behandeling', verwerkt: 'orders.status_verwerkt', verstuurd: 'orders.status_verstuurd', afgehandeld: 'orders.status_afgehandeld' };
 const statusLabel = (s) => t(STATUS_KEYS[s]);
 // A date without a time is a day on the calendar, not a moment in UTC: noon keeps it on that day in every time zone.
 const dateFmt = (v) => (v ? formatDate(`${v}T12:00:00`, { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 const today = () => new Date().toLocaleDateString('sv-SE');          // YYYY-MM-DD in the local time zone
 
 const stat = (label, value) => h('div', {}, h('dt', {}, label), h('dd', {}, value));
+// The cover picture of a calculation as a small thumbnail; the address holds the picture's id, which never changes, so the browser keeps it.
+const cover = (id) => h('img', { class: 'cover-thumb', src: coverUrl(id), alt: '', loading: 'lazy' });
 
 // What the overview calls an order: its “Betreft”, or, as on the invoice, “Bestelling <number>” when none was filled in. The customer goes
 // under it, smaller; the number is left out of the small line when it already is the title.
 const titleOf = (o) => o.subject || t('orders.number', { n: o.number });
 const numberOf = (o) => (o.subject ? t('orders.number', { n: o.number }) : null);
+
+// An open order that takes more filament than there is (the server says it: `filament_short`, the kinds with what is missing of each, the same rule as the
+// *Filament* card of the order itself): a label, and under it which filament and how much, so that it can be bought without opening the order.
+function filamentFlag(o) {
+  const short = o.filament_short || [];
+  if (!short.length) return null;
+  const kinds = short.map((k) => t('orders.filament_short_kind', { name: [spoolName(k, ' · '), k.material].filter(Boolean).join(' · '), short: fmt(k.short_g, 0) }));
+  return h('div', { class: 'filament-flag', role: 'status' }, h('span', { class: 'pill warn' }, t('orders.filament_short_flag')), h('span', { class: 'muted' }, kinds.join('; ')));
+}
 
 // --- list -----------------------------------------------------------------------
 
@@ -60,7 +72,7 @@ export function orderListView({ customer = '' } = {}) {
     href,
     columns: [
       { label: t('orders.subject'), sort: 'subject', cls: 'main', cell: (o) => h('div', {}, h('a', { class: 'cell-title', href: href(o) }, titleOf(o)),
-        h('div', { class: 'cell-sub muted' }, [o.customer_name, numberOf(o), o.city].filter(Boolean).join(' · '))) },
+        h('div', { class: 'cell-sub muted' }, [o.customer_name, numberOf(o), o.city].filter(Boolean).join(' · ')), filamentFlag(o)) },
       { label: t('orders.date'), sort: 'date', cls: 'nowrap', cell: (o) => dateFmt(o.order_date) },
       { label: t('orders.status'), sort: 'status', cell: (o) => statusSelect(o) },
       { label: t('orders.lines'), cls: 'num', wide: true, cell: (o) => String(o.line_count) },
@@ -73,6 +85,7 @@ export function orderListView({ customer = '' } = {}) {
           h('p', { class: 'item-customer' }, o.customer_name),
           h('p', { class: 'muted item-meta' }, [numberOf(o), dateFmt(o.order_date)].filter(Boolean).join(' · '))),
         statusSelect(o)),
+      filamentFlag(o),
       h('dl', { class: 'stats' },
         stat(t('orders.total'), eur(o.total)), stat(t('orders.lines'), String(o.line_count)),
         o.delivery_date ? stat(t('orders.delivery'), dateFmt(o.delivery_date)) : null,
@@ -157,6 +170,9 @@ function fromSaved(order) {
     email: order.email, phone: order.phone, notes: order.notes, invoice_number: order.invoice_number, invoice_date: str(order.invoice_date), has_invoice_pdf: !!order.has_invoice_pdf,
     lines: order.lines.map((l) => ({ project_id: l.project_id, project_number: l.project_number, description: l.description,
       quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)), optional: !!l.optional, packaging: !!l.packaging,
+      cover_image_id: l.cover_image_id || null,
+      // a line made from a model starts from the model's selling price (`base_price`, with the rounding the model had) and its margin is an extra on top of that
+      base_price: l.base_price == null ? null : str(l.base_price), price_rounding: l.price_rounding || null,
       // a line made from a calculation has a cost price and its own margin; the server works out its price
       cost_price: l.cost_price == null ? null : str(l.cost_price), margin_pct: l.margin_pct == null ? '' : str(Number(l.margin_pct)) })),
   };
@@ -173,7 +189,7 @@ export function orderEditorView(id, navigate, ctx = { prefs: {} }) {
 function buildEditor(order, navigate, ctx) {
   const defaultVat = str(ctx.prefs.vat_pct ?? '21');
   const state = order ? fromSaved(order) : {
-    id: null, number: null, customer_id: null, status: 'nieuw', price_rounding: ctx.prefs.price_rounding || 'none', order_date: today(), delivery_date: '', customer_name: '', customer_number: '', subject: '', address: '', postal_code: '', city: '',
+    id: null, number: null, customer_id: null, status: 'nieuw', price_rounding: 'none', order_date: today(), delivery_date: '', customer_name: '', customer_number: '', subject: '', address: '', postal_code: '', city: '',
     country: '', email: '', phone: '', notes: '', invoice_number: null, invoice_date: '', has_invoice_pdf: false, lines: [],
   };
   let result = null;
@@ -196,9 +212,13 @@ function buildEditor(order, navigate, ctx) {
   const payload = () => ({
     customer_id: state.customer_id, status: state.status, price_rounding: state.price_rounding, order_date: state.order_date, delivery_date: state.delivery_date || null,
     subject: state.subject.trim(), notes: state.notes, invoice_date: state.invoice_date || null,
-    lines: state.lines.map((l) => ({ project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity), vat_pct: parseNum(l.vat_pct), optional: !!l.optional, packaging: !!l.packaging,
-      ...(l.cost_price == null ? { unit_price: parseNum(l.unit_price) } : { cost_price: parseNum(l.cost_price), margin_pct: parseNum(l.margin_pct) }) })),
+    lines: state.lines.map(linePayload),
   });
+  function linePayload(l) {
+    return { project_id: l.project_id, description: l.description, quantity: parseNum(l.quantity), vat_pct: parseNum(l.vat_pct), optional: !!l.optional, packaging: !!l.packaging,
+      ...(l.cost_price == null ? { unit_price: parseNum(l.unit_price) } : { cost_price: parseNum(l.cost_price), margin_pct: parseNum(l.margin_pct) }),
+      ...(l.base_price == null ? {} : { base_price: parseNum(l.base_price), price_rounding: l.price_rounding || 'none' }) };
+  }
 
   // The prices and totals are the server's: it works out the price of a calculated line, takes the VAT out per rate, and what is shown here
   // is what an invoice will say.
@@ -289,38 +309,44 @@ function buildEditor(order, navigate, ctx) {
       const calculated = l.cost_price != null;
       const unit = h('output', { class: 'cost' }, '—');
       const hint = h('p', { class: 'hint private', role: 'status', hidden: true });
+      const fromModel = l.base_price != null;                           // starts from the model's selling price; its margin is an extra on top
+      const modelPrice = fromModel ? h('p', { class: 'hint' }, t('orders.model_price', { price: eur(l.base_price) })) : null;
       if (calculated) { lineUnits[i] = unit; marginHints[i] = hint; }
       const optional = l.packaging ? h('p', { class: 'hint' }, t('orders.packaging_line'))                       // packaging is never on the invoice, so it is not optional either
         : h('label', { class: 'check' },
           h('input', { type: 'checkbox', checked: !!l.optional, onchange: (e) => { l.optional = e.target.checked; touch(); } }), t('orders.optional'));
+      // the model's own line shows the cover of the calculation (a picture exists only where the product images are on); an accessory or a loose line has none
+      const picture = ctx.aiImages && l.project_id && !l.optional && l.cover_image_id ? cover(l.cover_image_id) : null;
       // the model's own line (not one of its accessories) can be brought up to date with the calculation it was made from
       const sync = l.project_id && !l.optional
         ? h('button', { class: 'btn small icon-only sync-line', type: 'button', title: t('orders.sync'), 'aria-label': t('orders.sync_line', { name: l.description || `#${l.project_number}` }),
           onclick: (e) => syncLine(l, e.currentTarget) }, icon('sync'))
         : null;
       return h('div', { class: `line order${calculated ? ' calc' : ''}` },
-        h('div', { class: 'field' }, h('label', { for: inputId }, t('orders.description'), ' ', badge), sync ? h('div', { class: 'input-row' }, input, sync) : input, optional),
+        h('div', { class: 'field' }, h('label', { for: inputId }, t('orders.description'), ' ', badge),
+          picture || sync ? h('div', { class: 'input-row' }, picture, input, sync) : input, optional),
         field(t('orders.quantity'), numberInput(l.quantity, (v) => { l.quantity = v; touch(); }, { inputmode: 'numeric' })),
-        calculated ? field(t('orders.margin'), numberInput(l.margin_pct, (v) => { l.margin_pct = v; touch(); }, { class: 'private' })) : null,
+        calculated ? field(t(fromModel ? 'orders.margin_extra' : 'orders.margin'), numberInput(l.margin_pct, (v) => { l.margin_pct = v; touch(); }, { class: 'private', ...(fromModel ? { title: t('orders.margin_extra_title') } : {}) })) : null,
         calculated ? h('div', { class: 'field cost-field' }, h('span', { class: 'lbl' }, t('orders.unit_price_calc')), unit)
           : field(t('orders.unit_price'), numberInput(l.unit_price, (v) => { l.unit_price = v; touch(); })),
         field(t('orders.vat'), numberInput(l.vat_pct, (v) => { l.vat_pct = v; touch(); }, { list: 'order-vat-presets' })),
         h('div', { class: 'field cost-field' }, h('span', { class: 'lbl' }, t('orders.line_total')), total),
         removeBtn(t('orders.remove_line'), () => { state.lines.splice(i, 1); touch(); drawLines(); }),
-        calculated ? hint : null);
+        calculated ? hint : null,
+        modelPrice);
     }));
     renderTotals();
   }
 
   // The lines a calculation adds to an order: the model itself, and the accessories of the calculation (cables, chargers) as lines of their
-  // own that the invoice lists apart, because the product works without them. They are priced at what they cost; the model's line keeps
-  // the rest of the cost price and the margin.
+  // own that the invoice lists apart, because the product works without them. The accessories are priced at what they cost; the model's line
+  // keeps the rest of the cost price (for the sales overview) and starts from the model's selling price (`modelLinesOf` asks the server for it).
   const UNIT_SHORT = { stuks: t('unit.pieces'), m: 'm', g: 'g' };
   function modelLines(p) {
     const extras = (p.totals.parts || []).filter((x) => x.group === 'oplader' && Number(x.cost) > 0);
     const modelCost = Math.round((Number(p.totals.cost_price) - Number(p.totals.subtotals.charger || 0)) * 100) / 100;
     const model = { project_id: p.id, project_number: p.number, description: p.name, quantity: '1', unit_price: '', optional: false,
-      cost_price: String(extras.length ? modelCost : p.totals.cost_price), margin_pct: str(Number(p.margin_pct)), vat_pct: str(Number(p.vat_pct)) };
+      cost_price: String(extras.length ? modelCost : p.totals.cost_price), margin_pct: '0', vat_pct: str(Number(p.vat_pct)) };      // 0: the extra margin on top of the model's price
     return [model, ...extras.map((x) => {
       const qty = Number(x.quantity), price = Number(x.unit_price);
       const whole = x.unit === 'stuks' && Number.isInteger(qty) && qty >= 1 && qty <= 100000 && Math.round(price * 100) / 100 === price;
@@ -330,16 +356,36 @@ function buildEditor(order, navigate, ctx) {
     })];
   }
 
+  // The lines to add for one calculation, the model's line with its price: the server says what the model sells for (with the rounding the model
+  // has) less what the accessory lines cost, so that the lines together are the model's selling price. Nothing is added up here.
+  async function modelLinesOf(projectId) {
+    const p = await api('GET', `/api/projects/${projectId}`);
+    const lines = modelLines(p);
+    const basis = await api('POST', '/api/orders/model-basis', { project_id: p.id, accessories: lines.slice(1).map(linePayload) });
+    lines[0].base_price = basis.base_price;
+    lines[0].price_rounding = basis.price_rounding;
+    return { lines, margin: str(Number(p.margin_pct)) };
+  }
+
   // The model's line keeps the cost price its calculation had when it was added; this fetches the calculation as it is now and takes its cost
-  // price again (the margin, VAT and quantity of the line are the order's own and stay). A line from before the cost price was kept gets
-  // the calculation's cost price and margin, so the server can price it from then on. Saving the order stores it.
+  // price again (the extra margin, VAT and quantity of the line are the order's own and stay); a line that starts from the model's selling price
+  // takes that price and its rounding again too. A line from before that price was kept stays priced from its cost price, margin and the
+  // rounding of the order, as it was: it gets the calculation's cost price (and its margin, when it had none). Saving the order stores it.
   async function syncLine(l, button) {
     button.disabled = true;
     try {
-      const fresh = modelLines(await api('GET', `/api/projects/${l.project_id}`))[0];
+      const { lines, margin } = await modelLinesOf(l.project_id);
+      const fresh = lines[0];
+      if (l.base_price != null) {
+        if (Number(l.cost_price) === Number(fresh.cost_price) && Number(l.base_price) === Number(fresh.base_price) && (l.price_rounding || 'none') === fresh.price_rounding) { toast(t('orders.sync_current')); return; }
+        Object.assign(l, { cost_price: fresh.cost_price, base_price: fresh.base_price, price_rounding: fresh.price_rounding });
+        touch(); drawLines();
+        toast(t('orders.sync_done_model', { price: eur(fresh.base_price) }));
+        return;
+      }
       if (l.cost_price != null && Number(l.cost_price) === Number(fresh.cost_price)) { toast(t('orders.sync_current')); return; }
       l.cost_price = fresh.cost_price;
-      if (!String(l.margin_pct ?? '').trim()) l.margin_pct = fresh.margin_pct;
+      if (!String(l.margin_pct ?? '').trim()) l.margin_pct = margin;
       touch(); drawLines();
       toast(t('orders.sync_done', { cost: eur(fresh.cost_price) }));
     } catch (e) { toast(e.message, 'error'); } finally { button.disabled = false; }
@@ -406,11 +452,15 @@ function buildEditor(order, navigate, ctx) {
           // The list holds a model's prices, not its lines; the accessories that become lines of their own are in the model itself.
           const button = event.currentTarget;
           button.disabled = true;
-          try { state.lines.push(...modelLines(await api('GET', `/api/projects/${p.id}`))); } catch (e) { toast(e.message, 'error'); button.disabled = false; return; }
+          try {
+            const { lines } = await modelLinesOf(p.id);
+            lines[0].cover_image_id = p.cover_image_id || null;                // the list has it, the model itself does not
+            state.lines.push(...lines);
+          } catch (e) { toast(e.message, 'error'); button.disabled = false; return; }
         }
         added.set(p.id, (added.get(p.id) || 0) + 1);
         touch(); drawLines(); draw();
-      } }, h('span', { class: 'badge' }, `#${p.number}`), h('span', { class: 'grow' }, p.name),
+      } }, ctx.aiImages && p.cover_image_id ? cover(p.cover_image_id) : null, h('span', { class: 'badge' }, `#${p.number}`), h('span', { class: 'grow' }, p.name),
       added.has(p.id) ? h('span', { class: 'muted' }, `+${added.get(p.id)}`) : null,
       h('strong', {}, eur(p.totals.sell_price_incl_vat))))) : [h('li', { class: 'muted' }, projects.length ? t('orders.no_models_match') : t('orders.no_models'))]));
     };
@@ -649,8 +699,9 @@ function buildEditor(order, navigate, ctx) {
           field(t('orders.subject'), textInput('subject', { maxlength: 200, placeholder: t('orders.subject_ph') }), t('orders.subject_hint'))),
         h('div', { class: 'glass card stack' }, h('h2', {}, t('orders.customer')), customerBox),
         h('div', { class: 'glass card stack' }, h('h2', {}, t('orders.models')), h('p', { class: 'muted' }, t('orders.models_hint')),
-          field(t('orders.rounding'), h('select', { onchange: (e) => { state.price_rounding = e.target.value; touch(); } },
-            ROUNDINGS.map(([v, k]) => h('option', { value: v, selected: state.price_rounding === v }, t(k)))), t('orders.rounding_hint')),
+          // an order has no rounding of its own any more (the model's price is rounded at the model); one that was made with one keeps it for the lines it priced
+          state.price_rounding !== 'none' ? field(t('orders.rounding'), h('select', { onchange: (e) => { state.price_rounding = e.target.value; touch(); } },
+            ROUNDINGS.map(([v, k]) => h('option', { value: v, selected: state.price_rounding === v }, t(k)))), `${t('orders.rounding_hint')} ${t('orders.rounding_old')}`) : null,
           linesBox,
           h('datalist', { id: 'order-vat-presets' }, ['0', '9', '21'].map((v) => h('option', { value: v }))),
           h('div', { class: 'row' },

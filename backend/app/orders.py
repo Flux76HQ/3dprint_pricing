@@ -19,7 +19,7 @@ from .i18n import L
 
 bp = Blueprint("orders", __name__, url_prefix="/api/orders")
 
-STATUSES = ("nieuw", "verwerkt", "verstuurd", "afgehandeld")
+STATUSES = ("nieuw", "in_behandeling", "verwerkt", "verstuurd", "afgehandeld")
 MAX_LINES = 200
 CENT = Decimal("0.01")
 
@@ -93,9 +93,19 @@ def _date(label: str, value, *, required: bool):
         raise ApiError(400, "err.bad_date", label=L(label)) from None
 
 
+def _price_on_base(base: Decimal, extra: Decimal, rounding: str) -> Decimal:
+    """The price per piece (incl. VAT) of a line that starts from a model's selling price: that price as it is, and with an extra margin that
+    price plus the percentage, rounded up the way the calculation rounds (never below it). The accessories of the model are lines of their own,
+    so the rounding is the line's and not the whole product's."""
+    if not extra:
+        return base
+    return _money(calc.round_up_price(base * (1 + extra / 100), rounding))
+
+
 def _line(raw, n: int, rounding: str = "none") -> dict:
-    """One order line. With a `cost_price` the price per piece is worked out here from the cost price, the line's own margin, the VAT
-    and the order's rounding; without one the typed `unit_price` is kept."""
+    """One order line. With a `base_price` (a line made from a model) the price per piece is that selling price plus the line's extra margin,
+    rounded with the line's own `price_rounding`. Else, with a `cost_price`, it is worked out here from the cost price, the line's own margin, the
+    VAT and the order's rounding; without one the typed `unit_price` is kept. The cost price is the cost in every case: the sales overview reads it."""
     if not isinstance(raw, dict):
         raise ApiError(400, "err.order_line", n=n)
     try:
@@ -111,19 +121,26 @@ def _line(raw, n: int, rounding: str = "none") -> dict:
         except ValueError:
             raise ApiError(400, "err.order_line", n=n) from None
     vat_pct = _money(number("f.vat", maximum=100)(raw.get("vat_pct", 0)))
-    cost_price = margin_pct = effective = None
+    cost_price = margin_pct = effective = base_price = line_rounding = None
+    has_base = raw.get("base_price") not in (None, "")
     if raw.get("cost_price") not in (None, ""):
         cost_price = _money(number("f.cost_price")(raw["cost_price"]))
         margin_pct = _money(number("f.margin", maximum=1000)(raw.get("margin_pct") or 0))
-        price = calc.price_from_cost(cost_price, margin_pct, vat_pct, rounding)
-        unit_price, effective = price["sell_price_incl_vat"], str(price["margin_pct_effective"])
+        if has_base:
+            base_price, line_rounding = _money(number("f.base_price")(raw["base_price"])), _rounding(raw.get("price_rounding"))
+            unit_price = _price_on_base(base_price, margin_pct, line_rounding)
+        else:
+            price = calc.price_from_cost(cost_price, margin_pct, vat_pct, rounding)
+            unit_price, effective = price["sell_price_incl_vat"], str(price["margin_pct_effective"])
+    elif has_base:
+        raise ApiError(400, "err.order_line", n=n)                                  # a model's price without the cost it was made from: the sales overview would lose it
     else:
         unit_price = _money(number("f.unit_price")(raw.get("unit_price")))
     optional = boolean("f.optional")(raw["optional"]) if "optional" in raw else False
     packaging = boolean("f.packaging")(raw["packaging"]) if "packaging" in raw else False          # packaging material: in the total, never on the invoice
     return {"project_id": project_id, "project_number": None, "optional": optional, "packaging": packaging, "description": text("f.description", max_len=200)(raw.get("description")),
             "quantity": int(quantity), "unit_price": unit_price, "vat_pct": vat_pct, "cost_price": cost_price, "margin_pct": margin_pct,
-            "margin_pct_effective": effective}
+            "margin_pct_effective": effective, "base_price": base_price, "price_rounding": line_rounding}
 
 
 def _rounding(value) -> str:
@@ -177,10 +194,10 @@ def _write_lines(conn, order_id, lines: list) -> None:
         project_id = line["project_id"] if line["project_id"] in known else None   # a calculation that is gone is let go
         conn.execute(
             "INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, "
-            "cost_price, margin_pct, optional, packaging) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "cost_price, margin_pct, optional, packaging, base_price, price_rounding) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (order_id, position, project_id, known.get(project_id) if project_id else line.get("project_number"),
              line["description"], line["quantity"], line["unit_price"], line["vat_pct"], line.get("cost_price"), line.get("margin_pct"),
-             line["optional"], line["packaging"]))
+             line["optional"], line["packaging"], line.get("base_price"), line.get("price_rounding")))
 
 
 def _lines_of(conn, order_ids: list, columns: str = "*") -> dict:
@@ -194,17 +211,29 @@ def _lines_of(conn, order_ids: list, columns: str = "*") -> dict:
 
 
 def _effective_margin(line: dict, rounding: str):
-    """The margin a line really makes (rounding can lift it above the one typed), or None for a line with a price of its own."""
-    if line["cost_price"] is None:
+    """The margin a line really makes (rounding can lift it above the one typed), or None for a line with a price of its own, and for a line
+    that starts from a model's price: its margin is an extra on top of that price, not a margin on the cost."""
+    if line["cost_price"] is None or line.get("base_price") is not None:
         return None
     return str(calc.price_from_cost(line["cost_price"], line["margin_pct"], line["vat_pct"], rounding)["margin_pct_effective"])
 
 
-def _present(order: dict, lines: list) -> dict:
+def _covers(conn, lines: list) -> dict:
+    """The cover picture of each calculation these lines are made from, `{project_id: picture id}` (a calculation without one is not in it): the
+    editor shows it with the model's line. Only the id goes out; the picture is fetched by the address of its own (`/api/project-images/<id>/thumb`)."""
+    ids = {str(line["project_id"]) for line in lines if line["project_id"]}
+    if not ids:
+        return {}
+    rows = conn.execute("SELECT project_id, id FROM project_images WHERE is_cover AND project_id IN (SELECT value FROM json_each(%s))", (id_list(ids),)).fetchall()
+    return {str(row["project_id"]): str(row["id"]) for row in rows}
+
+
+def _present(order: dict, lines: list, covers: dict) -> dict:
     totals = compute_totals(lines)
     out = _serialise(order)
     out["lines"] = [{**_serialise({k: v for k, v in line.items() if k not in ("order_id",)}), "line_total": totals["line_totals"][i],
-                     "margin_pct_effective": _effective_margin(line, order["price_rounding"])}
+                     "margin_pct_effective": _effective_margin(line, order["price_rounding"]),
+                     "cover_image_id": covers.get(str(line["project_id"])) if line["project_id"] else None}
                     for i, line in enumerate(lines)]
     out["totals"] = totals
     return out
@@ -256,11 +285,12 @@ def list_orders():
     with pool().read() as conn:
         orders = conn.execute(sql, params).fetchall()
         lines = _lines_of(conn, [o["id"] for o in orders], "order_id, quantity, unit_price, vat_pct")
+        short = reservations.shortages(conn)          # over all open orders, whatever the filter: they hold filament that the listed ones need
     out = []
     for order in orders:
         totals = compute_totals(lines[order["id"]])
         item = _serialise(order)
-        item.update(line_count=len(lines[order["id"]]), total=totals["total"])
+        item.update(line_count=len(lines[order["id"]]), total=totals["total"], filament_short=short.get(order["id"], []))
         out.append(item)
     return jsonify(out)
 
@@ -275,6 +305,30 @@ def totals():
     rounding = _rounding(body.get("price_rounding"))
     lines = [_line(line, n, rounding) for n, line in enumerate(raw, 1)]
     return jsonify({**compute_totals(lines), "priced_lines": [{"unit_price": str(l["unit_price"]), "margin_pct_effective": l["margin_pct_effective"]} for l in lines]})
+
+
+@bp.post("/model-basis")
+def model_basis():
+    """The price a model's line in an order starts from: the selling price of the calculation (including VAT and the rounding the calculation
+    has, as stored with it) minus what the accessories that become lines of their own cost on the order, so that the lines of a product add up to
+    the price of the model. The browser sends the accessory lines as it will save them (`accessories`: lines like any other) and gets the
+    price back; it adds nothing up itself. `model_margin_pct` is the margin the calculation has, for a line from before this price was kept."""
+    body = json_body()
+    raw = body.get("accessories", [])
+    if not isinstance(raw, list) or len(raw) > MAX_LINES:
+        raise ApiError(400, "err.order_lines", max=MAX_LINES)
+    try:
+        project_id = uuid.UUID(str(body.get("project_id")))
+    except ValueError:
+        raise ApiError(400, "err.calc_not_found") from None
+    with pool().read() as conn:
+        project = conn.execute("SELECT margin_pct, price_rounding, totals FROM projects WHERE id = %s", (project_id,)).fetchone()
+    if project is None:
+        raise ApiError(404, "err.calc_not_found")
+    accessories = [_line(line, n) for n, line in enumerate(raw, 1)]                 # priced as the order will price them: at cost, without a margin
+    taken = sum((line["unit_price"] * line["quantity"] for line in accessories), Decimal(0))
+    base = max(Decimal(project["totals"]["sell_price_incl_vat"]) - taken, Decimal(0))
+    return jsonify({"base_price": str(_money(base)), "price_rounding": project["price_rounding"], "model_margin_pct": str(project["margin_pct"])})
 
 
 def _filament_line(raw, n: int):
@@ -338,7 +392,8 @@ def create_order():
         _write_lines(conn, order["id"], values["lines"])
         order, lines = _fetch(conn, order["id"])
         webhooks.emit(conn, "order.created", _event(order, lines))
-    return jsonify(_present(order, lines)), 201
+        covers = _covers(conn, lines)
+    return jsonify(_present(order, lines, covers)), 201
 
 
 @bp.post("/<uuid:order_id>/duplicate")
@@ -354,12 +409,13 @@ def duplicate_order(order_id):
         fields = ("number", *ORDER_FIELDS, "customer_id")
         order = conn.execute(f"INSERT INTO orders ({', '.join(fields)}) VALUES ({', '.join(['%s'] * len(fields))}) RETURNING *",
                              (next_number(conn, "order"), *(values[f] for f in ORDER_FIELDS), source["customer_id"])).fetchone()
-        conn.execute("INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging) "
-                     "SELECT %s, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging "
+        conn.execute("INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging, base_price, price_rounding) "
+                     "SELECT %s, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging, base_price, price_rounding "
                      "FROM order_lines WHERE order_id = %s ORDER BY position", (order["id"], order_id))
         order, lines = _fetch(conn, order["id"])
         webhooks.emit(conn, "order.created", _event(order, lines))
-    return jsonify(_present(order, lines)), 201
+        covers = _covers(conn, lines)
+    return jsonify(_present(order, lines, covers)), 201
 
 
 MAX_ASSIGN = 500
@@ -408,7 +464,7 @@ def assign_customer():
 def get_order(order_id):
     with pool().read() as conn:
         order, lines = _fetch(conn, order_id)
-        presented = _with_pdf_flag(conn, order, _present(order, lines))
+        presented = _with_pdf_flag(conn, order, _present(order, lines, _covers(conn, lines)))
     return jsonify(presented)
 
 
@@ -429,7 +485,8 @@ def update_order(order_id):
         webhooks.emit(conn, "order.updated", _event(order, lines))
         if order["status"] != current["status"]:                     # the status can also change with the rest of the order
             webhooks.emit(conn, "order.status_changed", {**_event(order, lines), "previous_status": current["status"]})
-    return jsonify(_present(order, lines))
+        covers = _covers(conn, lines)
+    return jsonify(_present(order, lines, covers))
 
 
 @bp.patch("/<uuid:order_id>/status")

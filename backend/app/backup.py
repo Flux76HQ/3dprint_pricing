@@ -36,7 +36,7 @@ bp = Blueprint("backup", __name__, url_prefix="/api/backup")
 log = logging.getLogger(__name__)
 
 FORMAT = "printpricing-backup"
-FORMAT_VERSION = 7          # 7: the groups of rolls; 6: packaging lines on orders (an older release would list them on the invoice); 5: the filament library; 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
+FORMAT_VERSION = 8          # 8: a model's price on an order line (`base_price`: an older release would price it from the cost and lose it); 7: the groups of rolls; 6: packaging lines on orders (an older release would list them on the invoice); 5: the filament library; 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
                             # numbers. A file of an older version still restores
 MAX_ROWS = 20_000
 MAX_USAGE_ROWS = 200_000                      # what the pictures cost: a row per picture, and there is no limit on writing them, so there is none on reading them that a real file could meet
@@ -232,7 +232,7 @@ def _export_orders(conn) -> list:
     lines = orders._lines_of(conn, [r["id"] for r in rows])
     for row in rows:
         item = _serialise(row)
-        item["lines"] = [_serialise({k: line[k] for k in ("project_id", "project_number", "description", "quantity", "unit_price", "vat_pct", "cost_price", "margin_pct", "optional", "packaging")})
+        item["lines"] = [_serialise({k: line[k] for k in ("project_id", "project_number", "description", "quantity", "unit_price", "vat_pct", "cost_price", "margin_pct", "optional", "packaging", "base_price", "price_rounding")})
                          for line in lines[row["id"]]]
         out.append(item)
     return out

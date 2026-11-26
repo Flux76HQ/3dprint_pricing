@@ -423,12 +423,20 @@ def _statements(script: str):
 RENAMED = {"0006_integrations.sql": "0007_integrations.sql", "0006_project_models.sql": "0008_project_models.sql"}
 
 
+FK_OFF = "-- foreign_keys: off"
+
+
 def run_migrations(database_path: str, directory: Path = MIGRATIONS_DIR) -> list[str]:
     """Apply unapplied `NNNN_name.sql` files in order, each in its own transaction.
 
     Refuses to continue when a previously applied file has changed: editing an
     applied migration would make fresh installs and upgraded installs diverge
     silently, which is the one failure nobody notices until it is too late.
+
+    A migration whose first line is `FK_OFF` builds a table again that other tables point at (SQLite cannot change a CHECK or a column in
+    place). Dropping that table with foreign keys on would run the ON DELETE CASCADE of its children, so for this migration only they are off,
+    which has to be set outside the transaction; before the commit `foreign_key_check` must not have found more broken keys than there were, or
+    the whole migration is rolled back. Foreign keys are on again as soon as it is over, whatever happened.
     """
     Database(database_path)                                  # creates the folder and switches to WAL
     conn = _open(database_path)
@@ -444,25 +452,36 @@ def run_migrations(database_path: str, directory: Path = MIGRATIONS_DIR) -> list
         conn.execute("COMMIT")
         for path in sorted(directory.glob("[0-9][0-9][0-9][0-9]_*.sql")):
             checksum = _checksum(path)
-            conn.execute("BEGIN IMMEDIATE")
+            script = path.read_text(encoding="utf-8")
+            rebuild = script.startswith(FK_OFF) and conn.execute("SELECT 1 FROM schema_migrations WHERE filename = ?", (path.name,)).fetchone() is None
+            if rebuild:
+                conn.execute("PRAGMA foreign_keys = OFF")        # a no-op inside a transaction: it has to be before BEGIN
             try:
-                known = {row["filename"]: row["checksum"] for row in conn.execute("SELECT filename, checksum FROM schema_migrations")}
-                if path.name in known:
-                    if known[path.name] != checksum:
-                        raise SchemaDrift(
-                            f"Migration {path.name} was changed after it was applied. "
-                            "Never edit an applied migration; add a new NNNN_*.sql instead."
-                        )
-                else:
-                    for statement in _statements(path.read_text(encoding="utf-8")):
-                        conn.execute(statement)
-                    conn.execute("INSERT INTO schema_migrations (filename, checksum) VALUES (?, ?)", (path.name, checksum))
-                    applied_now.append(path.name)
-                conn.execute("COMMIT")
-            except BaseException:
-                if conn.in_transaction:
-                    conn.execute("ROLLBACK")
-                raise
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    known = {row["filename"]: row["checksum"] for row in conn.execute("SELECT filename, checksum FROM schema_migrations")}
+                    if path.name in known:
+                        if known[path.name] != checksum:
+                            raise SchemaDrift(
+                                f"Migration {path.name} was changed after it was applied. "
+                                "Never edit an applied migration; add a new NNNN_*.sql instead."
+                            )
+                    else:
+                        broken = len(conn.execute("PRAGMA foreign_key_check").fetchall()) if rebuild else 0
+                        for statement in _statements(script):
+                            conn.execute(statement)
+                        if rebuild and len(conn.execute("PRAGMA foreign_key_check").fetchall()) > broken:
+                            raise RuntimeError(f"Migration {path.name} left rows that break a foreign key; nothing was changed.")
+                        conn.execute("INSERT INTO schema_migrations (filename, checksum) VALUES (?, ?)", (path.name, checksum))
+                        applied_now.append(path.name)
+                    conn.execute("COMMIT")
+                except BaseException:
+                    if conn.in_transaction:
+                        conn.execute("ROLLBACK")
+                    raise
+            finally:
+                if rebuild:
+                    conn.execute("PRAGMA foreign_keys = ON")
     finally:
         conn.close()
     return applied_now

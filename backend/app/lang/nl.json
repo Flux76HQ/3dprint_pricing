@@ -149,6 +149,7 @@
  "err.file_location": "Een bestandslocatie is een webadres (https://…), een smb://-adres, een netwerkpad (\\\\server\\share\\map) of een pad op een gekoppelde schijf (Z:\\map).",
  "err.report_period": "Onbekende periode.",
  "f.auto_backup": "Automatische back-ups",
+ "f.base_price": "Verkoopprijs van het model",
  "f.filament_id": "Filament-ID",
  "f.haspelsync_serial": "Serienummer (HaspelSync)",
  "f.link": "Link",
