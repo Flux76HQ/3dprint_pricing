@@ -72,10 +72,11 @@ def _raw(path):
 
 
 def _before_in_progress(tmp_path):
-    """A folder with every migration up to the one that adds the status "in_behandeling" (0022), which rebuilds `orders`."""
+    """A folder with every migration before the one that adds the status "in_behandeling" (0022), which rebuilds `orders`, and what came after it."""
     work = tmp_path / "migrations-before"
     shutil.copytree(MIGRATIONS_DIR, work, ignore=shutil.ignore_patterns("__pycache__"))
-    (work / "0022_order_status_in_progress.sql").unlink()
+    for later in work.glob("00[2-9][2-9]_*.sql"):
+        later.unlink()
     return work
 
 
@@ -98,15 +99,19 @@ def test_the_orders_table_is_rebuilt_without_losing_an_order_a_line_or_an_invoic
     run_migrations(fresh_db, _before_in_progress(tmp_path))
     _orders_with_everything(fresh_db)
     raw = _raw(fresh_db)
-    want = {table: raw.execute(f"SELECT * FROM {table} ORDER BY 1, 2").fetchall() for table in ("orders", "order_lines", "invoice_pdfs", "customers")}
+    # what a line was before 0023 added its two columns
+    columns = {"order_lines": "id, order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging"}
+    select = lambda table: f"SELECT {columns.get(table, '*')} FROM {table} ORDER BY 1, 2"
+    want = {table: raw.execute(select(table)).fetchall() for table in ("orders", "order_lines", "invoice_pdfs", "customers")}
     raw.close()
 
-    assert run_migrations(fresh_db) == ["0022_order_status_in_progress.sql"]
+    assert run_migrations(fresh_db) == ["0022_order_status_in_progress.sql", "0023_order_line_model_price.sql"]
 
     raw = _raw(fresh_db)
     for table, rows in want.items():
-        assert raw.execute(f"SELECT * FROM {table} ORDER BY 1, 2").fetchall() == rows, table          # every column of every row, as it was
+        assert raw.execute(select(table)).fetchall() == rows, table                                    # every column of every row, as it was
     assert len(want["order_lines"]) == 4 and len(want["invoice_pdfs"]) == 1                            # the children were not cascaded away
+    assert raw.execute("SELECT count(*) FROM order_lines WHERE base_price IS NULL AND price_rounding IS NULL").fetchone() == (4,)      # no line has a model's price: all are priced as before
     assert raw.execute("PRAGMA foreign_key_check").fetchall() == []
     assert raw.execute("PRAGMA integrity_check").fetchone() == ("ok",)
     assert {r[1] for r in raw.execute("PRAGMA index_list(orders)")} >= {"orders_order_date_idx", "orders_customer_idx"}

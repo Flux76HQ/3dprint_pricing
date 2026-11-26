@@ -149,6 +149,7 @@
  "err.file_location": "A file location is a web address (https://…), an smb:// address, a network path (\\\\server\\share\\folder) or a path on a mapped drive (Z:\\folder).",
  "err.report_period": "Unknown period.",
  "f.auto_backup": "Automatic backups",
+ "f.base_price": "Selling price of the model",
  "f.filament_id": "Filament ID",
  "f.haspelsync_serial": "Serial number (HaspelSync)",
  "f.link": "Link",

@@ -93,9 +93,19 @@ def _date(label: str, value, *, required: bool):
         raise ApiError(400, "err.bad_date", label=L(label)) from None
 
 
+def _price_on_base(base: Decimal, extra: Decimal, rounding: str) -> Decimal:
+    """The price per piece (incl. VAT) of a line that starts from a model's selling price: that price as it is, and with an extra margin that
+    price plus the percentage, rounded up the way the calculation rounds (never below it). The accessories of the model are lines of their own,
+    so the rounding is the line's and not the whole product's."""
+    if not extra:
+        return base
+    return _money(calc.round_up_price(base * (1 + extra / 100), rounding))
+
+
 def _line(raw, n: int, rounding: str = "none") -> dict:
-    """One order line. With a `cost_price` the price per piece is worked out here from the cost price, the line's own margin, the VAT
-    and the order's rounding; without one the typed `unit_price` is kept."""
+    """One order line. With a `base_price` (a line made from a model) the price per piece is that selling price plus the line's extra margin,
+    rounded with the line's own `price_rounding`. Else, with a `cost_price`, it is worked out here from the cost price, the line's own margin, the
+    VAT and the order's rounding; without one the typed `unit_price` is kept. The cost price is the cost in every case: the sales overview reads it."""
     if not isinstance(raw, dict):
         raise ApiError(400, "err.order_line", n=n)
     try:
@@ -111,19 +121,26 @@ def _line(raw, n: int, rounding: str = "none") -> dict:
         except ValueError:
             raise ApiError(400, "err.order_line", n=n) from None
     vat_pct = _money(number("f.vat", maximum=100)(raw.get("vat_pct", 0)))
-    cost_price = margin_pct = effective = None
+    cost_price = margin_pct = effective = base_price = line_rounding = None
+    has_base = raw.get("base_price") not in (None, "")
     if raw.get("cost_price") not in (None, ""):
         cost_price = _money(number("f.cost_price")(raw["cost_price"]))
         margin_pct = _money(number("f.margin", maximum=1000)(raw.get("margin_pct") or 0))
-        price = calc.price_from_cost(cost_price, margin_pct, vat_pct, rounding)
-        unit_price, effective = price["sell_price_incl_vat"], str(price["margin_pct_effective"])
+        if has_base:
+            base_price, line_rounding = _money(number("f.base_price")(raw["base_price"])), _rounding(raw.get("price_rounding"))
+            unit_price = _price_on_base(base_price, margin_pct, line_rounding)
+        else:
+            price = calc.price_from_cost(cost_price, margin_pct, vat_pct, rounding)
+            unit_price, effective = price["sell_price_incl_vat"], str(price["margin_pct_effective"])
+    elif has_base:
+        raise ApiError(400, "err.order_line", n=n)                                  # a model's price without the cost it was made from: the sales overview would lose it
     else:
         unit_price = _money(number("f.unit_price")(raw.get("unit_price")))
     optional = boolean("f.optional")(raw["optional"]) if "optional" in raw else False
     packaging = boolean("f.packaging")(raw["packaging"]) if "packaging" in raw else False          # packaging material: in the total, never on the invoice
     return {"project_id": project_id, "project_number": None, "optional": optional, "packaging": packaging, "description": text("f.description", max_len=200)(raw.get("description")),
             "quantity": int(quantity), "unit_price": unit_price, "vat_pct": vat_pct, "cost_price": cost_price, "margin_pct": margin_pct,
-            "margin_pct_effective": effective}
+            "margin_pct_effective": effective, "base_price": base_price, "price_rounding": line_rounding}
 
 
 def _rounding(value) -> str:
@@ -177,10 +194,10 @@ def _write_lines(conn, order_id, lines: list) -> None:
         project_id = line["project_id"] if line["project_id"] in known else None   # a calculation that is gone is let go
         conn.execute(
             "INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, "
-            "cost_price, margin_pct, optional, packaging) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "cost_price, margin_pct, optional, packaging, base_price, price_rounding) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (order_id, position, project_id, known.get(project_id) if project_id else line.get("project_number"),
              line["description"], line["quantity"], line["unit_price"], line["vat_pct"], line.get("cost_price"), line.get("margin_pct"),
-             line["optional"], line["packaging"]))
+             line["optional"], line["packaging"], line.get("base_price"), line.get("price_rounding")))
 
 
 def _lines_of(conn, order_ids: list, columns: str = "*") -> dict:
@@ -194,8 +211,9 @@ def _lines_of(conn, order_ids: list, columns: str = "*") -> dict:
 
 
 def _effective_margin(line: dict, rounding: str):
-    """The margin a line really makes (rounding can lift it above the one typed), or None for a line with a price of its own."""
-    if line["cost_price"] is None:
+    """The margin a line really makes (rounding can lift it above the one typed), or None for a line with a price of its own, and for a line
+    that starts from a model's price: its margin is an extra on top of that price, not a margin on the cost."""
+    if line["cost_price"] is None or line.get("base_price") is not None:
         return None
     return str(calc.price_from_cost(line["cost_price"], line["margin_pct"], line["vat_pct"], rounding)["margin_pct_effective"])
 
@@ -289,6 +307,30 @@ def totals():
     return jsonify({**compute_totals(lines), "priced_lines": [{"unit_price": str(l["unit_price"]), "margin_pct_effective": l["margin_pct_effective"]} for l in lines]})
 
 
+@bp.post("/model-basis")
+def model_basis():
+    """The price a model's line in an order starts from: the selling price of the calculation (including VAT and the rounding the calculation
+    has, as stored with it) minus what the accessories that become lines of their own cost on the order, so that the lines of a product add up to
+    the price of the model. The browser sends the accessory lines as it will save them (`accessories`: lines like any other) and gets the
+    price back; it adds nothing up itself. `model_margin_pct` is the margin the calculation has, for a line from before this price was kept."""
+    body = json_body()
+    raw = body.get("accessories", [])
+    if not isinstance(raw, list) or len(raw) > MAX_LINES:
+        raise ApiError(400, "err.order_lines", max=MAX_LINES)
+    try:
+        project_id = uuid.UUID(str(body.get("project_id")))
+    except ValueError:
+        raise ApiError(400, "err.calc_not_found") from None
+    with pool().read() as conn:
+        project = conn.execute("SELECT margin_pct, price_rounding, totals FROM projects WHERE id = %s", (project_id,)).fetchone()
+    if project is None:
+        raise ApiError(404, "err.calc_not_found")
+    accessories = [_line(line, n) for n, line in enumerate(raw, 1)]                 # priced as the order will price them: at cost, without a margin
+    taken = sum((line["unit_price"] * line["quantity"] for line in accessories), Decimal(0))
+    base = max(Decimal(project["totals"]["sell_price_incl_vat"]) - taken, Decimal(0))
+    return jsonify({"base_price": str(_money(base)), "price_rounding": project["price_rounding"], "model_margin_pct": str(project["margin_pct"])})
+
+
 def _filament_line(raw, n: int):
     """What the filament check needs of a line: the calculation, how many, and the two flags that decide whether the line takes filament.
     A line still being typed (no quantity yet) is left out rather than refused, so the check can follow the screen while it is edited."""
@@ -367,8 +409,8 @@ def duplicate_order(order_id):
         fields = ("number", *ORDER_FIELDS, "customer_id")
         order = conn.execute(f"INSERT INTO orders ({', '.join(fields)}) VALUES ({', '.join(['%s'] * len(fields))}) RETURNING *",
                              (next_number(conn, "order"), *(values[f] for f in ORDER_FIELDS), source["customer_id"])).fetchone()
-        conn.execute("INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging) "
-                     "SELECT %s, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging "
+        conn.execute("INSERT INTO order_lines (order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging, base_price, price_rounding) "
+                     "SELECT %s, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging, base_price, price_rounding "
                      "FROM order_lines WHERE order_id = %s ORDER BY position", (order["id"], order_id))
         order, lines = _fetch(conn, order["id"])
         webhooks.emit(conn, "order.created", _event(order, lines))

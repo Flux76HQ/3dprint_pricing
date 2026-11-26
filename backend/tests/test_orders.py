@@ -2,7 +2,7 @@
 file made from the built-in layout, from a Word template and from a PDF used as letter paper."""
 import io
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 import pytest
 from docx import Document
@@ -1134,3 +1134,145 @@ def test_what_is_packaging_comes_back_with_a_backup_and_an_old_backup_has_none(o
 def test_a_backup_with_packaging_lines_is_not_taken_by_a_release_that_does_not_know_them(owner):
     assert owner.get("/api/backup", headers=H).get_json()["format_version"] >= 6              # an older release refuses a newer file, and so lists no packaging on an invoice
 
+
+
+# --- a model's line starts from the model's selling price; an extra margin goes on top ----------------------------------------------------
+
+def priced_model(owner, *, margin="40", rounding="x.95", cable=False, name="Vaas"):
+    """A calculation with a margin, VAT and a rounding of its own, and optionally a cable that becomes a line of its own on an order."""
+    payload = sheet_payload()
+    payload.update(name=name, margin_pct=margin, vat_pct="21", price_rounding=rounding)
+    if cable:
+        payload["data"]["parts"] = [{"label": "USB-C kabel", "quantity": 2, "unit": "stuks", "unit_price": "1.50", "group": "oplader"}]
+    return make(owner, "/api/projects", payload)
+
+
+def cable_line(project):
+    """The accessory line the order editor makes of that cable: at cost price, without a margin, optional."""
+    return {"project_id": project["id"], "description": "USB-C kabel", "quantity": 2, "vat_pct": "21", "optional": True, "cost_price": "1.50", "margin_pct": 0}
+
+
+def basis(owner, project, accessories=()):
+    res = owner.post("/api/orders/model-basis", json={"project_id": project["id"], "accessories": list(accessories)}, headers=H)
+    assert res.status_code == 200, res.get_json()
+    return res.get_json()
+
+
+def model_line(project, base, *, extra="0", rounding="x.95", quantity=1, cost="2.74", **more):
+    return {"project_id": project["id"], "description": project["name"], "quantity": quantity, "vat_pct": "21", "cost_price": cost, "margin_pct": extra,
+            "base_price": base, "price_rounding": rounding, **more}
+
+
+def test_the_basis_of_a_model_is_its_selling_price_with_the_rounding_the_model_has(owner):
+    project = priced_model(owner)
+    selling = project["totals"]["sell_price_incl_vat"]
+    assert selling.endswith(".95") and Decimal(selling) > Decimal(project["totals"]["cost_price"])           # rounded up at the model
+    assert basis(owner, project) == {"base_price": selling, "price_rounding": "x.95", "model_margin_pct": "40.00"}
+
+
+def test_the_accessories_are_taken_off_the_price_so_that_the_lines_add_up_to_the_models_price(owner):
+    project = priced_model(owner, cable=True)
+    selling = Decimal(project["totals"]["sell_price_incl_vat"])
+    answer = basis(owner, project, [cable_line(project)])
+    assert Decimal(answer["base_price"]) == selling - 2 * Decimal("1.82")                                    # 1.50 + 21% VAT = 1.815, priced as the order prices it: 1.82 each
+    order = new_order(owner, [model_line(project, answer["base_price"], cost="2.74"), cable_line(project)])
+    assert Decimal(order["totals"]["total"]) == selling                                                       # the model and its cable together are the model's price
+
+
+def test_a_model_line_costs_the_selling_price_of_the_model_unless_an_extra_margin_is_added(owner):
+    project = priced_model(owner)
+    base = basis(owner, project)["base_price"]
+    order = new_order(owner, [model_line(project, base, quantity=3)], price_rounding="1.00")           # the rounding of the order is no part of it
+    row = order["lines"][0]
+    assert Decimal(row["unit_price"]) == Decimal(base) and Decimal(order["totals"]["total"]) == 3 * Decimal(base)
+    assert row["base_price"] == base and row["price_rounding"] == "x.95" and row["margin_pct"] == "0.00" and row["margin_pct_effective"] is None
+    assert row["cost_price"] == "2.74"                                                                        # the cost stays the cost
+
+
+def test_an_extra_margin_is_a_percentage_of_the_models_price_rounded_up_the_way_the_model_rounds(owner):
+    project = priced_model(owner)
+    base = Decimal(basis(owner, project)["base_price"])
+    for extra, rounding in (("10", "x.95"), ("10", "none"), ("10", "0.50"), ("33.33", "x.99")):
+        order = new_order(owner, [model_line(project, str(base), extra=extra, rounding=rounding)])
+        price = Decimal(order["lines"][0]["unit_price"])
+        raw = base * (1 + Decimal(extra) / 100)
+        cents = raw.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)                                      # cents are rounded half up, as everywhere
+        assert price >= cents, (extra, rounding)                                                            # never below the price plus the margin
+        assert price - raw < 5, (extra, rounding)
+        if rounding == "none":
+            assert price == cents
+        if rounding == "x.95":
+            assert str(price).endswith(".95"), price
+        if rounding == "x.99":
+            assert str(price).endswith(".99"), price
+        if rounding == "0.50":
+            assert price % Decimal("0.50") == 0, price
+
+
+def test_a_line_from_before_the_models_price_was_kept_is_priced_as_it_always_was(owner):
+    project = priced_model(owner)
+    old = {"project_id": project["id"], "description": "Vaas", "quantity": 1, "vat_pct": "21", "cost_price": "10.00", "margin_pct": "40"}
+    plain = new_order(owner, [old], price_rounding="none")["lines"][0]
+    rounded = new_order(owner, [old], price_rounding="x.95")["lines"][0]
+    assert plain["unit_price"] == "16.94" and rounded["unit_price"] == "16.95"                              # cost + 40% + VAT, then the order's rounding
+    assert plain["base_price"] is None and plain["price_rounding"] is None and plain["margin_pct_effective"] is not None
+
+
+def test_a_models_price_needs_the_cost_it_was_made_from_and_both_must_be_numbers(owner):
+    project = priced_model(owner)
+    body = lambda line: {"customer_id": customer(owner)["id"], "lines": [line]}
+    no_cost = {"project_id": project["id"], "description": "Vaas", "quantity": 1, "vat_pct": "21", "unit_price": "10", "base_price": "9.95", "price_rounding": "none"}
+    assert owner.post("/api/orders", json=body(no_cost), headers=H).status_code == 400
+    for bad in ({"base_price": "veel"}, {"base_price": -1}, {"price_rounding": "0.07"}):
+        assert owner.post("/api/orders", json=body(model_line(project, "9.95", **bad)), headers=H).status_code == 400, bad
+    assert owner.post("/api/orders/model-basis", json={"project_id": "x", "accessories": []}, headers=H).status_code == 400
+    assert owner.post("/api/orders/model-basis", json={"project_id": "00000000-0000-4000-8000-000000000000", "accessories": []}, headers=H).status_code == 404
+    assert owner.post("/api/orders/model-basis", json={"project_id": project["id"], "accessories": "x"}, headers=H).status_code == 400
+
+
+def test_the_totals_of_the_editor_say_the_price_the_order_will_have(owner):
+    project = priced_model(owner)
+    base = basis(owner, project)["base_price"]
+    res = owner.post("/api/orders/totals", json={"lines": [model_line(project, base, extra="10", rounding="x.95", quantity=2)]}, headers=H).get_json()
+    saved = new_order(owner, [model_line(project, base, extra="10", rounding="x.95", quantity=2)])
+    assert res["priced_lines"][0]["unit_price"] == saved["lines"][0]["unit_price"] and res["total"] == saved["totals"]["total"]
+    assert res["priced_lines"][0]["margin_pct_effective"] is None
+
+
+def test_a_copy_and_a_backup_keep_the_models_price_and_an_old_backup_has_none(owner):
+    project = priced_model(owner)
+    base = basis(owner, project)["base_price"]
+    order = new_order(owner, [model_line(project, base, extra="10", rounding="0.50")])
+    copy = owner.post(f"/api/orders/{order['id']}/duplicate", headers=H).get_json()
+    assert [(l["base_price"], l["price_rounding"], l["margin_pct"], l["unit_price"]) for l in copy["lines"]] == \
+           [(l["base_price"], l["price_rounding"], l["margin_pct"], l["unit_price"]) for l in order["lines"]]
+    doc = owner.get("/api/backup", headers=H).get_json()
+    assert doc["format_version"] >= 8                                                                         # an older release would price the line from the cost and lose the model's price
+    assert {(l["base_price"], l["price_rounding"]) for o in doc["orders"] for l in o["lines"]} == {(base, "0.50")}
+    owner.delete(f"/api/orders/{order['id']}", headers=H)
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    restored = owner.get(f"/api/orders/{order['id']}").get_json()
+    assert [(l["base_price"], l["price_rounding"], l["unit_price"]) for l in restored["lines"]] == [(base, "0.50", order["lines"][0]["unit_price"])]
+    for o in doc["orders"]:                                                                                    # a backup from before: lines are priced from their cost, as they were
+        for l in o["lines"]:
+            l.pop("base_price"), l.pop("price_rounding")
+    doc["format_version"] = 7
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    assert owner.get(f"/api/orders/{order['id']}").get_json()["lines"][0]["base_price"] is None
+
+
+def test_the_sales_overview_still_takes_the_cost_of_a_line_that_starts_from_the_models_price(owner):
+    project = priced_model(owner)
+    base = basis(owner, project)["base_price"]
+    new_order(owner, [model_line(project, base, quantity=2, cost="2.74")], status="verstuurd", order_date=date.today().isoformat())
+    totals = owner.get("/api/reports/sales").get_json()["totals"]
+    assert totals["cost"] == "5.48" and totals["unknown_cost_lines"] == 0 and Decimal(totals["revenue"]) > Decimal("5.48")
+
+
+def test_the_invoice_names_the_price_of_a_model_line_like_any_other(owner):
+    business(owner)
+    project = priced_model(owner)
+    base = basis(owner, project)["base_price"]
+    order = new_order(owner, [model_line(project, base, quantity=2)])
+    text = pdf_text(post(owner, f"/api/orders/{order['id']}/invoice").data)
+    assert "Vaas" in text and "€ " + order["totals"]["total"].replace(".", ",") in text

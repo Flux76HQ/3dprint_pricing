@@ -50,7 +50,7 @@ def test_the_list_of_calculations_carries_their_prices_and_not_their_lines(owner
 def test_the_order_editor_asks_for_the_model_it_adds_because_the_list_does_not_hold_its_lines():
     """`modelLines` turns a calculation's accessories into lines of their own; they are in the calculation, not in a row of the list."""
     orders = (FRONT / "js/orders.js").read_text(encoding="utf-8")
-    assert "modelLines(await api('GET', `/api/projects/${p.id}`))" in orders and "...modelLines(p)" not in orders       # never from a row of the list
+    assert "const p = await api('GET', `/api/projects/${projectId}`);\n    const lines = modelLines(p);" in orders and "...modelLines(p)" not in orders       # never from a row of the list
 
 
 def test_the_screen_of_a_calculation_gets_what_it_opens_with_in_one_answer(owner):
