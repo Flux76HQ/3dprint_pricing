@@ -54,6 +54,15 @@ def test_two_open_orders_add_up_and_both_statuses_reserve(owner):
     assert Decimal(kind(owner, r["id"])["reserved_g"]) == 300
 
 
+def test_an_order_in_progress_reserves_too_and_lets_go_when_it_is_sent(owner):
+    r = roll(owner)
+    order = new_order(owner, [model_line(model(owner, r["id"], grams=100), 2)], status="in_behandeling")
+    assert Decimal(kind(owner, r["id"])["reserved_g"]) == 200
+    assert check(owner, [model_line(model(owner, r["id"], grams=100, name="Tweede"), 4)], status="in_behandeling")["reserving"] is True
+    assert owner.patch(f"/api/orders/{order['id']}/status", json={"status": "verstuurd"}, headers=H).status_code == 200
+    assert Decimal(kind(owner, r["id"])["reserved_g"]) == 0
+
+
 def test_sent_or_done_orders_let_go(owner):
     r = roll(owner)
     p = model(owner, r["id"], grams=100)

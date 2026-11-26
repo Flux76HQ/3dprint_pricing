@@ -542,6 +542,8 @@ select.status { width: auto; min-height: 44px; }
 .picker { display: grid; gap: 8px; max-height: 50vh; overflow-y: auto; margin: 12px 0; }
 .picker-item { width: 100%; justify-content: flex-start; text-align: left; gap: 10px; }
 .picker-item .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* A model's cover next to its line in an order and in the list to choose from: smaller than in the list of models, so a line stays one line tall. */
+.input-row .cover-thumb, .picker-item .cover-thumb { width: 44px; height: 44px; }
 .summary h3 { margin: 8px 0 0; font-size: .95rem; }
 details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
 code { overflow-wrap: anywhere; white-space: normal; }
@@ -793,9 +795,9 @@ dialog.sheet.ai-pick-sheet { width: min(calc(100vw - 24px), 780px); }
 
 /* Polish layer: calmer surfaces, clearer hierarchy, finished form controls. Everything comes from the tokens above, so it follows the
    accent colour and both themes. Kept at the end of the file so that it overrides earlier rules without reflowing them. */
-:root { --st-new: #5b6178; --st-busy: #9a5b00; --st-sent: #0b64b8; --st-done: var(--ok); --lijn-strong: rgba(26, 28, 40, .16); --ease: cubic-bezier(.2, .7, .2, 1); }
-:root[data-theme="dark"] { --st-new: #aab0c8; --st-busy: #f5b84a; --st-sent: #7cc0ff; --lijn-strong: rgba(255, 255, 255, .14); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --st-new: #aab0c8; --st-busy: #f5b84a; --st-sent: #7cc0ff; --lijn-strong: rgba(255, 255, 255, .14); } }
+:root { --st-new: #5b6178; --st-work: #0a7a74; --st-busy: #9a5b00; --st-sent: #0b64b8; --st-done: var(--ok); --lijn-strong: rgba(26, 28, 40, .16); --ease: cubic-bezier(.2, .7, .2, 1); }
+:root[data-theme="dark"] { --st-new: #aab0c8; --st-work: #5fd1c9; --st-busy: #f5b84a; --st-sent: #7cc0ff; --lijn-strong: rgba(255, 255, 255, .14); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --st-new: #aab0c8; --st-work: #5fd1c9; --st-busy: #f5b84a; --st-sent: #7cc0ff; --lijn-strong: rgba(255, 255, 255, .14); } }
 
 body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 h1, h2, h3 { text-wrap: balance; letter-spacing: -.012em; }
@@ -825,6 +827,7 @@ h1, h2 { font-weight: 700; }
 .badge.muted { background: var(--lijn); color: var(--text-muted); }
 select.status { --st: var(--st-new); font-weight: 650; padding-left: 32px; border-color: color-mix(in srgb, var(--st) 55%, var(--rand));
   background-color: color-mix(in srgb, var(--st) 11%, var(--surface-field)); }
+select.status[data-status="in_behandeling"] { --st: var(--st-work); }
 select.status[data-status="verwerkt"] { --st: var(--st-busy); }
 select.status[data-status="verstuurd"] { --st: var(--st-sent); }
 select.status[data-status="afgehandeld"] { --st: var(--st-done); }

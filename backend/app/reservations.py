@@ -2,7 +2,7 @@
 
 Nothing is stored. What an order reserves is worked out from its lines whenever it is asked: the filament of each model on the order (the
 calculation's filament lines, grams per piece) times the quantity, per kind of filament (`stock.key_of`). An order reserves while its
-status is in `OPEN` (`nieuw`, `verwerkt`); at `verstuurd` or `afgehandeld` the print is made, the roll in stock (Spoolman, or the booking
+status is in `OPEN` (`nieuw`, `in_behandeling`, `verwerkt`); at `verstuurd` or `afgehandeld` the print is made, the roll in stock (Spoolman, or the booking
 of the calculation) already says so, and the reservation is gone: it lets go by itself when the status changes, the order is deleted or a
 line is taken off, because there is no second record that could be forgotten.
 
@@ -14,7 +14,7 @@ from decimal import Decimal
 from . import stock
 from .db import id_list
 
-OPEN = ("nieuw", "verwerkt")                  # the statuses of an order that has not been printed and sent yet
+OPEN = ("nieuw", "in_behandeling", "verwerkt")                  # the statuses of an order that has not been printed and sent yet
 PLACES = Decimal("0.1")
 
 

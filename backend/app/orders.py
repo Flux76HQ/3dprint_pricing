@@ -19,7 +19,7 @@ from .i18n import L
 
 bp = Blueprint("orders", __name__, url_prefix="/api/orders")
 
-STATUSES = ("nieuw", "verwerkt", "verstuurd", "afgehandeld")
+STATUSES = ("nieuw", "in_behandeling", "verwerkt", "verstuurd", "afgehandeld")
 MAX_LINES = 200
 CENT = Decimal("0.01")
 
@@ -200,11 +200,22 @@ def _effective_margin(line: dict, rounding: str):
     return str(calc.price_from_cost(line["cost_price"], line["margin_pct"], line["vat_pct"], rounding)["margin_pct_effective"])
 
 
-def _present(order: dict, lines: list) -> dict:
+def _covers(conn, lines: list) -> dict:
+    """The cover picture of each calculation these lines are made from, `{project_id: picture id}` (a calculation without one is not in it): the
+    editor shows it with the model's line. Only the id goes out; the picture is fetched by the address of its own (`/api/project-images/<id>/thumb`)."""
+    ids = {str(line["project_id"]) for line in lines if line["project_id"]}
+    if not ids:
+        return {}
+    rows = conn.execute("SELECT project_id, id FROM project_images WHERE is_cover AND project_id IN (SELECT value FROM json_each(%s))", (id_list(ids),)).fetchall()
+    return {str(row["project_id"]): str(row["id"]) for row in rows}
+
+
+def _present(order: dict, lines: list, covers: dict) -> dict:
     totals = compute_totals(lines)
     out = _serialise(order)
     out["lines"] = [{**_serialise({k: v for k, v in line.items() if k not in ("order_id",)}), "line_total": totals["line_totals"][i],
-                     "margin_pct_effective": _effective_margin(line, order["price_rounding"])}
+                     "margin_pct_effective": _effective_margin(line, order["price_rounding"]),
+                     "cover_image_id": covers.get(str(line["project_id"])) if line["project_id"] else None}
                     for i, line in enumerate(lines)]
     out["totals"] = totals
     return out
@@ -339,7 +350,8 @@ def create_order():
         _write_lines(conn, order["id"], values["lines"])
         order, lines = _fetch(conn, order["id"])
         webhooks.emit(conn, "order.created", _event(order, lines))
-    return jsonify(_present(order, lines)), 201
+        covers = _covers(conn, lines)
+    return jsonify(_present(order, lines, covers)), 201
 
 
 @bp.post("/<uuid:order_id>/duplicate")
@@ -360,7 +372,8 @@ def duplicate_order(order_id):
                      "FROM order_lines WHERE order_id = %s ORDER BY position", (order["id"], order_id))
         order, lines = _fetch(conn, order["id"])
         webhooks.emit(conn, "order.created", _event(order, lines))
-    return jsonify(_present(order, lines)), 201
+        covers = _covers(conn, lines)
+    return jsonify(_present(order, lines, covers)), 201
 
 
 MAX_ASSIGN = 500
@@ -409,7 +422,7 @@ def assign_customer():
 def get_order(order_id):
     with pool().read() as conn:
         order, lines = _fetch(conn, order_id)
-        presented = _with_pdf_flag(conn, order, _present(order, lines))
+        presented = _with_pdf_flag(conn, order, _present(order, lines, _covers(conn, lines)))
     return jsonify(presented)
 
 
@@ -430,7 +443,8 @@ def update_order(order_id):
         webhooks.emit(conn, "order.updated", _event(order, lines))
         if order["status"] != current["status"]:                     # the status can also change with the rest of the order
             webhooks.emit(conn, "order.status_changed", {**_event(order, lines), "previous_status": current["status"]})
-    return jsonify(_present(order, lines))
+        covers = _covers(conn, lines)
+    return jsonify(_present(order, lines, covers))
 
 
 @bp.patch("/<uuid:order_id>/status")

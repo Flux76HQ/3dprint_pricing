@@ -1,4 +1,5 @@
 import { api, downloadFile } from './api.js';
+import { coverUrl } from './ai-images.js';
 import { formatDate, t } from './i18n.js';
 import { customerFields, customerLines, customerPicker, emptyCustomer } from './customers.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
@@ -7,14 +8,16 @@ import { setDirty } from './updates.js';
 import { ROUNDINGS, backLink, confirmDialog, enhanceDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, saveBlob, spoolName, toast } from './ui.js';
 
 // The stages of an order, in order. The words come from the language files.
-export const STATUSES = ['nieuw', 'verwerkt', 'verstuurd', 'afgehandeld'];
-const STATUS_KEYS = { nieuw: 'orders.status_nieuw', verwerkt: 'orders.status_verwerkt', verstuurd: 'orders.status_verstuurd', afgehandeld: 'orders.status_afgehandeld' };
+export const STATUSES = ['nieuw', 'in_behandeling', 'verwerkt', 'verstuurd', 'afgehandeld'];
+const STATUS_KEYS = { nieuw: 'orders.status_nieuw', in_behandeling: 'orders.status_in_behandeling', verwerkt: 'orders.status_verwerkt', verstuurd: 'orders.status_verstuurd', afgehandeld: 'orders.status_afgehandeld' };
 const statusLabel = (s) => t(STATUS_KEYS[s]);
 // A date without a time is a day on the calendar, not a moment in UTC: noon keeps it on that day in every time zone.
 const dateFmt = (v) => (v ? formatDate(`${v}T12:00:00`, { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 const today = () => new Date().toLocaleDateString('sv-SE');          // YYYY-MM-DD in the local time zone
 
 const stat = (label, value) => h('div', {}, h('dt', {}, label), h('dd', {}, value));
+// The cover picture of a calculation as a small thumbnail; the address holds the picture's id, which never changes, so the browser keeps it.
+const cover = (id) => h('img', { class: 'cover-thumb', src: coverUrl(id), alt: '', loading: 'lazy' });
 
 // What the overview calls an order: its “Betreft”, or, as on the invoice, “Bestelling <number>” when none was filled in. The customer goes
 // under it, smaller; the number is left out of the small line when it already is the title.
@@ -167,6 +170,7 @@ function fromSaved(order) {
     email: order.email, phone: order.phone, notes: order.notes, invoice_number: order.invoice_number, invoice_date: str(order.invoice_date), has_invoice_pdf: !!order.has_invoice_pdf,
     lines: order.lines.map((l) => ({ project_id: l.project_id, project_number: l.project_number, description: l.description,
       quantity: str(l.quantity), unit_price: str(l.unit_price), vat_pct: str(Number(l.vat_pct)), optional: !!l.optional, packaging: !!l.packaging,
+      cover_image_id: l.cover_image_id || null,
       // a line made from a calculation has a cost price and its own margin; the server works out its price
       cost_price: l.cost_price == null ? null : str(l.cost_price), margin_pct: l.margin_pct == null ? '' : str(Number(l.margin_pct)) })),
   };
@@ -303,13 +307,16 @@ function buildEditor(order, navigate, ctx) {
       const optional = l.packaging ? h('p', { class: 'hint' }, t('orders.packaging_line'))                       // packaging is never on the invoice, so it is not optional either
         : h('label', { class: 'check' },
           h('input', { type: 'checkbox', checked: !!l.optional, onchange: (e) => { l.optional = e.target.checked; touch(); } }), t('orders.optional'));
+      // the model's own line shows the cover of the calculation (a picture exists only where the product images are on); an accessory or a loose line has none
+      const picture = ctx.aiImages && l.project_id && !l.optional && l.cover_image_id ? cover(l.cover_image_id) : null;
       // the model's own line (not one of its accessories) can be brought up to date with the calculation it was made from
       const sync = l.project_id && !l.optional
         ? h('button', { class: 'btn small icon-only sync-line', type: 'button', title: t('orders.sync'), 'aria-label': t('orders.sync_line', { name: l.description || `#${l.project_number}` }),
           onclick: (e) => syncLine(l, e.currentTarget) }, icon('sync'))
         : null;
       return h('div', { class: `line order${calculated ? ' calc' : ''}` },
-        h('div', { class: 'field' }, h('label', { for: inputId }, t('orders.description'), ' ', badge), sync ? h('div', { class: 'input-row' }, input, sync) : input, optional),
+        h('div', { class: 'field' }, h('label', { for: inputId }, t('orders.description'), ' ', badge),
+          picture || sync ? h('div', { class: 'input-row' }, picture, input, sync) : input, optional),
         field(t('orders.quantity'), numberInput(l.quantity, (v) => { l.quantity = v; touch(); }, { inputmode: 'numeric' })),
         calculated ? field(t('orders.margin'), numberInput(l.margin_pct, (v) => { l.margin_pct = v; touch(); }, { class: 'private' })) : null,
         calculated ? h('div', { class: 'field cost-field' }, h('span', { class: 'lbl' }, t('orders.unit_price_calc')), unit)
@@ -416,11 +423,15 @@ function buildEditor(order, navigate, ctx) {
           // The list holds a model's prices, not its lines; the accessories that become lines of their own are in the model itself.
           const button = event.currentTarget;
           button.disabled = true;
-          try { state.lines.push(...modelLines(await api('GET', `/api/projects/${p.id}`))); } catch (e) { toast(e.message, 'error'); button.disabled = false; return; }
+          try {
+            const fresh = modelLines(await api('GET', `/api/projects/${p.id}`));
+            fresh[0].cover_image_id = p.cover_image_id || null;                // the list has it, the model itself does not
+            state.lines.push(...fresh);
+          } catch (e) { toast(e.message, 'error'); button.disabled = false; return; }
         }
         added.set(p.id, (added.get(p.id) || 0) + 1);
         touch(); drawLines(); draw();
-      } }, h('span', { class: 'badge' }, `#${p.number}`), h('span', { class: 'grow' }, p.name),
+      } }, ctx.aiImages && p.cover_image_id ? cover(p.cover_image_id) : null, h('span', { class: 'badge' }, `#${p.number}`), h('span', { class: 'grow' }, p.name),
       added.has(p.id) ? h('span', { class: 'muted' }, `+${added.get(p.id)}`) : null,
       h('strong', {}, eur(p.totals.sell_price_incl_vat))))) : [h('li', { class: 'muted' }, projects.length ? t('orders.no_models_match') : t('orders.no_models'))]));
     };

@@ -1075,6 +1075,38 @@ def test_the_list_gets_a_small_version_of_the_cover(ai, project):
     assert "/thumb`" in (FRONT / "js/ai-images.js").read_text() and "coverUrl(p.cover_image_id)" in (FRONT / "js/projects.js").read_text()
 
 
+def test_the_line_of_a_model_in_an_order_carries_the_cover_of_that_model(ai, project):
+    """The order editor shows the picture next to the model's line (and in the list to choose a model from, which has `cover_image_id` since the
+    list of calculations does). The order says which picture, and the picture comes from its own address: the id never changes, so it is kept."""
+    from tests.test_orders import customer, line
+    image = photo(ai, project["id"]).get_json()
+    assert ai.put(f"/api/project-images/{image['id']}/cover", headers=H).status_code == 200
+    body = {"customer_id": customer(ai)["id"], "lines": [line("Vaas", 1, project_id=project["id"]), line("Verzending", 1),
+                                                         line("Kabel", 1, project_id=project["id"], optional=True)]}
+    made = ai.post("/api/orders", json=body, headers=H)
+    assert made.status_code == 201, made.get_json()
+    order = made.get_json()
+    covers = lambda o: [l["cover_image_id"] for l in o["lines"]]
+    assert covers(order) == [image["id"], None, image["id"]]                        # a loose line has none; the accessory's line is of the same calculation
+    assert covers(ai.get(f"/api/orders/{order['id']}").get_json()) == covers(order)
+    assert covers(ai.put(f"/api/orders/{order['id']}", json=body, headers=H).get_json()) == covers(order)
+    assert covers(ai.post(f"/api/orders/{order['id']}/duplicate", headers=H).get_json()) == covers(order)
+    assert ai.get(f"/api/project-images/{order['lines'][0]['cover_image_id']}/thumb").status_code == 200
+    second = photo(ai, project["id"], png(colour=(10, 10, 200)), "twee.png").get_json()                  # another cover: the order follows the calculation
+    assert ai.put(f"/api/project-images/{second['id']}/cover", headers=H).status_code == 200
+    assert covers(ai.get(f"/api/orders/{order['id']}").get_json()) == [second["id"], None, second["id"]]
+    ai.delete(f"/api/projects/{project['id']}", headers=H)                                                  # a calculation that is gone: no picture, no error
+    assert covers(ai.get(f"/api/orders/{order['id']}").get_json()) == [None, None, None]
+
+
+def test_the_order_editor_draws_the_cover_only_where_the_product_images_are_on():
+    orders, main = (FRONT / "js/orders.js").read_text(encoding="utf-8"), (FRONT / "js/main.js").read_text(encoding="utf-8")
+    assert "get aiImages() { return session.aiImages; } });" in main[main.index("orderEditorView("):]                 # the editor is told, as the list of models is
+    assert "ctx.aiImages && l.project_id && !l.optional && l.cover_image_id ? cover(l.cover_image_id)" in orders       # the model's own line only
+    assert "ctx.aiImages && p.cover_image_id ? cover(p.cover_image_id)" in orders                                       # and the list to choose from
+    assert "fresh[0].cover_image_id = p.cover_image_id" in orders                                                      # the picture goes with the line that is added
+
+
 def test_the_bytes_of_a_stored_picture_are_never_rewritten():
     """`immutable` and the id as the validator are only true while a row's `content` is written once. Every UPDATE of the table in the code
     is listed here: one that sets anything but `is_cover` or `selected` needs a new id for the picture, or this caching has to go."""

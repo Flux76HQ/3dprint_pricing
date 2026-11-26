@@ -24,7 +24,7 @@ bp = Blueprint("reports", __name__, url_prefix="/api/reports")
 
 PERIODS = ("week", "month", "year")
 COUNTED = ("verstuurd", "afgehandeld")                # an order that is sent or done has earned its money
-NOT_YET = ("nieuw", "verwerkt")                        # counted only when asked for
+NOT_YET = ("nieuw", "in_behandeling", "verwerkt")                        # counted only when asked for
 CENT = Decimal("0.01")
 MAX_OFFSET = 600                                       # how far back (or on) the period may be moved
 

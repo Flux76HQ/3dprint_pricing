@@ -222,9 +222,27 @@ def test_an_order_can_be_edited_and_deleted(owner):
 
 def test_the_status_can_be_set_to_every_stage(owner):
     order = new_order(owner)
-    for status in ("verwerkt", "verstuurd", "afgehandeld", "nieuw"):
+    for status in ("in_behandeling", "verwerkt", "verstuurd", "afgehandeld", "nieuw"):
         assert owner.patch(f"/api/orders/{order['id']}/status", json={"status": status}, headers=H).get_json()["status"] == status
         assert owner.get(f"/api/orders/{order['id']}").get_json()["status"] == status
+
+
+def test_an_order_can_be_made_in_progress_and_found_by_that_status(owner):
+    busy = new_order(owner, status="in_behandeling")
+    new_order(owner, status="nieuw")
+    assert busy["status"] == "in_behandeling"
+    assert [o["id"] for o in owner.get("/api/orders?status=in_behandeling").get_json()] == [busy["id"]]
+    assert owner.patch(f"/api/orders/{busy['id']}/status", json={"status": "bezig"}, headers=H).status_code == 400
+    copy = owner.post(f"/api/orders/{busy['id']}/duplicate", headers=H).get_json()
+    assert copy["status"] == "nieuw"                                                          # a copy starts again, whatever the original was
+
+
+def test_the_status_survives_a_backup_and_a_restore(owner):
+    order = new_order(owner, status="in_behandeling")
+    doc = owner.get("/api/backup", headers=H).get_json()
+    owner.delete(f"/api/orders/{order['id']}", headers=H)
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    assert owner.get(f"/api/orders/{order['id']}").get_json()["status"] == "in_behandeling"
 
 
 # --- the company details ---------------------------------------------------------------------------------------

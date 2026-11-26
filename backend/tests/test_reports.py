@@ -31,9 +31,10 @@ def test_only_sent_or_done_orders_count_unless_asked(owner):
     sale(owner, status="verstuurd")
     sale(owner, status="afgehandeld")
     sale(owner, status="nieuw")
+    sale(owner, status="in_behandeling")
     sale(owner, status="verwerkt")
     assert report(owner)["totals"]["orders"] == 2
-    assert report(owner, include_open="true")["totals"]["orders"] == 4
+    assert report(owner, include_open="true")["totals"]["orders"] == 5
 
 
 def test_a_line_without_a_cost_price_is_counted_not_guessed(owner):
