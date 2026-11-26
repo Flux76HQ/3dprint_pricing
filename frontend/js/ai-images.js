@@ -24,6 +24,8 @@ const imageUrl = (id) => `/api/project-images/${id}/file`;
 
 /** The small version for a list (the stored picture is up to 2048 pixels a side). */
 export const coverUrl = (id) => `/api/project-images/${id}/thumb`;
+/** The picture itself, large (what a pop-up shows when a cover in a list is tapped). */
+export const coverFileUrl = imageUrl;
 
 /** Runs `load` now and again every `ms` while `watch()` says so, until the element has been taken off the page (the user went elsewhere). */
 function keepFresh(element, load, ms, watch = () => true) {

@@ -1102,9 +1102,12 @@ def test_the_line_of_a_model_in_an_order_carries_the_cover_of_that_model(ai, pro
 def test_the_order_editor_draws_the_cover_only_where_the_product_images_are_on():
     orders, main = (FRONT / "js/orders.js").read_text(encoding="utf-8"), (FRONT / "js/main.js").read_text(encoding="utf-8")
     assert "get aiImages() { return session.aiImages; } });" in main[main.index("orderEditorView("):]                 # the editor is told, as the list of models is
-    assert "ctx.aiImages && l.project_id && !l.optional && l.cover_image_id ? cover(l.cover_image_id)" in orders       # the model's own line only
+    assert "ctx.aiImages && l.project_id && !l.optional && l.cover_image_id\n        ? h('button', { class: 'cover-open'" in orders       # the model's own line only, as a button
     assert "ctx.aiImages && p.cover_image_id ? cover(p.cover_image_id)" in orders                                       # and the list to choose from
     assert "lines[0].cover_image_id = p.cover_image_id" in orders                                                      # the picture goes with the line that is added
+    ai = (FRONT / "js/ai-images.js").read_text(encoding="utf-8")
+    assert "openLightbox([{ src: coverFileUrl(l.cover_image_id)" in orders and "export const coverFileUrl = imageUrl;" in ai   # tapping the thumbnail opens the picture itself in the pop-up
+    assert "/api/project-images/${id}/file`" in ai and "'/js/lightbox.js'" in (FRONT / "sw.js").read_text(encoding="utf-8")
 
 
 def test_the_bytes_of_a_stored_picture_are_never_rewritten():
