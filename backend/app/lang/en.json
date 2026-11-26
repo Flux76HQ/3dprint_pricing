@@ -395,6 +395,7 @@
  "label.slot_a4_2xa5_2": "Bottom (label 2)",
  "label.title": "Label for order {n}",
  "label.to": "To",
+ "library.bad_choice": "That choice does not fit this roll. Nothing was changed; try again.",
  "library.bad_list": "The list of filaments is not valid or too large (at most {max}).",
  "library.bad_row": "Line {n}: {reason}",
  "library.contribute_off": "Contributing is off: the source is not this project's shared library.",

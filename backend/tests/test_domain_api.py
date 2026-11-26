@@ -113,6 +113,17 @@ def test_book_stock_takes_from_the_other_rolls_of_the_kind(owner):
     assert (left[open_roll["id"]], left[nearly["id"]], left[full["id"]], left[other["id"]]) == ("0.0", "0.0", "985.0", "500.0")
 
 
+def test_book_stock_also_takes_from_a_roll_of_the_same_filament_with_another_barcode(owner):
+    roll = {"brand": "Bambu", "product_type": "PLA Basic", "material": "PLA", "colour": "Zwart", "roll_weight_g": 1000, "price": 20}
+    open_roll = make(owner, "/api/spools", {**roll, "barcode": "REFILL", "remaining_g": 30})         # the line points at this one: 70 g is asked
+    spool = make(owner, "/api/spools", {**roll, "barcode": "SPOOL", "remaining_g": 1000})            # the roll with spool of the same colour
+    p = make(owner, "/api/projects", sheet_payload(open_roll["id"]))
+    res = post(owner, f"/api/projects/{p['id']}/book-stock").get_json()
+    assert res["short"] == []
+    left = {x["id"]: x["remaining_g"] for x in owner.get("/api/spools").get_json()}
+    assert (left[open_roll["id"]], left[spool["id"]]) == ("0.0", "960.0")
+
+
 def test_book_stock_never_goes_negative_and_says_so(owner):
     s = make(owner, "/api/spools", {"brand": "ABS", "roll_weight_g": 1000, "price": 20, "remaining_g": 30})
     p = make(owner, "/api/projects", sheet_payload(s["id"]))
@@ -371,6 +382,28 @@ def test_stock_groups_by_barcode_or_by_name_and_totals_per_material(owner):
     assert materials == {"ABS": (1, 900), "PLA": (5, 2000)}
 
 
+def test_a_refill_and_a_roll_with_spool_of_one_colour_are_one_kind_whatever_their_barcodes(owner):
+    roll(owner, 400, barcode="111")                                        # the shop gives the refill and the roll with spool a barcode each...
+    roll(owner, 600, barcode="222")                                        # ...but they are the same filament: one kind, called by its smallest barcode
+    plain = roll(owner, 100)                                               # a roll without a barcode is that filament too
+    roll(owner, 500, barcode="333", diameter_mm="2.85")                    # another diameter is another filament
+    gone = roll(owner, 700, barcode="444")
+    owner.patch(f"/api/spools/{gone['id']}", json={"archived": True}, headers=H)       # archived: not stock
+    groups = owner.get("/api/spools/stock").get_json()["groups"]
+    assert sorted((g["key"], g["roll_count"], Decimal(g["remaining_g"]), g["barcode"], g["barcodes"]) for g in groups) == [
+        ("barcode:111", 3, 1100, "111", ["111", "222"]), ("barcode:333", 1, 500, "333", ["333"])]
+    kinds = {r["id"]: r["kind"] for r in spools(owner)}                    # the roll list says it too, for the archived roll as well
+    assert kinds[plain["id"]] == kinds[gone["id"]] == "barcode:111" and kinds[gone["id"]] != "barcode:444"
+
+
+def test_a_kind_keeps_the_key_it_always_had_when_it_is_not_merged(owner):
+    roll(owner, 100, barcode="8719")
+    roll(owner, 100, colour="White")
+    roll(owner, 100, colour="Red", diameter_mm="2.85")
+    keys = sorted(g["key"] for g in owner.get("/api/spools/stock").get_json()["groups"])
+    assert keys == ["barcode:8719", "name:bambu pla basic||pla|red|2.85", "name:bambu pla basic||pla|white"]       # the standard diameter is not in a name key
+
+
 def test_a_sold_out_kind_stays_in_the_list_with_zero(owner):
     roll(owner, 0, colour="Red")
     (group,) = owner.get("/api/spools/stock").get_json()["groups"]
@@ -385,6 +418,8 @@ def test_the_barcode_lookup_includes_what_is_in_stock_of_it(owner):
     assert Decimal(found["stock"]["remaining_g"]) == 1300
     unknown = owner.get("/api/spools/lookup?barcode=000").get_json()
     assert unknown == {"spool": None, "stock": None, "label": None}
+    roll(owner, 500, barcode="998")                                        # the same filament under another barcode is in stock of it too
+    assert Decimal(owner.get("/api/spools/lookup?barcode=999").get_json()["stock"]["remaining_g"]) == 1800
     assert owner.get("/api/spools/lookup").get_json() == {"spool": None, "stock": None, "label": None}
 
 
@@ -421,6 +456,9 @@ def test_a_scanned_barcode_that_only_the_library_knows_comes_from_the_library(ow
     found = owner.get("/api/spools/from-barcode?barcode=abc-1").get_json()               # the library's barcode ignores case
     assert found["source"] == "library" and found["stock"] is None
     assert (found["roll"]["colour"], found["roll"]["price"], found["roll"]["barcode"]) == ("Grijs", "19.99", "abc-1")
+    roll(owner, 300, barcode="other-barcode", brand="Bambu Lab", product_type="Basic", colour="Grijs")     # the same filament under the barcode of its refill
+    again = owner.get("/api/spools/from-barcode?barcode=abc-1").get_json()
+    assert again["source"] == "library" and again["stock"]["roll_count"] == 1 and Decimal(again["stock"]["remaining_g"]) == 300
     unknown = owner.get("/api/spools/from-barcode?barcode=0000").get_json()
     assert unknown == {"barcode": "0000", "source": None, "roll": None, "stock": None, "label": None}
     assert owner.get("/api/spools/from-barcode").get_json()["roll"] is None             # empty never matches the rolls without one

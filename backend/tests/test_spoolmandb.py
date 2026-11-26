@@ -348,7 +348,7 @@ def test_a_sync_touches_no_roll_and_no_library_entry(owner, upstream, clock):
     upstream.list = published(drop=[YELLOW])                                                          # the filament both were made from has left the list
     assert sync(owner).status_code == 200
     assert owner.get("/api/filament-library").get_json() == [entry]
-    assert next(r for r in owner.get("/api/spools").get_json() if r["id"] == roll["id"]) == roll
+    assert {k: v for k, v in next(r for r in owner.get("/api/spools").get_json() if r["id"] == roll["id"]).items() if k != "kind"} == roll       # the list adds the roll's kind
     assert spoolman.filament_of({**entry, "spoolmandb_id": YELLOW})["external_id"] == YELLOW          # the reference stays; only what was looked up in the list is gone
 
 
