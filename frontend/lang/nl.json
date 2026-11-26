@@ -1211,6 +1211,8 @@
  "orders.packaging_line": "Verpakking: telt mee in het totaal, maar staat niet op de factuur.",
  "orders.packaging_per": "{name} (prijs per {unit})",
  "orders.phone": "Telefoon",
+ "orders.picture_open": "Afbeelding vergroten",
+ "orders.picture_open_of": "Afbeelding van {name} vergroten",
  "orders.postal_code": "Postcode",
  "orders.quantity": "Aantal",
  "orders.remove_line": "Regel verwijderen",

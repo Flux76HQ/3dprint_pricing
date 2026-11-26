@@ -1211,6 +1211,8 @@
  "orders.packaging_line": "Packaging: counted in the total, but not listed on the invoice.",
  "orders.packaging_per": "{name} (price per {unit})",
  "orders.phone": "Phone",
+ "orders.picture_open": "Enlarge picture",
+ "orders.picture_open_of": "Enlarge the picture of {name}",
  "orders.postal_code": "Postal code",
  "orders.quantity": "Qty",
  "orders.remove_line": "Remove line",

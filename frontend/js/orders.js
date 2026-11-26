@@ -1,9 +1,10 @@
 import { api, downloadFile } from './api.js';
-import { coverUrl } from './ai-images.js';
+import { coverFileUrl, coverUrl } from './ai-images.js';
 import { formatDate, t } from './i18n.js';
 import { customerFields, customerLines, customerPicker, emptyCustomer } from './customers.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
 import { listView } from './listview.js';
+import { openLightbox } from './lightbox.js';
 import { setDirty } from './updates.js';
 import { ROUNDINGS, backLink, confirmDialog, enhanceDialog, eur, field, fill, fmt, h, headAction, icon, numberInput, parseNum, saveBlob, spoolName, toast } from './ui.js';
 
@@ -316,7 +317,11 @@ function buildEditor(order, navigate, ctx) {
         : h('label', { class: 'check' },
           h('input', { type: 'checkbox', checked: !!l.optional, onchange: (e) => { l.optional = e.target.checked; touch(); } }), t('orders.optional'));
       // the model's own line shows the cover of the calculation (a picture exists only where the product images are on); an accessory or a loose line has none
-      const picture = ctx.aiImages && l.project_id && !l.optional && l.cover_image_id ? cover(l.cover_image_id) : null;
+      // tapping it shows the picture large in a pop-up (the same one the product pictures open in); it is a button, so a keyboard and a screen reader reach it
+      const picture = ctx.aiImages && l.project_id && !l.optional && l.cover_image_id
+        ? h('button', { class: 'cover-open', type: 'button', title: t('orders.picture_open'), 'aria-label': t('orders.picture_open_of', { name: l.description || `#${l.project_number}` }),
+          onclick: () => openLightbox([{ src: coverFileUrl(l.cover_image_id), alt: l.description, title: l.description }]) }, cover(l.cover_image_id))
+        : null;
       // the model's own line (not one of its accessories) can be brought up to date with the calculation it was made from
       const sync = l.project_id && !l.optional
         ? h('button', { class: 'btn small icon-only sync-line', type: 'button', title: t('orders.sync'), 'aria-label': t('orders.sync_line', { name: l.description || `#${l.project_number}` }),
