@@ -108,12 +108,15 @@ def test_the_list_of_orders_reads_only_what_a_row_shows(owner, monkeypatch):
     monkeypatch.setattr(db.Connection, "execute", lambda self, sql, params=(): sent.append(sql) or execute(self, sql, params))
     row, = owner.get("/api/orders").get_json()
     read = [sql for sql in sent if "FROM orders" in sql or "FROM order_lines" in sql]
-    assert len(read) == 2 and not any("SELECT *" in sql for sql in read), read
+    # the orders, their lines, and (for the filament an open order is short of) the lines of the open orders that take filament
+    assert len(read) == 3 and not any("SELECT *" in sql for sql in read), read
     assert any(sql.startswith("SELECT order_id, quantity, unit_price, vat_pct FROM order_lines") for sql in read)
+    assert any(sql.startswith("SELECT l.order_id, l.project_id, l.quantity FROM order_lines l JOIN orders o") for sql in read)
     whole = owner.get(f"/api/orders/{order['id']}").get_json()
     assert row["total"] == whole["totals"]["total"] == "35.10" and row["line_count"] == 2          # the same total as the order itself works out
     for key in ("id", "number", "status", "order_date", "delivery_date", "customer_id", "customer_name", "customer_number", "subject", "city",
                 "invoice_number", "invoice_date", "updated_at"):
         assert row[key] == whole[key], key
     assert set(row) == {"id", "number", "status", "order_date", "delivery_date", "customer_id", "customer_name", "customer_number", "subject", "city",
-                        "invoice_number", "invoice_date", "updated_at", "line_count", "total"}
+                        "invoice_number", "invoice_date", "updated_at", "line_count", "total", "filament_short"}
+    assert row["filament_short"] == []                                                              # lines without a calculation take no filament

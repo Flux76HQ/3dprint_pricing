@@ -256,11 +256,12 @@ def list_orders():
     with pool().read() as conn:
         orders = conn.execute(sql, params).fetchall()
         lines = _lines_of(conn, [o["id"] for o in orders], "order_id, quantity, unit_price, vat_pct")
+        short = reservations.shortages(conn)          # over all open orders, whatever the filter: they hold filament that the listed ones need
     out = []
     for order in orders:
         totals = compute_totals(lines[order["id"]])
         item = _serialise(order)
-        item.update(line_count=len(lines[order["id"]]), total=totals["total"])
+        item.update(line_count=len(lines[order["id"]]), total=totals["total"], filament_short=short.get(order["id"], []))
         out.append(item)
     return jsonify(out)
 

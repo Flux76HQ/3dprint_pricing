@@ -230,6 +230,9 @@ What changed:
   made by the function that answers that part's own address and all are read in one snapshot.
 - **`GET /api/orders` reads only what a row shows**: 13 of an order's columns and three numbers of each line (an order line has
   three ids, and turning an id into a Python value is the slow part). The total is still worked out on the server from the lines.
+  Each row also says which filament its order is short of (`filament_short`, `reservations.shortages`): one more read, of the lines of
+  the *open* orders that take filament only, and one read of the stock. Measured on 600 orders of which 200 open, each with two
+  models: 21.9 ms without it, 24.3 ms with it (median of 15 calls, a throwaway database, one run: an indication, not a benchmark).
 - **The picture of a packaging item is kept by the browser** when it is asked for by its version (`?v=<hash of the picture>`, which
   the list already did): the address changes with the picture. It was fetched again at every visit.
 

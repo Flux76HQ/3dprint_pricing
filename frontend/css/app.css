@@ -776,6 +776,8 @@ dialog.sheet.ai-pick-sheet { width: min(calc(100vw - 24px), 780px); }
 .filament-row > div { min-width: 0; flex: 1; }
 .filament-row p { margin: 2px 0 0; }
 .filament-row.short strong { color: var(--danger); }
+/* In the list of orders: the label for an open order that is short of filament, with which filament and how much next to it. */
+.filament-flag { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 4px; font-size: .8rem; }
 /* The search field above both parts of the filament page: a magnifier inside the field, the camera next to it. */
 .search-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
 .search-field { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }

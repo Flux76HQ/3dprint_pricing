@@ -57,20 +57,38 @@ def per_piece(conn, project_ids) -> tuple:
     return out, names
 
 
-def needs(conn, lines) -> tuple:
-    """What these order lines take in all, per kind of filament: `{kind key: grams}`. A line is a dict with `project_id`, `quantity` and
-    the flags `optional` and `packaging`. Also the roll that names each kind."""
+def _pieces(lines) -> dict:
+    """How many pieces of each calculation these order lines ask for: `{project_id: count}`. Only a line that takes filament counts (a model,
+    not an optional or a packaging line); the lines are dicts with `project_id`, `quantity` and the flags `optional` and `packaging`."""
     pieces: dict = {}
     for line in lines:
         if line.get("project_id") and not line.get("optional") and not line.get("packaging"):
             key = str(line["project_id"])
             pieces[key] = pieces.get(key, 0) + int(line["quantity"])
-    per, names = per_piece(conn, pieces)
+    return pieces
+
+
+def _take(per: dict, pieces: dict) -> dict:
+    """What `pieces` take in all, per kind of filament (`{kind key: grams}`), given what one piece of each calculation takes (`per_piece`)."""
     total: dict = {}
     for project_id, count in pieces.items():
         for kind, grams in per.get(project_id, {}).items():
             total[kind] = total.get(kind, Decimal(0)) + grams * count
-    return total, names
+    return total
+
+
+def _kind(roll) -> dict:
+    """How a kind of filament is named: from a roll, or from the stock's group of that kind."""
+    return {"brand": roll["brand"], "product_type": roll["product_type"] or "", "material": roll["material"] or "",
+            "colour": roll["colour"] or "", "colour_hex": roll["colour_hex"] or ""}
+
+
+def needs(conn, lines) -> tuple:
+    """What these order lines take in all, per kind of filament: `{kind key: grams}`. A line is a dict with `project_id`, `quantity` and
+    the flags `optional` and `packaging`. Also the roll that names each kind."""
+    pieces = _pieces(lines)
+    per, names = per_piece(conn, pieces)
+    return _take(per, pieces), names
 
 
 def reserved(conn, *, exclude_order=None) -> dict:
@@ -97,11 +115,42 @@ def check(conn, lines, *, status, order_id=None) -> dict:
         roll = group or names[key]
         have = Decimal(group["remaining_g"]) if group else Decimal(0)
         held = others.get(key, Decimal(0))
-        kinds.append({"key": key, "brand": roll["brand"], "product_type": roll["product_type"] or "", "material": roll["material"] or "",
-                      "colour": roll["colour"] or "", "colour_hex": roll["colour_hex"] or "", "need_g": _grams(need[key]),
+        kinds.append({"key": key, **_kind(roll), "need_g": _grams(need[key]),
                       "remaining_g": _grams(have), "reserved_others_g": _grams(held),
                       "short_g": _grams(max(need[key] + held - have, Decimal(0))) if reserving else "0.0"})
     return {"reserving": reserving, "kinds": kinds, "short": reserving and any(Decimal(k["short_g"]) > 0 for k in kinds)}
+
+
+def shortages(conn) -> dict:
+    """The open orders that cannot be served from the shelf, for the list of orders: `{order_id: [kind, ...]}`, each kind named as in `check`
+    plus `short_g`. The rule is `check`'s for a saved order (what it takes next to what the other open orders hold, against what is on the shelf), so
+    the list and the order's own *Filament* card never disagree; it is worked out for every open order at once, from one read of their lines, so the
+    list needs no request per order. An order that is not open, takes none of a kind or has enough of it is not in the answer."""
+    rows = conn.execute("SELECT l.order_id, l.project_id, l.quantity FROM order_lines l JOIN orders o ON o.id = l.order_id "
+                        "WHERE o.status IN (SELECT value FROM json_each(%s)) AND l.project_id IS NOT NULL AND NOT l.optional AND NOT l.packaging",
+                        (id_list(OPEN),)).fetchall()
+    if not rows:
+        return {}
+    by_order: dict = {}
+    for row in rows:
+        by_order.setdefault(row["order_id"], []).append(row)
+    per, names = per_piece(conn, {row["project_id"] for row in rows})
+    wants = {order_id: _take(per, _pieces(lines)) for order_id, lines in by_order.items()}
+    held: dict = {}                                                         # what all the open orders take together, per kind
+    for want in wants.values():
+        for key, grams in want.items():
+            held[key] = held.get(key, Decimal(0)) + grams
+    shelf = {g["key"]: g for g in stock.groups(stock.fetch(conn))}
+    out: dict = {}
+    for order_id, want in wants.items():
+        kinds = []
+        for key, grams in want.items():
+            short = held[key] - (Decimal(shelf[key]["remaining_g"]) if key in shelf else Decimal(0))
+            if grams > 0 and short > 0:
+                kinds.append({**_kind(shelf.get(key) or names[key]), "short_g": _grams(short)})
+        if kinds:
+            out[order_id] = sorted(kinds, key=lambda k: (k["brand"].lower(), k["product_type"].lower(), k["colour"].lower()))
+    return out
 
 
 def add_to_stock(conn, groups: list) -> None:

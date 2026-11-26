@@ -1135,6 +1135,8 @@
  "orders.filament_need": "Needs {need} g, {free} g available",
  "orders.filament_ok": "There is enough filament for this order.",
  "orders.filament_released": "This order is {status}: the filament has been used and is no longer reserved.",
+ "orders.filament_short_flag": "Not enough filament",
+ "orders.filament_short_kind": "{name}: short by {short} g",
  "orders.filament_short_title": "Not enough filament for this order",
  "orders.filament_title": "Filament",
  "orders.filter_status": "Filter by status",

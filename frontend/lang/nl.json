@@ -1135,6 +1135,8 @@
  "orders.filament_need": "Nodig {need} g, beschikbaar {free} g",
  "orders.filament_ok": "Er is genoeg filament voor deze bestelling.",
  "orders.filament_released": "Deze bestelling staat op {status}: het filament is gebruikt en wordt niet meer gereserveerd.",
+ "orders.filament_short_flag": "Te weinig filament",
+ "orders.filament_short_kind": "{name}: tekort {short} g",
  "orders.filament_short_title": "Te weinig filament voor deze bestelling",
  "orders.filament_title": "Filament",
  "orders.filter_status": "Filter op status",

@@ -21,6 +21,15 @@ const stat = (label, value) => h('div', {}, h('dt', {}, label), h('dd', {}, valu
 const titleOf = (o) => o.subject || t('orders.number', { n: o.number });
 const numberOf = (o) => (o.subject ? t('orders.number', { n: o.number }) : null);
 
+// An open order that takes more filament than there is (the server says it: `filament_short`, the kinds with what is missing of each, the same rule as the
+// *Filament* card of the order itself): a label, and under it which filament and how much, so that it can be bought without opening the order.
+function filamentFlag(o) {
+  const short = o.filament_short || [];
+  if (!short.length) return null;
+  const kinds = short.map((k) => t('orders.filament_short_kind', { name: [spoolName(k, ' · '), k.material].filter(Boolean).join(' · '), short: fmt(k.short_g, 0) }));
+  return h('div', { class: 'filament-flag', role: 'status' }, h('span', { class: 'pill warn' }, t('orders.filament_short_flag')), h('span', { class: 'muted' }, kinds.join('; ')));
+}
+
 // --- list -----------------------------------------------------------------------
 
 /** The overview of orders. `customer` (an id) narrows it to the orders of that customer, as the link on a customer does. */
@@ -60,7 +69,7 @@ export function orderListView({ customer = '' } = {}) {
     href,
     columns: [
       { label: t('orders.subject'), sort: 'subject', cls: 'main', cell: (o) => h('div', {}, h('a', { class: 'cell-title', href: href(o) }, titleOf(o)),
-        h('div', { class: 'cell-sub muted' }, [o.customer_name, numberOf(o), o.city].filter(Boolean).join(' · '))) },
+        h('div', { class: 'cell-sub muted' }, [o.customer_name, numberOf(o), o.city].filter(Boolean).join(' · ')), filamentFlag(o)) },
       { label: t('orders.date'), sort: 'date', cls: 'nowrap', cell: (o) => dateFmt(o.order_date) },
       { label: t('orders.status'), sort: 'status', cell: (o) => statusSelect(o) },
       { label: t('orders.lines'), cls: 'num', wide: true, cell: (o) => String(o.line_count) },
@@ -73,6 +82,7 @@ export function orderListView({ customer = '' } = {}) {
           h('p', { class: 'item-customer' }, o.customer_name),
           h('p', { class: 'muted item-meta' }, [numberOf(o), dateFmt(o.order_date)].filter(Boolean).join(' · '))),
         statusSelect(o)),
+      filamentFlag(o),
       h('dl', { class: 'stats' },
         stat(t('orders.total'), eur(o.total)), stat(t('orders.lines'), String(o.line_count)),
         o.delivery_date ? stat(t('orders.delivery'), dateFmt(o.delivery_date)) : null,
