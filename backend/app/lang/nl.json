@@ -138,6 +138,7 @@
  "bambu.token_unreadable": "De aanmelding bij Bambu Lab kan niet meer worden gelezen (SESSION_SECRET is veranderd). Meld je opnieuw aan.",
  "bambu.too_many": "Je Bambu-account heeft meer dan {max} spoelen; dat is meer dan deze app inleest.",
  "bambu.unreachable": "De Bambu-cloud is niet bereikbaar. Controleer of de server internet heeft.",
+ "bambu.warn_no_colour": "De kleur kon niet worden gelezen bij: {names}. Controleer de factuur: een regel zonder kleur is niet te herkennen.",
  "bambu.warn_store": "De webshop van Bambu Lab (EU) kon niet worden geraadpleegd, dus er zijn geen barcodes opgezocht. Je kunt ze later zelf invullen.",
  "bambu.warn_store_missing_one": "Voor {n} regel is geen barcode gevonden in de webshop van Bambu Lab.",
  "bambu.warn_store_missing_other": "Voor {n} regels is geen barcode gevonden in de webshop van Bambu Lab.",

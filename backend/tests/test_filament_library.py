@@ -308,6 +308,14 @@ def test_a_roll_from_an_invoice_takes_what_the_library_knows_about_its_filament(
     assert len(library(owner)) == 3                                                                # the entry was recognised, not added again
 
 
+def test_a_filament_line_without_a_colour_is_warned_about(owner):
+    items = [("PLA Basic", ["A00-D0-1.75-1000-SPLFREE"], [], 1, "23.38", "12.39", "21", "1.91", "10.99"), FILAMENT[1]]                # no variant: no colour
+    invoice = preview(owner, items)
+    assert [w for w in invoice["warnings"] if "kleur kon niet worden gelezen" in w] == [
+        "De kleur kon niet worden gelezen bij: PLA Basic (A00-D0-1.75-1000-SPLFREE). Controleer de factuur: een regel zonder kleur is niet te herkennen."]
+    assert not any("kleur kon niet" in w for w in preview(owner)["warnings"])                                                       # a whole invoice has none
+
+
 def test_applying_to_a_known_filament_only_brings_the_new_price_and_keeps_what_you_entered(owner):
     mine = make(owner, "/api/filament-library", {**GREY, "price": "15", "print_temp_c": 215, "colour_hex": "#aaaaaa", "notes": "mijn"})
     grey = lines_of(owner)[0]

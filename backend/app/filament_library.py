@@ -501,6 +501,9 @@ def read_invoice():
         match = known.find(line) or loose.find(line)                 # ...and a filament that is there under its Dutch or its English name is the same one
         line["library_id"] = str(match["id"]) if match else None
         line["barcode"] = store["ids"].get(n, "")
+    unread = [f"{line['name']} ({line['sku']})" for line in invoice["lines"] if not line["colour"]]
+    if unread:                                                     # never let a line without a colour into the library or the shelf unseen
+        warnings.append(tr("bambu.warn_no_colour", names=", ".join(unread)))
     if invoice["total"] is not None and invoice["total"] != invoice["lines_total"]:
         warnings.append(tr("bambu.warn_total", lines=invoice["lines_total"], invoice=invoice["total"]))
     if not store["reachable"]:
