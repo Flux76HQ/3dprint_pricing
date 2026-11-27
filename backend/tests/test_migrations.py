@@ -105,7 +105,7 @@ def test_the_orders_table_is_rebuilt_without_losing_an_order_a_line_or_an_invoic
     want = {table: raw.execute(select(table)).fetchall() for table in ("orders", "order_lines", "invoice_pdfs", "customers")}
     raw.close()
 
-    assert run_migrations(fresh_db) == ["0022_order_status_in_progress.sql", "0023_order_line_model_price.sql"]
+    assert run_migrations(fresh_db) == ["0022_order_status_in_progress.sql", "0023_order_line_model_price.sql", "0024_invoice_imports.sql"]
 
     raw = _raw(fresh_db)
     for table, rows in want.items():

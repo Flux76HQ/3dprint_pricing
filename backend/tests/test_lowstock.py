@@ -159,6 +159,23 @@ def test_a_refill_and_a_roll_with_spool_of_one_colour_count_together(owner, push
     assert spool["id"] != refill["id"]
 
 
+def test_rolls_put_on_the_shelf_by_an_invoice_lift_the_alert_of_the_kind(owner, pushapp, monkeypatch):
+    import requests
+
+    from app import bambu_store
+    from tests.bambu_invoices import Shop
+    from tests.test_filament_library import apply, preview
+    bambu_store._cache.clear()
+    monkeypatch.setattr(requests, "get", Shop().get)                                           # the web shop is never reached from a test
+    subscribe(owner)
+    settings(owner, threshold_g=500)
+    make(owner, "/api/spools", {"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Gray", "roll_weight_g": 1000, "price": 20,
+                                "remaining_g": 100, "notify_low": True})
+    assert len(alerts(pushapp)) == 1                                                          # the kind is low
+    apply(owner, preview(owner), stock=[1, 0, 0])                                              # a refill of that colour: 1100 g together
+    assert alerts(pushapp) == []
+
+
 def test_kinds_with_other_barcodes_are_counted_apart(owner, pushapp):
     subscribe(owner)
     settings(owner, threshold_g=500)

@@ -119,6 +119,7 @@ def _line(buf: list[str], numbers: tuple) -> "dict | None":
     return {"brand": BRAND, "material": material, "product_type": product_type, "colour": colour, "filament_id": code, "sku": sku,
             "refill": refill, "roll_weight_g": str(weight), "diameter_mm": str(diameter), "quantity": quantity, "vat_pct": str(vat_pct),
             "price": str(_excl(money(price), vat_pct)),                    # the list price per roll, excl. VAT: the library's reference
+            "paid": str(_excl(money(subtotal) / quantity, vat_pct) if quantity else _excl(money(price), vat_pct)),    # what a roll cost after the discount, excl. VAT: the price of a roll put on the shelf
             "discount": str(money(discount)), "subtotal": str(money(subtotal)), "name": name}
 
 

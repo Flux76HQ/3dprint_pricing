@@ -9,7 +9,7 @@ import requests
 
 from app import bambu_store
 from tests.bambu_invoices import FILAMENT, Reply as ShopReply, Shop, invoice_pdf
-from tests.test_auth_api import H
+from tests.test_auth_api import H, post
 from tests.test_domain_api import make, owner  # noqa: F401  (fixture)
 
 NL = {"X-Lang": "nl"}
@@ -149,18 +149,163 @@ def test_a_file_that_is_no_bambu_invoice_is_refused_with_a_reason(owner, content
     assert owner.post("/api/filament-library/invoice", headers=H).status_code == 400            # no file at all
 
 
-def test_applying_an_invoice_fills_the_library_and_leaves_the_shelf_alone(owner):
+def test_applying_an_invoice_fills_the_library_and_leaves_the_shelf_alone_unless_asked(owner):
     owner.post("/api/spools", json={"brand": "Mijn", "roll_weight_g": 1000, "price": 5, "remaining_g": 300}, headers=H)
     lines = lines_of(owner)
     for line in lines:
         line["rolls"], line["paid_price"] = 5, "1.00"                 # what an older screen may still send: never acted on
     res = owner.post("/api/filament-library/invoice/apply", json={"order_number": "EN000000000000000001", "lines": lines}, headers=H).get_json()
-    assert (res["added"], res["updated"], res["unchanged"]) == (3, 0, 0) and "rolls" not in res
+    assert (res["added"], res["updated"], res["unchanged"], res["rolls"]) == (3, 0, 0, 0)          # nothing is put on the shelf unless a line asks for it (`stock_quantity`)
     entries = {e["colour"]: e for e in library(owner)}
     assert entries["Red"]["price"] == "21.84" and entries["Red"]["filament_id"] == "10200" and entries["Gray"]["refill"] is True      # the colours are stored in English
     assert [r["brand"] for r in owner.get("/api/spools").get_json()] == ["Mijn"]            # not one roll was made from the invoice
     assert owner.get("/api/spools/stock").get_json()["groups"][0]["remaining_g"] == "300.0"
 
+
+
+# --- an invoice puts its rolls on the shelf, and keeps what it did ----------------------------------------------------------
+
+def preview(owner, items=None):
+    return upload(owner, invoice_pdf(items)).get_json()
+
+
+def meta_of(invoice):
+    return {k: invoice[k] for k in ("invoice_number", "order_number", "invoice_date", "total", "lines_total")}
+
+
+def apply(owner, invoice, *, stock=None, library=None, **extra):
+    """Apply what the preview showed: `stock` is the number of rolls per line (default: what the invoice says), `library` per line whether it goes in the library."""
+    lines = [{**line, "stock_quantity": line["quantity"] if stock is None else stock[n], **({} if library is None else {"library": library[n]})}
+             for n, line in enumerate(invoice["lines"])]
+    return owner.post("/api/filament-library/invoice/apply", json={"lines": lines, "invoice": meta_of(invoice), **extra}, headers=H)
+
+
+def rolls(owner):
+    return owner.get("/api/spools").get_json()
+
+
+def test_an_invoice_puts_its_rolls_on_the_shelf_full_at_the_price_paid(owner):
+    invoice = preview(owner)
+    res = apply(owner, invoice).get_json()
+    assert (res["added"], res["rolls"]) == (3, 4)                                                  # 1 + 2 + 1 rolls, as the invoice says
+    by = {}
+    for roll in rolls(owner):
+        by.setdefault(roll["colour"], []).append(roll)
+    assert {k: len(v) for k, v in by.items()} == {"Gray": 1, "Red": 2, "Plum": 1}
+    assert {r["price"] for r in by["Red"]} == {"10.26"}                                            # 24.84 for two, after the discount, without VAT: 12.42 / 1.21
+    assert by["Gray"][0]["price"] == "9.08" and by["Plum"][0]["price"] == "9.08"                   # 10.99 / 1.21, not the list price of 19.32
+    assert all(r["remaining_g"] == r["roll_weight_g"] == "1000.0" and r["archived"] is False for r in rolls(owner))      # a new roll is full
+    assert {r["barcode"] for r in by["Red"]} == {"43000000000004"} and by["Gray"][0]["barcode"] == "43000000000001"     # the shop's ID of the variant
+    assert {r["notes"] for r in rolls(owner)} == {"Bambu Lab-factuur BBLEU25000000AAAA1"}
+    assert sum(float(g["remaining_g"]) for g in owner.get("/api/spools/stock").get_json()["groups"]) == 4000.0
+    assert {e["colour"]: e["price"] for e in library(owner)}["Red"] == "21.84"                     # the library keeps the list price as its reference
+
+
+def test_a_line_puts_nothing_on_the_shelf_without_a_number_and_may_skip_the_library(owner):
+    invoice = preview(owner)
+    res = apply(owner, invoice, stock=[0, 2, 0], library=[True, False, True]).get_json()           # Gray: library only; Red: shelf only; Plum: library only
+    assert (res["added"], res["rolls"]) == (2, 2)
+    assert sorted(e["colour"] for e in library(owner)) == ["Gray", "Plum"]
+    assert [r["colour"] for r in rolls(owner)] == ["Red", "Red"]
+    record = owner.get("/api/filament-library/invoice-imports").get_json()[0]
+    assert [(l["colour"], l["library"], l["rolls_added"]) for l in record["lines"]] == [("Gray", "added", 0), ("Red", "skipped", 2), ("Plum", "added", 0)]
+
+
+@pytest.mark.parametrize("amount", [-1, "x", 1.5, True, 201, None, [3]])
+def test_a_bad_number_of_rolls_is_refused_and_changes_nothing(owner, amount):
+    invoice = preview(owner)
+    lines = [{**line, "stock_quantity": amount if n == 1 else 1} for n, line in enumerate(invoice["lines"])]
+    res = owner.post("/api/filament-library/invoice/apply", json={"lines": lines, "invoice": meta_of(invoice)}, headers=H)
+    assert res.status_code == 400 and "geheel getal" in res.get_json()["error"], (amount, res.get_json())
+    assert library(owner) == [] and rolls(owner) == [] and owner.get("/api/filament-library/invoice-imports").get_json() == []
+
+
+def test_more_rolls_than_a_delivery_may_hold_are_refused_whole(owner):
+    invoice = preview(owner)
+    res = apply(owner, invoice, stock=[150, 150, 0])
+    assert res.status_code == 400 and "200" in res.get_json()["error"]
+    assert library(owner) == [] and rolls(owner) == []
+
+
+def test_what_an_import_did_is_kept_line_by_line_to_check_it_against_the_invoice(owner):
+    invoice = preview(owner)
+    assert invoice["already_imported"] == [] and owner.get("/api/filament-library/invoice-imports").get_json() == []
+    apply(owner, invoice, stock=[1, 1, 0])                                                         # the owner took one Red less (a partial delivery) and no Plum
+    [record] = owner.get("/api/filament-library/invoice-imports").get_json()
+    assert (record["invoice_number"], record["order_number"], record["invoice_date"]) == ("BBLEU25000000AAAA1", "EN000000000000000001", "2025-12-07")
+    assert (record["invoice_total"], record["lines_total"], record["rolls_added"]) == (46.82, 46.82, 2) and record["imported_at"]
+    assert [(l["colour"], l["refill"], l["sku"], l["filament_id"], l["quantity"], l["rolls_added"], l["paid_price"], l["list_price"], l["library"]) for l in record["lines"]] == [
+        ("Gray", True, "A00-D0-1.75-1000-SPLFREE", "10103", 1, 1, 9.08, 19.32, "added"),
+        ("Red", False, "A00-R0-1.75-1000-SPL", "10200", 2, 1, 10.26, 21.84, "added"),            # the invoice says 2, one went on the shelf: it shows
+        ("Plum", True, "A01-R3-1.75-1000-SPLFREE", "11204", 1, 0, 9.08, 19.32, "added")]
+    assert all(l["barcode"] and l["brand"] == "Bambu Lab" and l["roll_weight_g"] == 1000 for l in record["lines"])
+
+
+def test_an_invoice_that_was_read_in_before_is_recognised_and_may_be_read_in_again(owner):
+    first = preview(owner)
+    apply(owner, first, stock=[0, 0, 0])                                                           # first only the library: no rolls
+    again = preview(owner)
+    assert [(e["rolls_added"]) for e in again["already_imported"]] == [0]
+    apply(owner, again)
+    third = preview(owner)
+    assert [e["rolls_added"] for e in third["already_imported"]] == [0, 4] and third["already_imported"][1]["imported_at"] > third["already_imported"][0]["imported_at"]
+    apply(owner, third)                                                                            # on purpose: it is allowed, and it shows as an import of its own
+    imports = owner.get("/api/filament-library/invoice-imports").get_json()
+    assert [i["rolls_added"] for i in imports] == [4, 4, 0] and len(rolls(owner)) == 8              # newest first
+
+
+def test_what_the_invoices_brought_survives_a_backup_and_replaces_what_is_there(owner):
+    apply(owner, preview(owner), stock=[1, 2, 0])
+    doc = owner.get("/api/backup").get_json()
+    assert doc["format_version"] == 9 and [i["rolls_added"] for i in doc["invoice_imports"]] == [3] and len(doc["invoice_imports"][0]["lines"]) == 3
+    without_ids = lambda: [{k: v for k, v in i.items() if k != "id"} for i in owner.get("/api/filament-library/invoice-imports").get_json()]
+    kept = without_ids()
+    apply(owner, preview(owner), stock=[0, 0, 1])                                                  # another import after the backup
+    assert len(owner.get("/api/filament-library/invoice-imports").get_json()) == 2
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    assert without_ids() == kept                                                                   # the file's record, as it was (the numbers go on, the rest is the same)
+    del doc["invoice_imports"]                                                                     # a file from before the record has none
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    assert owner.get("/api/filament-library/invoice-imports").get_json() == []
+
+
+GOOD_LINE = {"brand": "Bambu Lab", "product_type": "Basic", "material": "PLA", "colour": "Gray", "filament_id": "10103", "sku": "A00-D0-1.75-1000-SPLFREE", "barcode": "1",
+             "refill": True, "roll_weight_g": 1000, "diameter_mm": 1.75, "quantity": 1, "rolls_added": 0, "paid_price": "9.08", "list_price": "19.32", "library": "added"}
+
+
+def test_a_record_of_imports_that_is_in_order_is_accepted(owner):                                  # the control of the refusals below
+    doc = owner.get("/api/backup").get_json()
+    doc["invoice_imports"] = [{"invoice_number": "A1", "lines": [GOOD_LINE]}]
+    assert post(owner, "/api/backup/restore", doc).status_code == 200
+    [record] = owner.get("/api/filament-library/invoice-imports").get_json()
+    assert record["invoice_number"] == "A1" and record["rolls_added"] == 0 and record["lines"][0]["colour"] == "Gray"
+
+
+@pytest.mark.parametrize("entries", [{"lines": []}, ["x"], [{"invoice_number": "1"}], [{"lines": ["x"]}], [{"lines": [{**GOOD_LINE, "library": "maybe"}]}],
+                                     [{"lines": [{**GOOD_LINE, "quantity": -1}]}], [{"lines": [{**GOOD_LINE, "rolls_added": 201}]}], [{"lines": [{**GOOD_LINE, "brand": ""}]}]])
+def test_a_backup_with_a_bad_record_of_imports_is_refused_whole(owner, entries):
+    apply(owner, preview(owner), stock=[1, 0, 0])
+    doc = owner.get("/api/backup").get_json()
+    doc["invoice_imports"] = entries
+    res = post(owner, "/api/backup/restore", doc)
+    assert res.status_code == 400 and "Geïmporteerde facturen" in res.get_json()["error"]          # refused by the check of the file, naming where, not by the database
+    assert len(owner.get("/api/filament-library/invoice-imports").get_json()) == 1                  # nothing was replaced
+
+
+def test_the_refill_and_the_roll_with_spool_of_one_colour_from_one_invoice_are_one_kind_on_the_shelf(owner):
+    items = [("PLA Basic", ["A00-D0-1.75-1000-", "SPLFREE"], ["Grijs (10103) / Bijvullen", "/ 1kg"], 1, "23.38", "12.39", "21", "1.91", "10.99"),
+             ("PLA Basic", ["A00-D0-1.75-1000-SPL"], ["Grijs (10103) / Filament ", "met spoel / 1kg"], 1, "26.43", "0.00", "21", "4.59", "26.43")]
+    assert apply(owner, preview(owner, items)).get_json()["rolls"] == 2
+    (kind,) = owner.get("/api/spools/stock").get_json()["groups"]
+    assert (kind["roll_count"], kind["remaining_g"], kind["colour"]) == (2, "2000.0", "Gray") and len(kind["barcodes"]) == 2     # two barcodes, one kind
+
+
+def test_a_roll_from_an_invoice_takes_what_the_library_knows_about_its_filament(owner):
+    make(owner, "/api/filament-library", {**GREY, "print_temp_c": 220, "bed_temp_c": 55, "colour_hex": "#9e9e9e", "barcode": "OWN-1"})       # the owner's own entry, under a Dutch name
+    apply(owner, preview(owner), stock=[2, 0, 0])
+    gray = [r for r in rolls(owner) if r["price"] == "9.08"]
+    assert len(gray) == 2 and {(r["colour"], r["print_temp_c"], r["bed_temp_c"], r["colour_hex"], r["barcode"]) for r in gray} == {("Grijs", 220, 55, "#9e9e9e", "OWN-1")}
+    assert len(library(owner)) == 3                                                                # the entry was recognised, not added again
 
 
 def test_applying_to_a_known_filament_only_brings_the_new_price_and_keeps_what_you_entered(owner):
