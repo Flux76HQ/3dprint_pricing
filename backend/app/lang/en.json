@@ -138,6 +138,7 @@
  "bambu.token_unreadable": "The sign-in to Bambu Lab can no longer be read (SESSION_SECRET changed). Sign in again.",
  "bambu.too_many": "Your Bambu account has more than {max} spools; that is more than this app reads.",
  "bambu.unreachable": "The Bambu cloud cannot be reached. Check that the server has internet access.",
+ "bambu.warn_no_colour": "The colour could not be read for: {names}. Check the invoice: a line without a colour cannot be recognised.",
  "bambu.warn_store": "The Bambu Lab (EU) web shop could not be consulted, so no barcodes were looked up. You can fill them in yourself later.",
  "bambu.warn_store_missing_one": "No barcode was found in the Bambu Lab web shop for {n} line.",
  "bambu.warn_store_missing_other": "No barcode was found in the Bambu Lab web shop for {n} lines.",

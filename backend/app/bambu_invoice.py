@@ -123,32 +123,89 @@ def _line(buf: list[str], numbers: tuple) -> "dict | None":
             "discount": str(money(discount)), "subtotal": str(money(subtotal)), "name": name}
 
 
+ENDS_IN_WEIGHT = re.compile(r"kg\s*$", re.I)
+MAX_VARIANT_ROWS = 2                                                                  # a variant that is read after the numbers (see `parse`) is at most this many rows
+
+
+def _is(row: str, prefix: str) -> bool:
+    return row.lower().startswith(prefix)
+
+
+def _continues(variant_row: str, row: str) -> bool:
+    """Whether `row` is the rest of the variant that `variant_row` begins: that one stops at a slash, or this one starts with one or ends at the weight."""
+    return variant_row.rstrip().endswith("/") or row.startswith("/") or bool(ENDS_IN_WEIGHT.search(row))
+
+
+def _opened(rows: list[str]) -> bool:
+    """Whether these rows hold the start of an item: a SKU or a variant row (a name alone could be anything, a page footer too)."""
+    return any(_is(row, "sku:") or _is(row, "variant:") for row in rows)
+
+
 def parse(text: str) -> dict:
-    """The invoice's details and its filament lines. Raises Localized when this is not a Bambu Lab invoice with items."""
+    """The invoice's details and its filament lines. Raises Localized when this is not a Bambu Lab invoice with items.
+
+    The rows of an item are its name, the SKU, the variant and then its numbers; an item is made when its numbers *and* its variant are in. The
+    layout is the page's, so an item can be cut by a page break, and then the table header is repeated at the top of the next page:
+
+    * the numbers can come before the variant (they sit in the middle of the item's row, and a page that ends under them leaves the variant for the next
+      page): such an item waits (`numbers`) for the variant rows that follow, which end at the weight (`… / 1kg`), and the header between them is skipped;
+    * a header after the first is a page break, not the start of the table: rows of an item that was begun (a SKU or a variant row) are kept, so a SKU
+      or a variant that the break cut in two is whole again; rows that may be that item's name or a page footer (`candidate`) are decided by the first
+      row after the header: a SKU, a variant or numbers means the item goes on, a name means a new item (and the rows before the header were no part of it)."""
     if not re.search(r"bambu\s?lab", text, re.I):
         raise Localized("bambu.err_not_bambu")
-    lines, skipped, buf, summed = [], [], [], Decimal(0)
-    for raw in text.splitlines():
-        row = " ".join(raw.split())
-        if not row:
-            continue
-        if row.startswith("Items Qty"):                        # the header of the table: what came before it is not an item
-            buf = []
-            continue
-        found = ITEM.match(row)
-        if not found:
-            buf.append(row)
-            continue
-        numbers = found.groups()
-        summed += money(numbers[-1])
+    lines, skipped, summed = [], [], Decimal(0)
+    buf: list[str] = []                                    # the rows of the item that is being read
+    numbers = None                                         # its numbers, when they came before its variant
+    variant_rows = 0                                       # the variant rows read after the numbers
+    candidate = None                                       # the rows before a repeated header, which may or may not belong to what comes after it
+    header_seen = False
+
+    def finish() -> None:
+        nonlocal buf, numbers, variant_rows
         line = _line(buf, numbers)
         if line:
             lines.append(line)
         else:
             skipped.append(_parts(buf)[0][:120])
-        buf = []
+        buf, numbers, variant_rows = [], None, 0
         if len(lines) + len(skipped) > MAX_LINES:
             raise Localized("bambu.err_unreadable")
+
+    for raw in text.splitlines():
+        row = " ".join(raw.split())
+        if not row:
+            continue
+        if row.startswith("Items Qty"):
+            if not header_seen:                            # the header of the table: what came before it is not an item
+                header_seen, buf = True, []
+            elif numbers is None and buf and not _opened(buf):      # a page break: rows of an item that was begun are kept, the others wait for the next row
+                candidate, buf = buf, []
+            continue
+        found = ITEM.match(row)
+        if candidate is not None:
+            if found or _is(row, "sku:") or _is(row, "variant:"):
+                buf = candidate
+            candidate = None
+        if found:
+            if numbers is not None:                        # numbers again, so the item before them had no variant
+                finish()
+            summed += money(found.groups()[-1])
+            numbers = found.groups()
+            if any(_is(r, "variant:") for r in buf):       # the usual order: name, SKU, variant, numbers
+                finish()
+            continue
+        if numbers is not None:
+            if (_is(row, "variant:") or (variant_rows and _continues(buf[-1], row))) and variant_rows < MAX_VARIANT_ROWS:
+                buf.append(row)                            # the variant of the item whose numbers came first
+                variant_rows += 1
+                if ENDS_IN_WEIGHT.search(row) or variant_rows >= MAX_VARIANT_ROWS:
+                    finish()
+                continue
+            finish()
+        buf.append(row)
+    if numbers is not None:
+        finish()
     if not lines and not skipped:
         raise Localized("bambu.err_no_items")
 

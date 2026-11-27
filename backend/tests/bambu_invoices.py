@@ -18,11 +18,28 @@ FILAMENT = [
 HOTEND = ("Hotend", ["HT-A1-04"], ["0.4 mm"], 1, "19.00", "0.00", "21", "3.30", "19.00")
 
 
-def lines_of(items, total="46.82", *, bambu=True):
+PAGE = "\f"            # not a text row: the page ends here, and the next one starts with the table header again, as the shop's invoice does
+
+
+def item_rows(item, split=None) -> list[str]:
+    """The text rows of one item, in the order pypdf reads them: its name, the SKU, the variant and then its numbers. `split` lets a page end inside the item:
+    `after` is the number of its rows that stay on the page, `order` is `normal` or `numbers-early` (the numbers, which sit in the middle of the row, are
+    read before the variant: the page break of a real invoice fell like that), and `footer` is text that the page ends with (a page number, say)."""
+    name, sku, variant, qty, price, discount, vat, tax, subtotal = item
+    head = [name, "SKU: " + sku[0], *sku[1:]]
+    var = ["Variant: " + variant[0], *variant[1:]] if variant else []
+    numbers = [f"{qty} €{price} €{discount} NL btw({vat}%) €{tax} €{subtotal}"]
+    rows = head + numbers + var if split and split.get("order") == "numbers-early" else head + var + numbers
+    if split is None:
+        return rows
+    return rows[:split["after"]] + split.get("footer", []) + [PAGE, HEADER] + rows[split["after"]:]
+
+
+def lines_of(items, total="46.82", *, bambu=True, split=None):
+    """The text of an invoice. `split` = `{"item": n, ...}` (see `item_rows`) lets a page end inside, or just before, the n-th item."""
     rows = [HEADER]
-    for name, sku, variant, qty, price, discount, vat, tax, subtotal in items:
-        rows += [name, "SKU: " + sku[0], *sku[1:], "Variant: " + variant[0], *variant[1:],
-                 f"{qty} €{price} €{discount} NL btw({vat}%) €{tax} €{subtotal}"]
+    for n, item in enumerate(items):
+        rows += item_rows(item, split if split and split["item"] == n else None)
     rows += ADDRESS if bambu else ["INVOICE", "Some Other Shop", "Order Number: 1"]
     rows += [f"Items Subtotal €{total}", "Shipping €0.00", f"Grand total €{total}"]
     return rows
@@ -33,16 +50,20 @@ def pdf_of(rows, *, encrypt=None) -> bytes:
     page = canvas.Canvas(out, pagesize=A4, **({"encrypt": encrypt} if encrypt else {}))
     y = 800
     for row in rows:
+        if row == PAGE:
+            page.showPage()
+            y = 800
+            continue
         page.drawString(40, y, row)
         y -= 14
     page.save()
     return out.getvalue()
 
 
-def invoice_pdf(items=None, *, total=None, bambu=True, encrypt=None) -> bytes:
+def invoice_pdf(items=None, *, total=None, bambu=True, encrypt=None, split=None) -> bytes:
     items = FILAMENT if items is None else items
     total = total or f"{sum(float(i[8]) for i in items):.2f}"
-    return pdf_of(lines_of(items, total, bambu=bambu), encrypt=encrypt)
+    return pdf_of(lines_of(items, total, bambu=bambu, split=split), encrypt=encrypt)
 
 
 # --- the web shop ------------------------------------------------------------------------------------------------
