@@ -1,4 +1,4 @@
-import { busyBadge, coverUrl, productImagesCard } from './ai-images.js';
+import { busyBadge, coverFileUrl, coverUrl, productImagesCard } from './ai-images.js';
 import { api, upload } from './api.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
 import { printerFilaments } from './haspelsync.js';
@@ -856,6 +856,19 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
     }
     return found;
   };
+  // The cover at the top of the screen, the whole picture (the list shows it small). It is there from the first moment, because the model comes with its
+  // cover, and follows the pictures card below it when another picture is made the cover or the cover is removed. Drawn again only when it changes: the
+  // card tells us after every read, and a picture that is replaced by itself flickers.
+  let coverId = (ctx.aiImages && state.id && project && project.cover_image_id) || null;
+  let coverShown;
+  const coverBox = h('div', { class: 'glass card model-cover', hidden: true });
+  const drawCover = () => {
+    const wanted = ctx.aiImages && state.id ? coverId : null;
+    if (wanted === coverShown) return;
+    coverShown = wanted;
+    coverBox.hidden = !wanted;
+    fill(coverBox, wanted ? h('img', { src: coverFileUrl(wanted), alt: t('ai.cover'), decoding: 'async' }) : null);
+  };
   // What the model is offered for sale as (listing.js). The price there is typed; the calculation only advises one, and says what it costs.
   if (state.id) {
     listing = listingCard(state.id, {
@@ -873,12 +886,14 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
           : state.files.map((f, i) => ({ fileId: f.file_id, label: f.meta ? f.meta.filename : `${t('file.model')} ${i + 1}` })),
         colour: modelColour(),
         colours: printColours(),
-      }));
+      }),
+      (id) => { coverId = id; drawCover(); });
     drawFile();                                       // the file card has a button that leads to it
   }
 
   redraw();
   recalc();
+  drawCover();
   // What is in the printers: asked now that the screen is up, and only when there is a HaspelSync and a printer here names one. When it arrives and nothing has been touched yet, the lines are
   // drawn again to offer it; otherwise (someone is typing) it is there from the next redraw.
   if (haspelsync && printers.some((p) => p.haspelsync_serial)) printerFilaments().then((groups) => { inPrinter = groups; if (!dirty) redraw(); });
@@ -890,6 +905,7 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
       actions),
     h('div', { class: 'editor-grid' },
       h('div', { class: 'stack' },
+        coverBox,
         h('div', { class: 'glass card stack' },
           field(t('calc.project'), nameInput),
           h('div', { class: 'two even' },

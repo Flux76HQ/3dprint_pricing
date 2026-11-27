@@ -393,8 +393,9 @@ function setColour(input, hex) {
 /** The card with the photo of the object and the pictures made from it. `getDescription()` is what the form says now (saved or not);
  *  `businessOn()` says whether the business mode is on now (only then can the logo be put on a picture); `getModel()` gives the 3D
  *  models of the calculation now, the colour of its first filament line and every colour the print has ({ models: [{ fileId, label }], colour,
- *  colours: [{ hex, name }] }), for the 3D view and for the colour buttons. */
-export function productImagesCard(projectId, getDescription, businessOn = () => false, getModel = () => ({ models: [], colour: '', colours: [] })) {
+ *  colours: [{ hex, name }] }), for the 3D view and for the colour buttons. `onCover(id)` is told which picture is the cover (`null`: none) every time
+ *  the pictures were read, so that the top of the screen shows the one chosen here. */
+export function productImagesCard(projectId, getDescription, businessOn = () => false, getModel = () => ({ models: [], colour: '', colours: [] }), onCover = () => {}) {
   const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, t('common.loading')));
   // The purpose and the texts. Built once, when the first answer is in: the part below is redrawn while pictures are made, and a
   // field that is redrawn loses what is being typed in it.
@@ -425,6 +426,7 @@ export function productImagesCard(projectId, getDescription, businessOn = () => 
     try {
       const got = await api('GET', `/api/projects/${projectId}/images`);
       images = got.images;
+      onCover((images.find((i) => i.is_cover) || {}).id || null);
       jobs = got.jobs;
       warnings = got.warnings || [];
       sent = got.sent || [];

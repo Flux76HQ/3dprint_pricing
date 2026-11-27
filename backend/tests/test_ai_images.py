@@ -1019,15 +1019,16 @@ def test_cover_download_and_delete(ai, project, monkeypatch):
     made = {i["variant"]: i for i in state(ai, project)["images"] if i["kind"] == "generated"}
     first, second = made["square"], made["studio"]
     listed = lambda: {p["id"]: p["cover_image_id"] for p in ai.get("/api/projects").get_json()}
-    assert listed() == {project["id"]: None}
+    shown = lambda: ai.get(f"/api/projects/{project['id']}").get_json()["cover_image_id"]      # what the model's own screen shows at its top
+    assert listed() == {project["id"]: None} and shown() is None
     assert ai.put(f"/api/project-images/{first['id']}/cover", headers=H).status_code == 200
-    assert listed() == {project["id"]: first["id"]}
+    assert listed() == {project["id"]: first["id"]} and shown() == first["id"]
     ai.put(f"/api/project-images/{second['id']}/cover", headers=H)
-    assert listed() == {project["id"]: second["id"]}                                 # one cover at a time
+    assert listed() == {project["id"]: second["id"]} and shown() == second["id"]      # one cover at a time
     download = ai.get(f"/api/project-images/{first['id']}/file?download=1")
     assert f"berekening-{project['number']}-webshop-square.jpg" in download.headers["Content-Disposition"]
     assert ai.delete(f"/api/project-images/{second['id']}", headers=H).status_code == 200
-    assert listed() == {project["id"]: None} and ai.get(f"/api/project-images/{second['id']}/file").status_code == 404
+    assert listed() == {project["id"]: None} and shown() is None and ai.get(f"/api/project-images/{second['id']}/file").status_code == 404
 
 
 # --- kept by the browser (docs/performance.md) ---------------------------------------------------------------------------
@@ -1070,9 +1071,21 @@ def test_the_list_gets_a_small_version_of_the_cover(ai, project):
     stored, thumb = ai.get(f"/api/project-images/{image['id']}/file"), ai.get(f"/api/project-images/{image['id']}/thumb")
     assert Image.open(BytesIO(stored.data)).size == (2048, 1365)
     small = Image.open(BytesIO(thumb.data))
-    assert thumb.mimetype == "image/jpeg" and small.format == "JPEG" and small.size == (192, 128)       # the same shape, at most THUMB_EDGE a side
+    assert thumb.mimetype == "image/jpeg" and small.format == "JPEG" and small.size == (336, 224)       # the same shape, at most THUMB_EDGE a side
     assert len(thumb.data) < len(stored.data) / 20
     assert "/thumb`" in (FRONT / "js/ai-images.js").read_text() and "coverUrl(p.cover_image_id)" in (FRONT / "js/projects.js").read_text()
+
+
+def test_the_cover_is_twice_as_wide_in_a_tile_and_is_at_the_top_of_the_model():
+    """A tile shows the cover at 112 CSS pixels (twice the 56 it had; the table keeps 40), and the thumbnail has to hold three times that to be sharp on a
+    3x screen. The model's own screen shows the cover itself (not the thumbnail) as the first thing in its column, and follows the pictures card."""
+    css, projects, cards = (FRONT / "css/app.css").read_text(), (FRONT / "js/projects.js").read_text(), (FRONT / "js/ai-images.js").read_text()
+    assert ".cover-thumb { flex: none; width: 56px; height: 56px;" in css and ".item-head .cover-thumb { width: 112px; height: 112px; }" in css
+    assert ".data-table .cover-thumb { width: 40px; height: 40px; }" in css
+    assert ai_images.THUMB_EDGE >= 3 * 112
+    assert "coverFileUrl(wanted)" in projects and "h('div', { class: 'stack' },\n        coverBox," in projects       # the first thing of the left column
+    assert "(id) => { coverId = id; drawCover(); }" in projects                                                       # another star in the pictures card moves it
+    assert "onCover((images.find((i) => i.is_cover) || {}).id || null);" in cards
 
 
 def test_the_line_of_a_model_in_an_order_carries_the_cover_of_that_model(ai, project):

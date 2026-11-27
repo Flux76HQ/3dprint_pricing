@@ -459,7 +459,7 @@ function buildEditor(order, navigate, ctx) {
           button.disabled = true;
           try {
             const { lines } = await modelLinesOf(p.id);
-            lines[0].cover_image_id = p.cover_image_id || null;                // the list has it, the model itself does not
+            lines[0].cover_image_id = p.cover_image_id || null;                // the list has it (the model has it too, but its lines are made without)
             state.lines.push(...lines);
           } catch (e) { toast(e.message, 'error'); button.disabled = false; return; }
         }

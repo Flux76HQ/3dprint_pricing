@@ -760,7 +760,9 @@ def list_projects():
 
 
 def _project(conn, project_id) -> dict:
-    row = conn.execute("SELECT * FROM projects WHERE id = %s", (project_id,)).fetchone()
+    # The cover is read with the calculation, as the list does, so that its screen can show it at the top from the first moment.
+    row = conn.execute("SELECT *, (SELECT i.id FROM project_images i WHERE i.project_id = projects.id AND i.is_cover) AS cover_image_id "
+                       "FROM projects WHERE id = %s", (project_id,)).fetchone()
     if row is None:
         raise ApiError(404, "err.calc_not_found")
     return _project_row(row)

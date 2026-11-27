@@ -92,7 +92,8 @@ What changed:
   releases are removed when a new worker activates. The page itself still always comes from the network, so a new release shows on
   the very next load. Its list now holds every module and is fetched under the URLs the page uses.
 - **A stored product image is `private, max-age=31536000, immutable`** with its id as ETag (`http.keep_forever`); the list of
-  models shows a 192 pixel version (`GET /api/project-images/<id>/thumb`) that is made when asked for and not stored.
+  models shows a 336 pixel version (`GET /api/project-images/<id>/thumb`: three times the 112 pixels of the cover in a tile) that is made when asked
+  for and not stored; the cover at the top of a model's own screen is the stored picture itself, `GET /api/project-images/<id>/file`, kept in the same way.
 - **Text is gzipped by the app**: its own files once (level 9), a JSON answer of 1 kB or more per request (level 4). The documented
   set-up names no particular proxy and the app also runs without one, so nothing in front of it could be relied on.
 
@@ -100,7 +101,8 @@ What it costs, and what was decided:
 
 - **Compressing a JSON answer costs server time**: about 2 to 3 ms on the 389 kB list (level 4; level 9 saves 3 kB more for twice
   the time). On a local network that is a small loss, over the internet a large gain.
-- **A thumbnail costs 4 ms to make from a 1024 pixel image and 9 ms from a 2048 pixel one** (measured), once per image and browser.
+- **A thumbnail costs 4 ms to make from a 1024 pixel image and 9 ms from a 2048 pixel one** (measured when it was 192 pixels; the 336 pixel one of today
+  takes a few milliseconds more, 3 to 5 in a quick re-measurement on a slower machine), once per image and browser.
   A stored thumbnail (a column, a migration, backup handling) was therefore left out.
 - **A kept picture can be shown without a session on the device that kept it**, until the browser drops it; it is `private`, so no
   proxy keeps it. A deleted picture likewise stays in that browser's cache. Nothing else under `/api/` may be kept.
