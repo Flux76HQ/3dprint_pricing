@@ -257,7 +257,7 @@ def test_an_invoice_that_was_read_in_before_is_recognised_and_may_be_read_in_aga
 def test_what_the_invoices_brought_survives_a_backup_and_replaces_what_is_there(owner):
     apply(owner, preview(owner), stock=[1, 2, 0])
     doc = owner.get("/api/backup").get_json()
-    assert doc["format_version"] == 9 and [i["rolls_added"] for i in doc["invoice_imports"]] == [3] and len(doc["invoice_imports"][0]["lines"]) == 3
+    assert doc["format_version"] == 10 and [i["rolls_added"] for i in doc["invoice_imports"]] == [3] and len(doc["invoice_imports"][0]["lines"]) == 3
     without_ids = lambda: [{k: v for k, v in i.items() if k != "id"} for i in owner.get("/api/filament-library/invoice-imports").get_json()]
     kept = without_ids()
     apply(owner, preview(owner), stock=[0, 0, 1])                                                  # another import after the backup

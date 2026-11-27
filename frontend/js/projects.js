@@ -4,6 +4,7 @@ import { colourOf, spoolIcon } from './filament-ui.js';
 import { printerFilaments } from './haspelsync.js';
 import { formatDate, t } from './i18n.js';
 import { listingCard } from './listing.js';
+import { LINK_ICONS, isLink, linkButton, linkChip, linkRow } from './links.js';
 import { listView } from './listview.js';
 import { setDirty } from './updates.js';
 import { ROUNDINGS, backLink, blurToggle, confirmDialog, eur, field, fill, fmt, foldHead, h, headAction, icon, numberInput, parseNum, spoolName, toast } from './ui.js';
@@ -30,7 +31,6 @@ function kindOfUrl(url) {
     return (HOSTS.find(([pattern]) => pattern.test(host)) || [])[1] || null;
   } catch { return null; }
 }
-const isLink = (url) => /^https?:\/\/\S+$/i.test(String(url || '').trim());
 
 // Where the files of a model are kept outside this app: [kind kept by the server, label key]. A cloud drive, or a folder on a network share (a NAS).
 export const PLACE_KINDS = [['icloud', 'place.icloud'], ['gdrive', 'place.gdrive'], ['onedrive', 'place.onedrive'], ['dropbox', 'place.dropbox'], ['nas', 'place.nas'], ['other', 'place.other']];
@@ -47,15 +47,13 @@ function kindOfPlace(place) {
 /** What a place can be opened with from a page: a web address, or an smb:// address (the system opens it in its file manager). A network path or a mapped drive cannot be a link: it is copied. */
 const openable = (place) => /^(https?|smb):\/\/\S/i.test(String(place || '').trim());
 // A card of links or of file locations folds away (`foldHead`); folded, its heading shows one small icon for each that was made: what kind it is, and its name and address as the tooltip.
-const LINK_ICONS = { model: 'box', marktplaats: 'cart', bol: 'cart', etsy: 'cart', vinted: 'cart', webshop: 'cart', other: 'link' };
 const PLACE_ICONS = { icloud: 'cloud', gdrive: 'cloud', onedrive: 'cloud', dropbox: 'cloud', nas: 'nas', other: 'folder' };
 function fillChips(target, entries) {
   fill(target, entries.map((e) => h('span', { class: 'fold-chip', title: e.title }, icon(e.icon))),
     entries.length ? h('span', { class: 'sr-only' }, entries.map((e) => e.title).join('; ')) : null);       // a screen reader gets the same as a tooltip
 }
-/** The links of a model as small buttons that open in a new tab. */
-const linkChips = (links) => (links && links.length ? h('span', { class: 'link-chips' }, links.map((link) => h('a', { class: 'link-chip', href: link.url,
-  target: '_blank', rel: 'noopener noreferrer', title: link.url }, icon('external'), h('span', {}, linkName(link))))) : null);
+/** The links of a model as small buttons that open in a new tab, each with the icon of its kind. */
+const linkChips = (links) => (links && links.length ? h('span', { class: 'link-chips' }, links.map((link) => linkChip({ kind: link.kind, name: linkName(link), url: link.url }))) : null);
 
 // --- list -----------------------------------------------------------------------
 
@@ -90,9 +88,9 @@ export function projectListView(ctx) {
       { label: t('listing.column'), sort: 'sale', cls: 'num', cell: (p) => (p.for_sale ? (p.listing_price === null ? h('span', { class: 'badge' }, t('listing.badge')) : eur(p.listing_price)) : '—') },
       { label: t('calc.links'), cls: 'nowrap', wide: true, cell: (p) => linkChips(p.links) || h('span', { class: 'muted' }, '—') },
       { label: t('sort.updated'), sort: 'updated', cls: 'nowrap', wide: true, cell: (p) => dateFmt(p.updated_at) }],
-    tile: (p) => h('a', { class: 'glass card item link-card', href: href(p) },
+    tile: (p) => h('article', { class: 'glass card item link-card' },
       h('div', { class: 'item-head' }, cover(p),
-        h('div', { class: 'grow' }, h('h3', {}, h('span', { class: 'badge' }, `#${p.number}`), ' ', p.name, badges(p),
+        h('div', { class: 'grow' }, h('h3', {}, h('span', { class: 'badge' }, `#${p.number}`), ' ', h('a', { class: 'stretched', href: href(p) }, p.name), badges(p),
           p.for_sale ? h('span', { class: 'badge' }, p.listing_price === null ? t('listing.badge') : t('listing.badge_price', { price: eur(p.listing_price) })) : null),
           h('p', { class: 'muted' }, dateFmt(p.updated_at)))),
       h('dl', { class: 'stats' },
@@ -100,8 +98,8 @@ export function projectListView(ctx) {
         Number(p.vat_pct) > 0
           ? h('div', {}, h('dt', {}, t('calc.sell_incl', { vat: fmt(p.vat_pct) })), h('dd', {}, eur(p.totals.sell_price_incl_vat)))
           : (priced(p) ? h('div', {}, h('dt', {}, t('calc.sell')), h('dd', {}, eur(p.totals.sell_price))) : null)),
-      // Not links of their own here: the whole tile is one link, and a link inside a link is not allowed.
-      p.links.length ? h('p', { class: 'muted footnote' }, p.links.map(linkName).join(' · ')) : null),
+      // The tile as a whole opens the model: its name is a link that covers it (`.stretched`), not the tile itself, because a link inside a link is not allowed. So the links of the model can be links here.
+      p.links.length ? h('div', { class: 'tile-links' }, linkChips(p.links)) : null),
     empty: t('calc.none_yet'), noMatch: t('calc.no_match'),
   });
   api('GET', '/api/projects').then((items) => view.setItems(items.map((p) => ({ ...p, links: p.links || [] })))).catch((e) => toast(e.message, 'error'));
@@ -599,32 +597,31 @@ function buildEditor({ spools, stock, printers, tariffs, packaging, parts, acces
   const MAX_LINKS = 12;
   const linksBox = h('div', { class: 'glass card stack line-group links' });
   const linkIcons = h('span', { class: 'fold-icons' });          // in the heading, shown while the card is folded; made again when a link changes, so it never lags behind
-  const drawLinkIcons = () => fillChips(linkIcons, state.links.filter((l) => l.url.trim()).map((l) => ({ icon: LINK_ICONS[l.kind] || 'link', title: `${linkName(l)} · ${l.url.trim()}` })));
+  const drawLinkIcons = () => fillChips(linkIcons, state.links.filter((l) => l.url.trim()).map((l) => ({ icon: LINK_ICONS[l.kind] || LINK_ICONS.other, title: `${linkName(l)} · ${l.url.trim()}` })));
+  // A link that is made is a button that opens it, with the icons for editing and removing it behind it (`linkRow`); a new one, or one that is not an address, shows its fields.
   function drawLinks() {
     const rows = state.links.map((link, i) => {
-      const openLink = h('a', { class: 'btn tool icon-only', target: '_blank', rel: 'noopener noreferrer', title: t('file.open_link'), 'aria-label': t('file.open_link') }, icon('external'));
       const kind = select(LINK_KINDS.map(([value, label]) => [value, t(label)]), link.kind, (v) => { link.kind = v; link.picked = true; touch(); drawLinkIcons(); });
-      const mark = () => {
-        if (isLink(link.url)) openLink.href = link.url.trim(); else openLink.removeAttribute('href');
-        openLink.setAttribute('aria-disabled', String(!isLink(link.url)));
-      };
       const url = h('input', { type: 'url', inputmode: 'url', value: link.url, maxlength: 500, placeholder: t('file.link_ph'), oninput: (e) => {
         link.url = e.target.value;
         const guess = kindOfUrl(link.url.trim());
         if (guess && !link.picked) { link.kind = guess; kind.value = guess; }       // until a kind was chosen by hand
-        mark(); touch(); drawLinkIcons();
+        touch(); drawLinkIcons();
       } });
-      mark();
-      return h('div', { class: 'line weblink' },
-        field(t('file.link_kind'), kind),
-        field(t('file.link_url'), url),
-        field(t('file.link_label'), textInput(link, 'label', { maxlength: 60, placeholder: t('file.link_label_ph'), onchange: drawLinkIcons })),
-        h('div', { class: 'row-actions' }, openLink, removeBtn(t('file.link_remove'), () => { state.links.splice(i, 1); touch(); drawLinks(); })));
+      return linkRow({
+        editing: link.editing, editClass: 'line weblink',
+        show: () => linkButton({ kind: link.kind, name: linkName(link), url: link.url }),
+        fields: () => [field(t('file.link_kind'), kind), field(t('file.link_url'), url),
+          field(t('file.link_label'), textInput(link, 'label', { maxlength: 60, placeholder: t('file.link_label_ph'), onchange: drawLinkIcons }))],
+        filled: () => link.url.trim() !== '', ok: () => isLink(link.url),
+        remove: () => { state.links.splice(i, 1); touch(); drawLinks(); },
+        onToggle: (open) => { link.editing = open; drawLinkIcons(); },
+      });
     });
     const add = () => {
-      state.links.push({ kind: state.links.some((l) => l.kind === 'model') ? 'other' : 'model', label: '', url: '' });
+      state.links.push({ kind: state.links.some((l) => l.kind === 'model') ? 'other' : 'model', label: '', url: '', editing: true });
       drawLinks();
-      linksBox.querySelector('.line:last-child input[type=url]')?.focus();
+      linksBox.querySelector('.lines > :last-child input[type=url]')?.focus();
     };
     drawLinkIcons();
     fill(linksBox,

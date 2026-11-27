@@ -1,7 +1,7 @@
 import { api, downloadFile } from './api.js';
 import { coverFileUrl, coverUrl } from './ai-images.js';
 import { formatDate, t } from './i18n.js';
-import { customerFields, customerLines, customerPicker, emptyCustomer } from './customers.js';
+import { customerFields, customerLines, customerPicker, emptyCustomer, originFields } from './customers.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
 import { listView } from './listview.js';
 import { openLightbox } from './lightbox.js';
@@ -514,13 +514,14 @@ function buildEditor(order, navigate, ctx) {
     function drawCreate() {
       const draft = emptyCustomer();
       const failure = h('p', { class: 'error', role: 'alert', hidden: true });
-      body.replaceChildren(h('h2', {}, t('customers.create')), ...customerFields(draft), failure,
+      body.replaceChildren(h('h2', {}, t('customers.create')), ...customerFields(draft), ...originFields(draft), failure,
         h('div', { class: 'row end' },
           customers.length ? h('button', { class: 'btn', type: 'button', onclick: drawPick }, t('customers.back_to_list')) : h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
           h('button', { class: 'btn primary', type: 'button', id: 'create-customer', onclick: async () => {
             if (!draft.name.trim()) { failure.textContent = t('customers.name_required'); failure.hidden = false; return; }
             try {
-              done(await api('POST', '/api/customers', { ...draft, number: draft.number.trim(), name: draft.name.trim(), email: draft.email.trim() }));
+              done(await api('POST', '/api/customers', { ...draft, number: draft.number.trim(), name: draft.name.trim(), email: draft.email.trim(),
+                marktplaats_profile_url: draft.marktplaats_profile_url.trim(), marktplaats_chat_url: draft.marktplaats_chat_url.trim() }));
             } catch (e) { failure.textContent = e.message; failure.hidden = false; }
           } }, t('customers.create_and_choose'))));
     }

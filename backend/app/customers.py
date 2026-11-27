@@ -2,20 +2,30 @@
 
 An order points at its customer and keeps a copy of the details (see migration 0014): saving the order copies them again, and
 editing a customer updates the copy in its orders that have no invoice yet, so an invoice that went out is never rewritten.
+
+A customer also says where they came from (`origin`, migration 0025) and, for Marktplaats, links to their profile and to the chat with them. That is the
+owner's own bookkeeping, like the note: an order does not copy it (`snapshot`), and it is not on an invoice, a label, in `/api/v1` or in a webhook.
 """
 from flask import Blueprint, jsonify, request
 
-from .api import _serialise, text
+from .api import URL, _serialise, choice, text
 from .db import UniqueViolation
 from .http import ApiError, json_body, login_required, pool
-from .i18n import tr
+from .i18n import L, tr
 
 bp = Blueprint("customers", __name__, url_prefix="/api/customers")
 
 TEXT_FIELDS = (("name", "f.customer_name", 120, True), ("address", "f.address", 200, False), ("postal_code", "f.postal_code", 20, False),
                ("city", "f.city", 100, False), ("country", "f.country", 60, False), ("email", "f.email", 200, False),
                ("phone", "f.phone", 40, False), ("notes", "f.notes", 2000, False))
-FIELDS = ("number", *(f[0] for f in TEXT_FIELDS))
+# Where a customer came from; empty means not said. The screen has the same list (`ORIGINS` in customers.js, `test_customers.py` compares them). A new origin is
+# one more word here, a text `customers.origin_<word>` in both `frontend/lang` files and a line in `ORIGINS` of the screen.
+ORIGINS = ("marktplaats", "webshop", "other")
+MARKTPLAATS = "marktplaats"
+# The addresses that go with an origin of Marktplaats: the customer's profile there, and the chat with them. Only kept while the origin is Marktplaats.
+MARKTPLAATS_LINKS = (("marktplaats_profile_url", "f.marktplaats_profile"), ("marktplaats_chat_url", "f.marktplaats_chat"))
+ORIGIN_FIELDS = ("origin", *(f[0] for f in MARKTPLAATS_LINKS))
+FIELDS = ("number", *(f[0] for f in TEXT_FIELDS), *ORIGIN_FIELDS)
 
 
 @bp.before_request
@@ -30,6 +40,12 @@ def validated_customer(body: dict) -> dict:
     if values["email"] and "@" not in values["email"]:
         raise ApiError(400, "err.bad_email")
     values["number"] = text("f.customer_number", required=False, max_len=40)(body.get("number"))
+    values["origin"] = "" if body.get("origin") in (None, "") else choice("f.origin", ORIGINS)(body.get("origin"))
+    for key, label in MARKTPLAATS_LINKS:
+        link = text(label, required=False, max_len=500)(body.get(key)) if values["origin"] == MARKTPLAATS else ""      # of another origin: nothing to keep
+        if link and not URL.match(link):                                  # http(s) only, so that what the screen turns into a link can never run anything
+            raise ApiError(400, "err.customer_link", label=L(label))
+        values[key] = link
     return values
 
 
@@ -98,11 +114,13 @@ def create_customer():
 
 @bp.put("/<uuid:customer_id>")
 def update_customer(customer_id):
-    values = validated_customer(json_body())
+    body = json_body()
     with pool().connection() as conn:
         current = conn.execute("SELECT * FROM customers WHERE id = %s", (customer_id,)).fetchone()
         if current is None:
             raise ApiError(404, "err.customer_not_found")
+        # A screen that was open while the app was updated does not know the origin yet and does not send it: leaving a field out keeps what is there, it never empties it.
+        values = validated_customer({**{f: current[f] for f in ORIGIN_FIELDS if f not in body}, **body})
         number = values["number"] or current["number"]                      # leaving the number empty keeps it
         values = {**values, "number": number}
         sets = ", ".join(f"{f} = %s" for f in FIELDS)

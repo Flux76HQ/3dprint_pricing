@@ -1,10 +1,39 @@
 import { api } from './api.js';
 import { t } from './i18n.js';
+import { isLink, linkButton, linkChip, linkRow } from './links.js';
 import { listView } from './listview.js';
 import { setDirty } from './updates.js';
 import { backLink, confirmDialog, field, h, headAction, icon, toast } from './ui.js';
 
-export const emptyCustomer = () => ({ number: '', name: '', address: '', postal_code: '', city: '', country: '', email: '', phone: '', notes: '' });
+export const emptyCustomer = () => ({ number: '', name: '', address: '', postal_code: '', city: '', country: '', email: '', phone: '', notes: '',
+  origin: '', marktplaats_profile_url: '', marktplaats_chat_url: '' });
+
+// Where a customer came from: [word kept by the server, label key]; '' is "not said". The server accepts the same words (`customers.ORIGINS`; `test_customers.py` compares them).
+export const ORIGINS = [['', 'customers.origin_none'], ['marktplaats', 'customers.origin_marktplaats'], ['webshop', 'customers.origin_webshop'], ['other', 'customers.origin_other']];
+export const originName = (origin) => t((ORIGINS.find(([word]) => word === origin) || ORIGINS[0])[1]);
+
+/** Where the customer came from and, for Marktplaats, the links to their profile there and to the chat with them, writing into `state` as they are typed. A link that is filled in is
+ *  a button that opens it in a new tab, with icons behind it to edit or remove it (`linkRow`); an empty one shows its field. Used on the customer screen and in the "new customer" form
+ *  of an order. The links show only while the origin is Marktplaats; the server keeps them only then too. */
+export function originFields(state, onInput = () => {}) {
+  const mpLink = (key, label, hint) => linkRow({
+    show: () => linkButton({ kind: 'marktplaats', name: label, url: state[key] }),
+    fields: () => [field(label, h('input', { type: 'url', inputmode: 'url', maxlength: 500, autocomplete: 'off', placeholder: hint, value: state[key] || '',
+      oninput: (e) => { state[key] = e.target.value; onInput(); } }))],
+    filled: () => state[key].trim() !== '', ok: () => isLink(state[key]), removable: () => state[key].trim() !== '',
+    remove: () => { state[key] = ''; onInput(); },
+  });
+  const links = h('div', { class: 'stack', id: 'marktplaats-links', hidden: state.origin !== 'marktplaats' },
+    mpLink('marktplaats_profile_url', t('customers.mp_profile'), t('customers.mp_profile_hint')),
+    mpLink('marktplaats_chat_url', t('customers.mp_chat'), t('customers.mp_chat_hint')));
+  const origin = h('select', { onchange: (e) => { state.origin = e.target.value; links.hidden = state.origin !== 'marktplaats'; onInput(); } },
+    ORIGINS.map(([word, label]) => h('option', { value: word, selected: word === state.origin }, t(label))));
+  return [field(t('customers.origin'), origin, t('customers.origin_hint')), links];
+}
+
+/** What a customer is shown with in a tile or a row of the list: for Marktplaats, small buttons that open the profile and the chat (those that were filled in) in a new tab. */
+const mpChips = (c) => (c.origin === 'marktplaats' ? [['marktplaats_profile_url', 'customers.mp_profile_short'], ['marktplaats_chat_url', 'customers.mp_chat_short']]
+  .filter(([key]) => isLink(c[key])).map(([key, name]) => linkChip({ kind: 'marktplaats', name: t(name), url: c[key] })) : []);
 
 /** The fields of a customer, writing into `state` as they are typed. Used on the customer screen and in the "new customer" form of an order. */
 export function customerFields(state, onInput = () => {}) {
@@ -59,7 +88,8 @@ export function customerListView() {
   const view = listView({
     id: 'customers',
     search: { label: t('customers.search'), placeholder: t('customers.search_ph'), text: (c) => [c.name, c.number, c.city, c.email, c.phone, c.postal_code] },
-    filters: [{ key: 'city', label: t('orders.city'), all: t('customers.all_cities'), value: (c) => c.city }],
+    filters: [{ key: 'city', label: t('orders.city'), all: t('customers.all_cities'), value: (c) => c.city },
+      { key: 'origin', label: t('customers.origin'), all: t('customers.all_origins'), value: (c) => originName(c.origin) }],
     sorts: [
       { key: 'name', label: t('sort.name'), value: (c) => c.name },
       { key: 'number', label: t('orders.customer_number'), value: (c) => c.number },
@@ -73,13 +103,15 @@ export function customerListView() {
       { label: t('orders.city'), sort: 'city', cell: (c) => c.city || '—' },
       { label: t('orders.email'), wide: true, cell: mail },
       { label: t('orders.phone'), cls: 'nowrap', wide: true, cell: (c) => c.phone || '—' },
+      { label: t('customers.origin'), cell: (c) => (c.origin ? h('div', { class: 'origin-cell' }, originName(c.origin), mpChips(c).length ? h('span', { class: 'link-chips' }, mpChips(c)) : null) : '—') },
       { label: t('nav.orders'), sort: 'orders', cls: 'num', cell: (c) => (Number(c.orders) ? h('a', { href: `#/bestellingen/klant/${c.id}`, title: t('customers.orders_view') }, String(c.orders)) : '0') }],
     tile: (c) => h('article', { class: 'glass card item' },
       h('div', { class: 'item-head' },
         h('div', {}, h('h3', {}, h('a', { href: href(c) }, c.name)),
-          h('p', { class: 'muted' }, [t('customers.number_n', { number: c.number }), c.city].filter(Boolean).join(' · '))),
+          h('p', { class: 'muted' }, [t('customers.number_n', { number: c.number }), c.city, c.origin ? originName(c.origin) : ''].filter(Boolean).join(' · '))),
         h('span', { class: 'badge' }, t('customers.orders_n', { n: c.orders }))),
-      customerLines(c).length ? h('p', { class: 'muted' }, customerLines(c).join(' · ')) : null),
+      customerLines(c).length ? h('p', { class: 'muted' }, customerLines(c).join(' · ')) : null,
+      mpChips(c).length ? h('span', { class: 'link-chips' }, mpChips(c)) : null),
     empty: `${t('customers.none_yet')} ${t('common.add_first')}`, noMatch: t('customers.no_match'),
   });
 
@@ -125,7 +157,8 @@ function buildEditor(customer, navigate) {
   async function save() {
     if (!state.name.trim()) { toast(t('customers.name_required'), 'error'); return; }
     const body = { number: state.number.trim(), name: state.name.trim(), address: state.address, postal_code: state.postal_code, city: state.city,
-      country: state.country, email: state.email.trim(), phone: state.phone, notes: state.notes };
+      country: state.country, email: state.email.trim(), phone: state.phone, notes: state.notes,
+      origin: state.origin, marktplaats_profile_url: state.marktplaats_profile_url.trim(), marktplaats_chat_url: state.marktplaats_chat_url.trim() };
     try {
       if (customer) await api('PUT', `/api/customers/${customer.id}`, body);
       else await api('POST', '/api/customers', body);
@@ -162,6 +195,7 @@ function buildEditor(customer, navigate) {
         headAction('save', t('common.save'), save, ' primary', { id: 'save-customer' }))),
     h('div', { class: 'glass card stack' },
       ...customerFields(state, touch),
+      ...originFields(state, touch),
       field(t('orders.notes'), notes, t('customers.notes_hint')),
       customer ? h('p', { class: 'muted' }, t('customers.orders_of', { n: orderCount }), orderCount > 0 ? [' ', h('a', { href: `#/bestellingen/klant/${customer.id}`, id: 'customer-orders' }, t('customers.orders_view'))] : null) : null,
       customer && orderCount > 0 ? h('p', { class: 'hint' }, t('customers.delete_blocked')) : null));

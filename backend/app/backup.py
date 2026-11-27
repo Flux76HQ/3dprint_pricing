@@ -36,7 +36,7 @@ bp = Blueprint("backup", __name__, url_prefix="/api/backup")
 log = logging.getLogger(__name__)
 
 FORMAT = "printpricing-backup"
-FORMAT_VERSION = 9          # 9: what each Bambu Lab invoice that was read in brought (an older release would lose that record); 8: a model's price on an order line (`base_price`: an older release would price it from the cost and lose it); 7: the groups of rolls; 6: packaging lines on orders (an older release would list them on the invoice); 5: the filament library; 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
+FORMAT_VERSION = 10         # 10: where a customer came from and their Marktplaats links (an older release would lose them); 9: what each Bambu Lab invoice that was read in brought (an older release would lose that record); 8: a model's price on an order line (`base_price`: an older release would price it from the cost and lose it); 7: the groups of rolls; 6: packaging lines on orders (an older release would list them on the invoice); 5: the filament library; 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
                             # numbers. A file of an older version still restores
 MAX_ROWS = 20_000
 MAX_USAGE_ROWS = 200_000                      # what the pictures cost: a row per picture, and there is no limit on writing them, so there is none on reading them that a real file could meet
@@ -470,7 +470,7 @@ def _parse_customers(doc: dict, parsed_orders: list) -> list:
             cid = uuid.uuid4()
             item = {"id": cid, "created_at": None, "updated_at": None, "values": {
                 "number": number, "name": v["customer_name"], "address": v["address"], "postal_code": v["postal_code"], "city": v["city"],
-                "country": v["country"], "email": v["email"], "phone": v["phone"], "notes": ""}}
+                "country": v["country"], "email": v["email"], "phone": v["phone"], "notes": "", "origin": "", "marktplaats_profile_url": "", "marktplaats_chat_url": ""}}
             made[key] = cid
             out.append(item)
         order["customer_id"] = made[key]

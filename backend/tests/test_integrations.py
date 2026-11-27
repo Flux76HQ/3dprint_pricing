@@ -243,6 +243,18 @@ def test_customers_are_listed_without_the_notes_of_the_business(owner, app):
     assert reader.get(f"/api/v1/customers/{uuid.uuid4()}", headers=bearer(key)).status_code == 404
 
 
+def test_where_a_customer_came_from_is_not_given_to_other_applications(owner, app):
+    """Origin and the Marktplaats links are the owner's own bookkeeping, like the notes: not on an invoice, so not in `/api/v1`."""
+    key = new_key(owner)["key"]
+    order = new_order(owner, name="Anna", notes="")
+    owner.put(f"/api/customers/{order['customer_id']}", json={"name": "Anna", "number": "M7", "origin": "marktplaats",
+              "marktplaats_profile_url": "https://www.marktplaats.nl/u/anna/1/", "marktplaats_chat_url": "https://www.marktplaats.nl/messages/conversation/x"}, headers=H)
+    reader = app.test_client()
+    for path in ("/api/v1/customers", f"/api/v1/customers/{order['customer_id']}", f"/api/v1/orders/{order['id']}"):
+        body = reader.get(path, headers=bearer(key)).get_data(as_text=True)
+        assert "marktplaats" not in body.lower() and "origin" not in body, path
+
+
 # --- webhooks: endpoints and their key ---------------------------------------------------------------------------------------
 
 def test_the_signing_key_is_shown_once_and_kept_sealed(owner, app):

@@ -99,18 +99,20 @@ def test_the_orders_table_is_rebuilt_without_losing_an_order_a_line_or_an_invoic
     run_migrations(fresh_db, _before_in_progress(tmp_path))
     _orders_with_everything(fresh_db)
     raw = _raw(fresh_db)
-    # what a line was before 0023 added its two columns
-    columns = {"order_lines": "id, order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging"}
+    # what a line was before 0023 added its two columns, and a customer before 0025 added where it came from
+    columns = {"order_lines": "id, order_id, position, project_id, project_number, description, quantity, unit_price, vat_pct, cost_price, margin_pct, optional, packaging",
+               "customers": "id, number, name, address, postal_code, city, country, email, phone, notes, created_at, updated_at"}
     select = lambda table: f"SELECT {columns.get(table, '*')} FROM {table} ORDER BY 1, 2"
     want = {table: raw.execute(select(table)).fetchall() for table in ("orders", "order_lines", "invoice_pdfs", "customers")}
     raw.close()
 
-    assert run_migrations(fresh_db) == ["0022_order_status_in_progress.sql", "0023_order_line_model_price.sql", "0024_invoice_imports.sql"]
+    assert run_migrations(fresh_db) == ["0022_order_status_in_progress.sql", "0023_order_line_model_price.sql", "0024_invoice_imports.sql", "0025_customer_origin.sql"]
 
     raw = _raw(fresh_db)
     for table, rows in want.items():
         assert raw.execute(select(table)).fetchall() == rows, table                                    # every column of every row, as it was
     assert len(want["order_lines"]) == 4 and len(want["invoice_pdfs"]) == 1                            # the children were not cascaded away
+    assert want["customers"] and raw.execute("SELECT origin, marktplaats_profile_url, marktplaats_chat_url FROM customers").fetchall() == [("", "", "")] * len(want["customers"])      # a customer that was there has no origin
     assert raw.execute("SELECT count(*) FROM order_lines WHERE base_price IS NULL AND price_rounding IS NULL").fetchone() == (4,)      # no line has a model's price: all are priced as before
     assert raw.execute("PRAGMA foreign_key_check").fetchall() == []
     assert raw.execute("PRAGMA integrity_check").fetchone() == ("ok",)
