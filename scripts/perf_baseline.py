@@ -246,7 +246,7 @@ def measure_browser(server: Server, token: str, model_id: str) -> dict:
             server.mark()
             began = time.perf_counter()
             page.goto(f"{origin}/#/berekeningen")
-            page.wait_for_selector("a.link-card")
+            page.wait_for_selector(".link-card")
             seen = (time.perf_counter() - began) * 1000
             page.wait_for_load_state("networkidle")
             page.wait_for_timeout(1200)                  # the service worker fills its cache after the page is there
@@ -261,7 +261,7 @@ def measure_browser(server: Server, token: str, model_id: str) -> dict:
         opened, rows = [], []
         for _ in range(5):
             page.goto(f"{origin}/#/berekeningen")
-            page.wait_for_selector("a.link-card")
+            page.wait_for_selector(".link-card")
             page.wait_for_load_state("networkidle")
             server.mark()
             began = time.perf_counter()

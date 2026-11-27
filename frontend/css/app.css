@@ -965,9 +965,6 @@ input[type=text], input[type=password], input[type=email], input[type=tel], inpu
 .btn.tool.icon-only { min-width: var(--control-sm); padding: 0; }
 .btn.tool[aria-pressed="true"] { border-color: var(--accent); }
 a.btn[aria-disabled="true"] { opacity: .45; pointer-events: none; }
-/* A field with a button next to it that opens what is typed (a link): the input takes the room that is left. */
-.input-open { display: flex; align-items: center; gap: 8px; }
-.input-open > input { flex: 1; min-width: 0; }
 /* An icon that is a button: no frame until it is pointed at. */
 .tool-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; width: var(--control); height: var(--control); padding: 0; border: 0;
   border-radius: 10px; background: transparent; color: var(--text-muted); cursor: pointer; transition: background-color .15s var(--ease), color .15s var(--ease); }
@@ -1120,7 +1117,28 @@ a.cell-title:hover { color: var(--accent); text-decoration: underline; text-unde
 .link-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--lijn-strong); border-radius: 99px; font-size: .78rem; font-weight: 600;
   color: var(--text); text-decoration: none; white-space: nowrap; transition: border-color .15s var(--ease), color .15s var(--ease); }
 .link-chip:hover { border-color: var(--accent); color: var(--accent); }
-.link-chip .icon { width: 12px; height: 12px; }
+.link-chip .icon { width: 14px; height: 14px; flex: none; }
+.origin-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.item > .link-chips { margin-top: 2px; }
+/* A link as a button that opens in a new tab: the icon of its kind and its name (`links.js`). In an editor its row also has the icons for editing and removing it behind it; while it
+   is edited the row shows the fields instead (`.link-edit`, or `.line.weblink` where the fields of a model's link are). */
+.link-btn { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; min-height: var(--control-sm); padding: 4px 14px 4px 10px; border: 1px solid var(--lijn-strong);
+  border-radius: 10px; background: var(--surface-solid); color: var(--text); font-weight: 600; text-decoration: none;
+  transition: border-color .15s var(--ease), color .15s var(--ease), background-color .15s var(--ease); }
+.link-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-subtle); }
+.link-btn .icon { width: 20px; height: 20px; flex: none; }
+.link-btn > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-row { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 4px 0; }
+.link-row > .link-btn { flex: 0 1 auto; }
+.link-edit { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; align-items: end; }
+.link-edit > .hint.error, .line.weblink > .hint.error { grid-column: 1 / -1; color: var(--danger); }
+input[aria-invalid="true"] { border-color: var(--danger); }
+/* A tile of a model opens the model by its name, whose link covers the whole tile (`.stretched`), so that the links in the tile can be links too: they stand above that cover. */
+.link-card { position: relative; }
+.link-card .stretched::after { content: ''; position: absolute; inset: 0; border-radius: var(--radius); }
+.link-card:has(.stretched:focus-visible) { outline: 3px solid var(--accent); outline-offset: 2px; }
+.link-card .stretched:focus-visible { outline: none; }
+.tile-links { position: relative; z-index: 1; }
 
 /* The menu: grouped by what the pages are for, folded away from its top, with the theme and the language in one row and signing out apart. */
 .flag-btn { min-width: var(--control); min-height: var(--control); border-radius: 10px; }
@@ -1179,7 +1197,7 @@ a.cell-title:hover { color: var(--accent); text-decoration: underline; text-unde
   .line.print.energy { grid-template-columns: 4.5rem 5rem minmax(0, 1fr) 5.5rem 4.75rem auto; }
   .line.filament > :first-child, .line.parts.pack > :first-child, .line.print.energy > :first-child { grid-column: 1 / -1; }
   .line.weblink { grid-template-columns: 9.5rem minmax(0, 1.6fr) minmax(0, 1fr) auto; }
-  .lines > .line.weblink:not(:first-child) .field > label, .lines > .line.print:not(.energy):not(:first-child) .field > label,
+  .lines > .line.print:not(.energy):not(:first-child) .field > label,
   .lines > .line.print:not(.energy):not(:first-child) .field > .lbl {
     position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   .line.weblink, .line.print:not(.energy) { padding: 6px 0; }

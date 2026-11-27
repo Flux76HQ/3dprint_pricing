@@ -1,5 +1,6 @@
 import { BUILD } from './build.js';
 import { getLocale, t } from './i18n.js';
+import { BRANDS } from './brands.js';
 import { MDI } from './mdi.js';
 
 // Tiny DOM helpers. Everything goes through textContent/attributes, never innerHTML with data.
@@ -76,10 +77,10 @@ export function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
-  if (MDI[name]) {                                   // a Material Design icon: filled, in the colour of the text
+  if (MDI[name] || BRANDS[name]) {                   // a Material Design icon or the mark of a shop: filled, in the colour of the text
     svg.setAttribute('class', 'icon mdi');
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', MDI[name]);
+    path.setAttribute('d', MDI[name] || BRANDS[name]);
     svg.append(path);
     return svg;
   }

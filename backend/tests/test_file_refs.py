@@ -136,11 +136,13 @@ def test_the_cards_of_file_locations_and_links_fold_and_show_an_icon_for_each_th
     assert "state.file_refs.filter((r) => r.location.trim())" in projects.split("const drawPlaceIcons")[1].split("function drawPlaces")[0]        # an empty line is not an icon yet
     assert "state.links.filter((l) => l.url.trim())" in projects.split("const drawLinkIcons")[1].split("function drawLinks")[0]
     assert len(re.findall(r"\bdrawPlaceIcons\b", projects)) >= 5 and len(re.findall(r"\bdrawLinkIcons\b", projects)) >= 5      # defined, and used when the kind, the address or the name changes and when the card is drawn
-    for table, kinds in (("PLACE_ICONS", api.FILE_KINDS), ("LINK_ICONS", api.LINK_KINDS)):
-        listed = re.search(rf"const {table} = \{{(.*?)\}};", projects, re.S).group(1)
-        assert tuple(re.findall(r"(\w+): '\w+'", listed)) == kinds, table                               # a kind the server accepts but the screen has no icon for would show nothing
+    links = (front / "js/links.js").read_text()
+    for source, table, kinds in ((projects, "PLACE_ICONS", api.FILE_KINDS), (links, "LINK_ICONS", api.LINK_KINDS)):
+        listed = re.search(rf"const {table} = \{{(.*?)\}};", source, re.S).group(1)
+        assert tuple(re.findall(r"(\w+): '[\w-]+'", listed)) == kinds, table                          # a kind the server accepts but the screen has no icon for would show nothing
     ui = (front / "js/ui.js").read_text()
-    used = set(re.findall(r": '(\w+)'", re.search(r"const PLACE_ICONS = \{(.*?)\};", projects, re.S).group(1) + re.search(r"const LINK_ICONS = \{(.*?)\};", projects, re.S).group(1)))
-    assert all(f"  {name}: '" in ui or f"'{name}':" in ui or name in ("link", "box") for name in used), used
+    drawn = ui + (front / "js/mdi.js").read_text() + (front / "js/brands.js").read_text()               # where `icon()` finds an icon: its own, Material Design, or the mark of a shop
+    used = set(re.findall(r": '([\w-]+)'", re.search(r"const PLACE_ICONS = \{(.*?)\};", projects, re.S).group(1) + re.search(r"const LINK_ICONS = \{(.*?)\};", links, re.S).group(1)))
+    assert all(f"  {name}: '" in drawn or f"'{name}': '" in drawn for name in used), used
     css = (front / "css/app.css").read_text()
     assert '.fold-toggle[aria-expanded="true"] .fold-icons { display: none; }' in css.replace("\n", " ") or ".fold-icons:empty, .fold-toggle[aria-expanded=\"true\"] .fold-icons { display: none; }" in css
