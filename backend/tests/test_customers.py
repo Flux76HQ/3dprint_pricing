@@ -122,3 +122,95 @@ def test_two_customers_made_at_the_same_moment_do_not_share_a_number(app):
     [t.start() for t in threads]
     [t.join() for t in threads]
     assert not errors and sorted(numbers, key=int) == [str(n) for n in range(1, 7)]
+
+
+# --- where a customer came from (migration 0025) ------------------------------------------------------------------------------------------
+
+PROFILE = "https://www.marktplaats.nl/u/anna/123456/"
+CHAT = "https://www.marktplaats.nl/messages/conversation/abc-123"
+
+
+def test_a_customer_has_no_origin_until_it_is_given(owner):
+    made = make_customer(owner).get_json()
+    assert (made["origin"], made["marktplaats_profile_url"], made["marktplaats_chat_url"]) == ("", "", "")
+    assert make_customer(owner, name="Bram", origin="").get_json()["origin"] == ""
+
+
+def test_a_marktplaats_customer_keeps_a_link_to_the_profile_and_the_chat(owner):
+    made = make_customer(owner, origin="marktplaats", marktplaats_profile_url=f" {PROFILE} ", marktplaats_chat_url=CHAT)
+    assert made.status_code == 201
+    one = owner.get(f"/api/customers/{made.get_json()['id']}").get_json()
+    assert (one["origin"], one["marktplaats_profile_url"], one["marktplaats_chat_url"]) == ("marktplaats", PROFILE, CHAT)     # the spaces around an address are not kept
+    listed = owner.get("/api/customers").get_json()[0]
+    assert (listed["origin"], listed["marktplaats_profile_url"], listed["marktplaats_chat_url"]) == ("marktplaats", PROFILE, CHAT)
+    only_profile = make_customer(owner, name="Bram", origin="marktplaats", marktplaats_profile_url=PROFILE).get_json()
+    assert only_profile["marktplaats_profile_url"] == PROFILE and only_profile["marktplaats_chat_url"] == ""         # either may be left empty
+
+
+@pytest.mark.parametrize("origin", ["webshop", "other", ""])
+def test_the_marktplaats_links_are_only_kept_for_an_origin_of_marktplaats(owner, origin):
+    made = make_customer(owner, origin=origin, marktplaats_profile_url=PROFILE, marktplaats_chat_url=CHAT).get_json()
+    assert (made["origin"], made["marktplaats_profile_url"], made["marktplaats_chat_url"]) == (origin, "", "")
+    mp = make_customer(owner, name="Bram", origin="marktplaats", marktplaats_profile_url=PROFILE, marktplaats_chat_url=CHAT).get_json()
+    moved = owner.put(f"/api/customers/{mp['id']}", json={"name": "Bram", "origin": origin, "marktplaats_profile_url": PROFILE}, headers=H).get_json()
+    assert (moved["origin"], moved["marktplaats_profile_url"], moved["marktplaats_chat_url"]) == (origin, "", "")
+    assert owner.get(f"/api/customers/{mp['id']}").get_json()["marktplaats_chat_url"] == ""
+
+
+@pytest.mark.parametrize("change", [
+    {"origin": "vinted"}, {"origin": "Marktplaats"}, {"origin": ["marktplaats"]},
+    {"origin": "marktplaats", "marktplaats_profile_url": "www.marktplaats.nl/u/anna"},
+    {"origin": "marktplaats", "marktplaats_chat_url": "javascript:alert(1)"},
+    {"origin": "marktplaats", "marktplaats_chat_url": "data:text/html,x"},
+    {"origin": "marktplaats", "marktplaats_profile_url": "https://marktplaats.nl/a b"},
+    {"origin": "marktplaats", "marktplaats_profile_url": "https://marktplaats.nl/" + "a" * 500}])
+def test_an_origin_or_link_that_makes_no_sense_is_refused(owner, change):
+    assert make_customer(owner, **change).status_code == 400
+    assert owner.get("/api/customers").get_json() == []
+
+
+def test_a_link_that_is_refused_says_which_one(owner):
+    res = make_customer(owner, origin="marktplaats", marktplaats_chat_url="ftp://x")
+    assert res.status_code == 400 and "Marktplaats-chat" in res.get_json()["error"]
+
+
+def test_an_update_that_does_not_mention_the_origin_leaves_it_as_it_is(owner):
+    """A screen that was open while the app was updated knows no origin and sends none: that must not empty what is there."""
+    anna = make_customer(owner, origin="marktplaats", marktplaats_profile_url=PROFILE, marktplaats_chat_url=CHAT).get_json()
+    old_screen = owner.put(f"/api/customers/{anna['id']}", json={"name": "Anna Smit", "number": anna["number"], "city": "Meppel"}, headers=H).get_json()
+    assert old_screen["name"] == "Anna Smit" and old_screen["city"] == "Meppel"
+    assert (old_screen["origin"], old_screen["marktplaats_profile_url"], old_screen["marktplaats_chat_url"]) == ("marktplaats", PROFILE, CHAT)
+    cleared = owner.put(f"/api/customers/{anna['id']}", json={"name": "Anna Smit", "origin": "", "marktplaats_profile_url": "", "marktplaats_chat_url": ""}, headers=H).get_json()
+    assert (cleared["origin"], cleared["marktplaats_profile_url"], cleared["marktplaats_chat_url"]) == ("", "", "")      # sent and empty is a choice
+    assert owner.put(f"/api/customers/{anna['id']}", json={"name": "Anna", "origin": "vinted"}, headers=H).status_code == 400
+    assert owner.get(f"/api/customers/{anna['id']}").get_json()["origin"] == ""
+
+
+def test_a_copy_of_a_customer_has_the_same_origin_and_links(owner):
+    anna = make_customer(owner, origin="marktplaats", marktplaats_profile_url=PROFILE, marktplaats_chat_url=CHAT).get_json()
+    copy = owner.post(f"/api/customers/{anna['id']}/duplicate", headers=H).get_json()
+    assert copy["id"] != anna["id"] and (copy["origin"], copy["marktplaats_profile_url"], copy["marktplaats_chat_url"]) == ("marktplaats", PROFILE, CHAT)
+
+
+def test_the_origin_is_not_copied_to_an_order(owner):
+    """It is the owner's own bookkeeping, like the note: an order copies what is on an invoice (`customers.snapshot`) and nothing else."""
+    anna = make_customer(owner, origin="marktplaats", marktplaats_profile_url=PROFILE, marktplaats_chat_url=CHAT).get_json()
+    order = new_order(owner, customer_id=anna["id"])
+    assert not {"origin", "marktplaats_profile_url", "marktplaats_chat_url"} & set(order)
+    assert not {"origin", "marktplaats_profile_url", "marktplaats_chat_url"} & set(owner.get("/api/orders").get_json()[0])
+
+
+def test_the_screen_offers_the_origins_the_server_accepts():
+    """No browser here, so the wiring is checked in the sources: the screen's list is the server's (plus 'not said'), each with its text in both languages."""
+    import json
+    import re
+    from pathlib import Path
+    from app import customers
+    front = Path(__file__).resolve().parents[2] / "frontend"
+    source = (front / "js/customers.js").read_text()
+    offered = re.search(r"export const ORIGINS = \[(.*?)\];", source, re.S).group(1)
+    pairs = re.findall(r"\['(\w*)', '(customers\.origin_\w+)'\]", offered)
+    assert [value for value, _ in pairs] == ["", *customers.ORIGINS]
+    for lang in ("nl", "en"):
+        texts = json.loads((front / f"lang/{lang}.json").read_text())
+        assert all(key in texts for _, key in pairs), lang

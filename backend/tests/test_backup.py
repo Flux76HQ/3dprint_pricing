@@ -139,7 +139,7 @@ def test_the_download_is_a_json_attachment_with_every_section(owner):
     res = backup(owner)
     assert "attachment" in res.headers["Content-Disposition"] and res.headers["Content-Disposition"].endswith('.json"')
     doc = res.get_json()
-    assert doc["format"] == "printpricing-backup" and doc["format_version"] == 9 and doc["app_version"]
+    assert doc["format"] == "printpricing-backup" and doc["format_version"] == 10 and doc["app_version"]
     assert [len(doc[k]) for k in ("printers", "tariffs", "packaging", "parts", "accessories", "filament_library", "spools", "projects")] == [1, 1, 1, 1, 1, 1, 2, 1]
     assert doc["preferences"]["theme"] == "dark" and doc["includes_files"] is False and "files" not in doc
 
@@ -769,6 +769,37 @@ def test_customers_travel_in_the_backup_with_their_numbers_and_links(owner):
     assert order_snapshot(owner) == before and owner.get(f"/api/customers/{extra['id']}").get_json()["notes"] == "Nog geen order"
 
 
+def test_where_a_customer_came_from_travels_in_the_backup(owner):
+    fill_orders(owner)
+    anna = customer(owner, name="Anna via Marktplaats", number="M1", origin="marktplaats",
+                    marktplaats_profile_url="https://www.marktplaats.nl/u/anna/1/", marktplaats_chat_url="https://www.marktplaats.nl/messages/conversation/x")
+    shop = customer(owner, name="Bram uit de webshop", number="W1", origin="webshop")
+    doc = backup(owner).get_json()
+    saved = {c["number"]: c for c in doc["customers"]}
+    assert (saved["M1"]["origin"], saved["M1"]["marktplaats_profile_url"], saved["M1"]["marktplaats_chat_url"]) == (
+        "marktplaats", "https://www.marktplaats.nl/u/anna/1/", "https://www.marktplaats.nl/messages/conversation/x")
+    assert saved["W1"]["origin"] == "webshop" and saved["K9999"]["origin"] == ""
+    before = order_snapshot(owner)
+    owner.delete(f"/api/customers/{anna['id']}", headers=H)
+    owner.delete(f"/api/customers/{shop['id']}", headers=H)
+    assert owner.post("/api/backup/restore", json=doc, headers=H).status_code == 200
+    assert order_snapshot(owner) == before
+    back = owner.get(f"/api/customers/{anna['id']}").get_json()
+    assert (back["origin"], back["marktplaats_chat_url"]) == ("marktplaats", "https://www.marktplaats.nl/messages/conversation/x")
+
+
+def test_a_backup_from_before_the_origin_of_customers_restores_with_none(owner):
+    fill_orders(owner)
+    doc = backup(owner).get_json()
+    old = copy.deepcopy(doc)
+    old["format_version"] = 9
+    for c in old["customers"]:
+        for key in ("origin", "marktplaats_profile_url", "marktplaats_chat_url"):
+            c.pop(key)
+    assert owner.post("/api/backup/restore", json=old, headers=H).status_code == 200
+    assert {(c["number"], c["origin"], c["marktplaats_profile_url"], c["marktplaats_chat_url"]) for c in owner.get("/api/customers").get_json()} == {("K9999", "", "", "")}
+
+
 def test_a_backup_from_before_customers_gets_customers_made_from_its_orders(owner):
     fill_orders(owner)
     new_order_ = owner.get("/api/orders").get_json()[0]
@@ -794,6 +825,7 @@ def test_a_backup_from_before_customers_gets_customers_made_from_its_orders(owne
     lambda d: d["customers"][0].update(name=""), lambda d: d["customers"][0].update(number=""),
     lambda d: d["customers"].append(copy.deepcopy(d["customers"][0])), lambda d: d["customers"][0].update(id="geen-uuid"),
     lambda d: d["customers"][0].update(email="geen-adres"), lambda d: d.update(customers="geen lijst"),
+    lambda d: d["customers"][0].update(origin="vinted"), lambda d: d["customers"][0].update(origin="marktplaats", marktplaats_chat_url="javascript:alert(1)"),
 ])
 def test_a_damaged_customer_is_refused_before_anything_changes(owner, change):
     fill_orders(owner)
