@@ -527,6 +527,20 @@ def spool_from_barcode():
                     "stock": stock_now, "label": label})
 
 
+def insert_rolls(conn, values: dict, count: int, *, group_id=None) -> list:
+    """Put `count` identical, new rolls on the shelf (`values`: a roll as `RESOURCES["spools"]` validated it) and return them. **The one place that makes rolls from
+    outside the roll form** (a scan list, an invoice): the first roll takes over the notification its kind already has (`_share_notify`) and the others, being
+    the same kind, take over what it ended with. The caller holds the transaction and calls `stock_changed()` after it."""
+    values = {**values, **({"group_id": group_id} if group_id is not None else {})}
+    cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
+    first = conn.execute(f"INSERT INTO filament_spools ({cols}) VALUES ({marks}) RETURNING *", tuple(values.values())).fetchone()
+    first = _share_notify(conn, first, explicit=False, creating=True)
+    values["notify_low"] = first["notify_low"]
+    cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
+    return [first, *[conn.execute(f"INSERT INTO filament_spools ({cols}) VALUES ({marks}) RETURNING *", tuple(values.values())).fetchone()
+                     for _ in range(count - 1)]]
+
+
 @bp.post("/spools/bulk")
 def add_spools_by_barcode():
     """Add the rolls of a scan list in one go: per barcode a number of rolls, each made from what `_from_barcode` finds, at the price the list
@@ -558,17 +572,8 @@ def add_spools_by_barcode():
             values = {**found[1], **({"price": price} if price is not None else {})}
             if values["price"] is None:                                   # a library entry without a reference price
                 raise ApiError(400, "bulk.no_price", barcode=barcode)
-            values = _validated(fields, values, partial=False)
-            if group_id is not None:
-                values["group_id"] = group_id
-            cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
-            first = conn.execute(f"INSERT INTO filament_spools ({cols}) VALUES ({marks}) RETURNING *", tuple(values.values())).fetchone()
-            first = _share_notify(conn, first, explicit=False, creating=True)       # takes over the notification its kind already has
-            values["notify_low"] = first["notify_low"]                    # the other rolls of this line are the same kind
-            cols, marks = ", ".join(values), ", ".join(["%s"] * len(values))
-            created.append(first)
-            created += [conn.execute(f"INSERT INTO filament_spools ({cols}) VALUES ({marks}) RETURNING *", tuple(values.values())).fetchone()
-                        for _ in range(count - 1)]
+            first, *others = insert_rolls(conn, _validated(fields, values, partial=False), count, group_id=group_id)
+            created += [first, *others]
             if body.get("add_to_library") is True:                        # as the roll form does: the filament goes in the library when it is not there yet
                 from . import filament_library                          # imported here: that module imports this one
                 filament_library.add_roll(conn, first)

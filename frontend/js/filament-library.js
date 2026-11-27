@@ -1,11 +1,14 @@
 import { api, downloadFile, upload } from './api.js';
-import { formatDate, getLanguage, t } from './i18n.js';
+import { formatDate, formatDateTime, getLanguage, t } from './i18n.js';
 import { colourOf, spoolIcon } from './filament-ui.js';
 import { libraryConfig, libraryName, openForm } from './resources.js';
 import { confirmDialog, enhanceDialog, eur, fill, fmt, foldHead, h, icon, saveBlob, toast } from './ui.js';
 import { spoolmanDbCard } from './spoolmandb.js';
 
 const norm = (v) => String(v || '').trim().toLowerCase();
+
+/** What an entry is called when two of them differ only by their spool: the name as the invoice preview shows it, with "met spoel" for the one that is not a refill. */
+const entryName = (e) => libraryName(e) + (e.refill ? '' : ` · ${t('library.spool_short')}`);
 
 // What an entry says besides its name: the supplier's ID, the SKU, the specs and the reference price.
 function details(e) {
@@ -53,36 +56,69 @@ function listCard(state) {
     h('p', { class: 'muted' }, t('library.intro')), h('div', { class: 'field' }, search), count, body);
 }
 
-/** The lines of an invoice, to choose from: what goes in the library. The rolls on the shelf are never touched from here. */
+const MAX_ROLLS = 200;                                    // BULK_MAX_ROLLS of the server: what one delivery may hold
+
+/** The lines of an invoice, to choose from: what goes in the library and how many rolls go on the shelf (by default the number the invoice says). Nothing happens
+ * until *Verwerken*. An invoice that was read in before says so, and then puts nothing on the shelf unless the owner switches it on again. What is done is kept
+ * (`invoice_imports`, shown by `importsCard`), so it can be checked against the invoice. */
 function invoiceDialog(invoice, onDone) {
-  const rows = invoice.lines.map((line) => ({
-    line, add: h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: true, 'aria-label': t('library.invoice_add') }) }));
+  const earlier = invoice.already_imported || [];
+  const shelfDone = earlier.some((e) => e.rolls_added > 0);
+  const rows = invoice.lines.map((line) => {
+    const stock = h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: !shelfDone && line.quantity > 0, 'aria-label': t('library.invoice_shelf') });
+    const count = h('input', { type: 'number', min: '0', max: String(MAX_ROLLS), step: '1', inputmode: 'numeric', value: String(line.quantity), disabled: !stock.checked,
+      class: 'roll-count', 'aria-label': t('library.invoice_shelf_count') });
+    return { line, stock, count, add: h('input', { type: 'checkbox', class: 'toggle', role: 'switch', checked: true, 'aria-label': t('library.invoice_add') }) };
+  });
   const error = h('p', { class: 'error', role: 'alert', hidden: true });
+  const total = h('p', { class: 'muted', 'aria-live': 'polite' });
+  const shelf = () => {
+    const n = rows.reduce((sum, r) => sum + (r.stock.checked ? Math.max(0, Math.trunc(Number(r.count.value)) || 0) : 0), 0);
+    total.textContent = t('library.invoice_shelf_total', { n });
+  };
+  for (const r of rows) r.stock.addEventListener('change', () => { r.count.disabled = !r.stock.checked; shelf(); });
+  for (const r of rows) r.count.addEventListener('input', shelf);
+  shelf();
   const apply = async () => {
-    const lines = rows.filter((r) => r.add.checked).map((r) => r.line);
-    if (!lines.length) { error.textContent = t('library.invoice_none'); error.hidden = false; return; }
+    error.hidden = true;
+    const lines = [];
+    for (const { line, add, stock, count } of rows) {
+      const n = stock.checked ? Number(count.value) : 0;
+      if (!Number.isInteger(n) || n < 0 || n > MAX_ROLLS) { error.textContent = t('library.invoice_bad_count', { max: MAX_ROLLS }); error.hidden = false; count.focus(); return; }
+      lines.push({ ...line, library: add.checked, stock_quantity: n });
+    }
+    if (!lines.some((l) => l.library || l.stock_quantity)) { error.textContent = t('library.invoice_none'); error.hidden = false; return; }
+    const meta = { invoice_number: invoice.invoice_number, order_number: invoice.order_number, invoice_date: invoice.invoice_date, total: invoice.total, lines_total: invoice.lines_total };
     try {
-      const done = await api('POST', '/api/filament-library/invoice/apply', { lines });
+      const done = await api('POST', '/api/filament-library/invoice/apply', { lines, invoice: meta });
       dialog.close();
-      toast(t('library.import_done', done));
+      toast([t('library.import_done', done), done.rolls ? t('library.invoice_rolls_done', { n: done.rolls }) : ''].filter(Boolean).join(' '));
       onDone();
     } catch (e) { error.textContent = e.message; error.hidden = false; }
   };
+  const last = earlier[earlier.length - 1];
   const dialog = enhanceDialog(h('dialog', { class: 'glass sheet' },
     h('div', { class: 'stack' },
       h('h2', {}, t('library.invoice_title', { number: invoice.invoice_number || invoice.order_number || '' })),
       h('p', { class: 'muted' }, t('library.invoice_meta', { order: invoice.order_number || '?', date: invoice.invoice_date ? formatDate(invoice.invoice_date, { dateStyle: 'medium' }) : '?' })),
+      last ? h('p', { class: 'notice', role: 'status' }, t(shelfDone ? 'library.invoice_again_shelf' : 'library.invoice_again_library',
+        { date: formatDateTime(last.imported_at, { dateStyle: 'medium', timeStyle: 'short' }), rolls: earlier.reduce((sum, e) => sum + e.rolls_added, 0) })) : null,
       ...invoice.warnings.map((text) => h('p', { class: 'notice', role: 'status' }, text)),
       invoice.skipped.length ? h('p', { class: 'muted' }, t('library.invoice_skipped', { names: invoice.skipped.join(', ') })) : null,
       h('p', { class: 'hint' }, t('library.invoice_hint_library')),
-      h('ul', { class: 'plain-list' }, rows.map(({ line, add }) => h('li', { class: 'list-row' },
+      total,
+      h('ul', { class: 'plain-list' }, rows.map(({ line, add, stock, count }) => h('li', { class: 'list-row' },
         h('div', { class: 'item-head' }, spoolIcon(colourOf(line), 30),
-          h('div', { class: 'grow' }, h('strong', {}, libraryName(line)),
-            h('p', { class: 'muted' }, [line.filament_id ? `${t('library.id_short')} ${line.filament_id}` : null,
-              t('library.invoice_price', { price: eur(line.price) })].filter(Boolean).join(' · ')),
+          h('div', { class: 'grow' }, h('strong', {}, entryName(line)),
+            h('p', { class: 'muted' }, [line.filament_id ? `${t('library.id_short')} ${line.filament_id}` : null, line.sku ? `${t('library.sku_short')} ${line.sku}` : null].filter(Boolean).join(' · ')),
+            h('p', { class: 'muted' }, t('library.invoice_price', { price: eur(line.price) })),
+            h('p', { class: 'muted' }, t('library.invoice_paid', { price: eur(line.paid) })),
             h('p', { class: 'muted' }, line.barcode ? t('library.invoice_barcode', { code: line.barcode }) : t('library.invoice_no_barcode')),
             line.library_id ? h('p', { class: 'muted' }, t('library.invoice_known')) : null)),
-        h('label', { class: 'check' }, add, t('library.invoice_add'))))),
+        h('div', { class: 'stack' },
+          h('label', { class: 'check' }, add, t('library.invoice_add')),
+          h('label', { class: 'check' }, stock, t('library.invoice_shelf')),
+          h('label', { class: 'row' }, count, h('span', { class: 'muted' }, t('library.invoice_shelf_of', { n: line.quantity }))))))),
       error,
       h('div', { class: 'row end' },
         h('button', { class: 'btn', type: 'button', onclick: () => dialog.requestClose() }, t('common.cancel')),
@@ -167,9 +203,6 @@ function contributeDialog({ entries, already_there: known }, base) {
   dialog.showModal();
 }
 
-/** What an entry is called when two of them differ only by their spool: the name as the invoice preview shows it, with "met spoel" for the one that is not a refill. */
-const entryName = (e) => libraryName(e) + (e.refill ? '' : ` · ${t('library.spool_short')}`);
-
 /** Rolls that fit more than one entry (a refill and a roll with spool): the owner says which one each is, comparing the roll with the invoice data of every
  * entry it could be (name, ID, SKU, reference price and barcode, as the invoice preview shows them). A choice completes that entry from the roll and gives the
  * roll the entry's barcode; a roll left on *Overslaan* is only read. Nothing happens until *Toepassen*. */
@@ -224,6 +257,39 @@ function unclearDialog(counts, onDone) {
   dialog.addEventListener('close', () => dialog.remove());
   document.body.append(dialog);
   dialog.showModal();
+}
+
+/** What each invoice that was read in brought, to check it against the invoice: per line the filament, what the invoice says, what went on the shelf, the price paid
+ * per roll and what happened in the library. Read from `GET /api/filament-library/invoice-imports`; `state.reloadImports` draws it again after an import. */
+function importsCard(state) {
+  const body = h('div', { class: 'stack' });
+  const sum = (lines, key) => lines.reduce((total, line) => total + Number(line[key] || 0), 0);
+  const headings = [[t('library.imports_col_filament'), ''], [t('library.imports_col_invoice'), 'num'], [t('library.imports_col_shelf'), 'num'],
+    [t('library.imports_col_paid'), 'num'], [t('library.imports_col_library'), '']];
+  const outcome = { added: t('library.imports_lib_added'), updated: t('library.imports_lib_updated'), unchanged: t('library.imports_lib_unchanged'), skipped: t('library.imports_lib_skipped') };
+  const table = (lines) => h('div', { class: 'table-wrap' }, h('table', { class: 'data-table' },
+    h('thead', {}, h('tr', {}, headings.map(([text, cls]) => h('th', { class: cls, scope: 'col' }, text)))),
+    h('tbody', {}, lines.map((line) => h('tr', {},
+      h('td', {}, h('div', { class: 'cell-main' }, spoolIcon(colourOf(line), 22), h('div', {}, h('span', { class: 'cell-title' }, entryName(line)),
+        h('div', { class: 'cell-sub muted' }, [line.filament_id ? `${t('library.id_short')} ${line.filament_id}` : null, line.sku || null, line.barcode ? t('library.invoice_barcode', { code: line.barcode }) : null].filter(Boolean).join(' · '))))),
+      h('td', { class: 'num' }, String(line.quantity)),
+      h('td', { class: `num${line.rolls_added === line.quantity ? '' : ' strong'}` }, String(line.rolls_added)),
+      h('td', { class: 'num' }, line.paid_price != null ? eur(line.paid_price) : '—'),
+      h('td', {}, outcome[line.library] || line.library)))),
+    h('tfoot', {}, h('tr', {}, h('th', { scope: 'row' }, t('library.imports_sum')), h('td', { class: 'num strong' }, String(sum(lines, 'quantity'))),
+      h('td', { class: 'num strong' }, String(sum(lines, 'rolls_added'))), h('td', {}), h('td', {})))));
+  const draw = (imports) => fill(body, imports.length ? imports.map((imp) => h('section', { class: 'stack' },
+    h('div', { class: 'row between' }, h('strong', {}, t('library.invoice_title', { number: imp.invoice_number || imp.order_number || '' })),
+      h('span', { class: 'badge' }, t('library.imports_rolls', { n: imp.rolls_added }))),
+    h('p', { class: 'muted' }, t('library.imports_meta', { order: imp.order_number || '?', date: imp.invoice_date ? formatDate(imp.invoice_date, { dateStyle: 'medium' }) : '?',
+      read: formatDateTime(imp.imported_at, { dateStyle: 'medium', timeStyle: 'short' }) })),
+    imp.invoice_total != null ? h('p', { class: 'muted' }, t('library.imports_totals', { total: eur(imp.invoice_total), lines: eur(imp.lines_total) })) : null,
+    table(imp.lines))) : h('p', { class: 'muted' }, t('library.imports_empty')));
+  state.reloadImports = async () => {
+    try { draw(await api('GET', '/api/filament-library/invoice-imports')); } catch (e) { fill(body, h('p', { class: 'error' }, e.message)); }
+  };
+  state.reloadImports();
+  return h('div', { class: 'glass card stack' }, foldHead('library-imports', t('library.imports_title'), { open: false }), h('p', { class: 'hint' }, t('library.imports_hint')), body);
 }
 
 /** Invoice, the rolls in stock, JSON file and GitHub sync: the ways to fill the library without typing. */
@@ -320,8 +386,9 @@ export function filamentLibraryCards() {
   const state = { items: [], draw: () => {}, reload: null };
   state.reload = async () => {
     try { state.items = await api('GET', '/api/filament-library'); state.draw(); } catch (e) { toast(e.message, 'error'); }
+    if (state.reloadImports) state.reloadImports();                              // an import changes the library and brings rolls: its record too
   };
-  const cards = [shareCard(state), spoolmanDbCard(), listCard(state)];
+  const cards = [shareCard(state), importsCard(state), spoolmanDbCard(), listCard(state)];
   state.reload();
   return cards;
 }

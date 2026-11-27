@@ -2,21 +2,24 @@
 
 Plain create / edit / delete of an entry is the generic resource in `api.RESOURCES` ("filament-library"); this module adds what only the
 library does: reading a Bambu Lab invoice into entries, syncing from GitHub, and exporting / importing the library as a JSON file.
-None of it touches the rolls on the shelf (`filament_spools`): the library is a separate list of the filaments that exist, a roll is made
-from an entry by hand in the roll form. An entry is matched on its SKU, else its barcode, else its filament ID, else brand + material +
+Only the owner's own choices touch the rolls on the shelf (`filament_spools`): a roll is made from an entry by hand in the roll form, a line of an
+invoice may put rolls on the shelf when it is told to (`apply_invoice`, the record of it is `invoice_imports`), and a roll that fits two entries is
+given the barcode of the one the owner picks (`from_rolls`). The library itself is a separate list of the filaments that exist. An entry is matched on its SKU, else its barcode, else its filament ID, else brand + material +
 type + colour + refill, so the same filament is never added twice by an import.
 """
 import json
+import re
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import requests
 from flask import Blueprint, Response, jsonify, request
 
 from . import bambu_invoice, bambu_store
-from .api import RESOURCES, _validated, stock_changed
+from .api import BULK_MAX_ROLLS, RESOURCES, _validated, insert_rolls, stock_changed
 from .colour_names import loose_kind, to_english
 from .config import CONTRIBUTE_URL, DEFAULT_LIBRARY_URL
+from .db import id_list
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized, tr
 
@@ -489,6 +492,7 @@ def read_invoice():
         raise ApiError(422, exc) from None
     with pool().connection() as conn:
         rows = _rows(conn)
+        invoice["already_imported"] = _earlier_imports(conn, invoice)
     known, loose = Index(rows), Loose(rows)
     store = bambu_store.lookup(invoice["lines"])                    # the Bambu Lab web shop's ID of each line: what the owner uses as barcode
     warnings = []
@@ -507,40 +511,151 @@ def read_invoice():
     return jsonify(invoice)
 
 
+MAX_IMPORTS_LISTED = 500
+BAD_COUNT = "library.bad_count"
+
+
+def _count(value, maximum: int) -> int:
+    """A whole number from 0 to `maximum` (a number or the digits of one); anything else is refused."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)) or (isinstance(value, str) and not value.strip().isdigit()):
+        raise Localized(BAD_COUNT, max=maximum)
+    number = int(value)
+    if not 0 <= number <= maximum:
+        raise Localized(BAD_COUNT, max=maximum)
+    return number
+
+
+def _amount(value) -> "Decimal | None":
+    """An amount of money in cents, or None when it is not one (the invoice's totals are only kept as a record, so a bad one is left out, never fatal)."""
+    try:
+        amount = Decimal(str(value)).quantize(bambu_invoice.CENT)
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+    return amount if 0 <= amount < Decimal(10) ** 8 else None
+
+
+def _invoice_meta(raw) -> dict:
+    """What the browser says about the invoice as a whole: its numbers, its date and its totals. Kept as a record only, so it is cut to size and what is not
+    valid is left out."""
+    raw = raw if isinstance(raw, dict) else {}
+    text = lambda key: str(raw.get(key) or "").strip()[:60]
+    day = text("invoice_date")
+    return {"invoice_number": text("invoice_number"), "order_number": text("order_number"),
+            "invoice_date": day if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else None,
+            "invoice_total": _amount(raw.get("total")), "lines_total": _amount(raw.get("lines_total"))}
+
+
+def _earlier_imports(conn, invoice: dict) -> list[dict]:
+    """The imports of this invoice there were before (by its number, else by the order number): when, and how many rolls they put on the shelf."""
+    number, order = (invoice.get("invoice_number") or "").strip(), (invoice.get("order_number") or "").strip()
+    if not (number or order):
+        return []
+    column, value = ("invoice_number", number) if number else ("order_number", order)
+    found = conn.execute(f"SELECT id, imported_at, rolls_added FROM invoice_imports WHERE {column} = %s ORDER BY imported_at, id", (value,)).fetchall()
+    return [{"id": r["id"], "imported_at": r["imported_at"].isoformat(), "rolls_added": r["rolls_added"]} for r in found]
+
+
+def _shelf_roll(source: dict, entry: dict, paid: Decimal, note: str) -> dict:
+    """A full roll of this filament at the price that was paid for it: `source` is the library's entry for it (else what the invoice line says), which
+    brings the temperatures, the colour code and the SpoolmanDB source along, and the barcode of the entry (else the line's)."""
+    values = {k: source[k] for k in ("brand", "product_type", "material", "colour", "colour_hex", "roll_weight_g", "diameter_mm", "print_temp_c", "bed_temp_c",
+                                     "spoolmandb_id")}
+    values.update(barcode=source["barcode"] or entry["barcode"] or "", price=paid, remaining_g=source["roll_weight_g"], notes=note, notify_low=False)
+    return _validated(RESOURCES["spools"][1], values, partial=False)
+
+
+def _record_import(conn, meta: dict, record: list) -> int:
+    """Keep what this import did, line by line, so it can be checked against the invoice (`GET /invoice-imports`)."""
+    made = sum(rolls for _, _, rolls in record)
+    import_id = conn.execute(
+        "INSERT INTO invoice_imports (invoice_number, order_number, invoice_date, invoice_total, lines_total, rolls_added) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+        (meta["invoice_number"], meta["order_number"], meta["invoice_date"], meta["invoice_total"], meta["lines_total"], made)).fetchone()["id"]
+    for position, (item, result, rolls) in enumerate(record, 1):
+        e = item["entry"]
+        conn.execute(
+            "INSERT INTO invoice_import_lines (import_id, position, brand, product_type, material, colour, refill, sku, filament_id, barcode, roll_weight_g, diameter_mm, "
+            "quantity, rolls_added, paid_price, list_price, library) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (import_id, position, e["brand"], e["product_type"], e["material"], e["colour"], e["refill"], e["sku"], e["filament_id"], e["barcode"], e["roll_weight_g"],
+             e["diameter_mm"], item["quantity"], rolls, item["paid"], e["price"], result))
+    return import_id
+
+
 @bp.post("/invoice/apply")
 def apply_invoice():
-    """Put the chosen lines of an invoice in the library. A filament that is already there (see `keys`, or `Loose`: the same filament under its name in the
-    other language) only gets the newer price and what it was missing (SKU, filament ID, barcode); one that is new is stored with its colour in English, as
-    the preview showed it. Only the library changes: the rolls on the shelf are never touched, whatever the invoice says."""
-    lines = json_body().get("lines")
+    """Put the lines of an invoice in the library and, where the owner says so, the rolls on the shelf; and keep what was done (`invoice_imports`).
+    A line says `library` (false = not in the library; the default is that it goes in) and `stock_quantity` (how many rolls go on the shelf, 0 or absent = none,
+    so a client that knows nothing of the shelf never touches it), with `paid` (the price of a roll after the discount, excl. VAT, which the preview worked out) and
+    `quantity` (what the invoice says); `invoice` carries its numbers, date and totals. A filament that is already in the library (see `keys`, or `Loose`: the
+    same filament under its name in the other language) only gets the newer price and what it was missing (SKU, filament ID, barcode); one that is new is
+    stored with its colour in English, as the preview showed it. The rolls are made like any new roll (`insert_rolls`: full, at the price paid, the barcode of the
+    entry); the library, the rolls and the record are one transaction, so a refusal changes nothing at all."""
+    body = json_body()
+    lines = body.get("lines")
     if not isinstance(lines, list) or not lines or len(lines) > bambu_invoice.MAX_LINES:
         raise ApiError(400, "bambu.err_no_lines")
-    entries = []
+    meta = _invoice_meta(body.get("invoice"))
+    price_of = RESOURCES["spools"][1]["price"]
+    items = []
     for n, line in enumerate(lines, 1):
         try:
             if not isinstance(line, dict):
                 raise Localized("backup.bad_row_type")
-            entries.append({**BLANK, **_validated(FIELDS, {**DEFAULTS, **line, "colour": to_english(line.get("colour"))}, partial=False)})
+            entry = {**BLANK, **_validated(FIELDS, {**DEFAULTS, **line, "colour": to_english(line.get("colour"))}, partial=False)}
+            wanted = _count(line.get("stock_quantity", 0), BULK_MAX_ROLLS)
+            items.append({"entry": entry, "wanted": wanted, "library": line.get("library") is not False, "quantity": _count(line.get("quantity", 0), 9999),
+                          "paid": price_of(line.get("paid")) if wanted else _amount(line.get("paid"))})
         except (ApiError, Localized) as exc:
             raise ApiError(400, "library.bad_row", n=n, reason=exc.msg) from None
+    if sum(item["wanted"] for item in items) > BULK_MAX_ROLLS:
+        raise ApiError(400, "bulk.too_many", max=BULK_MAX_ROLLS)
+    if not any(item["library"] or item["wanted"] for item in items):
+        raise ApiError(400, "bambu.err_no_lines")
+    note = tr("bambu.roll_note", number=meta["invoice_number"] or meta["order_number"]) if (meta["invoice_number"] or meta["order_number"]) else ""
     counts = {"added": 0, "updated": 0, "unchanged": 0}
+    record = []
     with pool().connection() as conn:
         rows = _rows(conn)
         index, loose = Index(rows), Loose(rows)
-        for n, entry in enumerate(entries, 1):
+        for n, item in enumerate(items, 1):
+            entry = item["entry"]
             row = index.find(entry) or loose.find(entry)
-            if row is None:
-                added = _insert(conn, entry)
-                index.add(added)
-                loose.add(added)
-                counts["added"] += 1
-                continue
-            try:
-                updated = complete(conn, index, row, entry, price=entry["price"])
-            except ApiError as exc:
-                raise ApiError(400, "library.bad_row", n=n, reason=exc.msg) from None
-            if updated is not row:
-                loose.drop(row)
-                loose.add(updated)
-            counts["unchanged" if updated is row else "updated"] += 1
-    return jsonify({"ok": True, **counts})
+            result = "skipped"
+            if item["library"]:
+                if row is None:
+                    row = _insert(conn, entry)
+                    index.add(row)
+                    loose.add(row)
+                    result = "added"
+                else:
+                    try:
+                        updated = complete(conn, index, row, entry, price=entry["price"])
+                    except ApiError as exc:
+                        raise ApiError(400, "library.bad_row", n=n, reason=exc.msg) from None
+                    if updated is not row:
+                        loose.drop(row)
+                        loose.add(updated)
+                    result = "unchanged" if updated is row else "updated"
+                    row = updated
+                counts[result] += 1
+            made = insert_rolls(conn, _shelf_roll(row or entry, entry, item["paid"], note), item["wanted"]) if item["wanted"] else []
+            record.append((item, result, len(made)))
+        import_id = _record_import(conn, meta, record)
+    rolls = sum(count for _, _, count in record)
+    if rolls:
+        stock_changed()
+    return jsonify({"ok": True, **counts, "rolls": rolls, "import_id": import_id})
+
+
+@bp.get("/invoice-imports")
+def invoice_imports():
+    """What each invoice that was read in brought, newest first: the numbers, the totals, and per line the filament, what the invoice says, what went on the shelf, the
+    price paid and what happened in the library, so that the owner can check it against the invoice."""
+    with pool().read() as conn:
+        imports = conn.execute("SELECT * FROM invoice_imports ORDER BY imported_at DESC, id DESC LIMIT %s", (MAX_IMPORTS_LISTED,)).fetchall()
+        lines = conn.execute("SELECT * FROM invoice_import_lines WHERE import_id IN (SELECT value FROM json_each(%s)) ORDER BY import_id, position",
+                             (id_list([r["id"] for r in imports]),)).fetchall()
+    by_import: dict = {}
+    for line in lines:
+        by_import.setdefault(line["import_id"], []).append({k: _plain(v) for k, v in line.items() if k not in ("id", "import_id")})
+    return jsonify([{**{k: _plain(v) for k, v in row.items()}, "imported_at": row["imported_at"].isoformat(),
+                     "invoice_date": row["invoice_date"].isoformat() if row["invoice_date"] else None, "lines": by_import.get(row["id"], [])} for row in imports])

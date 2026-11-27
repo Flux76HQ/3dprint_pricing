@@ -27,8 +27,8 @@ from pathlib import Path
 
 from flask import Blueprint, Response, current_app, g, jsonify, request, send_file
 
-from . import ai_images, customers, filament_groups, filament_library, invoice_docs, invoice_logo, invoice_template, listings, orders, packaging_images, preferences, printfile
-from .api import RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
+from . import ai_images, bambu_invoice, customers, filament_groups, filament_library, invoice_docs, invoice_logo, invoice_template, listings, orders, packaging_images, preferences, printfile
+from .api import BULK_MAX_ROLLS, RESOURCES, _project_fields, _serialise, _validated, stock_changed, validated_preferences
 from .http import ApiError, config, json_body, login_required, pool
 from .i18n import L, Localized, render, request_language
 
@@ -36,7 +36,7 @@ bp = Blueprint("backup", __name__, url_prefix="/api/backup")
 log = logging.getLogger(__name__)
 
 FORMAT = "printpricing-backup"
-FORMAT_VERSION = 8          # 8: a model's price on an order line (`base_price`: an older release would price it from the cost and lose it); 7: the groups of rolls; 6: packaging lines on orders (an older release would list them on the invoice); 5: the filament library; 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
+FORMAT_VERSION = 9          # 9: what each Bambu Lab invoice that was read in brought (an older release would lose that record); 8: a model's price on an order line (`base_price`: an older release would price it from the cost and lose it); 7: the groups of rolls; 6: packaging lines on orders (an older release would list them on the invoice); 5: the filament library; 4: parts, accessories and optional order lines; 3: object descriptions, product images and the AI image model; 2: orders, the invoice template and calculation
                             # numbers. A file of an older version still restores
 MAX_ROWS = 20_000
 MAX_USAGE_ROWS = 200_000                      # what the pictures cost: a row per picture, and there is no limit on writing them, so there is none on reading them that a real file could meet
@@ -122,6 +122,7 @@ def document(conn, user_id, include_files: bool) -> tuple[dict, list]:
     doc["customers"] = [_serialise(r) for r in conn.execute(
         f"SELECT id, {', '.join(customers.FIELDS)}, created_at, updated_at FROM customers ORDER BY created_at, id").fetchall()]
     doc["orders"] = _export_orders(conn)
+    doc["invoice_imports"] = _export_invoice_imports(conn)           # what each Bambu Lab invoice that was read in brought, the oldest first
     doc["invoice_pdfs"] = [{"order_id": str(r["order_id"]), "invoice_number": r["invoice_number"],
                             "content_b64": base64.b64encode(bytes(r["content"])).decode("ascii")}
                            for r in conn.execute("SELECT order_id, invoice_number, content FROM invoice_pdfs ORDER BY created_at, order_id").fetchall()]
@@ -383,6 +384,7 @@ def _parse(doc, archive=None, progress=None) -> dict:
     plan["ai_settings"] = _parse_ai_settings(doc.get("ai_image_settings"))
     plan["ai_usage"] = _parse_ai_usage(doc.get("ai_image_usage"), {p["id"] for p in projects})
     plan["image_text_presets"] = _parse_image_text_presets(doc.get("image_text_presets"))
+    plan["invoice_imports"] = _parse_invoice_imports(doc.get("invoice_imports"))
     plan["orders"] = _parse_orders(doc)
     plan["customers"] = _parse_customers(doc, plan["orders"])
     plan["invoice_pdfs"] = _parse_invoice_pdfs(doc.get("invoice_pdfs"), plan["orders"])
@@ -565,6 +567,55 @@ def _parse_ai_settings(entry):
         except ApiError as exc:
             raise _row_error("ai_image_settings", 1, exc) from None
     return parsed
+
+
+def _export_invoice_imports(conn) -> list:
+    """Every import of a Bambu Lab invoice with its lines (`filament_library`, `invoice_imports`): the record the owner checks an invoice against."""
+    lines: dict = {}
+    for row in conn.execute("SELECT * FROM invoice_import_lines ORDER BY import_id, position").fetchall():
+        lines.setdefault(row["import_id"], []).append({k: v for k, v in _serialise(row).items() if k not in ("id", "import_id")})
+    return [{**{k: v for k, v in _serialise(row).items() if k != "id"}, "lines": lines.get(row["id"], [])}
+            for row in conn.execute("SELECT * FROM invoice_imports ORDER BY imported_at, id").fetchall()]
+
+
+MAX_IMPORTS = 5000                      # the imports of a backup (an invoice has at most `bambu_invoice.MAX_LINES` lines)
+
+
+def _parse_invoice_import_line(entry, position: int) -> dict:
+    """One line of an import, checked as it is written: the filament as the library would take it, whole counts, prices in range, what happened in the library."""
+    if not isinstance(entry, dict):
+        raise Localized("backup.bad_row_type")
+    fields = RESOURCES["filament-library"][1]
+    values = _validated(fields, {k: entry.get(k) for k in ("brand", "product_type", "material", "colour", "filament_id", "sku", "barcode", "refill", "roll_weight_g",
+                                                          "diameter_mm")}, partial=False)
+    if entry.get("library") not in ("added", "updated", "unchanged", "skipped"):
+        raise Localized("backup.bad_row_type")
+    return {"position": position, **{k: values[k] for k in ("brand", "product_type", "material", "colour", "filament_id", "sku", "barcode", "refill", "roll_weight_g",
+                                                          "diameter_mm")},
+            "quantity": filament_library._count(entry.get("quantity"), 9999), "rolls_added": filament_library._count(entry.get("rolls_added"), BULK_MAX_ROLLS),
+            "paid_price": filament_library._amount(entry.get("paid_price")), "list_price": filament_library._amount(entry.get("list_price")), "library": entry["library"]}
+
+
+def _parse_invoice_imports(entries) -> list:
+    """The record of what the invoices that were read in brought, absent in an older file: each import and each line is checked as it is written, the total of
+    rolls is worked out from the lines, and a bad one refuses the file with its place in it."""
+    if entries in (None, []):
+        return []
+    if not isinstance(entries, list) or len(entries) > MAX_IMPORTS:
+        raise _row_error("invoice_imports", 1, Localized("backup.bad_row_type"))
+    out = []
+    for n, entry in enumerate(entries, 1):
+        try:
+            if not isinstance(entry, dict) or not isinstance(entry.get("lines"), list) or len(entry["lines"]) > bambu_invoice.MAX_LINES:
+                raise Localized("backup.bad_row_type")
+            meta = filament_library._invoice_meta({**entry, "total": entry.get("invoice_total")})
+            lines = [_parse_invoice_import_line(line, position) for position, line in enumerate(entry["lines"], 1)]
+            out.append({"header": {"invoice_number": meta["invoice_number"], "order_number": meta["order_number"], "invoice_date": meta["invoice_date"],
+                                   "invoice_total": meta["invoice_total"], "lines_total": meta["lines_total"], "rolls_added": sum(l["rolls_added"] for l in lines),
+                                   "imported_at": _when(entry.get("imported_at"), datetime.now(timezone.utc))}, "lines": lines})
+        except (ApiError, Localized) as exc:
+            raise _row_error("invoice_imports", n, exc) from None
+    return out
 
 
 def _parse_image_text_presets(entries) -> list:
@@ -1127,6 +1178,14 @@ def _write(plan: dict, archive, user_id, progress=None, job=None) -> None:
                     price = plan["ai_settings"]["prices"]
                     conn.execute("UPDATE ai_image_settings SET price_text_in = %s, price_image_in = %s, price_image_out = %s, usd_eur = %s",
                                  (price["text_in"], price["image_in"], price["image_out"], plan["ai_settings"]["usd_eur"]))
+            conn.execute("DELETE FROM invoice_import_lines")        # what the invoices brought: the file's record replaces the one there (a file from before it has none)
+            conn.execute("DELETE FROM invoice_imports")
+            for item in plan["invoice_imports"]:
+                head = item["header"]
+                import_id = conn.execute(f"INSERT INTO invoice_imports ({', '.join(head)}) VALUES ({', '.join(['%s'] * len(head))}) RETURNING id",
+                                         tuple(head.values())).fetchone()["id"]
+                for line in item["lines"]:
+                    _insert(conn, "invoice_import_lines", {"import_id": import_id, **line})
             conn.execute("DELETE FROM image_text_presets")          # the standard texts too: the file's list replaces the one there
             for preset in plan["image_text_presets"]:
                 _insert(conn, "image_text_presets", preset)
